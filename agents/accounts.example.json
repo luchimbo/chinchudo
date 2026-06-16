@@ -1,0 +1,88 @@
+{
+  "cazador-ofertas": {
+    "label": "Cazador de Ofertas",
+    "browserProvider": "nstbrowser",
+    "nstbrowserProfileId": "f76d8bb7-ecfc-4bc9-91d7-557977b7ed1e",
+    "cdpPort": 9222,
+    "allowedChannels": ["youtube", "twitter", "reddit", "tiktok", "instagram", "facebook"],
+    "defaultPersona": "Cazador de Ofertas",
+    "platformAccounts": {
+      "google": "diegosalvatore890@gmail.com",
+      "twitter": "diegosalva890",
+      "tiktok": "google-login"
+    },
+    "credentials": {
+      "usernameEnv": "APOSTOLES_CAZADOR_USER",
+      "passwordEnv": "APOSTOLES_CAZADOR_PASSWORD"
+    }
+  },
+  "trend-setter-kressmer": {
+    "label": "Early Kressmer",
+    "browserProvider": "nstbrowser",
+    "nstbrowserProfileId": "888a9e41-e355-4a26-8e00-f690336fb822",
+    "cdpPort": 9223,
+    "allowedChannels": ["youtube", "twitter", "reddit", "tiktok", "instagram", "facebook"],
+    "defaultPersona": "Early Kressmer",
+    "platformAccounts": {
+      "google": "sol.i.barra912@gmail.com",
+      "twitter": "solibarra881",
+      "tiktok": "google-login"
+    },
+    "credentials": {
+      "usernameEnv": "APOSTOLES_KRESSMER_USER",
+      "passwordEnv": "APOSTOLES_KRESSMER_PASSWORD"
+    }
+  },
+  "baterista-dpto": {
+    "label": "Baterista",
+    "browserProvider": "nstbrowser",
+    "nstbrowserProfileId": "57c8d5f5-fd2d-4eb4-ac03-3e25016e3eb1",
+    "cdpPort": 9224,
+    "allowedChannels": ["youtube", "twitter", "reddit", "tiktok", "instagram", "facebook"],
+    "defaultPersona": "Baterista",
+    "platformAccounts": {
+      "google": "nico.ferrante94@gmail.com",
+      "twitter": "nicoferrante90",
+      "tiktok": "google-login"
+    },
+    "credentials": {
+      "usernameEnv": "APOSTOLES_BATERISTA_USER",
+      "passwordEnv": "APOSTOLES_BATERISTA_PASSWORD"
+    }
+  },
+  "tecnico-productor": {
+    "label": "Técnico Productor",
+    "browserProvider": "nstbrowser",
+    "nstbrowserProfileId": "30f55136-4953-42fe-8b4e-b240fb5fe073",
+    "cdpPort": 9225,
+    "allowedChannels": ["youtube", "twitter", "reddit", "tiktok", "instagram", "facebook", "linkedin"],
+    "defaultPersona": "Técnico Productor",
+    "platformAccounts": {
+      "google": "tomasalba922@gmail.com",
+      "twitter": "tomasalba221",
+      "linkedin": "google-login",
+      "tiktok": "tomasalba922@gmail.com"
+    },
+    "credentials": {
+      "usernameEnv": "APOSTOLES_TECNICO_USER",
+      "passwordEnv": "APOSTOLES_TECNICO_PASSWORD"
+    }
+  },
+  "profe-musica": {
+    "label": "Profe de Música",
+    "browserProvider": "nstbrowser",
+    "nstbrowserProfileId": "c3b6cb2b-e31f-451e-aed7-4c8bd4002cc6",
+    "cdpPort": 9226,
+    "allowedChannels": ["youtube", "twitter", "reddit", "tiktok", "instagram", "facebook"],
+    "defaultPersona": "Profe de Música",
+    "platformAccounts": {
+      "google": "claudia.ramos.mtza@gmail.com",
+      "twitter": "claudiaramos002",
+      "tiktok": "google-login"
+    },
+    "credentials": {
+      "usernameEnv": "APOSTOLES_PROFE_USER",
+      "passwordEnv": "APOSTOLES_PROFE_PASSWORD"
+    }
+  }
+}

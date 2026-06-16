@@ -1,0 +1,33 @@
+node_modules
+.next
+out
+dist
+coverage
+.env
+.env.local
+.env.*.local
+dev.db
+dev.db-journal
+*.log
+__pycache__/
+*.pyc
+session/
+agents/accounts.json
+data/*.jsonl
+data/*.jsonl.bak
+data/browser-runtime.json
+# Estado de runtime y dumps sensibles (no versionar)
+data/login-status.json
+data/publish-results.json
+data/nst-profiles.json
+data/1browser-profile.json
+data/nstbrowser_import_*.xlsx
+reports/*.json
+exports/*.csv
+tsconfig.tsbuildinfo
+
+.vercel
+
+# Skills instaladas (se rehidratan desde skills-lock.json)
+.agents/
+.claude/skills/

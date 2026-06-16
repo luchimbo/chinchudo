@@ -1,0 +1,234 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum OpportunityStatus {
+  NEW
+  NEEDS_REVIEW
+  DRAFTED
+  APPROVED
+  PUBLISHED
+  DISCARDED
+  FOLLOW_UP
+  CONVERTED
+}
+
+enum OpportunityPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum OpportunityIntent {
+  PURCHASE_QUESTION
+  TECHNICAL_QUESTION
+  PRICE_QUESTION
+  WARRANTY_QUESTION
+  COMPARISON
+  COMPLAINT
+  COMPETITOR_MENTION
+  GENERAL_DISCUSSION
+}
+
+enum ResponseVariantType {
+  SHORT
+  TECHNICAL
+  CONVERSATIONAL
+}
+
+model Brand {
+  id              String        @id @default(cuid())
+  name            String        @unique
+  positioning     String
+  tone            String
+  allowedClaims   String        @default("")
+  forbiddenClaims String        @default("")
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  opportunities   Opportunity[]
+  products        Product[]
+  responses       Response[]
+}
+
+model Product {
+  id             String        @id @default(cuid())
+  brandId        String
+  name           String
+  category       String
+  description    String
+  technicalSpecs String        @default("")
+  useCases       String        @default("")
+  warrantyNotes  String        @default("")
+  stockStatus    String        @default("Por confirmar")
+  priceRange     String        @default("Por confirmar")
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  opportunities  Opportunity[]
+  brand          Brand         @relation(fields: [brandId], references: [id], onDelete: Cascade)
+
+  @@unique([brandId, name])
+}
+
+model Persona {
+  id               String     @id @default(cuid())
+  name             String     @unique
+  role             String
+  tone             String
+  goals            String
+  preferredLength  String
+  allowedPhrases   String     @default("")
+  forbiddenPhrases String     @default("")
+  goodExamples     String     @default("")
+  badExamples      String     @default("")
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  responses        Response[]
+}
+
+model Channel {
+  id                 String        @id @default(cuid())
+  name               String        @unique
+  type               String
+  baseUrl            String
+  responseStyleNotes String
+  opportunities      Opportunity[]
+}
+
+model Opportunity {
+  id                String              @id @default(cuid())
+  channelId         String
+  sourceUrl         String
+  sourceAuthor      String              @default("")
+  sourceText        String
+  detectedBrandId   String?
+  detectedProductId String?
+  detectedIntent    OpportunityIntent   @default(GENERAL_DISCUSSION)
+  priority          OpportunityPriority @default(MEDIUM)
+  status            OpportunityStatus   @default(NEW)
+  notes             String              @default("")
+  monitoredSourceId String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  channel           Channel             @relation(fields: [channelId], references: [id])
+  detectedBrand     Brand?              @relation(fields: [detectedBrandId], references: [id])
+  detectedProduct   Product?            @relation(fields: [detectedProductId], references: [id])
+  monitoredSource   MonitoredSource?    @relation(fields: [monitoredSourceId], references: [id])
+  publishingLogs    PublishingLog[]
+  responses         Response[]
+
+  @@index([status])
+  @@index([priority])
+  @@index([createdAt])
+}
+
+model Response {
+  id            String              @id @default(cuid())
+  opportunityId String
+  personaId     String
+  brandId       String
+  variantType   ResponseVariantType
+  draftText     String
+  editedText    String              @default("")
+  riskNotes     String              @default("")
+  approvedBy    String              @default("")
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  publishingLog PublishingLog?
+  brand         Brand               @relation(fields: [brandId], references: [id])
+  opportunity   Opportunity         @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  persona       Persona             @relation(fields: [personaId], references: [id])
+}
+
+model PublishingLog {
+  id             String      @id @default(cuid())
+  opportunityId  String
+  responseId     String      @unique
+  publishedUrl   String      @default("")
+  publishedAt    DateTime    @default(now())
+  publishedBy    String      @default("Fede")
+  result         String      @default("no_reply")
+  followUpNeeded Boolean     @default(false)
+  createdAt      DateTime    @default(now())
+  account        String      @default("")
+  opportunity    Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  response       Response    @relation(fields: [responseId], references: [id], onDelete: Cascade)
+}
+
+model KnowledgeBase {
+  id         String   @id @default(cuid())
+  brandId    String?
+  productId  String?
+  topic      String
+  content    String
+  source     String   @default("manual")
+  confidence String   @default("medium")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Objection {
+  id                String   @id @default(cuid())
+  brandId           String?
+  productId         String?
+  objection         String
+  recommendedAnswer String
+  personaNotes      String   @default("")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model MonitoredSource {
+  id            String        @id @default(cuid())
+  label         String        @unique
+  channel       String
+  query         String
+  account       String        @default("")
+  limit         Int           @default(5)
+  active        Boolean       @default(true)
+  lastRunAt     DateTime?
+  lastCount     Int           @default(0)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  opportunities Opportunity[]
+}
+
+model PromptVersion {
+  id                 String   @id @default(cuid())
+  name               String
+  version            String
+  systemPrompt       String
+  userPromptTemplate String
+  active             Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([name, version])
+}
+
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+model SystemLog {
+  id        String   @id @default(cuid())
+  level     String
+  event     String
+  message   String
+  meta      Json     @default("{}")
+  createdAt DateTime @default(now())
+
+  @@index([level])
+  @@index([event])
+  @@index([createdAt])
+}
+
