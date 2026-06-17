@@ -15,12 +15,26 @@ export default async function GeoPage() {
   const [audits, avg] = await Promise.all([
     prisma.geoAudit.findMany({
       orderBy: { createdAt: "desc" },
-      take: 50,
+      take: 200,
     }),
     prisma.geoAudit.aggregate({ _avg: { score: true }, _count: { id: true } }),
   ]);
 
   const avgScore = avg._avg.score ? avg._avg.score.toFixed(1) : "—";
+
+  // Contar menciones de competidores en todas las consultas
+  const competitorCount: Record<string, number> = {};
+  for (const audit of audits) {
+    const comps = Array.isArray(audit.competidores) ? audit.competidores : [];
+    for (const c of comps as string[]) {
+      const key = c.toLowerCase().trim();
+      competitorCount[key] = (competitorCount[key] ?? 0) + 1;
+    }
+  }
+  const topCompetitors = Object.entries(competitorCount)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 12);
+  const maxMentions = topCompetitors[0]?.[1] ?? 1;
 
   return (
     <main className="relative mx-auto flex min-h-screen w-full max-w-5xl flex-col px-5 py-8">
@@ -39,12 +53,43 @@ export default async function GeoPage() {
         </div>
       </header>
 
+      {/* Panel de competidores globales */}
+      {topCompetitors.length > 0 && (
+        <section className="mb-8 rounded-xl border border-signal/20 bg-signal/5 p-5">
+          <h2 className="mb-1 text-sm font-bold text-ink">
+            Marcas que la IA menciona en lugar de PC MIDI
+          </h2>
+          <p className="mb-4 text-xs text-slate">
+            Cuántas veces apareció cada marca en las {avg._count.id} consultas analizadas.
+          </p>
+          <div className="flex flex-col gap-2">
+            {topCompetitors.map(([name, count]) => (
+              <div key={name} className="flex items-center gap-3">
+                <span className="w-32 truncate text-xs font-medium capitalize text-ink">
+                  {name}
+                </span>
+                <div className="relative flex-1 overflow-hidden rounded-full bg-ink/10 h-2">
+                  <div
+                    className="absolute left-0 top-0 h-full rounded-full bg-signal/60"
+                    style={{ width: `${(count / maxMentions) * 100}%` }}
+                  />
+                </div>
+                <span className="w-16 text-right text-xs text-slate">
+                  {count}x
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {audits.length === 0 ? (
         <p className="text-sm text-slate">
           Todavía no hay consultas registradas. Los agentes las corren automáticamente cada semana.
         </p>
       ) : (
         <div className="flex flex-col gap-3">
+          <h2 className="text-sm font-bold text-ink">Detalle por consulta</h2>
           {audits.map((audit) => {
             const competidores = Array.isArray(audit.competidores) ? audit.competidores : [];
             const gaps = Array.isArray(audit.gapsSugeridos) ? audit.gapsSugeridos : [];
@@ -63,18 +108,31 @@ export default async function GeoPage() {
                       <span className="text-xs text-slate">{fmt(audit.createdAt)}</span>
                     </div>
                     <p className="mt-2 text-sm text-ink/80 italic">"{audit.prompt}"</p>
+
                     {competidores.length > 0 && (
-                      <div className="mt-2">
-                        <p className="text-xs font-semibold text-slate">Marcas que la IA menciona en lugar de PC MIDI:</p>
-                        <div className="mt-1 flex flex-wrap gap-1">
+                      <div className="mt-3">
+                        <p className="mb-1 text-xs font-semibold text-slate">La IA mencionó en esta búsqueda:</p>
+                        <div className="flex flex-wrap gap-1.5">
                           {(competidores as string[]).map((c, i) => (
-                            <span key={i} className="rounded-full bg-signal/10 px-2 py-0.5 text-xs text-signal">
+                            <span
+                              key={i}
+                              className="rounded-full border border-signal/30 bg-signal/10 px-2.5 py-0.5 text-xs font-medium capitalize text-signal"
+                            >
                               {c}
                             </span>
                           ))}
                         </div>
                       </div>
                     )}
+
+                    {competidores.length === 0 && (
+                      <div className="mt-2">
+                        <span className="rounded-full border border-moss/30 bg-moss/10 px-2.5 py-0.5 text-xs font-medium text-moss">
+                          ✓ No mencionó competidores
+                        </span>
+                      </div>
+                    )}
+
                     {gaps.length > 0 && (
                       <div className="mt-2">
                         <p className="text-xs font-semibold text-slate">Qué falta cubrir para aparecer más:</p>
