@@ -1,0 +1,21 @@
+{
+  "buildCommand": "cd .. && python landing-build/build_landings.py build --base-url https://blog.pcmidicenter.com",
+  "outputDirectory": "landing-build/site",
+  "cleanUrls": true,
+  "trailingSlash": true,
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://pcmidi-suite.vercel.app/api/:path*"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "https://blog.pcmidicenter.com" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, OPTIONS" }
+      ]
+    }
+  ]
+}

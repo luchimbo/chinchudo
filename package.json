@@ -1,5 +1,5 @@
 {
-  "name": "los-5-apostoles",
+  "name": "pcmidi-suite",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -24,6 +24,13 @@
     "agents:monitor": "python agents/orchestrator.py monitor",
     "agents:healthcheck": "python agents/orchestrator.py healthcheck",
     "agents:publish": "node scripts/publish-response.mjs",
+    "agents:research": "python agents/orchestrator.py research",
+    "agents:generate": "python agents/orchestrator.py generate",
+    "agents:build-landings": "python agents/orchestrator.py build-landings",
+    "agents:nurture": "python agents/orchestrator.py nurture",
+    "agents:distribution": "python agents/orchestrator.py distribution generate",
+    "agents:geo-audit": "python agents/orchestrator.py geo-audit",
+    "agents:conversion": "python agents/orchestrator.py conversion",
     "db:backup": "node scripts/backup-db.mjs",
     "db:supabase-push": "prisma db push",
     "test": "vitest run"

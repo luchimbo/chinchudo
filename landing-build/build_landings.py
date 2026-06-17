@@ -114,7 +114,46 @@ def load_lead_magnets() -> dict[str, dict]:
     return magnets
 
 
+def _load_landings_from_pg() -> list[dict] | None:
+    """Lee landings APPROVED desde Postgres. Devuelve None si no hay DB disponible."""
+    db_url = os.environ.get("DATABASE_URL", "")
+    if not db_url:
+        return None
+    try:
+        import psycopg
+        from psycopg.rows import dict_row
+        url = db_url.replace("postgres://", "postgresql://", 1)
+        with psycopg.connect(url, row_factory=dict_row) as conn:
+            rows = conn.execute(
+                "SELECT slug, keyword, intent, titulo, \"htmlContent\", \"seoTitle\", \"seoDescription\", \"leadMagnetId\", \"createdAt\" "
+                "FROM \"Landing\" WHERE status = 'APPROVED' ORDER BY \"createdAt\" DESC"
+            ).fetchall()
+        # Mapear campos Prisma → formato que espera el builder
+        result = []
+        for r in rows:
+            result.append({
+                "slug": r["slug"],
+                "keyword": r["keyword"],
+                "intent": r.get("intent", ""),
+                "titulo": r.get("titulo", ""),
+                "html_content": r.get("htmlContent", ""),
+                "seo_title": r.get("seoTitle", ""),
+                "seo_description": r.get("seoDescription", ""),
+                "lead_magnet_id": r.get("leadMagnetId"),
+                "created_at": str(r.get("createdAt", "")),
+            })
+        return result
+    except Exception as exc:
+        print(f"[build_landings] No se pudo leer desde Postgres: {exc}. Usando jsonl local.")
+        return None
+
+
 def load_landings() -> list[dict]:
+    # Intentar leer desde Postgres primero
+    pg_landings = _load_landings_from_pg()
+    if pg_landings is not None:
+        return pg_landings
+    # Fallback al jsonl local
     landings = []
     if not LANDINGS_PATH.exists():
         return landings
@@ -165,9 +204,28 @@ def load_jsonl(path: Path) -> list[dict]:
 
 
 def append_landing(landing: dict) -> None:
+    # Escribir al jsonl local como respaldo
     LANDINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
     with LANDINGS_PATH.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(landing, ensure_ascii=False, separators=(",", ":")) + "\n")
+    # Intentar persistir en Postgres también
+    db_url = os.environ.get("DATABASE_URL", "")
+    if db_url:
+        try:
+            sys.path.insert(0, str(ROOT.parent / "agents"))
+            from db_pg import upsert_landing  # type: ignore
+            upsert_landing(
+                slug=landing.get("slug", ""),
+                keyword=landing.get("keyword", ""),
+                html_content=landing.get("html_content", landing.get("htmlContent", "")),
+                titulo=landing.get("titulo", ""),
+                intent=landing.get("intent", ""),
+                seoTitle=landing.get("seo_title", ""),
+                seoDescription=landing.get("seo_description", ""),
+                status="APPROVED",
+            )
+        except Exception as exc:
+            print(f"[build_landings] No se pudo persistir landing en Postgres: {exc}")
 
 
 def append_jsonl(path: Path, rows: list[dict]) -> None:

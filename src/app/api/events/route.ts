@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
         eventType: data.event_type,
         slug: data.slug ?? "",
         referrer: data.referrer,
-        meta: data.meta,
+        meta: data.meta as object,
         landingId: landing?.id,
       },
     });

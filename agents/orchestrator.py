@@ -425,8 +425,44 @@ def main() -> None:
 
     sub.add_parser("healthcheck")
 
+    # ── Ciclo de landings SEO (ex-AgentesGuille / swarm.py) ──────────────────
+    research = sub.add_parser("research", help="Investigar oportunidades de keywords para landings")
+    research.add_argument("--limit", type=int, default=50)
+    research.add_argument("--dry-run", action="store_true")
+
+    generate = sub.add_parser("generate", help="Generar landings desde oportunidades aprobadas")
+    generate.add_argument("--limit", type=int, default=10)
+    generate.add_argument("--dry-run", action="store_true")
+
+    build_l = sub.add_parser("build-landings", help="Build HTML estático de landings aprobadas")
+    build_l.add_argument("--base-url", default="https://blog.pcmidicenter.com")
+
+    nurture_cmd = sub.add_parser("nurture", help="Procesar emails de nurturing pendientes")
+    nurture_cmd.add_argument("--limit", type=int, default=50)
+    nurture_cmd.add_argument("--dry-run", action="store_true")
+
+    dist_cmd = sub.add_parser("distribution", help="Generar / programar piezas de distribución social")
+    dist_cmd.add_argument("action", choices=["generate", "approve", "schedule", "queue"], nargs="?", default="generate")
+    dist_cmd.add_argument("--limit", type=int, default=10)
+    dist_cmd.add_argument("--dry-run", action="store_true")
+
+    geo_cmd = sub.add_parser("geo-audit", help="Auditar presencia GEO de PC MIDI en IAs")
+    geo_cmd.add_argument("--limit", type=int, default=10)
+    geo_cmd.add_argument("--dry-run", action="store_true")
+
+    conv_cmd = sub.add_parser("conversion", help="Analizar conversión de landings")
+    conv_cmd.add_argument("--window-days", type=int, default=30)
+    conv_cmd.add_argument("--min-views", type=int, default=50)
+
     parsed, unknown = parser.parse_known_args()
     args = apply_positional_fallback(apply_npm_flags(parsed), unknown)
+
+    SWARM = ROOT / "landing-build" / "swarm.py"
+    NURTURE_SCRIPT = ROOT / "agents" / "agente_4_nurture.py"
+    GEO_SCRIPT = ROOT / "agents" / "agente_geo_audit.py"
+    DIST_SCRIPT = ROOT / "agents" / "agente_distribucion.py"
+    CONV_SCRIPT = ROOT / "agents" / "agente_conversion.py"
+
     if args.command == "listen":
         run_listen(args)
     elif args.command == "draft":
@@ -439,6 +475,37 @@ def main() -> None:
         run_monitor(args)
     elif args.command == "healthcheck":
         run_healthcheck()
+    elif args.command == "research":
+        cmd = [sys.executable, str(SWARM), "research", "--limit", str(args.limit)]
+        if args.dry_run:
+            cmd.append("--dry-run")
+        run_step("research", cmd)
+    elif args.command == "generate":
+        cmd = [sys.executable, str(SWARM), "generate", "--limit", str(args.limit)]
+        if args.dry_run:
+            cmd.append("--dry-run")
+        run_step("generate-landings", cmd)
+    elif args.command == "build-landings":
+        cmd = [sys.executable, str(SWARM), "build", "--base-url", args.base_url]
+        run_step("build-landings", cmd)
+    elif args.command == "nurture":
+        cmd = [sys.executable, str(NURTURE_SCRIPT), "--limit", str(args.limit)]
+        if args.dry_run:
+            cmd.append("--dry-run")
+        run_step("nurture", cmd)
+    elif args.command == "distribution":
+        cmd = [sys.executable, str(DIST_SCRIPT), args.action, "--limit", str(args.limit)]
+        if args.dry_run:
+            cmd.append("--dry-run")
+        run_step(f"distribution-{args.action}", cmd)
+    elif args.command == "geo-audit":
+        cmd = [sys.executable, str(GEO_SCRIPT), "--limit", str(args.limit)]
+        if args.dry_run:
+            cmd.append("--dry-run")
+        run_step("geo-audit", cmd)
+    elif args.command == "conversion":
+        cmd = [sys.executable, str(CONV_SCRIPT), "--window-days", str(args.window_days), "--min-views", str(args.min_views)]
+        run_step("conversion", cmd)
 
 
 if __name__ == "__main__":
