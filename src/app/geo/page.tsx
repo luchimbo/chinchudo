@@ -1,6 +1,17 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 
+// Marcas/productos que PC MIDI Center vende — detectar si la IA los menciona aunque mande a ML
+const NUESTROS_PRODUCTOS = [
+  "arturia", "midiplus", "focusrite", "minilab", "beatstep",
+  "keystep", "minifuse", "audient", "launchpad", "novation",
+];
+
+function detectarNuestros(texto: string): string[] {
+  const t = texto.toLowerCase();
+  return NUESTROS_PRODUCTOS.filter((p) => t.includes(p));
+}
+
 function scoreColor(score: number) {
   if (score >= 4) return "text-moss font-bold";
   if (score >= 2) return "text-brass font-semibold";
@@ -21,6 +32,25 @@ export default async function GeoPage() {
   ]);
 
   const avgScore = avg._avg.score ? avg._avg.score.toFixed(1) : "—";
+
+  // Estadísticas de "nuestros productos mencionados junto a competidores"
+  let auditsConNuestros = 0;
+  let auditsMLconNuestros = 0;
+  const productoConteo: Record<string, number> = {};
+  for (const audit of audits) {
+    const nuestros = detectarNuestros(audit.respuestaCompleta);
+    const tieneML = (audit.competidores as string[]).some((c) =>
+      c.toLowerCase().includes("mercado")
+    );
+    if (nuestros.length > 0) {
+      auditsConNuestros++;
+      if (tieneML) auditsMLconNuestros++;
+      for (const p of nuestros) productoConteo[p] = (productoConteo[p] ?? 0) + 1;
+    }
+  }
+  const topProductos = Object.entries(productoConteo)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8);
 
   // Contar menciones de competidores en todas las consultas
   const competitorCount: Record<string, number> = {};
@@ -52,6 +82,31 @@ export default async function GeoPage() {
           <p className="text-xs text-slate">/ 5 · {avg._count.id} {avg._count.id === 1 ? "consulta" : "consultas"}</p>
         </div>
       </header>
+
+      {/* Panel: nuestros productos mencionados por la IA */}
+      {topProductos.length > 0 && (
+        <section className="mb-6 rounded-xl border border-brass/25 bg-brass/5 p-5">
+          <h2 className="mb-0.5 text-sm font-bold text-ink">
+            La IA menciona productos que vendemos — pero manda a MercadoLibre
+          </h2>
+          <p className="mb-4 text-xs text-slate">
+            En <span className="font-semibold text-signal">{auditsMLconNuestros}</span> de las {audits.length} consultas,
+            la IA recomienda marcas de nuestro catálogo (Arturia, Focusrite, etc.) pero
+            dirige la compra a MercadoLibre en vez de a PC MIDI Center.
+            {auditsConNuestros - auditsMLconNuestros > 0 && (
+              <> En otras <span className="font-semibold text-moss">{auditsConNuestros - auditsMLconNuestros}</span> nos menciona sin redirigir a ML.</>
+            )}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {topProductos.map(([nombre, count]) => (
+              <div key={nombre} className="flex items-center gap-1.5 rounded-full border border-brass/30 bg-brass/10 px-3 py-1">
+                <span className="text-xs font-semibold capitalize text-brass">{nombre}</span>
+                <span className="text-xs text-brass/60">{count}x</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Panel de competidores globales */}
       {topCompetitors.length > 0 && (
@@ -124,6 +179,30 @@ export default async function GeoPage() {
                         </div>
                       </div>
                     )}
+
+                    {(() => {
+                      const nuestros = detectarNuestros(audit.respuestaCompleta);
+                      const tieneML = (competidores as string[]).some(c =>
+                        c.toLowerCase().includes("mercado")
+                      );
+                      if (nuestros.length === 0) return null;
+                      return (
+                        <div className={`mt-2 rounded-lg border px-3 py-2 ${tieneML ? "border-brass/30 bg-brass/5" : "border-moss/30 bg-moss/5"}`}>
+                          <p className="mb-1 text-xs font-semibold text-brass">
+                            {tieneML
+                              ? "⚠️ La IA menciona productos que vendemos pero manda a MercadoLibre:"
+                              : "✓ La IA menciona productos que vendemos:"}
+                          </p>
+                          <div className="flex flex-wrap gap-1">
+                            {nuestros.map((p) => (
+                              <span key={p} className="rounded-full border border-brass/30 bg-brass/10 px-2.5 py-0.5 text-xs font-medium capitalize text-brass">
+                                {p}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {competidores.length === 0 && (
                       <div className="mt-2">
