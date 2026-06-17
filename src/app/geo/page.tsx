@@ -48,23 +48,33 @@ const CATALOGO_EXCLUSIVO: { modelo: string; marca: string; display: string }[] =
   { modelo: "alctron",      marca: "alctron",  display: "Alctron (sin modelo específico)" },
 ];
 
-function detectarNuestros(texto: string): { display: string; marca: string }[] {
+function detectarNuestros(texto: string): { display: string; marca: string; snippet: string }[] {
   const t = texto.toLowerCase();
-  const encontrados: { display: string; marca: string }[] = [];
+  const encontrados: { display: string; marca: string; snippet: string }[] = [];
   const marcasYaAgregadas = new Set<string>();
 
   for (const item of CATALOGO_EXCLUSIVO) {
-    if (t.includes(item.modelo)) {
-      // Evitar agregar "Arturia" (fallback) si ya encontramos modelos específicos de Arturia
+    const idx = t.indexOf(item.modelo);
+    if (idx >= 0) {
       const esGenerico = item.modelo === item.marca;
       if (esGenerico && marcasYaAgregadas.has(item.marca)) continue;
       if (!encontrados.find((e) => e.display === item.display)) {
-        encontrados.push({ display: item.display, marca: item.marca });
+        // Extraer oración/fragmento con contexto alrededor del modelo
+        const start = Math.max(0, idx - 80);
+        const end = Math.min(texto.length, idx + item.modelo.length + 120);
+        const raw = texto.slice(start, end).trim();
+        const snippet = (start > 0 ? "…" : "") + raw + (end < texto.length ? "…" : "");
+        encontrados.push({ display: item.display, marca: item.marca, snippet });
         marcasYaAgregadas.add(item.marca);
       }
     }
   }
   return encontrados;
+}
+
+// Visibilidad real = score del DB + 1 punto por cada marca exclusiva mencionada (máx 5)
+function scoreEfectivo(scoreDB: number, nuestros: { display: string }[]): number {
+  return Math.min(5, scoreDB + nuestros.length);
 }
 
 function scoreColor(score: number) {
@@ -86,7 +96,12 @@ export default async function GeoPage() {
     prisma.geoAudit.aggregate({ _avg: { score: true }, _count: { id: true } }),
   ]);
 
-  const avgScore = avg._avg.score ? avg._avg.score.toFixed(1) : "—";
+  // Score efectivo por consulta = score DB + menciones de productos exclusivos (máx 5)
+  const scoresEfectivos = audits.map(a => scoreEfectivo(a.score, detectarNuestros(a.respuestaCompleta)));
+  const avgEfectivo = scoresEfectivos.length
+    ? (scoresEfectivos.reduce((s, v) => s + v, 0) / scoresEfectivos.length).toFixed(1)
+    : "—";
+  const avgScore = avgEfectivo;
 
   // Estadísticas de "nuestros productos mencionados junto a competidores"
   let auditsConNuestros = 0;
@@ -203,31 +218,42 @@ export default async function GeoPage() {
           {audits.map((audit) => {
             const competidores = Array.isArray(audit.competidores) ? audit.competidores : [];
             const gaps = Array.isArray(audit.gapsSugeridos) ? audit.gapsSugeridos : [];
+            const nuestros = detectarNuestros(audit.respuestaCompleta);
+            const tieneML = (competidores as string[]).some(c => c.toLowerCase().includes("mercado"));
+            const scoreEf = scoreEfectivo(audit.score, nuestros);
+            const scoreSubio = scoreEf > audit.score;
+
             return (
               <div key={audit.id} className="rounded-xl border border-ink/10 bg-paper p-4 shadow-sm">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="flex-1">
+
+                    {/* Score + metadata */}
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className={`text-2xl tabular-nums ${scoreColor(audit.score)}`}>
-                        {audit.score}/5
+                      <span className={`text-2xl tabular-nums ${scoreColor(scoreEf)}`}>
+                        {scoreEf}/5
                       </span>
+                      {scoreSubio && (
+                        <span className="rounded-full border border-brass/30 bg-brass/10 px-2 py-0.5 text-xs text-brass">
+                          +{scoreEf - audit.score} por producto nuestro
+                        </span>
+                      )}
                       <span className="text-xs text-slate/70">visibilidad</span>
                       <span className="rounded-full bg-ink/5 px-2 py-0.5 text-xs text-slate">
                         vía {audit.modeloIA}
                       </span>
                       <span className="text-xs text-slate">{fmt(audit.createdAt)}</span>
                     </div>
+
                     <p className="mt-2 text-sm text-ink/80 italic">"{audit.prompt}"</p>
 
+                    {/* Competidores mencionados */}
                     {competidores.length > 0 && (
                       <div className="mt-3">
                         <p className="mb-1 text-xs font-semibold text-slate">La IA mencionó en esta búsqueda:</p>
                         <div className="flex flex-wrap gap-1.5">
                           {(competidores as string[]).map((c, i) => (
-                            <span
-                              key={i}
-                              className="rounded-full border border-signal/30 bg-signal/10 px-2.5 py-0.5 text-xs font-medium capitalize text-signal"
-                            >
+                            <span key={i} className="rounded-full border border-signal/30 bg-signal/10 px-2.5 py-0.5 text-xs font-medium capitalize text-signal">
                               {c}
                             </span>
                           ))}
@@ -235,31 +261,30 @@ export default async function GeoPage() {
                       </div>
                     )}
 
-                    {(() => {
-                      const nuestros = detectarNuestros(audit.respuestaCompleta);
-                      const tieneML = (competidores as string[]).some(c =>
-                        c.toLowerCase().includes("mercado")
-                      );
-                      if (nuestros.length === 0) return null;
-                      return (
-                        <div className={`mt-2 rounded-lg border px-3 py-2 ${tieneML ? "border-brass/30 bg-brass/5" : "border-moss/30 bg-moss/5"}`}>
-                          <p className="mb-1.5 text-xs font-semibold text-brass">
-                            {tieneML
-                              ? "⚠️ Menciona productos nuestros pero manda a MercadoLibre:"
-                              : "✓ Menciona productos nuestros:"}
-                          </p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {nuestros.map((p) => (
-                              <span key={p.display} className="rounded-full border border-brass/30 bg-brass/10 px-2.5 py-0.5 text-xs font-semibold text-brass">
+                    {/* Nuestros productos mencionados + snippet exacto */}
+                    {nuestros.length > 0 && (
+                      <div className={`mt-3 rounded-lg border px-3 py-2.5 ${tieneML ? "border-brass/30 bg-brass/5" : "border-moss/30 bg-moss/5"}`}>
+                        <p className="mb-2 text-xs font-semibold text-brass">
+                          {tieneML
+                            ? "⚠️ Menciona productos nuestros pero manda a MercadoLibre:"
+                            : "✓ Menciona productos nuestros:"}
+                        </p>
+                        <div className="flex flex-col gap-2">
+                          {nuestros.map((p) => (
+                            <div key={p.display}>
+                              <span className="rounded-full border border-brass/30 bg-brass/10 px-2.5 py-0.5 text-xs font-semibold text-brass">
                                 {p.display}
                               </span>
-                            ))}
-                          </div>
+                              <p className="mt-1 text-xs leading-relaxed text-ink/60 italic pl-1">
+                                {p.snippet}
+                              </p>
+                            </div>
+                          ))}
                         </div>
-                      );
-                    })()}
+                      </div>
+                    )}
 
-                    {competidores.length === 0 && (
+                    {competidores.length === 0 && nuestros.length === 0 && (
                       <div className="mt-2">
                         <span className="rounded-full border border-moss/30 bg-moss/10 px-2.5 py-0.5 text-xs font-medium text-moss">
                           ✓ No mencionó competidores
