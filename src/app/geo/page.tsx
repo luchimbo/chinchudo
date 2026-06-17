@@ -1,15 +1,70 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 
-// Marcas/productos que PC MIDI Center vende — detectar si la IA los menciona aunque mande a ML
-const NUESTROS_PRODUCTOS = [
-  "arturia", "midiplus", "focusrite", "minilab", "beatstep",
-  "keystep", "minifuse", "audient", "launchpad", "novation",
+// Marcas exclusivas de PC MIDI Center (solo nosotros las vendemos en Argentina)
+// Orden: modelos específicos primero, marca sola al final como fallback
+// Modelos específicos primero (más largo → más específico), marca sola como fallback.
+// La búsqueda es substring en lowercase, así "minilab" matchea "MiniLab", "Minilab 3", etc.
+const CATALOGO_EXCLUSIVO: { modelo: string; marca: string; display: string }[] = [
+  // Arturia — modelos específicos
+  { modelo: "keystep pro",  marca: "arturia", display: "Arturia KeyStep Pro" },
+  { modelo: "keystep",      marca: "arturia", display: "Arturia KeyStep" },
+  { modelo: "microfreak",   marca: "arturia", display: "Arturia MicroFreak" },
+  { modelo: "minifreak",    marca: "arturia", display: "Arturia MiniFeak" },
+  { modelo: "polybrute",    marca: "arturia", display: "Arturia PolyBrute" },
+  { modelo: "keylab 88",    marca: "arturia", display: "Arturia KeyLab 88" },
+  { modelo: "microlab",     marca: "arturia", display: "Arturia MicroLab" },
+  { modelo: "minilab",      marca: "arturia", display: "Arturia MiniLab" },
+  { modelo: "beatstep",     marca: "arturia", display: "Arturia BeatStep" },
+  { modelo: "minifuse",     marca: "arturia", display: "Arturia MiniFuse" },
+  // MidiPlus — modelos específicos
+  { modelo: "akm322",       marca: "midiplus", display: "MidiPlus AKM322" },
+  { modelo: "ak490",        marca: "midiplus", display: "MidiPlus AK490" },
+  { modelo: "studio m",     marca: "midiplus", display: "MidiPlus Studio M" },
+  { modelo: "ms6",          marca: "midiplus", display: "MidiPlus MS6" },
+  { modelo: "ms5",          marca: "midiplus", display: "MidiPlus MS5" },
+  { modelo: "usb800",       marca: "midiplus", display: "MidiPlus USB800" },
+  { modelo: "bm800",        marca: "midiplus", display: "MidiPlus BM800" },
+  { modelo: "ed8",          marca: "midiplus", display: "MidiPlus ED8" },
+  { modelo: "ed6",          marca: "midiplus", display: "MidiPlus ED6" },
+  // Synido — modelos específicos
+  { modelo: "livemix duet", marca: "synido", display: "Synido LiveMix Duet" },
+  { modelo: "livemix solo", marca: "synido", display: "Synido LiveMix Solo" },
+  { modelo: "livedock pro", marca: "synido", display: "Synido LiveDock Pro" },
+  { modelo: "livedock",     marca: "synido", display: "Synido LiveDock" },
+  { modelo: "tempokey w25", marca: "synido", display: "Synido TempoKey W25" },
+  { modelo: "tempokey 25",  marca: "synido", display: "Synido TempoKey 25" },
+  { modelo: "tempopad",     marca: "synido", display: "Synido TempoPad" },
+  // Alctron — modelos específicos
+  { modelo: "um900",        marca: "alctron", display: "Alctron UM900" },
+  { modelo: "mc001",        marca: "alctron", display: "Alctron MC001" },
+  { modelo: "ma614",        marca: "alctron", display: "Alctron MA614" },
+  // Meike
+  { modelo: "meike",        marca: "meike",   display: "Meike" },
+  // Fallbacks: marca sola (si no matcheó ningún modelo específico)
+  { modelo: "arturia",      marca: "arturia",  display: "Arturia (sin modelo específico)" },
+  { modelo: "midiplus",     marca: "midiplus", display: "MidiPlus (sin modelo específico)" },
+  { modelo: "synido",       marca: "synido",   display: "Synido (sin modelo específico)" },
+  { modelo: "alctron",      marca: "alctron",  display: "Alctron (sin modelo específico)" },
 ];
 
-function detectarNuestros(texto: string): string[] {
+function detectarNuestros(texto: string): { display: string; marca: string }[] {
   const t = texto.toLowerCase();
-  return NUESTROS_PRODUCTOS.filter((p) => t.includes(p));
+  const encontrados: { display: string; marca: string }[] = [];
+  const marcasYaAgregadas = new Set<string>();
+
+  for (const item of CATALOGO_EXCLUSIVO) {
+    if (t.includes(item.modelo)) {
+      // Evitar agregar "Arturia" (fallback) si ya encontramos modelos específicos de Arturia
+      const esGenerico = item.modelo === item.marca;
+      if (esGenerico && marcasYaAgregadas.has(item.marca)) continue;
+      if (!encontrados.find((e) => e.display === item.display)) {
+        encontrados.push({ display: item.display, marca: item.marca });
+        marcasYaAgregadas.add(item.marca);
+      }
+    }
+  }
+  return encontrados;
 }
 
 function scoreColor(score: number) {
@@ -45,12 +100,12 @@ export default async function GeoPage() {
     if (nuestros.length > 0) {
       auditsConNuestros++;
       if (tieneML) auditsMLconNuestros++;
-      for (const p of nuestros) productoConteo[p] = (productoConteo[p] ?? 0) + 1;
+      for (const p of nuestros) productoConteo[p.display] = (productoConteo[p.display] ?? 0) + 1;
     }
   }
   const topProductos = Object.entries(productoConteo)
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 8);
+    .slice(0, 12);
 
   // Contar menciones de competidores en todas las consultas
   const competitorCount: Record<string, number> = {};
@@ -188,15 +243,15 @@ export default async function GeoPage() {
                       if (nuestros.length === 0) return null;
                       return (
                         <div className={`mt-2 rounded-lg border px-3 py-2 ${tieneML ? "border-brass/30 bg-brass/5" : "border-moss/30 bg-moss/5"}`}>
-                          <p className="mb-1 text-xs font-semibold text-brass">
+                          <p className="mb-1.5 text-xs font-semibold text-brass">
                             {tieneML
-                              ? "⚠️ La IA menciona productos que vendemos pero manda a MercadoLibre:"
-                              : "✓ La IA menciona productos que vendemos:"}
+                              ? "⚠️ Menciona productos nuestros pero manda a MercadoLibre:"
+                              : "✓ Menciona productos nuestros:"}
                           </p>
-                          <div className="flex flex-wrap gap-1">
+                          <div className="flex flex-wrap gap-1.5">
                             {nuestros.map((p) => (
-                              <span key={p} className="rounded-full border border-brass/30 bg-brass/10 px-2.5 py-0.5 text-xs font-medium capitalize text-brass">
-                                {p}
+                              <span key={p.display} className="rounded-full border border-brass/30 bg-brass/10 px-2.5 py-0.5 text-xs font-semibold text-brass">
+                                {p.display}
                               </span>
                             ))}
                           </div>
