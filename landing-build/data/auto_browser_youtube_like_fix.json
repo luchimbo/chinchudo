@@ -1,0 +1,14 @@
+{
+  "name": "youtube_like_fix",
+  "actions": [
+    {
+      "type": "navigate",
+      "url": "https://www.youtube.com/watch?v=GPVLFMJQYDQ",
+      "wait_seconds": 4
+    },
+    {
+      "type": "eval",
+      "expression": "(() => { const selectors = ['#segmented-like-button button', 'like-button-view-model button', 'button[aria-label^=\"Me gusta\"]', 'button[aria-label^=\"like\"]']; for (const selector of selectors) { const el = document.querySelector(selector); if (!el) continue; const label = el.getAttribute('aria-label') || el.innerText || ''; if (/dislike|no me gusta/i.test(label)) continue; el.scrollIntoView({block:'center'}); el.click(); return {ok:true, selector, label}; } return {ok:false, error:'like positivo no encontrado'}; })()"
+    }
+  ]
+}

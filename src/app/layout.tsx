@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Los 5 Apostoles",
-  description: "Dashboard interno de oportunidades y respuestas asistidas para PC MIDI Center."
+  title: "PC MIDI Suite",
+  description: "Dashboard unificado: oportunidades, landings SEO, leads, distribución y GEO para PC MIDI Center."
 };
 
 export default function RootLayout({

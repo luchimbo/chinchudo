@@ -206,6 +206,30 @@ export default async function HomePage({ searchParams }: PageProps) {
             Logins
           </Link>
           <Link
+            href="/landings"
+            className="inline-flex h-12 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-5 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white"
+          >
+            Landings
+          </Link>
+          <Link
+            href="/leads"
+            className="inline-flex h-12 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-5 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white"
+          >
+            Leads
+          </Link>
+          <Link
+            href="/distribution"
+            className="inline-flex h-12 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-5 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white"
+          >
+            Distribución
+          </Link>
+          <Link
+            href="/geo"
+            className="inline-flex h-12 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-5 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white"
+          >
+            GEO
+          </Link>
+          <Link
             href="/opportunities/new"
             className="inline-flex h-12 items-center justify-center rounded-full bg-ink px-5 text-sm font-bold text-paper shadow-lg transition hover:-translate-y-0.5 hover:bg-slate"
           >

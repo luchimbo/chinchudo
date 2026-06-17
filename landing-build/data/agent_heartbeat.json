@@ -1,0 +1,36 @@
+{
+  "state": "guard",
+  "pid": 13236,
+  "active_step": "",
+  "last_result": {},
+  "next_runs": {
+    "nurture": {
+      "seconds_remaining": 539
+    },
+    "conversion": {
+      "seconds_remaining": 677
+    },
+    "discover": {
+      "seconds_remaining": 448
+    },
+    "distribution": {
+      "seconds_remaining": 1299
+    },
+    "publish": {
+      "seconds_remaining": 1329
+    },
+    "auto_listen": {
+      "seconds_remaining": 879
+    },
+    "auto_distribution": {
+      "seconds_remaining": 939
+    },
+    "validate": {
+      "seconds_remaining": 58285
+    },
+    "geo_audit": {
+      "seconds_remaining": 576635
+    }
+  },
+  "updated_at": "2026-06-16T20:24:26.150375+00:00"
+}

@@ -1,0 +1,120 @@
+{
+  "linkedin": {
+    "comment_or_post": [
+      {
+        "saved_at_utc": "2026-06-05T12:50:11.209407+00:00",
+        "strategy": {
+          "name": "linkedin_post_prompt",
+          "open_text": [
+            "comenzar publicación",
+            "crear publicación",
+            "start a post"
+          ],
+          "submit_text": [
+            "publicar",
+            "post"
+          ]
+        }
+      },
+      {
+        "saved_at_utc": "2026-05-27T16:00:54.216882+00:00",
+        "strategy": {
+          "name": "linkedin_comment",
+          "open_text": [
+            "comentar",
+            "comment"
+          ],
+          "submit_text": [
+            "publicar",
+            "post"
+          ]
+        }
+      }
+    ]
+  },
+  "x": {
+    "comment_or_post": [
+      {
+        "saved_at_utc": "2026-05-27T16:02:15.419905+00:00",
+        "strategy": {
+          "name": "x_compose",
+          "submit_selector": [
+            "[data-testid=\"tweetButton\"]",
+            "[data-testid=\"tweetButtonInline\"]"
+          ]
+        }
+      }
+    ]
+  },
+  "youtube": {
+    "comment_or_post": [
+      {
+        "saved_at_utc": "2026-05-27T18:17:00.650044+00:00",
+        "strategy": {
+          "name": "youtube_placeholder",
+          "open_selector": [
+            "#placeholder-area",
+            "ytd-comment-simplebox-renderer #placeholder-area"
+          ],
+          "submit_selector": [
+            "#submit-button button"
+          ]
+        }
+      }
+    ]
+  },
+  "facebook": {
+    "comment_or_post": [
+      {
+        "saved_at_utc": "2026-06-12T20:40:22.550507+00:00",
+        "strategy": {
+          "name": "facebook_post_prompt",
+          "open_text": [
+            "¿qué estás pensando",
+            "what's on your mind"
+          ],
+          "submit_text": [
+            "publicar",
+            "post"
+          ]
+        }
+      },
+      {
+        "saved_at_utc": "2026-05-27T18:17:32.987310+00:00",
+        "strategy": {
+          "name": "facebook_comment",
+          "open_text": [
+            "dejar un comentario",
+            "write a comment",
+            "comentar"
+          ],
+          "submit_text": [
+            "publicar",
+            "post"
+          ]
+        }
+      }
+    ]
+  },
+  "instagram": {
+    "comment_or_post": [
+      {
+        "saved_at_utc": "2026-05-27T18:22:29.905687+00:00",
+        "strategy": {
+          "name": "instagram_comment_selector",
+          "open_selector": [
+            "textarea[aria-label*=\"comment\"]",
+            "textarea[aria-label*=\"comentario\"]",
+            "form textarea"
+          ],
+          "submit_selector": [
+            "form button[type=\"submit\"]"
+          ],
+          "submit_text": [
+            "publicar"
+          ]
+        }
+      }
+    ]
+  }
+}

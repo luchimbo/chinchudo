@@ -1,0 +1,9 @@
+{
+  "name": "inspect_visible_buttons",
+  "actions": [
+    {
+      "type": "eval",
+      "expression": "(() => Array.from(document.querySelectorAll('button, [role=button], [aria-label]')).slice(0,120).map((el) => { const r = el.getBoundingClientRect(); return {tag: el.tagName, role: el.getAttribute('role'), aria: el.getAttribute('aria-label'), disabled: el.disabled || el.getAttribute('aria-disabled'), text: (el.innerText || el.textContent || '').replace(/\\s+/g,' ').trim().slice(0,120), cls: el.className && String(el.className).slice(0,120), rect: {w: Math.round(r.width), h: Math.round(r.height), x: Math.round(r.x), y: Math.round(r.y)}} }).filter(x => x.rect.w > 0 && x.rect.h > 0))()"
+    }
+  ]
+}

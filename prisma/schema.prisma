@@ -123,6 +123,8 @@ model Opportunity {
   monitoredSource   MonitoredSource?    @relation(fields: [monitoredSourceId], references: [id])
   publishingLogs    PublishingLog[]
   responses         Response[]
+  landings          Landing[]
+  distribution      DistributionPiece[]
 
   @@index([status])
   @@index([priority])
@@ -229,6 +231,172 @@ model SystemLog {
 
   @@index([level])
   @@index([event])
+  @@index([createdAt])
+}
+
+// ─── Módulo de Landings SEO (ex-AgentesGuille) ───────────────────────────────
+
+enum LandingStatus {
+  DRAFT
+  APPROVED
+  PUBLISHED
+  ARCHIVED
+}
+
+enum LeadMagnetType {
+  CHECKLIST
+  GUIA
+  COMPARATIVA
+  PLANTILLA
+  PRESET
+}
+
+enum NurtureStepStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+enum DistributionChannel {
+  REDDIT
+  LINKEDIN
+  TWITTER
+  FACEBOOK
+  INSTAGRAM
+  YOUTUBE
+  NEWSLETTER
+  FORUM
+}
+
+enum DistributionStatus {
+  NEW
+  APPROVED
+  SCHEDULED
+  PUBLISHED
+  FAILED
+}
+
+model LeadMagnet {
+  id        String         @id @default(cuid())
+  tipo      LeadMagnetType
+  titulo    String
+  contenido String
+  slug      String         @unique
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  landings  Landing[]
+  leads     Lead[]
+}
+
+model Landing {
+  id            String        @id @default(cuid())
+  slug          String        @unique
+  keyword       String
+  intent        String        @default("")
+  titulo        String        @default("")
+  htmlContent   String
+  seoTitle      String        @default("")
+  seoDescription String       @default("")
+  status        LandingStatus @default(DRAFT)
+  publishedAt   DateTime?
+  opportunityId String?
+  leadMagnetId  String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  opportunity   Opportunity?  @relation(fields: [opportunityId], references: [id])
+  leadMagnet    LeadMagnet?   @relation(fields: [leadMagnetId], references: [id])
+  leads         Lead[]
+  distribution  DistributionPiece[]
+  trackingEvents TrackingEvent[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Lead {
+  id           String    @id @default(cuid())
+  email        String
+  nombre       String    @default("")
+  slug         String
+  keyword      String    @default("")
+  leadMagnetId String?
+  consent      Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  landingId    String?
+  landing      Landing?  @relation(fields: [landingId], references: [id])
+  leadMagnet   LeadMagnet? @relation(fields: [leadMagnetId], references: [id])
+  nurtureSteps NurtureStep[]
+
+  @@index([email])
+  @@index([slug])
+  @@index([createdAt])
+}
+
+model NurtureStep {
+  id          String            @id @default(cuid())
+  leadId      String
+  stepDay     Int
+  subject     String            @default("")
+  bodyHtml    String            @default("")
+  status      NurtureStepStatus @default(PENDING)
+  scheduledAt DateTime
+  sentAt      DateTime?
+  openedAt    DateTime?
+  clickedAt   DateTime?
+  createdAt   DateTime          @default(now())
+  lead        Lead              @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([scheduledAt])
+}
+
+model DistributionPiece {
+  id          String              @id @default(cuid())
+  canal       DistributionChannel
+  contenido   String
+  status      DistributionStatus  @default(NEW)
+  scheduledAt DateTime?
+  publishedAt DateTime?
+  publishedUrl String?
+  landingId   String?
+  opportunityId String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  landing     Landing?            @relation(fields: [landingId], references: [id])
+  opportunity Opportunity?        @relation(fields: [opportunityId], references: [id])
+
+  @@index([status])
+  @@index([canal])
+  @@index([scheduledAt])
+}
+
+model GeoAudit {
+  id                  String   @id @default(cuid())
+  prompt              String
+  modeloIA            String
+  score               Int
+  competidores        Json     @default("[]")
+  gapsSugeridos       Json     @default("[]")
+  respuestaCompleta   String   @default("")
+  createdAt           DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([score])
+}
+
+model TrackingEvent {
+  id        String   @id @default(cuid())
+  eventType String
+  slug      String
+  referrer  String   @default("")
+  meta      Json     @default("{}")
+  landingId String?
+  createdAt DateTime @default(now())
+  landing   Landing? @relation(fields: [landingId], references: [id])
+
+  @@index([slug])
+  @@index([eventType])
   @@index([createdAt])
 }
 

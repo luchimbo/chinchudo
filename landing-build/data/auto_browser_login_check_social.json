@@ -1,0 +1,59 @@
+{
+  "name": "login_check_social_networks",
+  "actions": [
+    {
+      "type": "navigate",
+      "url": "https://www.reddit.com/",
+      "wait_seconds": 4
+    },
+    {
+      "type": "eval",
+      "expression": "(() => ({platform:'reddit', url: location.href, title: document.title, hasLogin: !!document.querySelector('a[href*=login], faceplate-tracker[source=login], shreddit-async-loader[bundlename*=Login], input[name=username]'), hasUserSignal: !!document.querySelector('[data-testid=user-drawer-toggle], reddit-header-action-items, a[href^=\"/user/\"], shreddit-post')}))()"
+    },
+    {
+      "type": "navigate",
+      "url": "https://www.youtube.com/",
+      "wait_seconds": 4
+    },
+    {
+      "type": "eval",
+      "expression": "(() => ({platform:'youtube', url: location.href, title: document.title, hasLogin: !!document.querySelector('a[href*=\"ServiceLogin\"], ytd-button-renderer a[href*=\"accounts.google.com\"], tp-yt-paper-button[aria-label*=\"Acceder\"], input[type=email]'), hasUserSignal: !!document.querySelector('#avatar-btn, ytd-masthead button#avatar-btn, ytd-guide-entry-renderer')}))()"
+    },
+    {
+      "type": "navigate",
+      "url": "https://www.linkedin.com/feed/",
+      "wait_seconds": 5
+    },
+    {
+      "type": "eval",
+      "expression": "(() => ({platform:'linkedin', url: location.href, title: document.title, hasLogin: !!document.querySelector('input#username, input[name=session_key], a[href*=\"/login\"], button[data-id=\"sign-in-form__submit-btn\"]'), hasUserSignal: !!document.querySelector('.feed-identity-module, .share-box-feed-entry__trigger, nav[aria-label=\"Principal\"], img.global-nav__me-photo')}))()"
+    },
+    {
+      "type": "navigate",
+      "url": "https://www.facebook.com/",
+      "wait_seconds": 5
+    },
+    {
+      "type": "eval",
+      "expression": "(() => ({platform:'facebook', url: location.href, title: document.title, hasLogin: !!document.querySelector('input[name=email], input[name=pass], form[action*=\"login\"], a[href*=\"login\"]'), hasUserSignal: !!document.querySelector('[aria-label=\"Inicio\"], [aria-label=\"Home\"], [aria-label=\"Cuenta\"], [aria-label=\"Account\"], div[role=feed]')}))()"
+    },
+    {
+      "type": "navigate",
+      "url": "https://www.instagram.com/",
+      "wait_seconds": 5
+    },
+    {
+      "type": "eval",
+      "expression": "(() => ({platform:'instagram', url: location.href, title: document.title, hasLogin: !!document.querySelector('input[name=username], input[name=password], a[href*=\"/accounts/login\"]'), hasUserSignal: !!document.querySelector('a[href=\"/direct/inbox/\"], svg[aria-label=\"Inicio\"], svg[aria-label=\"Home\"], nav')}))()"
+    },
+    {
+      "type": "navigate",
+      "url": "https://x.com/home",
+      "wait_seconds": 5
+    },
+    {
+      "type": "eval",
+      "expression": "(() => ({platform:'x', url: location.href, title: document.title, hasLogin: !!document.querySelector('a[href=\"/login\"], a[href=\"/i/flow/login\"], input[name=text], input[name=password]'), hasUserSignal: !!document.querySelector('[data-testid=\"SideNav_AccountSwitcher_Button\"], [data-testid=\"tweetTextarea_0\"], [aria-label=\"Inicio\"]')}))()"
+    }
+  ]
+}

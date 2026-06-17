@@ -1,0 +1,71 @@
+{
+  "name": "smoke_social_networks",
+  "actions": [
+    {
+      "type": "navigate",
+      "url": "https://www.reddit.com/",
+      "wait_seconds": 4
+    },
+    {
+      "type": "extract",
+      "name": "reddit_title",
+      "selector": "title",
+      "attribute": "text"
+    },
+    {
+      "type": "navigate",
+      "url": "https://www.youtube.com/",
+      "wait_seconds": 4
+    },
+    {
+      "type": "extract",
+      "name": "youtube_title",
+      "selector": "title",
+      "attribute": "text"
+    },
+    {
+      "type": "navigate",
+      "url": "https://www.linkedin.com/feed/",
+      "wait_seconds": 5
+    },
+    {
+      "type": "extract",
+      "name": "linkedin_title",
+      "selector": "title",
+      "attribute": "text"
+    },
+    {
+      "type": "navigate",
+      "url": "https://www.facebook.com/",
+      "wait_seconds": 5
+    },
+    {
+      "type": "extract",
+      "name": "facebook_title",
+      "selector": "title",
+      "attribute": "text"
+    },
+    {
+      "type": "navigate",
+      "url": "https://www.instagram.com/",
+      "wait_seconds": 5
+    },
+    {
+      "type": "extract",
+      "name": "instagram_title",
+      "selector": "title",
+      "attribute": "text"
+    },
+    {
+      "type": "navigate",
+      "url": "https://x.com/home",
+      "wait_seconds": 5
+    },
+    {
+      "type": "extract",
+      "name": "x_title",
+      "selector": "title",
+      "attribute": "text"
+    }
+  ]
+}

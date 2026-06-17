@@ -1,0 +1,16 @@
+{
+  "name": "ejemplo_busqueda_pcmidi",
+  "actions": [
+    {
+      "type": "navigate",
+      "url": "https://www.pcmidi.com.ar/",
+      "wait_seconds": 2
+    },
+    {
+      "type": "extract",
+      "name": "titulos_h1",
+      "selector": "h1",
+      "attribute": "text"
+    }
+  ]
+}

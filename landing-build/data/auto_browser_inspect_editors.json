@@ -1,0 +1,9 @@
+{
+  "name": "inspect_visible_editors",
+  "actions": [
+    {
+      "type": "eval",
+      "expression": "(() => Array.from(document.querySelectorAll('[contenteditable], textarea, input, [role=textbox], [aria-label]')).slice(0,80).map((el) => ({tag: el.tagName, role: el.getAttribute('role'), aria: el.getAttribute('aria-label'), contenteditable: el.getAttribute('contenteditable'), text: (el.innerText || el.textContent || el.value || '').slice(0,120), rect: (() => { const r = el.getBoundingClientRect(); return {w: Math.round(r.width), h: Math.round(r.height), x: Math.round(r.x), y: Math.round(r.y)} })()})))()"
+    }
+  ]
+}

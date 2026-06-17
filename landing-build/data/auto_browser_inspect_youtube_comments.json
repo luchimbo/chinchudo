@@ -1,0 +1,15 @@
+{
+  "name": "inspect_youtube_comments",
+  "actions": [
+    {
+      "type": "navigate",
+      "url": "https://www.youtube.com/watch?v=GPVLFMJQYDQ",
+      "wait_seconds": 5
+    },
+    {
+      "type": "eval",
+      "expression": "new Promise((resolve) => { let n=0; const tick=()=>{ window.scrollBy(0,700); n++; if(n<10) setTimeout(tick,500); else resolve(Array.from(document.querySelectorAll('ytd-comments, #comments, ytd-comment-simplebox-renderer, #placeholder-area, #contenteditable-root, [contenteditable=true], textarea, button, [role=button]')).slice(0,160).map((el)=>{ const r=el.getBoundingClientRect(); return {tag:el.tagName,id:el.id,role:el.getAttribute('role'),aria:el.getAttribute('aria-label'),text:(el.innerText||el.textContent||'').replace(/\\s+/g,' ').trim().slice(0,100),rect:{w:Math.round(r.width),h:Math.round(r.height),x:Math.round(r.x),y:Math.round(r.y)}}}).filter(x=>x.rect.w>0&&x.rect.h>0)); }; tick(); })",
+      "await_promise": true
+    }
+  ]
+}
