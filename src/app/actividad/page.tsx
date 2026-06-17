@@ -144,7 +144,7 @@ export default async function ActividadPage() {
                         {/* Contexto: post original */}
                         {log.opportunity?.sourceText && (
                           <p className="mb-2 text-xs text-slate/60 italic line-clamp-1 border-l-2 border-ink/10 pl-2">
-                            En respuesta a: "{log.opportunity.sourceText.slice(0, 100)}"
+                            En respuesta a: &quot;{log.opportunity.sourceText.slice(0, 100)}&quot;
                           </p>
                         )}
 

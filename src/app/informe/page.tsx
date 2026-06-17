@@ -286,7 +286,7 @@ export default async function InformePage() {
                   {g.score}/5
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm text-ink/80 italic truncate">"{g.prompt}"</p>
+                  <p className="text-sm text-ink/80 italic truncate">&quot;{g.prompt}&quot;</p>
                   <p className="text-xs text-slate/60">{g.modeloIA} · {fmt(g.createdAt)}</p>
                 </div>
               </div>

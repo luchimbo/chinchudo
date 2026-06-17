@@ -245,7 +245,7 @@ export default async function GeoPage() {
                       <span className="text-xs text-slate">{fmt(audit.createdAt)}</span>
                     </div>
 
-                    <p className="mt-2 text-sm text-ink/80 italic">"{audit.prompt}"</p>
+                    <p className="mt-2 text-sm text-ink/80 italic">&quot;{audit.prompt}&quot;</p>
 
                     {/* Competidores mencionados */}
                     {competidores.length > 0 && (
