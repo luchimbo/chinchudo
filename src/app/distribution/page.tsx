@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { approveDistribution } from "./actions";
 
 const STATUS_LABELS: Record<string, string> = {
-  NEW: "Nueva",
+  NEW: "Para revisar",
   APPROVED: "Aprobada",
   SCHEDULED: "Programada",
   PUBLISHED: "Publicada",
@@ -59,7 +59,8 @@ export default async function DistributionPage({
       <header className="mb-8 flex items-center justify-between gap-4">
         <div>
           <Link href="/" className="text-xs text-slate hover:text-ink">← Dashboard</Link>
-          <h1 className="mt-1 text-2xl font-bold text-ink">Distribución</h1>
+          <h1 className="mt-1 text-2xl font-bold text-ink">Para publicar en redes</h1>
+          <p className="mt-0.5 text-sm text-slate">Piezas de contenido generadas por los agentes, listas para aprobar y programar.</p>
         </div>
       </header>
 
@@ -83,7 +84,7 @@ export default async function DistributionPage({
       </div>
 
       {pieces.length === 0 ? (
-        <p className="text-sm text-slate">No hay piezas en este estado.</p>
+        <p className="text-sm text-slate">No hay contenido en este estado. Los agentes generan piezas nuevas automáticamente.</p>
       ) : (
         <div className="flex flex-col gap-3">
           {pieces.map((piece) => (
@@ -118,7 +119,7 @@ export default async function DistributionPage({
                       type="submit"
                       className="rounded-lg border border-brass/40 bg-brass/10 px-3 py-1.5 text-xs font-semibold text-brass transition hover:bg-brass/20"
                     >
-                      Aprobar
+                      Sí, publicar esto
                     </button>
                   </form>
                 )}

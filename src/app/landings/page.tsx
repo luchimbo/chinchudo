@@ -4,7 +4,7 @@ import { updateLandingStatus } from "./actions";
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: "Borrador",
-  APPROVED: "Aprobada",
+  APPROVED: "Lista para publicar",
   PUBLISHED: "Publicada",
   ARCHIVED: "Archivada",
 };
@@ -40,10 +40,10 @@ export default async function LandingsPage({
   const countMap = Object.fromEntries(counts.map((c) => [c.status, c._count.id]));
 
   const tabs = [
-    { status: "DRAFT", label: "Borradores" },
-    { status: "APPROVED", label: "Aprobadas" },
-    { status: "PUBLISHED", label: "Publicadas" },
-    { status: "ARCHIVED", label: "Archivadas" },
+    { status: "DRAFT", label: "Borradores", helper: "Generadas, todavía no revisadas" },
+    { status: "APPROVED", label: "Listas para publicar", helper: "Aprobadas, falta subirlas al blog" },
+    { status: "PUBLISHED", label: "En vivo", helper: "Ya están publicadas" },
+    { status: "ARCHIVED", label: "Archivadas", helper: "Fuera de uso" },
   ];
 
   return (
@@ -51,7 +51,8 @@ export default async function LandingsPage({
       <header className="mb-8 flex items-center justify-between gap-4">
         <div>
           <Link href="/" className="text-xs text-slate hover:text-ink">← Dashboard</Link>
-          <h1 className="mt-1 text-2xl font-bold text-ink">Landings SEO</h1>
+          <h1 className="mt-1 text-2xl font-bold text-ink">Artículos del blog</h1>
+          <p className="mt-0.5 text-sm text-slate">Páginas que generan visitas orgánicas y capturan contactos interesados.</p>
         </div>
         <span className="rounded-full bg-ink/5 px-3 py-1 text-xs text-slate">
           {landings.length} resultados
@@ -110,7 +111,7 @@ export default async function LandingsPage({
                   <p className="mt-0.5 text-xs text-slate">{landing.keyword}</p>
                   <div className="mt-2 flex gap-4 text-xs text-slate">
                     <span>👁 {landing._count.trackingEvents} visitas</span>
-                    <span>📧 {landing._count.leads} leads</span>
+                    <span>📧 {landing._count.leads} contactos capturados</span>
                   </div>
                 </div>
 

@@ -8,6 +8,19 @@ const STEP_STATUS_CLASS: Record<string, string> = {
   SKIPPED: "bg-ink/5 text-ink/50",
 };
 
+const STEP_STATUS_LABEL: Record<string, string> = {
+  PENDING: "pendiente",
+  SENT: "enviado",
+  FAILED: "falló",
+  SKIPPED: "omitido",
+};
+
+const STEP_DAY_LABEL: Record<number, string> = {
+  0: "Bienvenida",
+  3: "Tip al 3er día",
+  5: "Cierre al 5to día",
+};
+
 function fmt(d: Date | null | string) {
   return d ? new Date(d).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" }) : "—";
 }
@@ -41,15 +54,16 @@ export default async function LeadsPage({
       <header className="mb-8 flex items-center justify-between gap-4">
         <div>
           <Link href="/" className="text-xs text-slate hover:text-ink">← Dashboard</Link>
-          <h1 className="mt-1 text-2xl font-bold text-ink">Leads</h1>
+          <h1 className="mt-1 text-2xl font-bold text-ink">Contactos</h1>
+          <p className="mt-0.5 text-sm text-slate">Personas que dejaron su mail en el blog. Les llegan emails automáticos los días 0, 3 y 5.</p>
         </div>
         <span className="rounded-full bg-ink/5 px-3 py-1 text-xs text-slate">
-          {total} leads totales
+          {total} contactos
         </span>
       </header>
 
       {leads.length === 0 ? (
-        <p className="text-sm text-slate">No hay leads registrados todavía.</p>
+        <p className="text-sm text-slate">Todavía no hay contactos registrados. Aparecen cuando alguien llena un formulario en el blog.</p>
       ) : (
         <div className="flex flex-col gap-3">
           {leads.map((lead) => (
@@ -59,12 +73,11 @@ export default async function LeadsPage({
                   <p className="font-semibold text-ink">{lead.email}</p>
                   {lead.nombre && <p className="text-xs text-slate">{lead.nombre}</p>}
                   <p className="mt-0.5 text-xs text-slate">
-                    Slug: <span className="font-mono">{lead.slug}</span>
-                    {lead.keyword ? ` · ${lead.keyword}` : ""}
+                    Llegó desde: <span className="font-medium">{lead.keyword || lead.slug}</span>
                   </p>
                   {lead.leadMagnet && (
                     <p className="mt-0.5 text-xs text-brass">
-                      Lead magnet: {lead.leadMagnet.titulo}
+                      Recurso descargado: {lead.leadMagnet.titulo}
                     </p>
                   )}
                 </div>
@@ -72,17 +85,18 @@ export default async function LeadsPage({
               </div>
 
               {lead.nurtureSteps.length > 0 && (
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-3 flex flex-wrap gap-2 border-t border-ink/5 pt-3">
+                  <span className="w-full text-xs font-semibold text-slate/60">Emails automáticos:</span>
                   {lead.nurtureSteps.map((step) => (
                     <div key={step.id} className="flex items-center gap-1.5">
-                      <span className="text-xs text-slate">Día {step.stepDay}:</span>
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs ${STEP_STATUS_CLASS[step.status]}`}
-                      >
-                        {step.status.toLowerCase()}
+                      <span className="text-xs text-slate">
+                        {STEP_DAY_LABEL[step.stepDay] ?? `Día ${step.stepDay}`}
+                      </span>
+                      <span className={`rounded-full px-2 py-0.5 text-xs ${STEP_STATUS_CLASS[step.status]}`}>
+                        {STEP_STATUS_LABEL[step.status] ?? step.status}
                       </span>
                       {step.sentAt && (
-                        <span className="text-xs text-slate">{fmt(step.sentAt)}</span>
+                        <span className="text-xs text-slate/60">{fmt(step.sentAt)}</span>
                       )}
                     </div>
                   ))}

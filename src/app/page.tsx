@@ -182,53 +182,41 @@ export default async function HomePage({ searchParams }: PageProps) {
             Cola diaria
           </h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate">
-            {activeCount + publishReadyCount + followUpCount} conversaciones requieren accion. Primero revisar, despues aprobar, publicar y cerrar seguimiento.
+            {activeCount + publishReadyCount + followUpCount} conversaciones necesitan atención. Revisá, aprobá el texto y publicalo.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Link
-            href="/analytics"
-            className="inline-flex h-12 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-5 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white"
-          >
+          {/* Grupo principal */}
+          <Link href="/analytics" className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
             Analítica
           </Link>
-          <Link
-            href="/admin"
-            className="inline-flex h-12 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-5 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white"
-          >
-            Admin
+          <Link href="/admin" className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
+            Configuración
           </Link>
-          <Link
-            href="/logins"
-            className="inline-flex h-12 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-5 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white"
-          >
-            Logins
+          <Link href="/logins" className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
+            Cuentas
           </Link>
-          <Link
-            href="/landings"
-            className="inline-flex h-12 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-5 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white"
-          >
-            Landings
+
+          {/* Separador */}
+          <span className="h-6 w-px bg-ink/15" />
+
+          {/* Blog y captación */}
+          <Link href="/landings" className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
+            Blog
           </Link>
-          <Link
-            href="/leads"
-            className="inline-flex h-12 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-5 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white"
-          >
-            Leads
+          <Link href="/leads" className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
+            Contactos
           </Link>
-          <Link
-            href="/distribution"
-            className="inline-flex h-12 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-5 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white"
-          >
-            Distribución
+          <Link href="/distribution" className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
+            Redes
           </Link>
-          <Link
-            href="/geo"
-            className="inline-flex h-12 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-5 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white"
-          >
-            GEO
+          <Link href="/geo" className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
+            En las IAs
           </Link>
+
+          {/* Separador */}
+          <span className="h-6 w-px bg-ink/15" />
           <Link
             href="/opportunities/new"
             className="inline-flex h-12 items-center justify-center rounded-full bg-ink px-5 text-sm font-bold text-paper shadow-lg transition hover:-translate-y-0.5 hover:bg-slate"
