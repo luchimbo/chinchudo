@@ -188,6 +188,9 @@ export default async function HomePage({ searchParams }: PageProps) {
 
         <div className="flex flex-wrap items-center gap-2">
           {/* Grupo principal */}
+          <Link href="/informe" className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
+            Informe
+          </Link>
           <Link href="/analytics" className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
             Analítica
           </Link>
