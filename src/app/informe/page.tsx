@@ -69,13 +69,10 @@ export default async function InformePage() {
     prisma.opportunity.count(),
     prisma.opportunity.count({ where: { createdAt: { gte: since30 } } }),
     prisma.opportunity.count({ where: { status: { in: ["PUBLISHED", "CONVERTED"] } } }),
-    prisma.opportunity.groupBy({ by: ["channelId"], _count: { id: true },
-      orderBy: { _count: { id: "desc" } } }),
+    prisma.opportunity.groupBy({ by: ["channelId"], _count: { id: true } }),
     prisma.publishingLog.count(),
-    prisma.publishingLog.groupBy({ by: ["account"], _count: { id: true },
-      orderBy: { _count: { id: "desc" } }, take: 10 }),
-    prisma.publishingLog.groupBy({ by: ["result"], _count: { id: true },
-      orderBy: { _count: { id: "desc" } } }),
+    prisma.publishingLog.groupBy({ by: ["account"], _count: { id: true } }),
+    prisma.publishingLog.groupBy({ by: ["result"], _count: { id: true } }),
 
     // Blog
     prisma.landing.count(),
@@ -84,13 +81,11 @@ export default async function InformePage() {
     prisma.trackingEvent.groupBy({
       by: ["slug"], _count: { id: true },
       where: { eventType: "page_view" },
-      orderBy: { _count: { id: "desc" } }, take: 8,
     }),
     prisma.trackingEvent.count({ where: { eventType: "page_view" } }),
     prisma.trackingEvent.groupBy({
       by: ["referrer"], _count: { id: true },
       where: { eventType: "page_view", referrer: { not: "" } },
-      orderBy: { _count: { id: "desc" } }, take: 6,
     }),
 
     // Contactos
@@ -106,7 +101,6 @@ export default async function InformePage() {
     prisma.distributionPiece.groupBy({
       by: ["canal"], _count: { id: true },
       where: { status: "PUBLISHED" },
-      orderBy: { _count: { id: "desc" } },
     }),
 
     // GEO
@@ -127,6 +121,17 @@ export default async function InformePage() {
   const channels = await prisma.channel.findMany({ where: { id: { in: channelIds } },
     select: { id: true, name: true } });
   const channelMap = Object.fromEntries(channels.map(c => [c.id, c.name]));
+
+  // Ordenar resultados de groupBy en JS (Prisma 5 no acepta orderBy por _count en groupBy)
+  const sort = <T extends { _count: { id: number } }>(arr: T[]) =>
+    [...arr].sort((a, b) => b._count.id - a._count.id);
+
+  const oppsByChannelSorted   = sort(oppsByChannel).slice(0, 8);
+  const byAccountSorted       = sort(publishingByAccount).slice(0, 10);
+  const byResultSorted        = sort(publishingByResult);
+  const topLandingsSorted     = sort(topLandingsByVisits as { slug: string; _count: { id: number } }[]).slice(0, 8);
+  const visitsByReferrerSorted = sort(visitsByReferrer).slice(0, 6);
+  const distByCanalSorted     = sort(distByCanal);
 
   const conversionRate = pct(oppsRespondidas, oppsTotal);
   const nurtureDelivery = pct(nurtureSent, nurtureTotal);
@@ -157,35 +162,35 @@ export default async function InformePage() {
           <Stat label="Publicaciones hechas" value={publishingLogs} />
         </div>
 
-        {oppsByChannel.length > 0 && (
+        {oppsByChannelSorted.length > 0 && (
           <div className="mt-4">
             <p className="mb-2 text-xs font-semibold text-slate/60">Por red social</p>
             <div className="flex flex-col gap-1">
-              {oppsByChannel.map(r => (
+              {oppsByChannelSorted.map(r => (
                 <Bar key={r.channelId}
                   label={channelMap[r.channelId] ?? r.channelId}
-                  value={r._count.id} max={oppsByChannel[0]._count.id} />
+                  value={r._count.id} max={oppsByChannelSorted[0]._count.id} />
               ))}
             </div>
           </div>
         )}
 
-        {publishingByAccount.length > 0 && (
+        {byAccountSorted.length > 0 && (
           <div className="mt-4">
             <p className="mb-2 text-xs font-semibold text-slate/60">Por cuenta usada</p>
             <div className="flex flex-wrap gap-2">
-              {publishingByAccount.map(r => (
+              {byAccountSorted.map(r => (
                 <Chip key={r.account} label={r.account || "sin cuenta"} value={r._count.id} />
               ))}
             </div>
           </div>
         )}
 
-        {publishingByResult.length > 0 && (
+        {byResultSorted.length > 0 && (
           <div className="mt-4">
             <p className="mb-2 text-xs font-semibold text-slate/60">Resultado de las respuestas</p>
             <div className="flex flex-wrap gap-2">
-              {publishingByResult.map(r => (
+              {byResultSorted.map(r => (
                 <Chip key={r.result} label={r.result.replace(/_/g, " ")} value={r._count.id} />
               ))}
             </div>
@@ -203,22 +208,22 @@ export default async function InformePage() {
           <Stat label="Visitas totales al blog" value={totalVisits} />
         </div>
 
-        {topLandingsByVisits.length > 0 && (
+        {topLandingsSorted.length > 0 && (
           <div className="mt-4">
             <p className="mb-2 text-xs font-semibold text-slate/60">Artículos más visitados</p>
             <div className="flex flex-col gap-1">
-              {topLandingsByVisits.map(r => (
-                <Bar key={r.slug} label={r.slug} value={r._count.id} max={topLandingsByVisits[0]._count.id} unit="visitas" />
+              {topLandingsSorted.map(r => (
+                <Bar key={r.slug} label={r.slug} value={r._count.id} max={topLandingsSorted[0]._count.id} unit="visitas" />
               ))}
             </div>
           </div>
         )}
 
-        {visitsByReferrer.length > 0 && (
+        {visitsByReferrerSorted.length > 0 && (
           <div className="mt-4">
             <p className="mb-2 text-xs font-semibold text-slate/60">De dónde llega la gente</p>
             <div className="flex flex-wrap gap-2">
-              {visitsByReferrer.map(r => (
+              {visitsByReferrerSorted.map(r => (
                 <Chip key={r.referrer} label={r.referrer} value={r._count.id} />
               ))}
             </div>
@@ -246,15 +251,15 @@ export default async function InformePage() {
           <Stat label="Pendientes de aprobar" value={distTotal - distPublished} />
         </div>
 
-        {distByCanal.length > 0 && (
+        {distByCanalSorted.length > 0 && (
           <div className="mt-4">
             <p className="mb-2 text-xs font-semibold text-slate/60">Publicadas por red</p>
             <div className="flex flex-col gap-1">
-              {distByCanal.map(r => (
+              {distByCanalSorted.map(r => (
                 <Bar key={r.canal}
                   label={CANAL_LABEL[r.canal] ?? r.canal}
                   value={r._count.id}
-                  max={distByCanal[0]._count.id} />
+                  max={distByCanalSorted[0]._count.id} />
               ))}
             </div>
           </div>
