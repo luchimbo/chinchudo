@@ -184,6 +184,95 @@ async function migrateLandings(slugToLmId: Map<string, string>) {
   console.log(`   ✅ ${count} landings importadas (${bySlug.size - count} ya existían)`);
 }
 
+// ─── DISTRIBUCIÓN (enjambre Bruno Labs) ───────────────────────────────────────
+async function migrateDistribution() {
+  type RawDist = {
+    id: string;
+    date: string;
+    channel: string;
+    title: string;
+    body: string;
+    status: string;
+    landing_slug?: string;
+    landing_url?: string;
+    auto_published_channels?: Record<string, {
+      published_at_utc?: string;
+      result?: { ok: boolean; url?: string };
+    }>;
+  };
+
+  const records = readJsonl<RawDist>("distribution_log.jsonl");
+  console.log(`\n📢 Distribution log: ${records.length} registros`);
+
+  // Sólo los que se publicaron exitosamente en al menos un canal
+  const published: {
+    canal: string;
+    contenido: string;
+    status: "PUBLISHED";
+    publishedAt: Date;
+    publishedUrl: string | null;
+    landingId: string | null;
+    createdAt: Date;
+  }[] = [];
+
+  // Mapa slug → id de landing (ya migradas)
+  const landingSlugMap = Object.fromEntries(
+    (await prisma.landing.findMany({ select: { id: true, slug: true } }))
+      .map((l) => [l.slug, l.id])
+  );
+
+  const CANAL_MAP: Record<string, string> = {
+    instagram: "INSTAGRAM",
+    facebook: "FACEBOOK",
+    x: "TWITTER",
+    twitter: "TWITTER",
+    linkedin: "LINKEDIN",
+    youtube: "YOUTUBE",
+    reddit: "REDDIT",
+    newsletter: "NEWSLETTER",
+    social: "INSTAGRAM", // genérico → instagram como fallback
+    forum: "FORUM",
+  };
+
+  for (const r of records) {
+    const autoPub = r.auto_published_channels ?? {};
+    for (const [ch, v] of Object.entries(autoPub)) {
+      if (!v?.result?.ok) continue;
+      const canal = CANAL_MAP[ch.toLowerCase()];
+      if (!canal) continue;
+
+      const pubAt = v.published_at_utc ? new Date(v.published_at_utc) : new Date(r.date);
+      const url = v.result.url?.startsWith("http") && !v.result.url.includes("/compose/") && !v.result.url.match(/^https?:\/\/[^/]+\/?$/)
+        ? v.result.url
+        : null;
+
+      published.push({
+        canal: canal as any,
+        contenido: r.body ?? r.title ?? "",
+        status: "PUBLISHED",
+        publishedAt: pubAt,
+        publishedUrl: url,
+        landingId: r.landing_slug ? (landingSlugMap[r.landing_slug] ?? null) : null,
+        createdAt: pubAt,
+      });
+    }
+  }
+
+  console.log(`   Publicaciones exitosas detectadas: ${published.length}`);
+
+  // Limpiar y re-importar (sólo los del enjambre, que no tienen opportunityId)
+  await prisma.distributionPiece.deleteMany({ where: { opportunityId: null } });
+
+  // Bulk insert en lotes de 200
+  const BATCH = 200;
+  let imported = 0;
+  for (let i = 0; i < published.length; i += BATCH) {
+    await prisma.distributionPiece.createMany({ data: published.slice(i, i + BATCH) });
+    imported += Math.min(BATCH, published.length - i);
+  }
+  console.log(`   ✅ ${imported} publicaciones del enjambre importadas`);
+}
+
 // ─── MAIN ─────────────────────────────────────────────────────────────────────
 async function main() {
   console.log("🚀 Iniciando migración de datos históricos de AgentesGuille...\n");
@@ -192,18 +281,20 @@ async function main() {
     await migrateGeoAudits();
     const slugToLmId = await migrateLeadMagnets();
     await migrateLandings(slugToLmId);
+    await migrateDistribution();
 
-    // Resumen final
-    const [geoCount, lmCount, landingCount] = await Promise.all([
+    const [geoCount, lmCount, landingCount, distCount] = await Promise.all([
       prisma.geoAudit.count(),
       prisma.leadMagnet.count(),
       prisma.landing.count(),
+      prisma.distributionPiece.count(),
     ]);
 
     console.log("\n✨ Migración completada:");
-    console.log(`   GEO Audits:   ${geoCount}`);
-    console.log(`   Lead Magnets: ${lmCount}`);
-    console.log(`   Landings:     ${landingCount}`);
+    console.log(`   GEO Audits:      ${geoCount}`);
+    console.log(`   Lead Magnets:    ${lmCount}`);
+    console.log(`   Landings:        ${landingCount}`);
+    console.log(`   Publicaciones:   ${distCount}`);
   } finally {
     await prisma.$disconnect();
   }

@@ -211,8 +211,11 @@ export default async function HomePage({ searchParams }: PageProps) {
           <Link href="/leads" className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
             Contactos
           </Link>
+          <Link href="/actividad" className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
+            Actividad
+          </Link>
           <Link href="/distribution" className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
-            Redes
+            Para publicar
           </Link>
           <Link href="/geo" className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
             En las IAs
