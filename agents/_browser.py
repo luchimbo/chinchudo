@@ -323,6 +323,8 @@ def ensure_browser(account: str | None = None) -> None:
                 f"  Puerto configurado: {port}"
             ) from start_err
 
+        # Re-read URL after start_browser() updates the runtime with the dynamic port
+        url = cdp_url(config)
         deadline = time.time() + 15
         while time.time() < deadline:
             try:
