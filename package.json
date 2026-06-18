@@ -33,6 +33,8 @@
     "agents:conversion": "python agents/orchestrator.py conversion",
     "db:backup": "node scripts/backup-db.mjs",
     "db:supabase-push": "prisma db push",
+    "relay": "node scripts/agent-relay.mjs",
+    "relay:start": "node scripts/start-relay.mjs",
     "test": "vitest run"
   },
   "dependencies": {

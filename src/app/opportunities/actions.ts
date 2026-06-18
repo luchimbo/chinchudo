@@ -246,7 +246,8 @@ export async function publishViaAgent(formData: FormData) {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${relayToken.trim()}` // trim() por si tiene \r\n del echo de Windows
+          "Authorization": `Bearer ${relayToken.trim()}`, // trim() por si tiene \r\n del echo de Windows
+          "Bypass-Tunnel-Reminder": "true"
         },
         body: JSON.stringify({
           opportunityId: parsed.opportunityId,
