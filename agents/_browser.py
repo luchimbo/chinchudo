@@ -217,8 +217,12 @@ def start_nstbrowser_profile(config: dict) -> dict:
     if not api_key:
         raise SystemExit("Falta NSTBROWSER_API_KEY en .env")
 
+    launch_config: dict = {}
+    if os.environ.get("NSTBROWSER_HEADLESS", "").lower() in ("1", "true", "yes"):
+        launch_config["headless"] = True
+
     try:
-        response = nstbrowser_request(f"{base}/browsers/{profile_id}", method="POST", data={})
+        response = nstbrowser_request(f"{base}/browsers/{profile_id}", method="POST", data=launch_config)
     except Exception as err:
         raise RuntimeError(
             f"\nNo se pudo iniciar el perfil Nstbrowser '{profile_id}' (cuenta: {config['id']}).\n"
@@ -297,11 +301,35 @@ def start_browser(account: str | None = None) -> dict:
 
 def ensure_browser(account: str | None = None) -> None:
     config = account_config(account)
-    url = cdp_url(config)
     provider = config.get("browserProvider", "chrome")
     is_dolphin = provider == "dolphin"
     is_nstbrowser = provider == "nstbrowser"
-    is_managed = is_dolphin or is_nstbrowser
+
+    if is_nstbrowser:
+        # Siempre llamamos a la API de NSTBrowser — es idempotente:
+        # si el perfil ya está corriendo devuelve el puerto actual,
+        # si no está corriendo lo arranca. Así nunca usamos un puerto stale.
+        label = config.get("label", account or "default")
+        try:
+            result = start_nstbrowser_profile(config)
+        except Exception as start_err:
+            raise RuntimeError(
+                f"\nNo se pudo iniciar el perfil Nstbrowser '{label}'.\n"
+                f"  Error: {start_err}\n\n"
+                f"  Asegurate de que la app Nstbrowser esté abierta y NSTBROWSER_API_KEY en .env sea válida."
+            ) from start_err
+        url = result["cdp_url"]
+        deadline = time.time() + 15
+        while time.time() < deadline:
+            try:
+                json_get(f"{url}/json/version")
+                return
+            except Exception as exc:
+                _log.debug("esperando cdp nstbrowser", account=account or "default", url=url, error=str(exc))
+                time.sleep(0.5)
+        raise RuntimeError(f"Nstbrowser no expuso CDP en {url} tras iniciar el perfil '{label}'")
+
+    url = cdp_url(config)
 
     try:
         json_get(f"{url}/json/version")
@@ -309,21 +337,19 @@ def ensure_browser(account: str | None = None) -> None:
     except Exception as exc:
         _log.debug("cdp no disponible, intentando arrancar", account=account or "default", url=url, error=str(exc))
 
-    if is_managed:
-        provider_label = "Dolphin Anty" if is_dolphin else "Nstbrowser"
+    if is_dolphin:
         try:
             start_browser(account)
         except Exception as start_err:
             label = config.get("label", account or "default")
             port = config.get("cdpPort", DEFAULT_CDP_PORT)
             raise RuntimeError(
-                f"\nNo se pudo iniciar el perfil {provider_label} '{label}'.\n"
+                f"\nNo se pudo iniciar el perfil Dolphin Anty '{label}'.\n"
                 f"  Error: {start_err}\n\n"
-                f"  Asegurate de que {provider_label} esté abierto y la API key en .env sea válida.\n"
+                f"  Asegurate de que Dolphin Anty esté abierto y la API key en .env sea válida.\n"
                 f"  Puerto configurado: {port}"
             ) from start_err
 
-        # Re-read URL after start_browser() updates the runtime with the dynamic port
         url = cdp_url(config)
         deadline = time.time() + 15
         while time.time() < deadline:
@@ -333,7 +359,7 @@ def ensure_browser(account: str | None = None) -> None:
             except Exception as exc:
                 _log.debug("esperando cdp", account=account or "default", error=str(exc))
                 time.sleep(0.5)
-        raise RuntimeError(f"{provider_label} no expuso CDP en {url} tras iniciar el perfil")
+        raise RuntimeError(f"Dolphin Anty no expuso CDP en {url} tras iniciar el perfil")
 
     fallback_ports = [9222, 9223, 9224, 9225, 9226, 9227, 9228]
     for fallback_port in fallback_ports:
