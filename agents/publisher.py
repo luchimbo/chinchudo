@@ -101,11 +101,18 @@ def _yt_scroll_to_comments(client, timeout: int = 30) -> bool:
     }))()
     """ % json.dumps(_PLACEHOLDER_SEL)
 
+    _yt_wait_for_page(client)
     deadline = time.time() + timeout
     while time.time() < deadline:
-        browser_cdp.evaluate(client, scroll_js)
+        try:
+            browser_cdp.evaluate(client, scroll_js)
+        except Exception:
+            pass  # scroll es best-effort; YouTube puede tirar excepciones internas
         time.sleep(1.5)
-        r = browser_cdp.evaluate(client, check_js)
+        try:
+            r = browser_cdp.evaluate(client, check_js)
+        except Exception:
+            r = None
         if r and (r.get("simplebox") or r.get("threads", 0) > 0):
             return True
     return False
