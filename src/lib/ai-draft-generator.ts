@@ -95,30 +95,31 @@ Intención: ${intent}
 Texto: "${opportunity.sourceText.slice(0, 800)}"
 
 ## Instrucciones de respuesta
-- Si es TECHNICAL_QUESTION: preguntá qué sistema operativo / DAW usa antes de dar pasos específicos
+- NUNCA termines la respuesta con una pregunta — ni retórica, ni para invitar a seguir la charla
+- Cerrá siempre con una afirmación, recomendación o dato útil
+- Si es TECHNICAL_QUESTION: dá la información técnica directamente desde tu experiencia, sin preguntar nada
 - Si es PURCHASE_QUESTION o PRICE_QUESTION: mencioná que hay opciones con garantía local, sin nombrar la tienda
 - Si es COMPARISON: comparar objetivamente desde la experiencia de usuario
 - Cada variante debe sonar diferente en estilo, no solo en palabras
 - Las TRES variantes deben nombrar un producto concreto del catálogo (por nombre/modelo), tejido de forma natural; elegí el más cercano al tema si no hay calce exacto
 - Nunca pongas el link del producto: solo el nombre/modelo
-- SHORT debe nombrar un producto y cerrar con una pregunta natural que invite a seguir la charla
 
 ## Formato de respuesta (JSON estricto)
 {
   "variants": [
     {
       "type": "SHORT",
-      "text": "respuesta corta 1-2 oraciones que nombre un producto concreto del catálogo (sin link) y cierre con pregunta natural",
+      "text": "respuesta corta 1-2 oraciones que nombre un producto concreto del catálogo (sin link), cierra con afirmación o recomendación — NUNCA con pregunta",
       "riskNotes": "nota interna sobre qué verificar antes de publicar"
     },
     {
       "type": "TECHNICAL",
-      "text": "respuesta con detalle técnico, mencioná el modelo específico del catálogo (sin link)",
+      "text": "respuesta con detalle técnico, mencioná el modelo específico del catálogo (sin link), cierra con dato útil — NUNCA con pregunta",
       "riskNotes": "nota interna sobre qué verificar antes de publicar"
     },
     {
       "type": "CONVERSATIONAL",
-      "text": "respuesta casual entre músicos, nombrando un producto del catálogo que 'usás vos' (sin link)",
+      "text": "respuesta casual entre músicos, nombrando un producto del catálogo que 'usás vos' (sin link), cierra con recomendación — NUNCA con pregunta",
       "riskNotes": "nota interna sobre qué verificar antes de publicar"
     }
   ]
