@@ -1,12 +1,16 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { createBrand, updateBrand, deleteBrand } from "./actions";
+import { getVisibleClients } from "@/lib/auth";
 
 const inputCls = "rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm text-ink";
 const labelCls = "grid gap-1 text-xs font-semibold text-slate";
 
-export default async function BrandsPage() {
+export default async function BrandsPage({ searchParams }: { searchParams: { client?: string } }) {
+  const clients = await getVisibleClients(prisma);
+  const activeClient = clients.find((client) => client.slug === searchParams.client) ?? clients[0] ?? null;
   const brands = await prisma.brand.findMany({
+    where: activeClient ? { clientId: activeClient.id } : undefined,
     include: { _count: { select: { products: true, responses: true } } },
     orderBy: { name: "asc" }
   });
@@ -21,6 +25,12 @@ export default async function BrandsPage() {
             Posicionamiento, tono y claims permitidos/prohibidos. Alimentan el contexto de cada respuesta.
           </p>
         </div>
+        <form>
+          <select name="client" defaultValue={activeClient?.slug ?? ""} className={inputCls}>
+            {clients.map((client) => <option key={client.id} value={client.slug}>{client.name}</option>)}
+          </select>
+          <button className="ml-2 rounded-full border border-ink/20 px-4 py-2 text-sm font-semibold text-ink">Cambiar</button>
+        </form>
         <Link href="/admin" className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
           Volver
         </Link>
@@ -29,6 +39,7 @@ export default async function BrandsPage() {
       <section className="mb-10">
         <h2 className="font-display text-2xl text-ink">Nueva marca</h2>
         <form action={createBrand} className="mt-4 grid gap-3 rounded-lg border border-ink/10 bg-white/70 p-4 shadow-panel md:grid-cols-2">
+          <input type="hidden" name="clientId" value={activeClient?.id ?? ""} />
           <label className={labelCls}>
             Nombre
             <input name="name" required minLength={2} maxLength={80} className={inputCls} />
@@ -61,6 +72,7 @@ export default async function BrandsPage() {
           {brands.map((b) => (
             <form key={b.id} action={updateBrand} className="grid gap-3 rounded-lg border border-ink/10 bg-paper p-4 md:grid-cols-2">
               <input type="hidden" name="id" value={b.id} />
+              <input type="hidden" name="clientId" value={activeClient?.id ?? ""} />
               <label className={labelCls}>
                 Nombre
                 <input name="name" defaultValue={b.name} required className={inputCls} />

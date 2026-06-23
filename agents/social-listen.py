@@ -109,7 +109,53 @@ def append_jsonl(path: Path, rows: list[dict]) -> None:
             handle.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
 
 
-def is_on_topic(item: dict, query: str = "") -> bool:
+def load_client_rules(source_id: str | None = None, client_id: str | None = None, query: str = "") -> tuple[list[str], list[str]]:
+    # Fallback default values (matching the hardcoded ones if nothing else is found)
+    keywords = list(DOMAIN_KEYWORDS)
+    exclusions = list(DOMAIN_EXCLUSIONS)
+
+    try:
+        from db_pg import connect
+        with connect() as conn:
+            row = None
+            if source_id:
+                row = conn.execute(
+                    'SELECT c."domainKeywords", c."domainExclusions" '
+                    'FROM "Client" c '
+                    'JOIN "MonitoredSource" ms ON ms."clientId" = c.id '
+                    'WHERE ms.id = %s',
+                    (source_id,)
+                ).fetchone()
+            elif client_id:
+                row = conn.execute(
+                    'SELECT "domainKeywords", "domainExclusions" FROM "Client" WHERE id = %s',
+                    (client_id,)
+                ).fetchone()
+            
+            if not row and query:
+                # Intenta matchear por query contra el slug/name del cliente o sus keywords
+                clients = conn.execute('SELECT id, "domainKeywords", "domainExclusions" FROM "Client" WHERE active = true').fetchall()
+                # Si una de las keywords del cliente está en la query, elegimos ese
+                q_lower = query.lower()
+                for c in clients:
+                    kws = json.loads(c["domainKeywords"])
+                    if any(kw.lower() in q_lower for kw in kws):
+                        row = c
+                        break
+                if not row and clients:
+                    # Fallback al primer cliente activo
+                    row = clients[0]
+
+            if row:
+                keywords = json.loads(row["domainKeywords"])
+                exclusions = json.loads(row["domainExclusions"])
+    except Exception as exc:
+        log.warning("listen_db_rules_load_failed", error=str(exc))
+
+    return keywords, exclusions
+
+
+def is_on_topic(item: dict, query: str, keywords: list[str], exclusions: list[str]) -> bool:
     # La query con la que se encontró el ítem se incluye en el contexto:
     # si buscamos "controlador midi" y el comentario dice "lo quiero!" sigue siendo on-topic.
     combined = (
@@ -119,9 +165,11 @@ def is_on_topic(item: dict, query: str = "") -> bool:
         (item.get("videoTitle") or "") +
         " "
     ).lower()
-    if any(exc in combined for exc in DOMAIN_EXCLUSIONS):
-        return False
-    return any(kw in combined for kw in DOMAIN_KEYWORDS)
+    for exc in exclusions:
+        if exc.lower() in combined:
+            return False
+    return any(kw.lower() in combined for kw in keywords)
+
 
 
 # Detección de idioma: por ahora solo operamos en Argentina / español.
@@ -278,8 +326,13 @@ def normalize_item(channel: str, query: str, item: dict, account: str | None, so
     }
 
 
-def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str | None, source_id: str | None = None) -> dict:
+def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str | None, source_id: str | None = None, client_id: str | None = None) -> dict:
     log.info("listen_start", channel=channel, account=account or "default", query=query[:60], limit=limit, dry_run=dry_run)
+    
+    # Cargar dinámicamente palabras clave y exclusiones del cliente
+    keywords, exclusions = load_client_rules(source_id=source_id, client_id=client_id, query=query)
+    log.info("listen_rules_loaded", keywords_count=len(keywords), exclusions_count=len(exclusions))
+
     try:
         ws_url = browser_cdp.get_page_ws_url(account)
     except Exception as exc:
@@ -335,7 +388,7 @@ def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str
         if not item.get("url"):
             discarded.append({"reason": "sin_url", "text": (item.get("context") or "")[:60]})
             continue
-        if not is_on_topic(item, query=query):
+        if not is_on_topic(item, query, keywords, exclusions):
             discarded.append({"reason": "fuera_de_tema", "text": (item.get("context") or item.get("title") or "")[:60]})
             continue
         lang_text = (item.get("context") or item.get("title") or item.get("videoTitle") or "")
@@ -400,11 +453,16 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=5)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--source-id", default="")
+    parser.add_argument("--client-id", default="")
     args = parser.parse_args()
 
-    summary = run_listen(args.channel, args.query, args.limit, args.dry_run, args.account or None, args.source_id or None)
+    summary = run_listen(
+        args.channel, args.query, args.limit, args.dry_run, args.account or None,
+        source_id=args.source_id or None, client_id=args.client_id or None
+    )
     print(json.dumps(summary, ensure_ascii=True, indent=2))
 
 
 if __name__ == "__main__":
     main()
+

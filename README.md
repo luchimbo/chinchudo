@@ -30,7 +30,23 @@ La app queda en `http://localhost:3000`. El login requiere la contraseña defini
 | `DIRECT_URL` | URL directa de Supabase (puerto 5432 Session mode) |
 | `OPENROUTER_API_KEY` | API key de OpenRouter |
 | `OPENROUTER_MODEL` | Modelo a usar (default: `google/gemini-2.0-flash-lite`) |
-| `AUTH_SECRET` | Contraseña para acceder al dashboard |
+| `AUTH_SECRET` | Secreto de sesión para firmar acceso al dashboard |
+| `AUTH_PASSWORD` | Contraseña legacy si no se usa `AUTH_USERS_JSON` |
+| `AUTH_USERS_JSON` | Usuarios por cliente, opcional |
+
+### Usuarios por cliente
+
+Si existe `AUTH_USERS_JSON`, el login pide usuario y contraseña. Si no existe, sigue funcionando el modo legacy con `AUTH_PASSWORD`.
+
+```env
+AUTH_USERS_JSON='[
+  {"username":"lucio","password":"cambiar","label":"Lucio","role":"admin","clientSlugs":["pcmidi","prestige-running"]},
+  {"username":"fede","password":"cambiar","label":"Fede","role":"operator","clientSlugs":["pcmidi"]},
+  {"username":"prestige","password":"cambiar","label":"Prestige","role":"operator","clientSlugs":["prestige-running"]}
+]'
+```
+
+`admin` ve todos los clientes activos. `operator` solo ve los `clientSlugs` asignados.
 
 ## Scripts
 

@@ -1,5 +1,6 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { getVisibleClients } from "@/lib/auth";
 import { createProduct, updateProduct, deleteProduct } from "./actions";
 
 type BrandOpt = { id: string; name: string };
@@ -21,22 +22,34 @@ function BrandSelect({ brands, value }: { brands: BrandOpt[]; value?: string }) 
   );
 }
 
-export default async function ProductsPage() {
+export default async function ProductsPage({ searchParams }: { searchParams: { client?: string } }) {
+  const clients = await getVisibleClients(prisma);
+  const activeClient = clients.find((client) => client.slug === searchParams.client) ?? clients[0] ?? null;
   const [brands, products] = await Promise.all([
-    prisma.brand.findMany({ orderBy: { name: "asc" } }),
-    prisma.product.findMany({ include: { brand: true }, orderBy: [{ brand: { name: "asc" } }, { name: "asc" }] })
+    prisma.brand.findMany({ where: activeClient ? { clientId: activeClient.id } : undefined, orderBy: { name: "asc" } }),
+    prisma.product.findMany({
+      where: activeClient ? { brand: { clientId: activeClient.id } } : undefined,
+      include: { brand: true },
+      orderBy: [{ brand: { name: "asc" } }, { name: "asc" }]
+    })
   ]);
 
   return (
     <main className="relative mx-auto flex min-h-screen w-full max-w-5xl flex-col px-5 py-8">
       <header className="mb-8 flex items-center justify-between gap-4">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.28em] text-moss">Catálogo</p>
+          <p className="text-xs font-bold uppercase tracking-[0.28em] text-moss">CatÃ¡logo</p>
           <h1 className="font-display text-4xl text-ink">Productos</h1>
           <p className="mt-2 max-w-2xl text-sm text-slate">
-            Specs, garantía, stock y precio. Estos datos alimentan el contexto de las respuestas.
+            Specs, garantÃ­a, stock y precio. Estos datos alimentan el contexto de las respuestas.
           </p>
         </div>
+        <form>
+          <select name="client" defaultValue={activeClient?.slug ?? ""} className={inputCls}>
+            {clients.map((client) => <option key={client.id} value={client.slug}>{client.name}</option>)}
+          </select>
+          <button className="ml-2 rounded-full border border-ink/20 px-4 py-2 text-sm font-semibold text-ink">Cambiar</button>
+        </form>
         <Link href="/" className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
           Volver
         </Link>
@@ -51,8 +64,8 @@ export default async function ProductsPage() {
             <input name="name" required className={inputCls} />
           </label>
           <label className={labelCls}>
-            Categoría
-            <input name="category" required placeholder="Controlador MIDI, Batería electrónica..." className={inputCls} />
+            CategorÃ­a
+            <input name="category" required placeholder="Controlador MIDI, BaterÃ­a electrÃ³nica..." className={inputCls} />
           </label>
           <label className={labelCls}>
             Stock
@@ -63,11 +76,11 @@ export default async function ProductsPage() {
             <input name="priceRange" placeholder="Por confirmar" className={inputCls} />
           </label>
           <label className={`${labelCls} md:col-span-2`}>
-            Descripción
+            DescripciÃ³n
             <textarea name="description" rows={2} className={`${inputCls} resize-y`} />
           </label>
           <label className={`${labelCls} md:col-span-2`}>
-            Specs técnicas
+            Specs tÃ©cnicas
             <textarea name="technicalSpecs" rows={2} className={`${inputCls} resize-y`} />
           </label>
           <label className={labelCls}>
@@ -75,7 +88,7 @@ export default async function ProductsPage() {
             <input name="useCases" className={inputCls} />
           </label>
           <label className={labelCls}>
-            Notas de garantía
+            Notas de garantÃ­a
             <input name="warrantyNotes" className={inputCls} />
           </label>
           <div className="flex items-end justify-end md:col-span-2">
@@ -85,7 +98,7 @@ export default async function ProductsPage() {
       </section>
 
       <section>
-        <h2 className="font-display text-2xl text-ink">Catálogo ({products.length})</h2>
+        <h2 className="font-display text-2xl text-ink">CatÃ¡logo ({products.length})</h2>
         <div className="mt-4 grid gap-3">
           {products.map((p) => (
             <form key={p.id} action={updateProduct} className="grid gap-3 rounded-lg border border-ink/10 bg-paper p-4 md:grid-cols-2">
@@ -96,7 +109,7 @@ export default async function ProductsPage() {
                 <input name="name" defaultValue={p.name} required className={inputCls} />
               </label>
               <label className={labelCls}>
-                Categoría
+                CategorÃ­a
                 <input name="category" defaultValue={p.category} required className={inputCls} />
               </label>
               <label className={labelCls}>
@@ -112,15 +125,15 @@ export default async function ProductsPage() {
                 <input name="useCases" defaultValue={p.useCases} className={inputCls} />
               </label>
               <label className={`${labelCls} md:col-span-2`}>
-                Descripción
+                DescripciÃ³n
                 <textarea name="description" defaultValue={p.description} rows={2} className={`${inputCls} resize-y`} />
               </label>
               <label className={`${labelCls} md:col-span-2`}>
-                Specs técnicas
+                Specs tÃ©cnicas
                 <textarea name="technicalSpecs" defaultValue={p.technicalSpecs} rows={2} className={`${inputCls} resize-y`} />
               </label>
               <label className={`${labelCls} md:col-span-2`}>
-                Notas de garantía
+                Notas de garantÃ­a
                 <input name="warrantyNotes" defaultValue={p.warrantyNotes} className={inputCls} />
               </label>
               <div className="flex items-end justify-end gap-2 md:col-span-2">
@@ -135,3 +148,4 @@ export default async function ProductsPage() {
     </main>
   );
 }
+

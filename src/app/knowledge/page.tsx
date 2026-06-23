@@ -1,5 +1,6 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { getVisibleClients } from "@/lib/auth";
 import {
   createKnowledge,
   updateKnowledge,
@@ -43,12 +44,18 @@ function ProductSelect({ products, value }: { products: ProductOpt[]; value?: st
   );
 }
 
-export default async function KnowledgePage() {
+export default async function KnowledgePage({ searchParams }: { searchParams: { client?: string } }) {
+  const clients = await getVisibleClients(prisma);
+  const activeClient = clients.find((client) => client.slug === searchParams.client) ?? clients[0] ?? null;
   const [brands, products, faqs, objections] = await Promise.all([
-    prisma.brand.findMany({ orderBy: { name: "asc" } }),
-    prisma.product.findMany({ include: { brand: true }, orderBy: [{ brand: { name: "asc" } }, { name: "asc" }] }),
-    prisma.knowledgeBase.findMany({ orderBy: { updatedAt: "desc" } }),
-    prisma.objection.findMany({ orderBy: { updatedAt: "desc" } })
+    prisma.brand.findMany({ where: activeClient ? { clientId: activeClient.id } : undefined, orderBy: { name: "asc" } }),
+    prisma.product.findMany({
+      where: activeClient ? { brand: { clientId: activeClient.id } } : undefined,
+      include: { brand: true },
+      orderBy: [{ brand: { name: "asc" } }, { name: "asc" }]
+    }),
+    prisma.knowledgeBase.findMany({ where: activeClient ? { clientId: activeClient.id } : undefined, orderBy: { updatedAt: "desc" } }),
+    prisma.objection.findMany({ where: activeClient ? { clientId: activeClient.id } : undefined, orderBy: { updatedAt: "desc" } })
   ]);
 
   return (
@@ -58,9 +65,15 @@ export default async function KnowledgePage() {
           <p className="text-xs font-bold uppercase tracking-[0.28em] text-moss">Base de conocimiento</p>
           <h1 className="font-display text-4xl text-ink">FAQs y objeciones</h1>
           <p className="mt-2 max-w-2xl text-sm text-slate">
-            Lo que cargues acá se inyecta como datos verificados al generar respuestas. La IA no debe inventar fuera de esto.
+            Lo que cargues acÃ¡ se inyecta como datos verificados al generar respuestas. La IA no debe inventar fuera de esto.
           </p>
         </div>
+        <form>
+          <select name="client" defaultValue={activeClient?.slug ?? ""} className={inputCls}>
+            {clients.map((client) => <option key={client.id} value={client.slug}>{client.name}</option>)}
+          </select>
+          <button className="ml-2 rounded-full border border-ink/20 px-4 py-2 text-sm font-semibold text-ink">Cambiar</button>
+        </form>
         <Link href="/" className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
           Volver
         </Link>
@@ -71,11 +84,12 @@ export default async function KnowledgePage() {
         <h2 className="font-display text-2xl text-ink">Datos verificados ({faqs.length})</h2>
 
         <form action={createKnowledge} className="mt-4 grid gap-3 rounded-lg border border-ink/10 bg-white/70 p-4 shadow-panel md:grid-cols-2">
+          <input type="hidden" name="clientId" value={activeClient?.id ?? ""} />
           <BrandSelect brands={brands} />
           <ProductSelect products={products} />
           <label className={`${labelCls} md:col-span-2`}>
             Tema
-            <input name="topic" required placeholder="Ej: Garantía MidiPlus" className={inputCls} />
+            <input name="topic" required placeholder="Ej: GarantÃ­a MidiPlus" className={inputCls} />
           </label>
           <label className={`${labelCls} md:col-span-2`}>
             Contenido (dato verificado)
@@ -98,6 +112,7 @@ export default async function KnowledgePage() {
           {faqs.map((f) => (
             <form key={f.id} action={updateKnowledge} className="grid gap-3 rounded-lg border border-ink/10 bg-paper p-4 md:grid-cols-2">
               <input type="hidden" name="id" value={f.id} />
+              <input type="hidden" name="clientId" value={activeClient?.id ?? ""} />
               <BrandSelect brands={brands} value={f.brandId} />
               <ProductSelect products={products} value={f.productId} />
               <label className={`${labelCls} md:col-span-2`}>
@@ -134,10 +149,11 @@ export default async function KnowledgePage() {
         <h2 className="font-display text-2xl text-ink">Objeciones ({objections.length})</h2>
 
         <form action={createObjection} className="mt-4 grid gap-3 rounded-lg border border-ink/10 bg-white/70 p-4 shadow-panel md:grid-cols-2">
+          <input type="hidden" name="clientId" value={activeClient?.id ?? ""} />
           <BrandSelect brands={brands} />
           <ProductSelect products={products} />
           <label className={`${labelCls} md:col-span-2`}>
-            Objeción
+            ObjeciÃ³n
             <input name="objection" required placeholder="Ej: Es muy barato, debe ser malo" className={inputCls} />
           </label>
           <label className={`${labelCls} md:col-span-2`}>
@@ -146,10 +162,10 @@ export default async function KnowledgePage() {
           </label>
           <label className={`${labelCls} md:col-span-2`}>
             Notas de persona (opcional)
-            <input name="personaNotes" placeholder="Ej: útil para Cazador de Ofertas" className={inputCls} />
+            <input name="personaNotes" placeholder="Ej: Ãºtil para Cazador de Ofertas" className={inputCls} />
           </label>
           <div className="flex items-end justify-end md:col-span-2">
-            <button className="rounded-full bg-ink px-5 py-2 text-sm font-bold text-paper transition hover:bg-slate">Agregar objeción</button>
+            <button className="rounded-full bg-ink px-5 py-2 text-sm font-bold text-paper transition hover:bg-slate">Agregar objeciÃ³n</button>
           </div>
         </form>
 
@@ -157,10 +173,11 @@ export default async function KnowledgePage() {
           {objections.map((o) => (
             <form key={o.id} action={updateObjection} className="grid gap-3 rounded-lg border border-ink/10 bg-paper p-4 md:grid-cols-2">
               <input type="hidden" name="id" value={o.id} />
+              <input type="hidden" name="clientId" value={activeClient?.id ?? ""} />
               <BrandSelect brands={brands} value={o.brandId} />
               <ProductSelect products={products} value={o.productId} />
               <label className={`${labelCls} md:col-span-2`}>
-                Objeción
+                ObjeciÃ³n
                 <input name="objection" defaultValue={o.objection} required className={inputCls} />
               </label>
               <label className={`${labelCls} md:col-span-2`}>
@@ -183,3 +200,4 @@ export default async function KnowledgePage() {
     </main>
   );
 }
+

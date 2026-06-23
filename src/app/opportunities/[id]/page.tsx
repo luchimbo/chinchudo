@@ -15,7 +15,8 @@ import {
   statusLabels,
   type OpportunityStatusValue
 } from "@/lib/labels";
-import { suggestPersona } from "@/lib/persona-router";
+import { suggestAllPersonasForClient } from "@/lib/persona-router";
+import { resolveOpportunityClient } from "@/lib/client-context";
 import { CopyButton } from "./CopyButton";
 import { SubmitButton } from "./SubmitButton";
 
@@ -32,56 +33,57 @@ function statusClass(status: string) {
 }
 
 const agentErrorMessages: Record<string, string> = {
-  no_comment_box: "No se encontró el cuadro de comentario. Asegurate de que YouTube esté logueado en el perfil y que los comentarios estén habilitados en ese video.",
+  no_comment_box: "No se encontrÃ³ el cuadro de comentario. Asegurate de que YouTube estÃ© logueado en el perfil y que los comentarios estÃ©n habilitados en ese video.",
   no_input_box: "No se pudo activar el campo de texto del comentario.",
-  no_submit_button: "Se escribió el comentario pero no se encontró el botón de enviar.",
-  no_reply_button: "Se encontró el comentario pero no el botón Responder.",
-  no_reply_input: "Se abrió el diálogo de respuesta pero no apareció el campo de texto.",
-  no_reply_submit: "Se escribió la respuesta pero no se encontró el botón de enviar.",
-  comment_not_found: "No se encontró el comentario específico en la página (cayó en top-level como fallback).",
-  not_logged_in: "El perfil no está logueado en la plataforma.",
-  dolphin_not_running: "No se pudo iniciar el perfil. Asegurate de que NSTBrowser esté abierto.",
-  relay_fetch_failed: "No se pudo conectar al servidor relay local. Asegurate de que el relay y el Cloudflare Tunnel estén corriendo en la PC principal.",
-  publish_failed: "El agente falló al intentar publicar. Revisá los logs del servidor.",
-  rate_limited_spacing: "Esta cuenta publicó hace menos de 10 minutos. Esperá un momento antes de reintentar.",
-  rate_limited_daily: "Esta cuenta alcanzó el límite diario de publicaciones (8). Usá otra cuenta o intentá mañana.",
-  unknown: "Error desconocido. Revisá los logs del servidor.",
+  no_submit_button: "Se escribiÃ³ el comentario pero no se encontrÃ³ el botÃ³n de enviar.",
+  no_reply_button: "Se encontrÃ³ el comentario pero no el botÃ³n Responder.",
+  no_reply_input: "Se abriÃ³ el diÃ¡logo de respuesta pero no apareciÃ³ el campo de texto.",
+  no_reply_submit: "Se escribiÃ³ la respuesta pero no se encontrÃ³ el botÃ³n de enviar.",
+  comment_not_found: "No se encontrÃ³ el comentario especÃ­fico en la pÃ¡gina (cayÃ³ en top-level como fallback).",
+  not_logged_in: "El perfil no estÃ¡ logueado en la plataforma.",
+  dolphin_not_running: "No se pudo iniciar el perfil. Asegurate de que NSTBrowser estÃ© abierto.",
+  relay_fetch_failed: "No se pudo conectar al servidor relay local. Asegurate de que el relay y el Cloudflare Tunnel estÃ©n corriendo en la PC principal.",
+  publish_failed: "El agente fallÃ³ al intentar publicar. RevisÃ¡ los logs del servidor.",
+  rate_limited_spacing: "Esta cuenta publicÃ³ hace menos de 10 minutos. EsperÃ¡ un momento antes de reintentar.",
+  rate_limited_daily: "Esta cuenta alcanzÃ³ el lÃ­mite diario de publicaciones (8). UsÃ¡ otra cuenta o intentÃ¡ maÃ±ana.",
+  unknown: "Error desconocido. RevisÃ¡ los logs del servidor.",
 };
 
 export default async function OpportunityDetailPage({ params, searchParams }: PageProps) {
-  const [opportunity, personas, brands] = await Promise.all([
-    prisma.opportunity.findUnique({
-      where: { id: params.id },
-      include: {
-        channel: true,
-        detectedBrand: true,
-        detectedProduct: true,
-        responses: {
-          include: {
-            persona: true,
-            brand: true,
-            publishingLog: true
-          },
-          orderBy: { createdAt: "desc" }
-        }
+  const opportunity = await prisma.opportunity.findUnique({
+    where: { id: params.id },
+    include: {
+      channel: true,
+      detectedBrand: { include: { client: true } },
+      detectedProduct: true,
+      monitoredSource: { include: { client: true } },
+      responses: {
+        include: {
+          persona: true,
+          brand: true,
+          publishingLog: true
+        },
+        orderBy: { createdAt: "desc" }
       }
-    }),
-    prisma.persona.findMany({ orderBy: { name: "asc" } }),
-    prisma.brand.findMany({ orderBy: { name: "asc" } })
-  ]);
+    }
+  });
 
   if (!opportunity) {
     notFound();
   }
 
+  const resolution = await resolveOpportunityClient(prisma, opportunity);
+  const [personas, brands] = await Promise.all([
+    prisma.persona.findMany({ where: { clientId: resolution.client.id }, orderBy: { name: "asc" } }),
+    prisma.brand.findMany({ where: { clientId: resolution.client.id }, orderBy: { name: "asc" } })
+  ]);
+
   const selectedBrandId = opportunity.detectedBrandId ?? brands[0]?.id ?? "";
   const approvedResponse = opportunity.responses.find((response) => response.approvedBy);
-
-  // Sugerir arquetipo según el contexto del comentario
-  const suggestion = suggestPersona(opportunity);
-  const suggestedPersona = personas.find((p) => p.name === suggestion.personaName);
+  const suggestions = await suggestAllPersonasForClient(prisma, opportunity, resolution.client.id);
+  const suggestion = suggestions[0];
+  const suggestedPersona = personas.find((p) => p.name === suggestion?.personaName);
   const suggestedPersonaId = suggestedPersona?.id ?? personas[0]?.id ?? "";
-
   const channelLower = opportunity.channel.name.toLowerCase();
   type AccountEntry = { label: string; allowedChannels: string[]; defaultPersona?: string };
   let agentAccounts: { name: string; label: string; defaultPersona: string }[] = [];
@@ -99,15 +101,19 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
     }
     if (raw) {
       agentAccounts = Object.entries(raw)
-        .filter(([, cfg]) => cfg.allowedChannels.includes(channelLower))
+        .filter(([, cfg]) => {
+          const chanMatch = cfg.allowedChannels.includes(channelLower);
+          const clientMatch = !cfg.clientSlug || cfg.clientSlug === resolution.client.slug;
+          return chanMatch && clientMatch;
+        })
         .map(([name, cfg]) => ({ name, label: cfg.label, defaultPersona: cfg.defaultPersona ?? "" }));
     }
   } catch {
-    // accounts no disponible — publicacion via agente deshabilitada
+    // accounts no disponible â€” publicacion via agente deshabilitada
   }
   const canPublishViaAgent = (channelLower === "youtube" || channelLower === "reddit" || channelLower === "x" || channelLower === "facebook" || channelLower === "instagram") && agentAccounts.length > 0;
 
-  // Cuenta sugerida: la que tiene como defaultPersona el arquetipo sugerido y está habilitada para este canal
+  // Cuenta sugerida: la que tiene como defaultPersona el arquetipo sugerido y estÃ¡ habilitada para este canal
   const suggestedAccount = agentAccounts.find((a) => a.defaultPersona === suggestion.personaName);
 
   return (
@@ -208,11 +214,18 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
                         defaultValue={response.editedText || response.draftText}
                         className="w-full resize-y rounded-md border border-ink/15 bg-white px-3 py-3 text-sm leading-6 text-ink"
                       />
-                      <p className="text-xs leading-5 text-slate/75">{response.riskNotes}</p>
+                      {response.riskNotes ? (
+                        <details className="rounded-md border border-ink/10 bg-white/60 px-3 py-2 text-xs text-slate/75">
+                          <summary className="cursor-pointer font-bold text-slate">
+                            Ver notas internas
+                          </summary>
+                          <p className="mt-2 leading-5">{response.riskNotes}</p>
+                        </details>
+                      ) : null}
                       <div className="flex flex-wrap justify-end gap-2">
                         <input type="hidden" name="approvedBy" value="Fede" />
                         <SubmitButton
-                          loadingText="Aprobando…"
+                          loadingText="Aprobandoâ€¦"
                           className="rounded-full bg-ink px-4 py-2 text-sm font-bold text-paper transition hover:bg-slate disabled:opacity-50"
                         >
                           Aprobar texto
@@ -253,12 +266,12 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
             </label>
             {suggestedPersona ? (
               <p className="mt-2 rounded-md bg-white/10 px-3 py-2 text-xs leading-5 text-paper/70">
-                <span className="font-bold text-paper">Sugerencia automática:</span> {suggestion.personaName}
-                {suggestion.reason ? <span className="text-paper/55"> — {suggestion.reason}</span> : null}
+                <span className="font-bold text-paper">Sugerencia automÃ¡tica:</span> {suggestion.personaName}
+                {suggestion.reason ? <span className="text-paper/55"> â€” {suggestion.reason}</span> : null}
               </p>
             ) : null}
             <SubmitButton
-              loadingText="Generando…"
+              loadingText="Generandoâ€¦"
               className="mt-5 w-full rounded-full bg-paper px-5 py-3 text-sm font-bold text-ink transition hover:bg-white disabled:opacity-50"
             >
               Generar 3 variantes
@@ -289,7 +302,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
               </label>
               <CopyButton text={approvedResponse.editedText || approvedResponse.draftText} className="mt-3 w-full rounded-full border border-ink/20 bg-paper px-5 py-3 text-sm font-bold text-ink transition hover:border-ink/45 hover:bg-white" />
               <SubmitButton
-                loadingText="Guardando…"
+                loadingText="Guardandoâ€¦"
                 className="mt-3 w-full rounded-full bg-moss px-5 py-3 text-sm font-bold text-white transition hover:bg-ink disabled:opacity-50"
               >
                 Marcar publicado
@@ -308,7 +321,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
               <label className="mt-4 grid gap-2 text-sm font-semibold text-slate">
                 Cuenta
                 <select name="account" defaultValue={suggestedAccount?.name ?? ""} className="rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink">
-                  <option value="">— Navegador personal —</option>
+                  <option value="">â€” Navegador personal â€”</option>
                   {agentAccounts.map(({ name, label }) => (
                     <option key={name} value={name}>
                       {label}{name === suggestedAccount?.name ? " (sugerida)" : ""}
@@ -333,10 +346,10 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
                 </div>
               )}
               <SubmitButton
-                loadingText="⏳ Publicando… (puede tardar 1-2 min)"
+                loadingText="â³ Publicandoâ€¦ (puede tardar 1-2 min)"
                 className="mt-5 w-full rounded-full bg-brass px-5 py-3 text-sm font-bold text-white transition hover:bg-ink disabled:opacity-50"
               >
-                Publicar vía agente
+                Publicar vÃ­a agente
               </SubmitButton>
             </form>
           ) : null}
@@ -345,16 +358,16 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
             <h2 className="font-display text-2xl">Estado rapido</h2>
             <input type="hidden" name="opportunityId" value={opportunity.id} />
             <div className="mt-4 grid grid-cols-2 gap-2">
-              <SubmitButton name="status" value="NEEDS_REVIEW" loadingText="Guardando…" className="rounded-full border border-ink/15 px-3 py-2 text-sm font-bold text-ink hover:bg-paper disabled:opacity-50">
+              <SubmitButton name="status" value="NEEDS_REVIEW" loadingText="Guardandoâ€¦" className="rounded-full border border-ink/15 px-3 py-2 text-sm font-bold text-ink hover:bg-paper disabled:opacity-50">
                 Revisar
               </SubmitButton>
-              <SubmitButton name="status" value="DISCARDED" loadingText="Guardando…" className="rounded-full border border-ink/15 px-3 py-2 text-sm font-bold text-ink hover:bg-paper disabled:opacity-50">
+              <SubmitButton name="status" value="DISCARDED" loadingText="Guardandoâ€¦" className="rounded-full border border-ink/15 px-3 py-2 text-sm font-bold text-ink hover:bg-paper disabled:opacity-50">
                 Descartar
               </SubmitButton>
-              <SubmitButton name="status" value="FOLLOW_UP" loadingText="Guardando…" className="rounded-full border border-ink/15 px-3 py-2 text-sm font-bold text-ink hover:bg-paper disabled:opacity-50">
+              <SubmitButton name="status" value="FOLLOW_UP" loadingText="Guardandoâ€¦" className="rounded-full border border-ink/15 px-3 py-2 text-sm font-bold text-ink hover:bg-paper disabled:opacity-50">
                 Seguimiento
               </SubmitButton>
-              <SubmitButton name="status" value="CONVERTED" loadingText="Guardando…" className="rounded-full border border-ink/15 px-3 py-2 text-sm font-bold text-ink hover:bg-paper disabled:opacity-50">
+              <SubmitButton name="status" value="CONVERTED" loadingText="Guardandoâ€¦" className="rounded-full border border-ink/15 px-3 py-2 text-sm font-bold text-ink hover:bg-paper disabled:opacity-50">
                 Convertida
               </SubmitButton>
             </div>
@@ -364,3 +377,4 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
     </main>
   );
 }
+

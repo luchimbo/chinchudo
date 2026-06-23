@@ -2,6 +2,9 @@ import Link from "next/link";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { FilterBar } from "@/components/filter-bar";
+import { ClientSwitcher } from "@/components/client-switcher";
+import { AutoPilotToggle } from "@/components/auto-pilot-toggle";
+import { getCurrentUser, getVisibleClients } from "@/lib/auth";
 import { updateOpportunityStatus } from "@/app/opportunities/actions";
 import {
   intentLabels,
@@ -65,11 +68,122 @@ const PENDING_STATUSES = ["NEW", "NEEDS_REVIEW", "DRAFTED", "APPROVED", "FOLLOW_
 const RESPONDED_STATUSES = ["PUBLISHED", "CONVERTED"] as const;
 
 type PageProps = {
-  searchParams: { status?: string; channel?: string; q?: string; page?: string; view?: string };
+  searchParams: { status?: string; channel?: string; q?: string; page?: string; view?: string; client?: string };
 };
 
 export default async function HomePage({ searchParams }: PageProps) {
-  const channelsList = await prisma.channel.findMany({ orderBy: { name: "asc" } });
+  const [channelsList, clients, currentUser] = await Promise.all([
+    prisma.channel.findMany({ orderBy: { name: "asc" } }),
+    getVisibleClients(prisma),
+    getCurrentUser(),
+  ]);
+  const activeClient = clients.find((client) => client.slug === searchParams.client) ?? clients[0] ?? null;
+
+  if (!searchParams.client) {
+    const clientCards = await Promise.all(clients.map(async (client) => {
+      const clientWhere: Prisma.OpportunityWhereInput = {
+        OR: [
+          { detectedBrand: { clientId: client.id } },
+          { monitoredSource: { clientId: client.id } },
+        ],
+      };
+      const [pending, drafted, approved, sources, brands] = await Promise.all([
+        prisma.opportunity.count({
+          where: {
+            ...clientWhere,
+            status: { in: [...PENDING_STATUSES] },
+          },
+        }),
+        prisma.opportunity.count({ where: { ...clientWhere, status: "DRAFTED" } }),
+        prisma.opportunity.count({ where: { ...clientWhere, status: "APPROVED" } }),
+        prisma.monitoredSource.count({ where: { clientId: client.id, active: true } }),
+        prisma.brand.count({ where: { clientId: client.id } }),
+      ]);
+      return { client, pending, drafted, approved, sources, brands };
+    }));
+
+    return (
+      <main className="relative mx-auto flex min-h-screen w-full max-w-7xl flex-col px-5 py-8 lg:px-8">
+        <header className="mb-10 flex flex-wrap items-start justify-between gap-5">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.32em] text-moss">Los 5 Apostoles</p>
+            <h1 className="mt-3 max-w-4xl font-display text-5xl leading-none text-ink md:text-7xl">
+              Elegi el cliente
+            </h1>
+            <p className="mt-4 max-w-2xl text-sm leading-6 text-slate">
+              Cada workspace carga su propio catalogo, voces, oportunidades y reglas. El agente comparte motor, pero entra con el guion del cliente seleccionado.
+            </p>
+            {currentUser ? (
+              <p className="mt-3 text-xs font-semibold text-slate/60">Usuario: {currentUser.label}</p>
+            ) : null}
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Link href="/admin" className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
+              Configuracion
+            </Link>
+            <form action="/api/auth/logout" method="POST">
+              <button
+                type="submit"
+                className="inline-flex h-10 items-center justify-center rounded-full border border-ink/15 bg-white/30 px-4 text-sm text-slate/60 transition hover:border-ink/30 hover:text-ink"
+                title="Cerrar sesion"
+              >
+                Salir
+              </button>
+            </form>
+          </div>
+        </header>
+
+        {clientCards.length === 0 ? (
+          <section className="rounded-lg border border-brass/30 bg-brass/10 p-6 text-sm leading-6 text-ink">
+            No hay clientes disponibles para este usuario. Revisar `AUTH_USERS_JSON` o la configuracion de clientes activos.
+          </section>
+        ) : (
+          <section className="grid gap-4 md:grid-cols-2">
+            {clientCards.map(({ client, pending, drafted, approved, sources, brands }) => (
+              <Link
+                key={client.id}
+                href={`/?client=${encodeURIComponent(client.slug)}`}
+                className="group relative overflow-hidden rounded-lg border border-ink/10 bg-white/75 p-6 shadow-panel backdrop-blur transition hover:-translate-y-1 hover:border-ink/30 hover:bg-white"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.22em] text-moss">{client.slug}</p>
+                    <h2 className="mt-3 font-display text-4xl leading-none text-ink">{client.name}</h2>
+                    <p className="mt-3 max-w-xl text-sm leading-6 text-slate">{client.description || "Workspace operativo"}</p>
+                  </div>
+                  <span className="rounded-full border border-ink/15 px-3 py-1 text-xs font-bold text-ink transition group-hover:bg-ink group-hover:text-paper">
+                    Entrar
+                  </span>
+                </div>
+
+                <div className="mt-8 grid grid-cols-4 gap-2">
+                  <div className="rounded-md bg-paper p-3">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate/60">Pend.</p>
+                    <p className="mt-1 font-display text-3xl text-ink">{pending}</p>
+                  </div>
+                  <div className="rounded-md bg-paper p-3">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate/60">Draft</p>
+                    <p className="mt-1 font-display text-3xl text-ink">{drafted}</p>
+                  </div>
+                  <div className="rounded-md bg-paper p-3">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate/60">Aprob.</p>
+                    <p className="mt-1 font-display text-3xl text-ink">{approved}</p>
+                  </div>
+                  <div className="rounded-md bg-paper p-3">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate/60">Fuentes</p>
+                    <p className="mt-1 font-display text-3xl text-ink">{sources}</p>
+                  </div>
+                </div>
+
+                <p className="mt-4 text-xs font-semibold text-slate/60">{brands} marcas configuradas</p>
+              </Link>
+            ))}
+          </section>
+        )}
+      </main>
+    );
+  }
 
   // Normalizar y validar filtros
   const view = searchParams.view === "responded" ? "responded" : searchParams.view === "pending" ? "pending" : "";
@@ -81,16 +195,23 @@ export default async function HomePage({ searchParams }: PageProps) {
   const page = Math.max(1, Number(searchParams.page) || 1);
 
   const where: Prisma.OpportunityWhereInput = {};
+  if (activeClient) {
+    where.OR = [
+      { detectedBrand: { clientId: activeClient.id } },
+      { monitoredSource: { clientId: activeClient.id } },
+    ];
+  }
   if (view === "pending") where.status = { in: [...PENDING_STATUSES] };
   else if (view === "responded") where.status = { in: [...RESPONDED_STATUSES] };
   // Sub-filtro de status sólo si no hay view activo
   if (!view && validStatus) where.status = validStatus;
   if (validChannel) where.channel = { name: validChannel };
   if (q) {
-    where.OR = [
+    const queryOr: Prisma.OpportunityWhereInput[] = [
       { sourceText: { contains: q } },
-      { sourceAuthor: { contains: q } }
+      { sourceAuthor: { contains: q } },
     ];
+    where.AND = [...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []), { OR: queryOr }];
   }
 
   const [opportunities, matchingCount, stats, brands, personas] = await Promise.all([
@@ -111,13 +232,14 @@ export default async function HomePage({ searchParams }: PageProps) {
       by: ["status"],
       _count: { status: true }
     }),
-    prisma.brand.findMany({ orderBy: { name: "asc" } }),
-    prisma.persona.findMany({ orderBy: { name: "asc" } })
+    prisma.brand.findMany({ where: activeClient ? { clientId: activeClient.id } : undefined, orderBy: { name: "asc" } }),
+    prisma.persona.findMany({ where: activeClient ? { clientId: activeClient.id } : undefined, orderBy: { name: "asc" } })
   ]);
 
   const totalPages = Math.max(1, Math.ceil(matchingCount / PAGE_SIZE));
   const buildPageHref = (targetPage: number) => {
     const params = new URLSearchParams();
+    if (activeClient) params.set("client", activeClient.slug);
     if (view) params.set("view", view);
     if (!view && validStatus) params.set("status", validStatus);
     if (validChannel) params.set("channel", validChannel);
@@ -143,14 +265,29 @@ export default async function HomePage({ searchParams }: PageProps) {
     (statMap.get("FOLLOW_UP") ?? 0);
   const publishReadyCount = statMap.get("APPROVED") ?? 0;
   const followUpCount = statMap.get("FOLLOW_UP") ?? 0;
+  const clientParam = activeClient ? `client=${encodeURIComponent(activeClient.slug)}` : "";
+  const withClient = (href: string) => {
+    if (!clientParam) return href;
+    return href.includes("?") ? `${href}&${clientParam}` : `${href}?${clientParam}`;
+  };
 
   const [urgentQueue, followUpQueue, recentSources] = await Promise.all([
     prisma.opportunity.findMany({
       where: {
-        OR: [
-          { priority: "URGENT" },
-          { priority: "HIGH" },
-          { status: "APPROVED" }
+        AND: [
+          ...(activeClient ? [{
+            OR: [
+              { detectedBrand: { clientId: activeClient.id } },
+              { monitoredSource: { clientId: activeClient.id } },
+            ],
+          }] : []),
+          {
+            OR: [
+              { priority: "URGENT" },
+              { priority: "HIGH" },
+              { status: "APPROVED" },
+            ],
+          },
         ],
         NOT: { status: { in: ["PUBLISHED", "DISCARDED", "CONVERTED"] } }
       },
@@ -159,13 +296,21 @@ export default async function HomePage({ searchParams }: PageProps) {
       take: 5
     }),
     prisma.opportunity.findMany({
-      where: { status: "FOLLOW_UP" },
+      where: {
+        status: "FOLLOW_UP",
+        ...(activeClient && {
+          OR: [
+            { detectedBrand: { clientId: activeClient.id } },
+            { monitoredSource: { clientId: activeClient.id } },
+          ],
+        }),
+      },
       include: { channel: true, detectedBrand: true },
       orderBy: { updatedAt: "desc" },
       take: 4
     }),
     prisma.monitoredSource.findMany({
-      where: { active: true },
+      where: { active: true, ...(activeClient ? { clientId: activeClient.id } : {}) },
       orderBy: { updatedAt: "desc" },
       take: 4
     })
@@ -176,8 +321,13 @@ export default async function HomePage({ searchParams }: PageProps) {
       <header className="mb-6 grid gap-6 lg:grid-cols-[1fr_auto] lg:items-end">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.32em] text-moss">
-            PC MIDI Center
+            {activeClient?.name ?? "Sin cliente activo"}
           </p>
+          {currentUser ? (
+            <p className="mt-2 text-xs font-semibold text-slate/60">
+              Usuario: {currentUser.label}
+            </p>
+          ) : null}
           <h1 className="mt-3 max-w-3xl font-display text-4xl leading-none text-ink md:text-6xl">
             Cola diaria
           </h1>
@@ -187,6 +337,7 @@ export default async function HomePage({ searchParams }: PageProps) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {clients.length > 0 ? <ClientSwitcher clients={clients} activeSlug={activeClient?.slug ?? clients[0].slug} /> : null}
           {/* Grupo principal */}
           <Link href="/informe" className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
             Informe
@@ -241,9 +392,19 @@ export default async function HomePage({ searchParams }: PageProps) {
         </div>
       </header>
 
+      {activeClient ? (
+        <div className="mb-6">
+          <AutoPilotToggle
+            clientId={activeClient.id}
+            initialAutoApprove={activeClient.autoApprove}
+            initialAutoPublish={activeClient.autoPublish}
+          />
+        </div>
+      ) : null}
+
       <section className="mb-4 flex gap-3">
         <Link
-          href="/?view=pending"
+          href={withClient("/?view=pending")}
           className={`flex flex-1 flex-col rounded-lg border p-5 shadow-sm transition hover:-translate-y-0.5 hover:bg-white ${
             view === "pending" ? "border-ink bg-white" : "border-ink/10 bg-white/70"
           }`}
@@ -253,7 +414,7 @@ export default async function HomePage({ searchParams }: PageProps) {
           <p className="mt-2 text-xs leading-5 text-slate/60">Sin responder todavía</p>
         </Link>
         <Link
-          href="/?view=responded"
+          href={withClient("/?view=responded")}
           className={`flex flex-1 flex-col rounded-lg border p-5 shadow-sm transition hover:-translate-y-0.5 hover:bg-white ${
             view === "responded" ? "border-moss bg-moss/5" : "border-ink/10 bg-white/70"
           }`}
@@ -268,7 +429,7 @@ export default async function HomePage({ searchParams }: PageProps) {
       <section className="mb-6 grid gap-3 md:grid-cols-5">
         {WORK_QUEUE.map((item) => {
           const count = statMap.get(item.status) ?? 0;
-          const href = `/?status=${item.status}`;
+          const href = withClient(`/?status=${item.status}`);
           return (
             <Link
               key={item.status}
@@ -442,7 +603,7 @@ export default async function HomePage({ searchParams }: PageProps) {
             <p className="mt-3 text-sm leading-6 text-paper/75">
               Hay {publishReadyCount} respuestas aprobadas esperando salir. Despues conviene limpiar nuevas y dejar follow-ups marcados.
             </p>
-            <Link href="/?status=APPROVED" className="mt-4 inline-flex h-10 items-center rounded-full bg-paper px-4 text-sm font-bold text-ink transition hover:bg-white">
+            <Link href={withClient("/?status=APPROVED")} className="mt-4 inline-flex h-10 items-center rounded-full bg-paper px-4 text-sm font-bold text-ink transition hover:bg-white">
               Ver aprobadas
             </Link>
           </div>

@@ -1,13 +1,17 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { getVisibleClients } from "@/lib/auth";
 import { PERSONA_NAME_SET } from "@/lib/persona-router";
 import { createPersona, updatePersona, deletePersona } from "./actions";
 
 const inputCls = "rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm text-ink";
 const labelCls = "grid gap-1 text-xs font-semibold text-slate";
 
-export default async function PersonasPage() {
+export default async function PersonasPage({ searchParams }: { searchParams: { client?: string } }) {
+  const clients = await getVisibleClients(prisma);
+  const activeClient = clients.find((client) => client.slug === searchParams.client) ?? clients[0] ?? null;
   const personas = await prisma.persona.findMany({
+    where: activeClient ? { clientId: activeClient.id } : undefined,
     include: { _count: { select: { responses: true } } },
     orderBy: { name: "asc" }
   });
@@ -22,21 +26,28 @@ export default async function PersonasPage() {
             Rol, tono, objetivos y ejemplos de cada voz del quinteto.
           </p>
         </div>
+        <form>
+          <select name="client" defaultValue={activeClient?.slug ?? ""} className={inputCls}>
+            {clients.map((client) => <option key={client.id} value={client.slug}>{client.name}</option>)}
+          </select>
+          <button className="ml-2 rounded-full border border-ink/20 px-4 py-2 text-sm font-semibold text-ink">Cambiar</button>
+        </form>
         <Link href="/admin" className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
           Volver
         </Link>
       </header>
 
       <p className="mb-6 rounded-md border border-brass/40 bg-brass/10 p-3 text-xs leading-5 text-ink">
-        <strong>Atención:</strong> el <em>nombre</em> de cada persona debe coincidir exactamente con el
-        ruteador (<code>src/lib/persona-router.ts</code>). Editá tono, objetivos y ejemplos con
-        libertad; si cambiás el nombre y deja de coincidir, el ruteo de esa voz falla (el draft-worker
-        lo registra como error). Nombres canónicos: {Array.from(PERSONA_NAME_SET).join(", ")}.
+        <strong>AtenciÃ³n:</strong> el <em>nombre</em> de cada persona debe coincidir exactamente con el
+        ruteador (<code>src/lib/persona-router.ts</code>). EditÃ¡ tono, objetivos y ejemplos con
+        libertad; si cambiÃ¡s el nombre y deja de coincidir, el ruteo de esa voz falla (el draft-worker
+        lo registra como error). Nombres canÃ³nicos: {Array.from(PERSONA_NAME_SET).join(", ")}.
       </p>
 
       <section className="mb-10">
         <h2 className="font-display text-2xl text-ink">Nueva persona</h2>
         <form action={createPersona} className="mt-4 grid gap-3 rounded-lg border border-ink/10 bg-white/70 p-4 shadow-panel md:grid-cols-2">
+          <input type="hidden" name="clientId" value={activeClient?.id ?? ""} />
           <label className={labelCls}>Nombre<input name="name" required className={inputCls} /></label>
           <label className={labelCls}>Longitud preferida<input name="preferredLength" placeholder="Corta / Media" className={inputCls} /></label>
           <label className={labelCls}>Rol<input name="role" required className={inputCls} /></label>
@@ -60,6 +71,7 @@ export default async function PersonasPage() {
             return (
               <form key={p.id} action={updatePersona} className="grid gap-3 rounded-lg border border-ink/10 bg-paper p-4 md:grid-cols-2">
                 <input type="hidden" name="id" value={p.id} />
+                <input type="hidden" name="clientId" value={activeClient?.id ?? ""} />
                 <label className={labelCls}>
                   Nombre {matches ? null : <span className="text-red-600">(no coincide con el router)</span>}
                   <input name="name" defaultValue={p.name} required className={`${inputCls} ${matches ? "" : "border-red-400"}`} />
@@ -87,3 +99,4 @@ export default async function PersonasPage() {
     </main>
   );
 }
+

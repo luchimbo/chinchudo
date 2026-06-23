@@ -173,18 +173,20 @@ def _load_accounts() -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _auto_assign_account(channel: str, all_sources: list[dict], already_assigned: dict[str, datetime]) -> str | None:
+def _auto_assign_account(channel: str, client_slug: str, all_sources: list[dict], already_assigned: dict[str, datetime]) -> str | None:
     """
     Elige automáticamente la cuenta Dolphin más adecuada para un canal dado.
     Criterios (en orden):
       1. La cuenta debe tener el canal en allowedChannels.
-      2. Entre las elegibles, prioriza la que menos se usó recientemente
+      2. Debe pertenecer al mismo clientSlug (o coincidir si no está especificado).
+      3. Entre las elegibles, prioriza la que menos se usó recientemente
          (combinando lastRunAt de sus fuentes + corridas ya planificadas en esta vuelta).
     """
     accounts = _load_accounts()
     eligible = [
         acc_id for acc_id, cfg in accounts.items()
-        if channel in cfg.get("allowedChannels", [])
+        if channel in cfg.get("allowedChannels", []) and
+        (not cfg.get("clientSlug") or cfg.get("clientSlug") == client_slug)
     ]
     if not eligible:
         return None
@@ -219,7 +221,7 @@ def _select_accounts(sources: list[dict], max_slots: int) -> tuple[set[str], set
     for src in sources:
         account = src.get("account", "") or ""
         if not account:
-            account = _auto_assign_account(src["channel"], sources, assigned_this_run) or ""
+            account = _auto_assign_account(src["channel"], src.get("clientSlug", ""), sources, assigned_this_run) or ""
             if account:
                 # Marcar como "ya planificada" para esta vuelta con timestamp ahora
                 # (evita que todas las fuentes sin cuenta caigan en la misma cuenta)
@@ -300,6 +302,8 @@ def run_monitor(args: argparse.Namespace) -> None:
             "--limit", str(src.get("limit", 5)),
             "--source-id", src["id"],
         ]
+        if src.get("clientId"):
+            command.extend(["--client-id", src["clientId"]])
         if args.dry_run:
             command.append("--dry-run")
         require_ok(run_step(f"listen:{src['label']}", command), steps, "monitor")

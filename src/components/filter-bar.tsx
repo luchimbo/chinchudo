@@ -102,7 +102,12 @@ export function FilterBar({ channels }: FilterBarProps) {
           type="button"
           onClick={() => {
             setQuery("");
-            router.replace(view ? `${pathname}?view=${view}` : pathname);
+            const params = new URLSearchParams();
+            const client = searchParams.get("client");
+            if (client) params.set("client", client);
+            if (view) params.set("view", view);
+            const qs = params.toString();
+            router.replace(qs ? `${pathname}?${qs}` : pathname);
           }}
           className="h-9 rounded-full border border-ink/15 px-4 text-sm font-bold text-ink transition hover:border-ink/40 hover:bg-paper"
         >

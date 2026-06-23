@@ -44,18 +44,68 @@ enum ResponseVariantType {
   CONVERSATIONAL
 }
 
+// ─── Multi-Cliente ─────────────────────────────────────────────────────────────
+
+model Client {
+  id               String            @id @default(cuid())
+  name             String            @unique
+  slug             String            @unique
+  description      String            @default("")
+  domainKeywords   String            @default("[]")
+  domainExclusions String            @default("[]")
+  autoPublish      Boolean           @default(false)
+  autoApprove      Boolean           @default(false)
+  active           Boolean           @default(true)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  brands           Brand[]
+  personas         Persona[]
+  monitoredSources MonitoredSource[]
+  catalogRules     CatalogRule[]
+}
+
+model CatalogRule {
+  id        String   @id @default(cuid())
+  clientId  String
+  category  String
+  keywords  String   @default("[]")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, category])
+}
+
+model PersonaRule {
+  id        String   @id @default(cuid())
+  personaId String
+  weight    Int      @default(3)
+  trigger   String
+  pattern   String
+  reason    String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  persona   Persona  @relation(fields: [personaId], references: [id], onDelete: Cascade)
+}
+
+// ─── Modelos de Negocio ───────────────────────────────────────────────────────
+
 model Brand {
   id              String        @id @default(cuid())
-  name            String        @unique
+  clientId        String?
+  name            String
   positioning     String
   tone            String
   allowedClaims   String        @default("")
   forbiddenClaims String        @default("")
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
+  client          Client?       @relation(fields: [clientId], references: [id])
   opportunities   Opportunity[]
   products        Product[]
   responses       Response[]
+
+  @@unique([clientId, name])
 }
 
 model Product {
@@ -78,19 +128,25 @@ model Product {
 }
 
 model Persona {
-  id               String     @id @default(cuid())
-  name             String     @unique
+  id               String        @id @default(cuid())
+  clientId         String?
+  name             String
   role             String
   tone             String
   goals            String
   preferredLength  String
-  allowedPhrases   String     @default("")
-  forbiddenPhrases String     @default("")
-  goodExamples     String     @default("")
-  badExamples      String     @default("")
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
+  allowedPhrases   String        @default("")
+  forbiddenPhrases String        @default("")
+  goodExamples     String        @default("")
+  badExamples      String        @default("")
+  angle            String        @default("")
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  client           Client?       @relation(fields: [clientId], references: [id])
   responses        Response[]
+  rules            PersonaRule[]
+
+  @@unique([clientId, name])
 }
 
 model Channel {
@@ -166,6 +222,7 @@ model PublishingLog {
 
 model KnowledgeBase {
   id         String   @id @default(cuid())
+  clientId   String?
   brandId    String?
   productId  String?
   topic      String
@@ -178,6 +235,7 @@ model KnowledgeBase {
 
 model Objection {
   id                String   @id @default(cuid())
+  clientId          String?
   brandId           String?
   productId         String?
   objection         String
@@ -189,6 +247,7 @@ model Objection {
 
 model MonitoredSource {
   id            String        @id @default(cuid())
+  clientId      String?
   label         String        @unique
   channel       String
   query         String
@@ -199,6 +258,7 @@ model MonitoredSource {
   lastCount     Int           @default(0)
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
+  client        Client?       @relation(fields: [clientId], references: [id])
   opportunities Opportunity[]
 }
 

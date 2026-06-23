@@ -12,6 +12,7 @@ const optionalId = z
 // --- Knowledge base (FAQs) ---
 
 const knowledgeSchema = z.object({
+  clientId: z.string().min(1),
   brandId: optionalId,
   productId: optionalId,
   topic: z.string().min(2).max(200),
@@ -22,6 +23,7 @@ const knowledgeSchema = z.object({
 export async function createKnowledge(formData: FormData) {
   const parsed = knowledgeSchema.parse({
     brandId: formData.get("brandId") || undefined,
+    clientId: formData.get("clientId"),
     productId: formData.get("productId") || undefined,
     topic: formData.get("topic"),
     content: formData.get("content"),
@@ -35,6 +37,7 @@ export async function updateKnowledge(formData: FormData) {
   const id = z.string().min(1).parse(formData.get("id"));
   const parsed = knowledgeSchema.parse({
     brandId: formData.get("brandId") || undefined,
+    clientId: formData.get("clientId"),
     productId: formData.get("productId") || undefined,
     topic: formData.get("topic"),
     content: formData.get("content"),
@@ -53,6 +56,7 @@ export async function deleteKnowledge(formData: FormData) {
 // --- Objeciones ---
 
 const objectionSchema = z.object({
+  clientId: z.string().min(1),
   brandId: optionalId,
   productId: optionalId,
   objection: z.string().min(2).max(400),
@@ -63,6 +67,7 @@ const objectionSchema = z.object({
 export async function createObjection(formData: FormData) {
   const parsed = objectionSchema.parse({
     brandId: formData.get("brandId") || undefined,
+    clientId: formData.get("clientId"),
     productId: formData.get("productId") || undefined,
     objection: formData.get("objection"),
     recommendedAnswer: formData.get("recommendedAnswer"),
@@ -76,6 +81,7 @@ export async function updateObjection(formData: FormData) {
   const id = z.string().min(1).parse(formData.get("id"));
   const parsed = objectionSchema.parse({
     brandId: formData.get("brandId") || undefined,
+    clientId: formData.get("clientId"),
     productId: formData.get("productId") || undefined,
     objection: formData.get("objection"),
     recommendedAnswer: formData.get("recommendedAnswer"),

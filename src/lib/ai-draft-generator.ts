@@ -1,5 +1,5 @@
-import type { Brand, Channel, Opportunity, Persona, Product } from "@prisma/client";
-import { selectRelevantProducts } from "./catalog";
+import type { Brand, CatalogRule, Channel, Client, Opportunity, Persona, Product } from "@prisma/client";
+import { selectRelevantProducts, type ScopedProduct } from "./catalog";
 import type { KnowledgeLike, ObjectionLike } from "./knowledge";
 import { logger } from "./logger";
 
@@ -11,6 +11,9 @@ type DraftContext = {
   };
   brand: Brand;
   persona: Persona;
+  client?: Client;
+  catalogProducts?: ScopedProduct[];
+  catalogRules?: Pick<CatalogRule, "category" | "keywords">[];
   knowledge?: KnowledgeLike[];
   objections?: ObjectionLike[];
   activeSystemPrompt?: string | null;
@@ -35,10 +38,15 @@ const INTENT_LABELS: Record<string, string> = {
 
 function buildPrompt(ctx: DraftContext): string {
   const { opportunity, brand, persona } = ctx;
+  const client = ctx.client;
   const product = opportunity.detectedProduct;
   const intent = INTENT_LABELS[opportunity.detectedIntent] ?? opportunity.detectedIntent;
 
-  const relevantProducts = selectRelevantProducts(opportunity.sourceText, product);
+  const relevantProducts = selectRelevantProducts(opportunity.sourceText, product, 5, {
+    catalogProducts: ctx.catalogProducts,
+    catalogRules: ctx.catalogRules,
+    scoped: !!client,
+  });
   const productList = relevantProducts.length > 0
     ? relevantProducts.map(p => `  - ${p.nombre} (${p.marca} ${p.modelo}): ${p.uso}`).join("\n")
     : "  - (sin productos específicos identificados)";
@@ -65,21 +73,24 @@ function buildPrompt(ctx: DraftContext): string {
     ? `\n## Objeciones frecuentes y cómo encararlas (guía interna, adaptá a tu voz)\n${objections.map((o) => `- Si plantea "${o.objection}" → ${o.recommendedAnswer}`).join("\n")}\n`
     : "";
 
-  return `Sos ${persona.name}. ${persona.role ?? "Sos un usuario real de equipos de música."} Estás respondiendo un comentario en redes sociales.
+  return `Sos ${persona.name}. ${persona.role ?? "Sos un usuario real con experiencia en el tema."} Estás respondiendo un comentario en redes sociales.
 
 ## Tu perfil
-- Rol: ${persona.role ?? "usuario apasionado por la música"}
+- Cliente/contexto operativo: ${client ? `${client.name} (${client.slug})` : "cliente no especificado"}
+- Rol: ${persona.role ?? "usuario con experiencia real"}
 - Tono: ${persona.tone ?? "natural, cercano, sin sonar a vendedor"}
 - Objetivo: ${persona.goals ?? "ayudar genuinamente desde tu experiencia"}${allowedExtra}
 
 ## Reglas absolutas (NUNCA romper)
-- NUNCA menciones nombres de tiendas, locales ni comercios ("PC MIDI Center", "pcmidi.com.ar", "la tienda", etc.)
+- NUNCA mezcles productos, marcas, rubros ni claims de otro cliente.
+- NUNCA menciones nombres de tiendas, locales ni comercios salvo que el operador lo agregue manualmente.
 - NUNCA digas que sos representante, empleado, ni que trabajás para ninguna marca
 - Hablá siempre como usuario que recomienda por experiencia propia: "yo uso", "tengo", "probé"
 - SIEMPRE nombrá al menos un producto concreto del catálogo de abajo (por su nombre/modelo), como si lo usaras vos
 - NUNCA incluyas links, URLs ni direcciones web en la respuesta
 - No inventes precios ni especificaciones técnicas
 - No afirmes que es "el mejor del mercado"
+- Respetá claims prohibidos de marca: ${brand.forbiddenClaims || "sin claims prohibidos cargados"}
 - Escribí en español argentino (usá "vos", no "tú")${forbiddenExtra}
 ${goodEx}${badEx}
 
@@ -87,7 +98,7 @@ ${goodEx}${badEx}
 ${productList}
 
 ## Marca de fondo que representan los productos (NO mencionarla directamente en la respuesta)
-${brand.name} — ${brand.positioning ?? "equipos de música con soporte local en Argentina"}
+${brand.name} — ${brand.positioning ?? "marca/producto con contexto comercial local"}
 ${knowledgeBlock}${objectionsBlock}
 ## Comentario al que vas a responder
 Canal: ${opportunity.channel.name}

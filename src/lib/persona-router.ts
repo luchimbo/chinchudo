@@ -1,5 +1,6 @@
-import type { Opportunity, Product } from "@prisma/client";
+import type { Opportunity, Persona, PersonaRule, PrismaClient, Product } from "@prisma/client";
 import { matchCategories } from "./catalog";
+import { catalogRuleMatches, normalizeForMatch } from "./client-context";
 
 // Nombres exactos del quinteto en la base (deben coincidir con prisma/seed.ts).
 export const PERSONA_NAMES = {
@@ -173,6 +174,56 @@ export function suggestAllPersonas(
     return {
       personaName: name,
       score: entry?.score ?? 0,
+      reason: contextReason ? `${contextReason} | ${angle}` : angle,
+    };
+  }).sort((a, b) => b.score - a.score);
+}
+
+function dynamicRuleMatches(
+  rule: Pick<PersonaRule, "trigger" | "pattern">,
+  signals: Signals,
+) {
+  const pattern = normalizeForMatch(rule.pattern);
+  if (!pattern) return false;
+  if (rule.trigger === "intent") return normalizeForMatch(signals.intent) === pattern;
+  if (rule.trigger === "category") return signals.categories.some((cat) => normalizeForMatch(cat) === pattern);
+
+  try {
+    return new RegExp(rule.pattern, "i").test(signals.text);
+  } catch {
+    return signals.text.includes(pattern);
+  }
+}
+
+export async function suggestAllPersonasForClient(
+  prisma: PrismaClient,
+  opportunity: Pick<Opportunity, "sourceText" | "detectedIntent"> & { detectedProduct?: Product | null },
+  clientId: string,
+): Promise<PersonaSuggestion[]> {
+  const [personas, catalogRules] = await Promise.all([
+    prisma.persona.findMany({
+      where: { clientId },
+      include: { rules: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.catalogRule.findMany({ where: { clientId } }),
+  ]);
+
+  const text = normalizeForMatch(opportunity.sourceText || "");
+  const categories = [
+    ...matchCategories(opportunity.sourceText, opportunity.detectedProduct ?? null),
+    ...catalogRuleMatches(opportunity.sourceText, catalogRules),
+  ];
+  const signals: Signals = { text, intent: opportunity.detectedIntent, categories };
+
+  return personas.map((persona: Persona & { rules: PersonaRule[] }) => {
+    const matched = persona.rules.filter((rule) => dynamicRuleMatches(rule, signals));
+    const score = matched.reduce((sum, rule) => sum + rule.weight, 0);
+    const contextReason = matched.map((rule) => rule.reason || `${rule.trigger}:${rule.pattern}`).filter(Boolean).join("; ");
+    const angle = persona.angle || persona.goals || persona.role;
+    return {
+      personaName: persona.name,
+      score,
       reason: contextReason ? `${contextReason} | ${angle}` : angle,
     };
   }).sort((a, b) => b.score - a.score);

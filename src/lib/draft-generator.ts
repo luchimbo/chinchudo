@@ -1,5 +1,5 @@
-import type { Brand, Channel, Opportunity, Persona, Product } from "@prisma/client";
-import { selectRelevantProducts, type ProductEntry } from "./catalog";
+import type { Brand, CatalogRule, Channel, Client, Opportunity, Persona, Product } from "@prisma/client";
+import { selectRelevantProducts, type ProductEntry, type ScopedProduct } from "./catalog";
 import type { KnowledgeLike, ObjectionLike } from "./knowledge";
 
 type DraftContext = {
@@ -10,6 +10,9 @@ type DraftContext = {
   };
   brand: Brand;
   persona: Persona;
+  client?: Client;
+  catalogProducts?: ScopedProduct[];
+  catalogRules?: Pick<CatalogRule, "category" | "keywords">[];
   knowledge?: KnowledgeLike[];
   objections?: ObjectionLike[];
 };
@@ -33,6 +36,30 @@ type PersonaVoice = {
 
 function getPersonaVoice(persona: Persona, product?: ProductEntry): PersonaVoice {
   const name = persona.name.toLowerCase();
+
+  if (name.includes("corredor") || name.includes("runner")) {
+    return {
+      intro: (p) => p ? `Yo para entrenar miraria ${p.modelo}` : "Te hablo desde el uso en entrenamientos",
+      angle: "Lo clave es que ajuste bien, no moleste con el calzado y tenga la altura correcta para la distancia o terreno.",
+      tail: "Para running/trail priorizaria comodidad y cero roce antes que elegir solo por diseño.",
+    };
+  }
+
+  if (name.includes("kines")) {
+    return {
+      intro: (p) => p ? `Si estas mirando ${p.modelo}, iria con criterio` : "Con compresion conviene ir con criterio",
+      angle: "La compresion puede dar sensacion de soporte, pero no reemplaza indicacion medica ni promete resolver lesiones.",
+      tail: "Si hay dolor o lesion, lo responsable es consultarlo con un profesional.",
+    };
+  }
+
+  if (name.includes("futbol")) {
+    return {
+      intro: (p) => p ? `Para cancha usaria ${p.modelo}` : "Para futbol miro ajuste y comodidad con botines",
+      angle: "En deporte de equipo importa que no se baje, no haga pliegues y aguante entrenamiento intenso.",
+      tail: "Para uso fuerte conviene priorizar ajuste y refuerzos.",
+    };
+  }
 
   if (name.includes("productor")) {
     return {
@@ -105,6 +132,43 @@ function getRiskNotes(brand: Brand, product: Product | null): string {
   if (!product) notes.push("Sin producto concreto detectado; evitar especificaciones inventadas.");
   if (brand.forbiddenClaims) notes.push(`Claims a evitar: ${brand.forbiddenClaims}.`);
   return notes.join(" ");
+}
+
+function isPrestigeContext(ctx: { client?: Client; brand: Brand }) {
+  return ctx.client?.slug === "prestige-running" || ctx.brand.name.toLowerCase().includes("prestige");
+}
+
+function makePrestigeDrafts(original: string, riskNotes: string): DraftVariant[] {
+  const norm = original.toLowerCase();
+  const mentionsLongRun = /\b(10k|21k|maraton|trail|correr|running|entren)/i.test(original);
+  const mentionsRub = /rozadura|ampolla|roce|lastima|molesta/i.test(original);
+  const heightHint = norm.includes("media cana") || norm.includes("media caña") || norm.includes("trail")
+    ? "iria por media caña"
+    : norm.includes("soquete") || norm.includes("corto")
+      ? "miraria soquete corto si queres algo mas liviano, o media caña si buscas mas cobertura"
+      : "elegiria la altura segun el calzado y la distancia";
+  const useHint = mentionsLongRun ? "para correr" : "para entrenar";
+  const rubHint = mentionsRub
+    ? "buscando buen ajuste y costuras comodas para bajar el roce"
+    : "priorizando ajuste, comodidad y que no se mueva dentro del calzado";
+
+  return [
+    {
+      variantType: "SHORT",
+      draftText: `Para ese uso miraria medias de Prestige: ${heightHint}, ${rubHint}.`,
+      riskNotes,
+    },
+    {
+      variantType: "TECHNICAL",
+      draftText: `Si es ${useHint}, unas medias tecnicas de Prestige tienen mas sentido que un soquete comun. La clave es que ajusten bien, no hagan pliegues y tengan la altura que mejor combine con tu calzado.`,
+      riskNotes,
+    },
+    {
+      variantType: "CONVERSATIONAL",
+      draftText: `A mi para ese caso me cierran mas las medias de Prestige que las medias comunes. No prometen magia, pero si elegis bien el talle y la altura suelen sentirse mucho mas comodas en tiradas largas.`,
+      riskNotes,
+    },
+  ];
 }
 
 function makeDrafts(
@@ -236,9 +300,14 @@ function makeDrafts(
   ];
 }
 
-export function generateLocalDrafts({ opportunity, brand, persona, knowledge, objections }: DraftContext): DraftVariant[] {
+export function generateLocalDrafts(ctx: DraftContext): DraftVariant[] {
+  const { opportunity, brand, persona, knowledge, objections } = ctx;
   const original = compactText(opportunity.sourceText);
-  const products = selectRelevantProducts(opportunity.sourceText, opportunity.detectedProduct, 1);
+  const products = selectRelevantProducts(opportunity.sourceText, opportunity.detectedProduct, 1, {
+    catalogProducts: ctx.catalogProducts,
+    catalogRules: ctx.catalogRules,
+    scoped: !!ctx.client,
+  });
   const product = products[0];
   const voice = getPersonaVoice(persona, product);
   let riskNotes = getRiskNotes(brand, opportunity.detectedProduct);
@@ -249,6 +318,10 @@ export function generateLocalDrafts({ opportunity, brand, persona, knowledge, ob
   }
   if (objections && objections.length > 0) {
     riskNotes += ` Objeciones a tener en cuenta: ${objections.map((o) => `${o.objection} → ${o.recommendedAnswer}`).join("; ")}.`;
+  }
+
+  if (isPrestigeContext({ client: ctx.client, brand })) {
+    return makePrestigeDrafts(original, riskNotes);
   }
 
   return makeDrafts(opportunity.detectedIntent, original, voice, product, riskNotes);

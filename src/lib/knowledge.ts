@@ -4,6 +4,7 @@ import type { PrismaClient } from "@prisma/client";
 export type KnowledgeLike = {
   topic: string;
   content: string;
+  clientId?: string | null;
   brandId: string | null;
   productId: string | null;
   confidence?: string;
@@ -12,12 +13,14 @@ export type KnowledgeLike = {
 export type ObjectionLike = {
   objection: string;
   recommendedAnswer: string;
+  clientId?: string | null;
   brandId: string | null;
   productId: string | null;
 };
 
 export type KnowledgeContext = {
   sourceText: string;
+  clientId?: string | null;
   brandId?: string | null;
   productId?: string | null;
 };
@@ -47,7 +50,13 @@ function tokens(text: string): string[] {
 }
 
 // Una entrada aplica si su marca/producto coincide con el contexto o es global (null).
-function scopeMatches(entryBrandId: string | null, entryProductId: string | null, ctx: KnowledgeContext): boolean {
+function scopeMatches(
+  entryClientId: string | null | undefined,
+  entryBrandId: string | null,
+  entryProductId: string | null,
+  ctx: KnowledgeContext,
+): boolean {
+  if (ctx.clientId && entryClientId && entryClientId !== ctx.clientId) return false;
   if (entryBrandId && ctx.brandId && entryBrandId !== ctx.brandId) return false;
   if (entryProductId && ctx.productId && entryProductId !== ctx.productId) return false;
   return true;
@@ -67,7 +76,7 @@ export function selectRelevantKnowledge<T extends KnowledgeLike>(
 ): T[] {
   const needles = tokens(ctx.sourceText);
   return entries
-    .filter((e) => scopeMatches(e.brandId, e.productId, ctx))
+    .filter((e) => scopeMatches(e.clientId, e.brandId, e.productId, ctx))
     .map((e) => {
       const base = overlapScore(`${e.topic} ${e.content}`, needles);
       const productExact = !!(e.productId && ctx.productId && e.productId === ctx.productId);
@@ -90,7 +99,7 @@ export function selectRelevantObjections<T extends ObjectionLike>(
 ): T[] {
   const needles = tokens(ctx.sourceText);
   return objections
-    .filter((o) => scopeMatches(o.brandId, o.productId, ctx))
+    .filter((o) => scopeMatches(o.clientId, o.brandId, o.productId, ctx))
     .map((o) => {
       const base = overlapScore(`${o.objection} ${o.recommendedAnswer}`, needles);
       const productExact = !!(o.productId && ctx.productId && o.productId === ctx.productId);
@@ -110,8 +119,12 @@ export async function loadRelevantKnowledge(
   ctx: KnowledgeContext,
 ): Promise<{ knowledge: KnowledgeLike[]; objections: ObjectionLike[] }> {
   const [kb, obj] = await Promise.all([
-    prisma.knowledgeBase.findMany(),
-    prisma.objection.findMany(),
+    prisma.knowledgeBase.findMany({
+      where: ctx.clientId ? { OR: [{ clientId: ctx.clientId }, { clientId: null }] } : undefined,
+    }),
+    prisma.objection.findMany({
+      where: ctx.clientId ? { OR: [{ clientId: ctx.clientId }, { clientId: null }] } : undefined,
+    }),
   ]);
   return {
     knowledge: selectRelevantKnowledge(ctx, kb),

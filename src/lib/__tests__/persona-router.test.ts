@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { OpportunityIntent } from "@prisma/client";
-import { suggestPersona, PERSONA_NAMES, PERSONA_NAME_SET } from "../persona-router";
+import { suggestPersona, suggestAllPersonasForClient, PERSONA_NAMES, PERSONA_NAME_SET } from "../persona-router";
 
 // Helper para armar una oportunidad mínima como la espera suggestPersona.
 function opp(sourceText: string, detectedIntent: OpportunityIntent = "GENERAL_DISCUSSION") {
@@ -41,6 +41,60 @@ describe("suggestPersona — un caso representativo por persona del quinteto", (
   it("sin señales → default Técnico / Productor", () => {
     const s = suggestPersona(opp("Hola, buenas"));
     expect(s.personaName).toBe(PERSONA_NAMES.TECNICO);
+  });
+});
+
+describe("suggestAllPersonasForClient — reglas dinamicas Prestige", () => {
+  const prisma = {
+    persona: {
+      findMany: async () => [
+        {
+          id: "corredor",
+          clientId: "prestige",
+          name: "El Corredor",
+          role: "Runner",
+          tone: "Cercano",
+          goals: "Running",
+          preferredLength: "Corta",
+          allowedPhrases: "",
+          forbiddenPhrases: "",
+          goodExamples: "",
+          badExamples: "",
+          angle: "running y comodidad",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          rules: [{ id: "r1", personaId: "corredor", trigger: "keyword", pattern: "running|correr|10k|trail", weight: 5, reason: "running", createdAt: new Date(), updatedAt: new Date() }],
+        },
+        {
+          id: "kinesio",
+          clientId: "prestige",
+          name: "El Kinesiólogo",
+          role: "Kinesio",
+          tone: "Responsable",
+          goals: "Compresion",
+          preferredLength: "Media",
+          allowedPhrases: "",
+          forbiddenPhrases: "",
+          goodExamples: "",
+          badExamples: "",
+          angle: "compresion sin claims medicos",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          rules: [{ id: "r2", personaId: "kinesio", trigger: "keyword", pattern: "compresion|lesion|dolor", weight: 5, reason: "compresion", createdAt: new Date(), updatedAt: new Date() }],
+        },
+      ],
+    },
+    catalogRule: { findMany: async () => [] },
+  } as any;
+
+  it("sugiere El Corredor para running", async () => {
+    const suggestions = await suggestAllPersonasForClient(prisma, opp("Para correr 10K con trail"), "prestige");
+    expect(suggestions[0].personaName).toBe("El Corredor");
+  });
+
+  it("sugiere El Kinesiólogo para compresion/lesion", async () => {
+    const suggestions = await suggestAllPersonasForClient(prisma, opp("La compresion sirve si tengo dolor?"), "prestige");
+    expect(suggestions[0].personaName).toBe("El Kinesiólogo");
   });
 });
 

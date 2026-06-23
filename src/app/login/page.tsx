@@ -13,6 +13,7 @@ export default async function LoginPage({ searchParams }: Props) {
 
   const from  = searchParams.from ?? "/";
   const error = searchParams.error;
+  const hasUsers = Boolean(process.env.AUTH_USERS_JSON);
 
   return (
     <main className="relative flex min-h-screen items-center justify-center px-4">
@@ -34,6 +35,24 @@ export default async function LoginPage({ searchParams }: Props) {
           <form action="/api/auth/login" method="POST">
             <input type="hidden" name="from" value={from} />
 
+            {hasUsers ? (
+              <label htmlFor="username" className="mb-4 block">
+                <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate/70">
+                  Usuario
+                </span>
+                <input
+                  id="username"
+                  type="text"
+                  name="username"
+                  required
+                  autoFocus
+                  autoComplete="username"
+                  className="mt-2 w-full rounded-lg border border-ink/15 bg-paper px-4 py-3 text-sm text-ink placeholder:text-slate/30 focus:border-ink/40 focus:outline-none focus:ring-2 focus:ring-ink/10"
+                  placeholder="lucio / fede / prestige"
+                />
+              </label>
+            ) : null}
+
             <label htmlFor="password" className="block">
               <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate/70">
                 Contraseña
@@ -43,7 +62,7 @@ export default async function LoginPage({ searchParams }: Props) {
                 type="password"
                 name="password"
                 required
-                autoFocus
+                autoFocus={!hasUsers}
                 autoComplete="current-password"
                 className="mt-2 w-full rounded-lg border border-ink/15 bg-paper px-4 py-3 text-sm text-ink placeholder:text-slate/30 focus:border-ink/40 focus:outline-none focus:ring-2 focus:ring-ink/10"
                 placeholder="••••••••"

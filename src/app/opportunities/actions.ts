@@ -14,6 +14,8 @@ import { OpportunityStatus, OpportunityPriority, OpportunityIntent } from "@pris
 import { checkRateLimit } from "@/lib/rate-limit";
 import { logger } from "@/lib/logger";
 import { getRelayUrl } from "@/lib/settings";
+import { loadClientContext, resolveOpportunityClient } from "@/lib/client-context";
+import { detectCrossClientTerms, validateClientScopedActors } from "@/lib/guardrails";
 
 const createOpportunitySchema = z.object({
   channelId: z.string().min(1),
@@ -71,25 +73,59 @@ export async function generateResponseDrafts(formData: FormData) {
       where: { id: opportunityId },
       include: {
         channel: true,
-        detectedBrand: true,
-        detectedProduct: true
+        detectedBrand: { include: { client: true } },
+        detectedProduct: true,
+        monitoredSource: { include: { client: true } }
       }
     }),
     prisma.persona.findUniqueOrThrow({ where: { id: personaId } }),
     prisma.brand.findUniqueOrThrow({ where: { id: brandId } })
   ]);
 
+  const resolution = await resolveOpportunityClient(prisma, opportunity);
+  const clientContext = await loadClientContext(prisma, resolution.client.id, opportunity);
+  if (brand.clientId && brand.clientId !== resolution.client.id) {
+    throw new Error("La marca seleccionada no pertenece al cliente de esta oportunidad.");
+  }
+  if (persona.clientId && persona.clientId !== resolution.client.id) {
+    throw new Error("La persona seleccionada no pertenece al cliente de esta oportunidad.");
+  }
+  const actorValidation = validateClientScopedActors({ client: resolution.client, brand, persona });
+  if (!actorValidation.ok) throw new Error(actorValidation.riskNotes.join("; "));
+
   const [{ knowledge, objections }, activeSystemPrompt] = await Promise.all([
     loadRelevantKnowledge(prisma, {
       sourceText: opportunity.sourceText,
+      clientId: resolution.client.id,
       brandId,
       productId: opportunity.detectedProductId
     }),
     loadActivePrompt(prisma)
   ]);
 
-  const ctx = { opportunity, persona, brand, knowledge, objections, activeSystemPrompt };
+  const ctx = {
+    opportunity,
+    persona,
+    brand,
+    client: resolution.client,
+    catalogProducts: clientContext.catalogProducts,
+    catalogRules: clientContext.catalogRules,
+    knowledge,
+    objections,
+    activeSystemPrompt,
+  };
   const drafts = (await generateAIDrafts(ctx)) ?? generateLocalDrafts(ctx);
+  const draftsWithRisks = await Promise.all(drafts.map(async (draft) => {
+    const crossClientHits = await detectCrossClientTerms(prisma, resolution.client.id, draft.draftText);
+    return {
+      ...draft,
+      riskNotes: [
+        draft.riskNotes,
+        resolution.confidence !== "high" ? `Cliente resuelto con confianza ${resolution.confidence}: ${resolution.reason}.` : "",
+        crossClientHits.length > 0 ? `Posible mezcla de otro cliente: ${crossClientHits.join("; ")}.` : "",
+      ].filter(Boolean).join(" "),
+    };
+  }));
 
   await prisma.$transaction([
     prisma.response.deleteMany({
@@ -101,7 +137,7 @@ export async function generateResponseDrafts(formData: FormData) {
       }
     }),
     prisma.response.createMany({
-      data: drafts.map((draft) => ({
+      data: draftsWithRisks.map((draft) => ({
         opportunityId,
         personaId,
         brandId,
@@ -304,3 +340,12 @@ export async function publishViaAgent(formData: FormData) {
   }
   redirect(`${base}?agentOk=1`);
 }
+
+export async function updateClientAutoSettings(clientId: string, autoApprove: boolean, autoPublish: boolean) {
+  await prisma.client.update({
+    where: { id: clientId },
+    data: { autoApprove, autoPublish },
+  });
+  revalidatePath("/");
+}
+

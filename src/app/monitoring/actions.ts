@@ -5,6 +5,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 
 const sourceSchema = z.object({
+  clientId: z.string().min(1),
   label: z.string().min(2).max(160),
   channel: z.string().min(2).max(40),
   query: z.string().min(1).max(400),
@@ -16,6 +17,7 @@ const sourceSchema = z.object({
 function parse(formData: FormData) {
   return sourceSchema.parse({
     label: formData.get("label"),
+    clientId: formData.get("clientId"),
     channel: formData.get("channel"),
     query: formData.get("query"),
     account: formData.get("account") || undefined,

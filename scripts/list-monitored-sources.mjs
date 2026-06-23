@@ -8,6 +8,7 @@ const prisma = new PrismaClient();
 async function main() {
   const sources = await prisma.monitoredSource.findMany({
     where: { active: true },
+    include: { client: true },
     orderBy: { label: "asc" }
   });
   // Salida JSON en stdout para que el orquestador (Python) la consuma.
@@ -22,6 +23,8 @@ async function main() {
         limit: s.limit,
         lastRunAt: s.lastRunAt ? s.lastRunAt.toISOString() : null,
         lastCount: s.lastCount ?? 0,
+        clientId: s.clientId || "",
+        clientSlug: s.client?.slug || "",
       }))
     ) + "\n"
   );

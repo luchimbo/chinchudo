@@ -20,11 +20,21 @@ def _get_url() -> str:
     if _DATABASE_URL is None:
         from dotenv import load_dotenv
         load_dotenv()
-        url = os.getenv("DATABASE_URL")
+        url = os.getenv("DIRECT_URL") or os.getenv("DATABASE_URL")
         if not url:
-            raise RuntimeError("DATABASE_URL no está configurada en el entorno.")
+            raise RuntimeError("DATABASE_URL / DIRECT_URL no está configurada en el entorno.")
         # psycopg3 usa postgresql://, no postgres://
-        _DATABASE_URL = url.replace("postgres://", "postgresql://", 1)
+        url = url.replace("postgres://", "postgresql://", 1)
+        # psycopg3 no soporta pgbouncer=true como parámetro
+        if "pgbouncer=" in url:
+            import urllib.parse
+            parsed = urllib.parse.urlparse(url)
+            query_params = urllib.parse.parse_qsl(parsed.query)
+            filtered_params = [p for p in query_params if p[0] != "pgbouncer"]
+            new_query = urllib.parse.urlencode(filtered_params)
+            parsed = parsed._replace(query=new_query)
+            url = urllib.parse.urlunparse(parsed)
+        _DATABASE_URL = url
     return _DATABASE_URL
 
 

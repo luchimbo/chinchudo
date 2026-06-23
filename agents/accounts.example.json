@@ -1,5 +1,6 @@
 {
   "cazador-ofertas": {
+    "clientSlug": "pcmidi",
     "label": "Cazador de Ofertas",
     "browserProvider": "nstbrowser",
     "nstbrowserProfileId": "f76d8bb7-ecfc-4bc9-91d7-557977b7ed1e",
@@ -17,6 +18,7 @@
     }
   },
   "trend-setter-kressmer": {
+    "clientSlug": "pcmidi",
     "label": "Early Kressmer",
     "browserProvider": "nstbrowser",
     "nstbrowserProfileId": "888a9e41-e355-4a26-8e00-f690336fb822",
@@ -34,6 +36,7 @@
     }
   },
   "baterista-dpto": {
+    "clientSlug": "pcmidi",
     "label": "Baterista",
     "browserProvider": "nstbrowser",
     "nstbrowserProfileId": "57c8d5f5-fd2d-4eb4-ac03-3e25016e3eb1",
@@ -51,6 +54,7 @@
     }
   },
   "tecnico-productor": {
+    "clientSlug": "pcmidi",
     "label": "Técnico Productor",
     "browserProvider": "nstbrowser",
     "nstbrowserProfileId": "30f55136-4953-42fe-8b4e-b240fb5fe073",
@@ -69,6 +73,7 @@
     }
   },
   "profe-musica": {
+    "clientSlug": "pcmidi",
     "label": "Profe de Música",
     "browserProvider": "nstbrowser",
     "nstbrowserProfileId": "c3b6cb2b-e31f-451e-aed7-4c8bd4002cc6",

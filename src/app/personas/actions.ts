@@ -5,6 +5,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 
 const personaSchema = z.object({
+  clientId: z.string().min(1),
   name: z.string().min(2).max(120),
   role: z.string().min(2).max(1000),
   tone: z.string().min(2).max(1000),
@@ -19,6 +20,7 @@ const personaSchema = z.object({
 function parse(formData: FormData) {
   return personaSchema.parse({
     name: formData.get("name"),
+    clientId: formData.get("clientId"),
     role: formData.get("role"),
     tone: formData.get("tone"),
     goals: formData.get("goals"),

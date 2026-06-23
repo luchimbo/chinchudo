@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createOpportunity } from "../actions";
 import { prisma } from "@/lib/db";
+import { getVisibleClients } from "@/lib/auth";
 import {
   intentLabels,
   opportunityIntents,
@@ -8,11 +9,14 @@ import {
   priorityLabels
 } from "@/lib/labels";
 
-export default async function NewOpportunityPage() {
+export default async function NewOpportunityPage({ searchParams }: { searchParams: { client?: string } }) {
+  const clients = await getVisibleClients(prisma);
+  const activeClient = clients.find((client) => client.slug === searchParams.client) ?? clients[0] ?? null;
   const [channels, brands, products] = await Promise.all([
     prisma.channel.findMany({ orderBy: { name: "asc" } }),
-    prisma.brand.findMany({ orderBy: { name: "asc" } }),
+    prisma.brand.findMany({ where: activeClient ? { clientId: activeClient.id } : undefined, orderBy: { name: "asc" } }),
     prisma.product.findMany({
+      where: activeClient ? { brand: { clientId: activeClient.id } } : undefined,
       include: { brand: true },
       orderBy: [{ brand: { name: "asc" } }, { name: "asc" }]
     })
@@ -27,6 +31,12 @@ export default async function NewOpportunityPage() {
           </p>
           <h1 className="font-display text-4xl text-ink">Cargar oportunidad</h1>
         </div>
+        <form>
+          <select name="client" defaultValue={activeClient?.slug ?? ""} className="rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm text-ink">
+            {clients.map((client) => <option key={client.id} value={client.slug}>{client.name}</option>)}
+          </select>
+          <button className="ml-2 rounded-full border border-ink/20 px-4 py-2 text-sm font-semibold text-ink">Cambiar</button>
+        </form>
         <Link
           href="/"
           className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white"
