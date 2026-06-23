@@ -89,5 +89,37 @@
       "usernameEnv": "APOSTOLES_PROFE_USER",
       "passwordEnv": "APOSTOLES_PROFE_PASSWORD"
     }
+  },
+  "prestige-corredor": {
+    "clientSlug": "prestige-running",
+    "label": "El Corredor (Prestige)",
+    "browserProvider": "nstbrowser",
+    "nstbrowserProfileId": "REEMPLAZAR-perfil-nstbrowser-corredor",
+    "cdpPort": 9227,
+    "allowedChannels": ["instagram", "tiktok", "youtube", "reddit", "facebook"],
+    "defaultPersona": "Baterista de Departamento",
+    "platformAccounts": {
+      "google": "cuenta-corredor@gmail.com"
+    },
+    "credentials": {
+      "usernameEnv": "PRESTIGE_CORREDOR_USER",
+      "passwordEnv": "PRESTIGE_CORREDOR_PASSWORD"
+    }
+  },
+  "prestige-tecnico": {
+    "clientSlug": "prestige-running",
+    "label": "Técnico Running (Prestige)",
+    "browserProvider": "nstbrowser",
+    "nstbrowserProfileId": "REEMPLAZAR-perfil-nstbrowser-tecnico-running",
+    "cdpPort": 9228,
+    "allowedChannels": ["instagram", "tiktok", "youtube", "reddit", "facebook", "linkedin"],
+    "defaultPersona": "Técnico / Productor",
+    "platformAccounts": {
+      "google": "cuenta-tecnico-running@gmail.com"
+    },
+    "credentials": {
+      "usernameEnv": "PRESTIGE_TECNICO_USER",
+      "passwordEnv": "PRESTIGE_TECNICO_PASSWORD"
+    }
   }
 }
