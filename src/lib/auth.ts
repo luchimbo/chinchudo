@@ -70,3 +70,17 @@ export async function getVisibleClients(prisma: PrismaClient): Promise<Client[]>
 export function authUserCookieName() {
   return USER_COOKIE;
 }
+
+/**
+ * Lanza si el usuario actual no puede operar sobre el cliente dado.
+ * Admin (o sin sesión en desarrollo, donde el middleware no exige login) pasa siempre.
+ * Evita que un form manipulado cree/edite datos de un cliente fuera del alcance del usuario.
+ */
+export async function assertClientAccess(prisma: PrismaClient, clientId: string): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user || user.role === "admin") return;
+  const client = await prisma.client.findUnique({ where: { id: clientId }, select: { slug: true } });
+  if (!client || !user.clientSlugs.includes(client.slug)) {
+    throw new Error("No tenés acceso a este cliente.");
+  }
+}

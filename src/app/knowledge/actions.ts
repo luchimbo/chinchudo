@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { assertClientAccess } from "@/lib/auth";
 
 const optionalId = z
   .string()
@@ -29,6 +30,7 @@ export async function createKnowledge(formData: FormData) {
     content: formData.get("content"),
     confidence: formData.get("confidence") || "medium"
   });
+  await assertClientAccess(prisma, parsed.clientId);
   await prisma.knowledgeBase.create({ data: { ...parsed, source: "manual" } });
   revalidatePath("/knowledge");
 }
@@ -43,6 +45,7 @@ export async function updateKnowledge(formData: FormData) {
     content: formData.get("content"),
     confidence: formData.get("confidence") || "medium"
   });
+  await assertClientAccess(prisma, parsed.clientId);
   await prisma.knowledgeBase.update({ where: { id }, data: parsed });
   revalidatePath("/knowledge");
 }
@@ -73,6 +76,7 @@ export async function createObjection(formData: FormData) {
     recommendedAnswer: formData.get("recommendedAnswer"),
     personaNotes: formData.get("personaNotes") || undefined
   });
+  await assertClientAccess(prisma, parsed.clientId);
   await prisma.objection.create({ data: parsed });
   revalidatePath("/knowledge");
 }
@@ -87,6 +91,7 @@ export async function updateObjection(formData: FormData) {
     recommendedAnswer: formData.get("recommendedAnswer"),
     personaNotes: formData.get("personaNotes") || undefined
   });
+  await assertClientAccess(prisma, parsed.clientId);
   await prisma.objection.update({ where: { id }, data: parsed });
   revalidatePath("/knowledge");
 }

@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 const cards = [
+  { href: "/clients", title: "Clientes", desc: "Dominio (keywords/exclusiones), API key de OpenRouter y modelo por cliente." },
   { href: "/brands", title: "Marcas", desc: "Posicionamiento, tono y claims permitidos/prohibidos." },
   { href: "/personas", title: "Personas (voces)", desc: "Rol, tono, objetivos y ejemplos del quinteto." },
   { href: "/prompts", title: "Prompts", desc: "System prompt activo que se inyecta a la IA." },

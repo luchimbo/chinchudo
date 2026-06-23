@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { prisma } from "@/lib/db";
 import { getVisibleClients } from "@/lib/auth";
+import { ClientSwitcher } from "@/components/client-switcher";
 import { createSource, updateSource, deleteSource } from "./actions";
 
 const inputCls = "rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm text-ink";
@@ -53,15 +54,12 @@ export default async function MonitoringPage({ searchParams }: { searchParams: {
             revisiÃ³n humana; nada se publica solo.
           </p>
         </div>
-        <form>
-          <select name="client" defaultValue={activeClient?.slug ?? ""} className={inputCls}>
-            {clients.map((client) => <option key={client.id} value={client.slug}>{client.name}</option>)}
-          </select>
-          <button className="ml-2 rounded-full border border-ink/20 px-4 py-2 text-sm font-semibold text-ink">Cambiar</button>
-        </form>
-        <Link href="/admin" className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
-          Volver
-        </Link>
+        <div className="flex items-center gap-3">
+          {clients.length > 0 ? <ClientSwitcher clients={clients} activeSlug={activeClient?.slug ?? ""} /> : null}
+          <Link href="/admin" className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
+            Volver
+          </Link>
+        </div>
       </header>
 
       <section className="mb-10">

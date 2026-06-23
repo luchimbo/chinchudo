@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { assertClientAccess } from "@/lib/auth";
 
 const brandSchema = z.object({
   clientId: z.string().min(1),
@@ -25,13 +26,17 @@ function parse(formData: FormData) {
 }
 
 export async function createBrand(formData: FormData) {
-  await prisma.brand.create({ data: parse(formData) });
+  const data = parse(formData);
+  await assertClientAccess(prisma, data.clientId);
+  await prisma.brand.create({ data });
   revalidatePath("/brands");
 }
 
 export async function updateBrand(formData: FormData) {
   const id = z.string().min(1).parse(formData.get("id"));
-  await prisma.brand.update({ where: { id }, data: parse(formData) });
+  const data = parse(formData);
+  await assertClientAccess(prisma, data.clientId);
+  await prisma.brand.update({ where: { id }, data });
   revalidatePath("/brands");
 }
 
