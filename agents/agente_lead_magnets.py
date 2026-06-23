@@ -328,11 +328,15 @@ def generate_lead_magnets(limit: int, model: str, dry_run: bool = False) -> dict
 def main() -> None:
     parser = argparse.ArgumentParser(description="Agente 3: Creador de Lead Magnets para PC MIDI Center")
     parser.add_argument("--limit", type=int, default=10, help="Cantidad maxima de lead magnets a generar")
-    parser.add_argument("--model", default=os.environ.get("OPENROUTER_MODEL", DEFAULT_MODEL), help="Modelo OpenRouter")
+    parser.add_argument("--model", default="", help="Modelo OpenRouter (default: el del cliente o .env)")
     parser.add_argument("--dry-run", action="store_true", help="Genera sin guardar cambios")
-    
+    parser.add_argument("--client-slug", default="", help="Cliente cuya API key de OpenRouter usar (default: .env)")
+
     args = parser.parse_args()
-    generate_lead_magnets(limit=args.limit, model=args.model, dry_run=args.dry_run)
+    import db_pg
+    db_pg.inject_openrouter_env(client_slug=getattr(args, "client_slug", "") or None)
+    model = args.model or os.environ.get("OPENROUTER_MODEL", DEFAULT_MODEL)
+    generate_lead_magnets(limit=args.limit, model=model, dry_run=args.dry_run)
 
 
 if __name__ == "__main__":

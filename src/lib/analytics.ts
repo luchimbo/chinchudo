@@ -203,10 +203,14 @@ export async function getAnalyticsData(): Promise<AnalyticsData> {
 
 // ─── Resumen semanal IA ───────────────────────────────────────────────────────
 
-export async function generateWeeklySummary(data: AnalyticsData): Promise<string> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  const model  = process.env.OPENROUTER_MODEL ?? "deepseek/deepseek-chat-v3-0324:free";
-  if (!apiKey) return "Falta OPENROUTER_API_KEY en .env";
+export async function generateWeeklySummary(
+  data: AnalyticsData,
+  opts?: { apiKey?: string | null; model?: string | null },
+): Promise<string> {
+  // Si se pasa la config de un cliente activo, se usa esa key/modelo; si no, el .env global.
+  const apiKey = opts?.apiKey?.trim() || process.env.OPENROUTER_API_KEY;
+  const model  = opts?.model?.trim() || process.env.OPENROUTER_MODEL || "deepseek/deepseek-chat-v3-0324:free";
+  if (!apiKey) return "Falta API key de OpenRouter (configurala en el cliente o en .env)";
 
   const snapshot = `
 Oportunidades totales: ${data.totalOpportunities}

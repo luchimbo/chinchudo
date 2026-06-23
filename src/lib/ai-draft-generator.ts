@@ -179,13 +179,26 @@ async function fetchWithRetry(
 }
 
 export async function generateAIDrafts(ctx: DraftContext): Promise<DraftVariant[] | null> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
+  // La API key y el modelo se resuelven por cliente: lo que cargó el cliente en su
+  // configuración tiene prioridad; si está vacío se cae al .env global (compat).
+  const apiKey = ctx.client?.openrouterApiKey?.trim() || process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
-    logAIError("OPENROUTER_API_KEY no configurada", null);
+    logAIError(
+      ctx.client
+        ? `Sin API key de OpenRouter para el cliente "${ctx.client.name}" ni en .env`
+        : "OPENROUTER_API_KEY no configurada",
+      null,
+    );
     return null;
   }
 
-  const model = process.env.OPENROUTER_MODEL ?? "google/gemini-2.0-flash-lite";
+  const model =
+    ctx.client?.openrouterModel?.trim() ||
+    process.env.OPENROUTER_MODEL ||
+    "google/gemini-2.0-flash-lite";
+
+  const keySource = ctx.client?.openrouterApiKey?.trim() ? `cliente:${ctx.client.slug}` : "env";
+  logger.info("ai_key_source", "OpenRouter key resuelta", { keySource, model }).catch(() => {});
 
   let raw: string;
   try {

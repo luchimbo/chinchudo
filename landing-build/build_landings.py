@@ -1470,7 +1470,16 @@ def main() -> None:
     deploy_parser.add_argument("--base-url", default="", help="URL del subdominio para canonical/sitemap")
     sub.add_parser("rollback")
     sub.add_parser("selftest")
+    parser.add_argument("--client-slug", default="", help="Cliente cuya API key de OpenRouter usar (default: .env)")
     args = parser.parse_args()
+    if getattr(args, "client_slug", ""):
+        try:
+            import sys
+            sys.path.insert(0, str(ROOT.parent / "agents"))
+            import db_pg
+            db_pg.inject_openrouter_env(client_slug=args.client_slug)
+        except Exception as exc:
+            print(f"build-landings: no se pudo cargar la key del cliente ({exc}); uso .env")
     if args.command == "validate":
         validate_command()
     elif args.command == "build":

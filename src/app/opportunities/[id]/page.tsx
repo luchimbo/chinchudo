@@ -85,7 +85,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
   const suggestedPersona = personas.find((p) => p.name === suggestion?.personaName);
   const suggestedPersonaId = suggestedPersona?.id ?? personas[0]?.id ?? "";
   const channelLower = opportunity.channel.name.toLowerCase();
-  type AccountEntry = { label: string; allowedChannels: string[]; defaultPersona?: string };
+  type AccountEntry = { label: string; allowedChannels: string[]; defaultPersona?: string; clientSlug?: string };
   let agentAccounts: { name: string; label: string; defaultPersona: string }[] = [];
   try {
     let raw: Record<string, AccountEntry> | null = null;

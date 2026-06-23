@@ -12,7 +12,10 @@ export function WeeklySummary() {
     setError("");
     setText("");
     try {
-      const res = await fetch("/api/analytics/summary", { method: "POST" });
+      // Propaga el cliente activo (?client=slug) para que el resumen use su key de OpenRouter.
+      const clientSlug = new URLSearchParams(window.location.search).get("client") ?? "";
+      const url = clientSlug ? `/api/analytics/summary?client=${encodeURIComponent(clientSlug)}` : "/api/analytics/summary";
+      const res = await fetch(url, { method: "POST" });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? res.statusText);
       setText(json.summary);

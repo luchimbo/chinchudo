@@ -1121,8 +1121,11 @@ def main() -> None:
 
     sub.add_parser("status", help="Muestra resumen del distribution_log")
 
+    parser.add_argument("--client-slug", default="", help="Cliente cuya API key de OpenRouter usar (default: .env)")
     args = parser.parse_args()
     load_env()
+    import db_pg
+    db_pg.inject_openrouter_env(client_slug=getattr(args, "client_slug", "") or None)
 
     if args.command == "search":
         started = time.monotonic()

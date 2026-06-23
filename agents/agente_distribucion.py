@@ -818,8 +818,11 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--channel", default="", help=argparse.SUPPRESS)
     parser.add_argument("--since-last-deploy", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--client-slug", default="", help="Cliente cuya API key de OpenRouter usar (default: .env)")
 
     args = parser.parse_args()
+    import db_pg
+    db_pg.inject_openrouter_env(client_slug=getattr(args, "client_slug", "") or None)
     command = args.command or "generate"
     if command == "generate":
         run_distribution(

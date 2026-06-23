@@ -44,6 +44,54 @@ def connect() -> Generator[psycopg.Connection, None, None]:
         yield conn
 
 
+# ─── Configuración por cliente ────────────────────────────────────────────────
+
+def get_client_openrouter(
+    client_id: str | None = None,
+    client_slug: str | None = None,
+) -> tuple[str, str]:
+    """
+    Devuelve (api_key, model) de OpenRouter para un cliente.
+    Prioridad: valor configurado en el Client → variable de entorno → "".
+    Si no se pasa cliente (o no se encuentra), cae directo al entorno global.
+    """
+    env_key = os.getenv("OPENROUTER_API_KEY", "")
+    env_model = os.getenv("OPENROUTER_MODEL", "")
+    if not client_id and not client_slug:
+        return env_key, env_model
+    try:
+        with connect() as conn:
+            if client_id:
+                row = conn.execute(
+                    'SELECT "openrouterApiKey", "openrouterModel" FROM "Client" WHERE id = %s',
+                    (client_id,),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    'SELECT "openrouterApiKey", "openrouterModel" FROM "Client" WHERE slug = %s',
+                    (client_slug,),
+                ).fetchone()
+    except Exception:
+        row = None
+    if not row:
+        return env_key, env_model
+    return (row["openrouterApiKey"] or env_key), (row["openrouterModel"] or env_model)
+
+
+def inject_openrouter_env(client_id: str | None = None, client_slug: str | None = None) -> tuple[str, str]:
+    """
+    Resuelve la key/modelo de OpenRouter del cliente y los inyecta en os.environ
+    para esta corrida, de modo que todo el código que lee os.environ los tome.
+    Sin cliente (o sin valores configurados) deja el entorno como está.
+    """
+    key, model = get_client_openrouter(client_id=client_id, client_slug=client_slug)
+    if key:
+        os.environ["OPENROUTER_API_KEY"] = key
+    if model:
+        os.environ["OPENROUTER_MODEL"] = model
+    return key, model
+
+
 # ─── Landings ────────────────────────────────────────────────────────────────
 
 def upsert_landing(slug: str, keyword: str, html_content: str, **kwargs) -> str:
