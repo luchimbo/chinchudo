@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { intentLabels, statusLabels, type OpportunityIntentValue, type OpportunityStatusValue } from "@/lib/labels";
 
@@ -78,9 +79,13 @@ function buildWeeklyTrend(
 
 // ─── Función principal ────────────────────────────────────────────────────────
 
-export async function getAnalyticsData(): Promise<AnalyticsData> {
+export async function getAnalyticsData(clientId?: string): Promise<AnalyticsData> {
   const since8w = new Date();
   since8w.setDate(since8w.getDate() - 56);
+
+  const oppWhere: Prisma.OpportunityWhereInput = clientId
+    ? { OR: [{ detectedBrand: { clientId } }, { monitoredSource: { clientId } }] }
+    : {};
 
   const [
     totalOpportunities,
@@ -97,35 +102,38 @@ export async function getAnalyticsData(): Promise<AnalyticsData> {
     brands,
     personas,
   ] = await Promise.all([
-    prisma.opportunity.count(),
-    prisma.response.count(),
-    prisma.opportunity.groupBy({ by: ["status"],           _count: { status: true } }),
-    prisma.opportunity.groupBy({ by: ["channelId"],        _count: { channelId: true } }),
-    prisma.opportunity.groupBy({ by: ["detectedBrandId"],  _count: { detectedBrandId: true } }),
+    prisma.opportunity.count({ where: oppWhere }),
+    prisma.response.count({ where: clientId ? { opportunity: oppWhere } : {} }),
+    prisma.opportunity.groupBy({ by: ["status"],          where: oppWhere, _count: { status: true } }),
+    prisma.opportunity.groupBy({ by: ["channelId"],       where: oppWhere, _count: { channelId: true } }),
+    prisma.opportunity.groupBy({ by: ["detectedBrandId"], where: oppWhere, _count: { detectedBrandId: true } }),
     prisma.opportunity.groupBy({
       by: ["detectedIntent"],
+      where: oppWhere,
       _count: { detectedIntent: true },
       orderBy: { _count: { detectedIntent: "desc" } },
     }),
     prisma.opportunity.groupBy({
       by: ["detectedProductId"],
+      where: oppWhere,
       _count: { detectedProductId: true },
       orderBy: { _count: { detectedProductId: "desc" } },
       take: 8,
     }),
     prisma.response.groupBy({
       by: ["personaId"],
+      where: clientId ? { opportunity: oppWhere } : {},
       _count: { personaId: true },
       orderBy: { _count: { personaId: "desc" } },
     }),
     prisma.publishingLog.groupBy({ by: ["result"], _count: { result: true } }),
     prisma.opportunity.findMany({
-      where: { createdAt: { gte: since8w } },
+      where: { ...oppWhere, createdAt: { gte: since8w } },
       select: { createdAt: true, status: true },
     }),
     prisma.channel.findMany(),
-    prisma.brand.findMany(),
-    prisma.persona.findMany(),
+    prisma.brand.findMany({ where: clientId ? { clientId } : {} }),
+    prisma.persona.findMany({ where: clientId ? { clientId } : {} }),
   ]);
 
   // Lookup maps
@@ -205,7 +213,7 @@ export async function getAnalyticsData(): Promise<AnalyticsData> {
 
 export async function generateWeeklySummary(
   data: AnalyticsData,
-  opts?: { apiKey?: string | null; model?: string | null },
+  opts?: { apiKey?: string | null; model?: string | null; clientName?: string | null },
 ): Promise<string> {
   // Si se pasa la config de un cliente activo, se usa esa key/modelo; si no, el .env global.
   const apiKey = opts?.apiKey?.trim() || process.env.OPENROUTER_API_KEY;
@@ -239,12 +247,11 @@ ${data.weeklyTrend.map(w => `  ${w.week}: ${w.total} nuevas, ${w.publicadas} pub
     messages: [
       {
         role: "system",
-        content:
-          "Sos el analista de operaciones de PC MIDI Center. Generás resúmenes semanales concisos y orientados a la acción para el equipo comercial. Escribís en español rioplatense. Sos directo, sin paja.",
+        content: `Sos el analista de operaciones de ${opts?.clientName ?? "este cliente"}. Generás resúmenes semanales concisos y orientados a la acción para el equipo comercial. Escribís en español rioplatense. Sos directo, sin paja.`,
       },
       {
         role: "user",
-        content: `Con estos datos del sistema Los 5 Apóstoles, generá un resumen semanal de máximo 200 palabras. Destacá tendencias, alertas y 2 recomendaciones concretas.\n\n${snapshot}`,
+        content: `Con estos datos del sistema, generá un resumen semanal de máximo 200 palabras. Destacá tendencias, alertas y 2 recomendaciones concretas.\n\n${snapshot}`,
       },
     ],
     max_tokens: 400,

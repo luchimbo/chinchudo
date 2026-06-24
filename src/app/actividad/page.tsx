@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { getVisibleClients } from "@/lib/auth";
+import { ClientSwitcher } from "@/components/client-switcher";
 
 const CANAL_EMOJI: Record<string, string> = {
   REDDIT: "🟠",
@@ -43,10 +45,18 @@ const CANAL_LABEL: Record<string, string> = {
   FORUM:     "Foro",
 };
 
-export default async function ActividadPage() {
+type PageProps = { searchParams: { client?: string } };
+
+export default async function ActividadPage({ searchParams }: PageProps) {
+  const clients = await getVisibleClients(prisma);
+  const activeClient = clients.find((c) => c.slug === searchParams.client) ?? clients[0] ?? null;
+
   const [apostolLogs, enjambrePubs] = await Promise.all([
-    // Apóstoles: respuestas publicadas en redes (comentarios en posts ajenos)
+    // Respuestas publicadas en redes (comentarios en posts ajenos)
     prisma.publishingLog.findMany({
+      where: activeClient
+        ? { opportunity: { OR: [{ detectedBrand: { clientId: activeClient.id } }, { monitoredSource: { clientId: activeClient.id } }] } }
+        : {},
       orderBy: { publishedAt: "desc" },
       take: 50,
       select: {
@@ -72,9 +82,13 @@ export default async function ActividadPage() {
       },
     }),
 
-    // Enjambre (Bruno Labs): posts propios de la marca desde las landings
+    // Posts propios de la marca desde las landings
     prisma.distributionPiece.findMany({
-      where: { status: "PUBLISHED", opportunityId: null },
+      where: {
+        status: "PUBLISHED",
+        opportunityId: null,
+        ...(activeClient ? { clientId: activeClient.id } : {}),
+      },
       orderBy: { publishedAt: "desc" },
       take: 80,
       select: {
@@ -90,12 +104,17 @@ export default async function ActividadPage() {
 
   return (
     <main className="relative mx-auto flex min-h-screen w-full max-w-5xl flex-col px-5 py-8">
-      <header className="mb-8">
-        <Link href="/" className="text-xs text-slate hover:text-ink">← Dashboard</Link>
-        <h1 className="mt-1 text-2xl font-bold text-ink">Actividad en redes</h1>
-        <p className="mt-0.5 text-sm text-slate">
-          Todo lo que se publicó: respuestas de los apóstoles y posts propios de la marca.
-        </p>
+      <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <Link href={activeClient ? `/?client=${activeClient.slug}` : "/"} className="text-xs text-slate hover:text-ink">← Dashboard</Link>
+          <h1 className="mt-1 text-2xl font-bold text-ink">Actividad en redes</h1>
+          <p className="mt-0.5 text-sm text-slate">
+            Todo lo que se publicó: respuestas en redes y posts propios de la marca.
+          </p>
+        </div>
+        {clients.length > 0 && (
+          <ClientSwitcher clients={clients} activeSlug={activeClient?.slug ?? clients[0].slug} />
+        )}
       </header>
 
       <div className="flex flex-col gap-10">
@@ -105,14 +124,13 @@ export default async function ActividadPage() {
           <div className="mb-4 flex items-center gap-3">
             <div className="h-px flex-1 bg-ink/10" />
             <div className="flex items-center gap-2 rounded-full border border-ink/15 bg-paper px-4 py-1.5 shadow-sm">
-              <span className="text-base">👤</span>
-              <span className="text-sm font-bold text-ink">Los Apóstoles</span>
+              <span className="text-sm font-bold text-ink">Respuestas en redes</span>
               <span className="rounded-full bg-ink/5 px-2 py-0.5 text-xs text-slate">{apostolLogs.length} publicaciones</span>
             </div>
             <div className="h-px flex-1 bg-ink/10" />
           </div>
           <p className="mb-4 text-xs text-slate">
-            Respuestas publicadas como comentarios en posts de otras personas, usando las 5 voces del proyecto.
+            Respuestas publicadas como comentarios en conversaciones de otras personas.
           </p>
 
           {apostolLogs.length === 0 ? (
@@ -175,14 +193,13 @@ export default async function ActividadPage() {
           <div className="mb-4 flex items-center gap-3">
             <div className="h-px flex-1 bg-ink/10" />
             <div className="flex items-center gap-2 rounded-full border border-brass/30 bg-brass/5 px-4 py-1.5 shadow-sm">
-              <span className="text-base">🐝</span>
-              <span className="text-sm font-bold text-ink">Bruno Labs / Enjambre</span>
+              <span className="text-sm font-bold text-ink">Posts de la marca</span>
               <span className="rounded-full bg-brass/10 px-2 py-0.5 text-xs text-brass">{enjambrePubs.length} publicaciones</span>
             </div>
             <div className="h-px flex-1 bg-ink/10" />
           </div>
           <p className="mb-4 text-xs text-slate">
-            Posts propios de PC MIDI Center generados a partir del blog: Instagram, Facebook, X, LinkedIn, YouTube.
+            Posts propios de {activeClient?.name ?? "la marca"} generados a partir del blog: Instagram, Facebook, X, LinkedIn, YouTube.
           </p>
 
           {enjambrePubs.length === 0 ? (

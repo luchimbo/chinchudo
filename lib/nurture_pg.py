@@ -114,7 +114,7 @@ def load_lead_magnets() -> dict[str, dict]:
 
 def lead_magnet_resource_text(magnet: dict, landing: dict) -> str:
     """Construye el recurso prometido como contenido real dentro del email."""
-    title = magnet.get("title") or "Recurso PC MIDI Labs"
+    title = magnet.get("title") or "Recurso"
     resource_type = (magnet.get("resource_type") or "recurso").lower()
     lines = ["", "---", title]
 
@@ -204,7 +204,7 @@ def lead_magnet_resource_text(magnet: dict, landing: dict) -> str:
     if primary_category:
         lines.append("")
         lines.append(f"Categoria principal para revisar: {primary_category}")
-    lines.append("Si queres comparar alternativas, podes usar esta lista mientras miras opciones en pcmidi.com.ar.")
+    lines.append("Usá esta lista como guía mientras evaluás opciones.")
     return "\n".join(lines)
 
 
@@ -363,7 +363,7 @@ def create_lead(data: dict) -> tuple[int, str]:
                 cat_info = categories.get(cat_id, {})
                 ok, error = send_email(
                     to_email=email,
-                    subject=day0.get("subject", "Bienvenido a PC MIDI Center"),
+                    subject=day0.get("subject", "Bienvenido"),
                     body_text=body,
                     unsubscribe_url=unsubscribe_url(email),
                     category_url=cat_info.get("url", ""),

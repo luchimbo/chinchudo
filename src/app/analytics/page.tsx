@@ -1,5 +1,8 @@
 import Link from "next/link";
 import { getAnalyticsData } from "@/lib/analytics";
+import { prisma } from "@/lib/db";
+import { getVisibleClients } from "@/lib/auth";
+import { ClientSwitcher } from "@/components/client-switcher";
 import {
   BrandChart,
   ChannelChart,
@@ -47,8 +50,12 @@ function ChartCard({ title, children, className = "" }: { title: string; childre
   );
 }
 
-export default async function AnalyticsPage() {
-  const data = await getAnalyticsData();
+type PageProps = { searchParams: { client?: string } };
+
+export default async function AnalyticsPage({ searchParams }: PageProps) {
+  const clients = await getVisibleClients(prisma);
+  const activeClient = clients.find((c) => c.slug === searchParams.client) ?? clients[0] ?? null;
+  const data = await getAnalyticsData(activeClient?.id);
 
   const responseRate =
     data.totalOpportunities > 0
@@ -65,24 +72,21 @@ export default async function AnalyticsPage() {
       {/* Header */}
       <header className="mb-8 grid gap-6 lg:grid-cols-[1fr_auto] lg:items-end">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.32em] text-moss">PC MIDI Center</p>
+          <p className="text-xs font-bold uppercase tracking-[0.32em] text-moss">{activeClient?.name ?? "Todos los clientes"}</p>
           <h1 className="mt-3 font-display text-5xl leading-none text-ink md:text-7xl">Analítica</h1>
           <p className="mt-4 max-w-2xl text-base leading-7 text-slate">
             Métricas operativas del sistema. Datos en tiempo real desde la base local.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {clients.length > 0 && (
+            <ClientSwitcher clients={clients} activeSlug={activeClient?.slug ?? clients[0].slug} />
+          )}
           <Link
-            href="/"
-            className="inline-flex h-12 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-5 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white"
+            href={activeClient ? `/?client=${activeClient.slug}` : "/"}
+            className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-5 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white"
           >
-            ← Oportunidades
-          </Link>
-          <Link
-            href="/admin"
-            className="inline-flex h-12 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-5 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white"
-          >
-            Admin
+            ← Dashboard
           </Link>
         </div>
       </header>

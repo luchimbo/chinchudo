@@ -22,7 +22,10 @@ export async function POST(req: NextRequest) {
       leadMagnetId = lm?.id;
     }
 
-    const landing = await prisma.landing.findUnique({ where: { slug: data.slug } });
+    const landing = await prisma.landing.findUnique({
+      where: { slug: data.slug },
+      select: { id: true, clientId: true },
+    });
 
     const lead = await prisma.lead.create({
       data: {
@@ -33,6 +36,7 @@ export async function POST(req: NextRequest) {
         consent: data.consent,
         landingId: landing?.id,
         leadMagnetId,
+        ...(landing?.clientId ? { clientId: landing.clientId } : {}),
       },
     });
 
