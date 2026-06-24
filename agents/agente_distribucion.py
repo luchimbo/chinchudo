@@ -21,6 +21,19 @@ CONTENT_FEEDBACK_PATH = DATA_DIR / "content_feedback.jsonl"
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_MODEL = "openai/gpt-4o-mini"
+
+_CLIENT_CONFIG: dict = {}
+
+def _blog_url() -> str:
+    return (_CLIENT_CONFIG.get("blogBaseUrl") or "https://blog.pcmidicenter.com").rstrip("/")
+
+def _store_url() -> str:
+    return (_CLIENT_CONFIG.get("storeUrl") or "https://www.pcmidi.com.ar").rstrip("/")
+
+def _client_name() -> str:
+    return _CLIENT_CONFIG.get("name") or "PC MIDI Center"
+
+# Mantener BASE_URL como alias para código legacy dentro del módulo
 BASE_URL = "https://blog.pcmidicenter.com"
 
 FORBIDDEN_CLAIMS = [
@@ -279,8 +292,8 @@ def chat_json(system: str, user: str, model: str, temperature: float = 0.4) -> d
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://www.pcmidi.com.ar/",
-            "X-Title": "PC MIDI Distribution Agent",
+            "HTTP-Referer": f"{_store_url()}/",
+            "X-Title": f"{_client_name()} Distribution Agent",
         },
         method="POST",
     )
@@ -313,7 +326,7 @@ def build_user_prompt(landing: dict, content_type: str) -> str:
     keyword = landing.get("keyword", "")
     h1 = landing.get("h1", "")
     intent = landing.get("intent", "")
-    url = f"{BASE_URL}/{slug}/"
+    url = f"{_blog_url()}/{slug}/"
 
     faqs = landing.get("faqs", [])
     faqs_text = "\n".join(f"- P: {f['q']}\n  R: {f['a']}" for f in faqs[:3]) if faqs else ""
@@ -406,7 +419,8 @@ def validate_piece(piece: dict, sitemap_slugs: set[str]) -> list[str]:
         url_matches = re.findall(r"https?://[^\s\"']+", body)
         for url in url_matches:
             slug = url.rstrip("/").split("/")[-1]
-            if slug and slug not in sitemap_slugs and "pcmidi" not in url and "blog.pcmidicenter" not in url:
+            blog_host = _blog_url().replace("https://", "").replace("http://", "").split("/")[0]
+        if slug and slug not in sitemap_slugs and blog_host not in url:
                 errors.append(f"link no pertenece a sitemap: {url}")
 
     if not body.strip() or len(body.strip()) < 50:
@@ -427,7 +441,7 @@ def build_distribution_record(
     run_id: str = "",
 ) -> dict:
     slug = landing.get("slug", "")
-    url = f"{BASE_URL}/{slug}/"
+    url = f"{_blog_url()}/{slug}/"
     channel = piece.get("channel", CONTENT_TYPES[content_type]["channels"][0])
     community = piece.get("community", channel)
     link_included = piece.get("link_included", CONTENT_TYPES[content_type]["link_included"])
@@ -822,7 +836,14 @@ def main() -> None:
 
     args = parser.parse_args()
     import db_pg
-    db_pg.inject_openrouter_env(client_slug=getattr(args, "client_slug", "") or None)
+    client_slug = getattr(args, "client_slug", "") or ""
+    db_pg.inject_openrouter_env(client_slug=client_slug or None)
+    if client_slug:
+        global _CLIENT_CONFIG
+        try:
+            _CLIENT_CONFIG = db_pg.get_client_config(client_slug)
+        except Exception as e:
+            print(f"[WARN] No se pudo cargar client_config para '{client_slug}': {e}")
     command = args.command or "generate"
     if command == "generate":
         run_distribution(

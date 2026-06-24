@@ -39,6 +39,30 @@ CONTENT_FEEDBACK_FILE = DATA_DIR / "content_feedback.jsonl"
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
+_CLIENT_CONFIG: dict = {}
+
+# Patrones de marca por defecto (PC MIDI). Se sobreescriben desde client_config.geoBrandPatterns.
+_DEFAULT_BRAND_PATTERNS = [
+    r"pc\s*midi\s*center",
+    r"pc\s*midi",
+    r"pcmidi",
+    r"pcmidicenter",
+]
+
+def _brand_patterns() -> list[str]:
+    patterns = _CLIENT_CONFIG.get("geoBrandPatterns")
+    if patterns:
+        try:
+            parsed = patterns if isinstance(patterns, list) else __import__("json").loads(patterns)
+            if parsed:
+                return [str(p) for p in parsed]
+        except Exception:
+            pass
+    return _DEFAULT_BRAND_PATTERNS
+
+def _client_name() -> str:
+    return _CLIENT_CONFIG.get("name") or "PC MIDI Center"
+
 DEFAULT_MODELS = [
     "deepseek/deepseek-v4-flash",
     "tencent/hy3-preview",
@@ -49,13 +73,8 @@ DEFAULT_MODELS = [
     "anthropic/claude-haiku-4-5",
 ]
 
-# Aliases conocidos de PC MIDI en texto
-PCMIDI_PATTERNS = [
-    r"pc\s*midi\s*center",
-    r"pc\s*midi",
-    r"pcmidi",
-    r"pcmidicenter",
-]
+# Aliases de marca — se resuelven dinámicamente desde _brand_patterns() para soportar multi-cliente
+PCMIDI_PATTERNS = _DEFAULT_BRAND_PATTERNS  # alias legacy
 
 COMPETITORS = [
     "musimundo",
@@ -137,18 +156,20 @@ def query_openrouter(model: str, prompt: str, api_key: str) -> dict:
 
 
 def score_response(text: str) -> int:
-    """Asigna score 0-5 segun presencia de PC MIDI Center."""
+    """Asigna score 0-5 segun presencia de la marca en la respuesta."""
     lower = text.lower()
+    active_patterns = _brand_patterns()
 
-    mentioned = any(re.search(p, lower) for p in PCMIDI_PATTERNS)
+    mentioned = any(re.search(p, lower) for p in active_patterns)
     if not mentioned:
         return 0
 
     # Buscar si aparece con link o URL
-    if re.search(r"pcmidicenter\.com|pc\s*midi.*https?://", lower):
+    store_host = (_CLIENT_CONFIG.get("storeUrl") or "pcmidicenter.com").replace("https://", "").replace("http://", "").split("/")[0]
+    if re.search(rf"{re.escape(store_host)}|pc\s*midi.*https?://", lower):
         # Verificar si es el primero en ser mencionado o referencia principal
         first_mention = min(
-            (m.start() for p in PCMIDI_PATTERNS for m in [re.search(p, lower)] if m),
+            (m.start() for p in active_patterns for m in [re.search(p, lower)] if m),
             default=9999,
         )
         # Si aparece en los primeros 300 chars del texto util (excluyendo system)
@@ -368,7 +389,15 @@ def main() -> None:
     parser.add_argument("--client-slug", default="", help="Cliente cuya API key de OpenRouter usar (default: .env)")
     args = parser.parse_args()
     import db_pg
-    db_pg.inject_openrouter_env(client_slug=getattr(args, "client_slug", "") or None)
+    client_slug = getattr(args, "client_slug", "") or ""
+    db_pg.inject_openrouter_env(client_slug=client_slug or None)
+    if client_slug:
+        global _CLIENT_CONFIG
+        try:
+            _CLIENT_CONFIG = db_pg.get_client_config(client_slug)
+            print(f"geo-audit: cliente '{client_slug}' ({_CLIENT_CONFIG.get('name', '')}), {len(_brand_patterns())} patrones de marca")
+        except Exception as e:
+            print(f"[WARN] No se pudo cargar client_config para '{client_slug}': {e}")
 
     if args.subcommand == "audit":
         run_audit(args)
