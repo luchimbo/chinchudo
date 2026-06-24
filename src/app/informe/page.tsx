@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { getVisibleClients } from "@/lib/auth";
 import { ClientSwitcher } from "@/components/client-switcher";
+import { deleteSystemLog, clearAllSystemErrors } from "./actions";
 
 function fmt(d: Date | null | string | undefined) {
   if (!d) return "nunca";
@@ -192,12 +193,22 @@ export default async function InformePage({
               <h2 className="text-lg font-bold text-signal">Errores recientes detectados</h2>
               <p className="text-xs text-slate">Lista de fallas registradas en los últimos 7 días con guías de solución rápida.</p>
             </div>
-            <Link
-              href={`/informe${clientSlug ? `?client=${clientSlug}` : ""}`}
-              className="text-xs font-semibold text-slate hover:text-ink hover:underline"
-            >
-              Cerrar panel
-            </Link>
+            <div className="flex gap-4">
+              <form action={clearAllSystemErrors}>
+                <button
+                  type="submit"
+                  className="rounded-full border border-signal/30 bg-signal/10 px-3 py-1.5 text-xs font-semibold text-signal hover:bg-signal/20 transition duration-150"
+                >
+                  Limpiar registro
+                </button>
+              </form>
+              <Link
+                href={`/informe${clientSlug ? `?client=${clientSlug}` : ""}`}
+                className="text-xs font-semibold text-slate hover:text-ink hover:underline self-center"
+              >
+                Cerrar panel
+              </Link>
+            </div>
           </div>
 
           {errorLogs.length === 0 ? (
@@ -215,15 +226,27 @@ export default async function InformePage({
                         </span>
                         <h3 className="mt-1 text-sm font-bold text-ink">{fix.title}</h3>
                       </div>
-                      <span className="text-[11px] text-slate tabular-nums">
-                        {new Date(log.createdAt).toLocaleString("es-AR", {
-                          day: "numeric",
-                          month: "short",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                          second: "2-digit",
-                        })}
-                      </span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-[11px] text-slate tabular-nums">
+                          {new Date(log.createdAt).toLocaleString("es-AR", {
+                            day: "numeric",
+                            month: "short",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            second: "2-digit",
+                          })}
+                        </span>
+                        <form action={deleteSystemLog}>
+                          <input type="hidden" name="id" value={log.id} />
+                          <button
+                            type="submit"
+                            title="Eliminar este log"
+                            className="text-slate hover:text-signal text-xs font-bold transition select-none outline-none"
+                          >
+                            ✕
+                          </button>
+                        </form>
+                      </div>
                     </div>
 
                     <div className="mt-3 space-y-3">
