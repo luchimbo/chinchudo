@@ -5,13 +5,16 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { assertClientAccess } from "@/lib/auth";
 
-// Convierte un textarea (una entrada por línea o separadas por coma) en JSON array string.
 function toJsonList(raw: FormDataEntryValue | null): string {
   const items = String(raw ?? "")
     .split(/[\n,]/)
     .map((s) => s.trim())
     .filter(Boolean);
   return JSON.stringify(items);
+}
+
+function str(fd: FormData, key: string) {
+  return String(fd.get(key) ?? "").trim();
 }
 
 const baseSchema = z.object({
@@ -36,12 +39,32 @@ function parseBase(formData: FormData) {
   });
 }
 
+function parseBranding(formData: FormData) {
+  return {
+    storeUrl: str(formData, "storeUrl"),
+    blogBaseUrl: str(formData, "blogBaseUrl"),
+    labName: str(formData, "labName"),
+    logoUrl: str(formData, "logoUrl"),
+    fromName: str(formData, "fromName"),
+    fromEmail: str(formData, "fromEmail"),
+    smtpHost: str(formData, "smtpHost"),
+    smtpPort: parseInt(str(formData, "smtpPort") || "465", 10) || 465,
+    smtpUser: str(formData, "smtpUser"),
+    unsubscribeBaseUrl: str(formData, "unsubscribeBaseUrl"),
+    trackBaseUrl: str(formData, "trackBaseUrl"),
+  };
+}
+
 export async function createClient(formData: FormData) {
   const data = parseBase(formData);
-  const apiKey = String(formData.get("openrouterApiKey") ?? "").trim();
+  const branding = parseBranding(formData);
+  const apiKey = str(formData, "openrouterApiKey");
+  const smtpPass = str(formData, "smtpPass");
   await prisma.client.create({
     data: {
       ...data,
+      ...branding,
+      smtpPass,
       domainKeywords: toJsonList(formData.get("domainKeywords")),
       domainExclusions: toJsonList(formData.get("domainExclusions")),
       openrouterApiKey: apiKey,
@@ -54,15 +77,18 @@ export async function updateClient(formData: FormData) {
   const id = z.string().min(1).parse(formData.get("id"));
   await assertClientAccess(prisma, id);
   const data = parseBase(formData);
-  // La API key solo se actualiza si se escribió una nueva; en blanco = conservar la actual.
-  const apiKey = String(formData.get("openrouterApiKey") ?? "").trim();
+  const branding = parseBranding(formData);
+  const apiKey = str(formData, "openrouterApiKey");
+  const smtpPass = str(formData, "smtpPass");
   await prisma.client.update({
     where: { id },
     data: {
       ...data,
+      ...branding,
       domainKeywords: toJsonList(formData.get("domainKeywords")),
       domainExclusions: toJsonList(formData.get("domainExclusions")),
       ...(apiKey ? { openrouterApiKey: apiKey } : {}),
+      ...(smtpPass ? { smtpPass } : {}),
     },
   });
   revalidatePath("/clients");
