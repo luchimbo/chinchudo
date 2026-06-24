@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { prisma } from "@/lib/db";
+import { getVisibleClients } from "@/lib/auth";
+import { ClientSwitcher } from "@/components/client-switcher";
 
 const cards = [
   { href: "/clients", title: "Clientes", desc: "Dominio (keywords/exclusiones), API key de OpenRouter y modelo por cliente." },
@@ -10,20 +13,29 @@ const cards = [
   { href: "/monitoring", title: "Monitoreo", desc: "Fuentes monitoreadas y detecciones recientes." }
 ];
 
-export default function AdminPage({ searchParams }: { searchParams?: { client?: string } }) {
-  const clientQuery = searchParams?.client ? `?client=${searchParams.client}` : "";
+export default async function AdminPage({ searchParams }: { searchParams?: { client?: string } }) {
+  const clients = await getVisibleClients(prisma);
+  const activeClient = clients.find((client) => client.slug === searchParams?.client) ?? clients[0] ?? null;
+  const clientQuery = activeClient ? `?client=${activeClient.slug}` : "";
 
   return (
     <main className="relative mx-auto flex min-h-screen w-full max-w-4xl flex-col px-5 py-8">
-      <header className="mb-8 flex items-center justify-between gap-4">
+      <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.28em] text-moss">Administración</p>
-          <h1 className="font-display text-4xl text-ink">Panel de Lucio</h1>
+          <h1 className="font-display text-4xl text-ink">
+            Panel de Lucio{activeClient ? ` · ${activeClient.name}` : ""}
+          </h1>
           <p className="mt-2 max-w-2xl text-sm text-slate">Configuración del sistema sin tocar la base de datos.</p>
         </div>
-        <Link href={`/${clientQuery}`} className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
-          Volver
-        </Link>
+        <div className="flex items-center gap-3">
+          {clients.length > 0 && activeClient ? (
+            <ClientSwitcher clients={clients} activeSlug={activeClient.slug} />
+          ) : null}
+          <Link href={`/${clientQuery}`} className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
+            Volver
+          </Link>
+        </div>
       </header>
 
       <section className="grid gap-4 sm:grid-cols-2">

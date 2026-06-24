@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { createBrand, updateBrand, deleteBrand } from "./actions";
 import { getVisibleClients } from "@/lib/auth";
+import { ClientSwitcher } from "@/components/client-switcher";
 
 const inputCls = "rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm text-ink";
 const labelCls = "grid gap-1 text-xs font-semibold text-slate";
@@ -17,7 +18,7 @@ export default async function BrandsPage({ searchParams }: { searchParams: { cli
 
   return (
     <main className="relative mx-auto flex min-h-screen w-full max-w-4xl flex-col px-5 py-8">
-      <header className="mb-8 flex items-center justify-between gap-4">
+      <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.28em] text-moss">Admin</p>
           <h1 className="font-display text-4xl text-ink">Marcas</h1>
@@ -25,15 +26,14 @@ export default async function BrandsPage({ searchParams }: { searchParams: { cli
             Posicionamiento, tono y claims permitidos/prohibidos. Alimentan el contexto de cada respuesta.
           </p>
         </div>
-        <form>
-          <select name="client" defaultValue={activeClient?.slug ?? ""} className={inputCls}>
-            {clients.map((client) => <option key={client.id} value={client.slug}>{client.name}</option>)}
-          </select>
-          <button className="ml-2 rounded-full border border-ink/20 px-4 py-2 text-sm font-semibold text-ink">Cambiar</button>
-        </form>
-        <Link href={activeClient ? `/admin?client=${activeClient.slug}` : "/admin"} className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
-          Volver
-        </Link>
+        <div className="flex items-center gap-3">
+          {clients.length > 0 && activeClient ? (
+            <ClientSwitcher clients={clients} activeSlug={activeClient.slug} />
+          ) : null}
+          <Link href={activeClient ? `/admin?client=${activeClient.slug}` : "/admin"} className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
+            Volver
+          </Link>
+        </div>
       </header>
 
       <section className="mb-10">

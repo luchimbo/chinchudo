@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { getVisibleClients } from "@/lib/auth";
 import { createProduct, updateProduct, deleteProduct } from "./actions";
+import { ClientSwitcher } from "@/components/client-switcher";
 
 type BrandOpt = { id: string; name: string };
 
@@ -36,7 +37,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: { c
 
   return (
     <main className="relative mx-auto flex min-h-screen w-full max-w-5xl flex-col px-5 py-8">
-      <header className="mb-8 flex items-center justify-between gap-4">
+      <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.28em] text-moss">CatÃ¡logo</p>
           <h1 className="font-display text-4xl text-ink">Productos</h1>
@@ -44,15 +45,14 @@ export default async function ProductsPage({ searchParams }: { searchParams: { c
             Specs, garantÃ­a, stock y precio. Estos datos alimentan el contexto de las respuestas.
           </p>
         </div>
-        <form>
-          <select name="client" defaultValue={activeClient?.slug ?? ""} className={inputCls}>
-            {clients.map((client) => <option key={client.id} value={client.slug}>{client.name}</option>)}
-          </select>
-          <button className="ml-2 rounded-full border border-ink/20 px-4 py-2 text-sm font-semibold text-ink">Cambiar</button>
-        </form>
-        <Link href={activeClient ? `/admin?client=${activeClient.slug}` : "/admin"} className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
-          Volver
-        </Link>
+        <div className="flex items-center gap-3">
+          {clients.length > 0 && activeClient ? (
+            <ClientSwitcher clients={clients} activeSlug={activeClient.slug} />
+          ) : null}
+          <Link href={activeClient ? `/admin?client=${activeClient.slug}` : "/admin"} className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
+            Volver
+          </Link>
+        </div>
       </header>
 
       <section className="mb-10">
