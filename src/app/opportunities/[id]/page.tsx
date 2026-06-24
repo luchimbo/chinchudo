@@ -45,20 +45,20 @@ function getPersonaDisplayName(name: string, clientSlug?: string | null) {
 }
 
 const agentErrorMessages: Record<string, string> = {
-  no_comment_box: "No se encontrÃ³ el cuadro de comentario. Asegurate de que YouTube estÃ© logueado en el perfil y que los comentarios estÃ©n habilitados en ese video.",
+  no_comment_box: "No se encontró el cuadro de comentario. Asegurate de que YouTube esté logueado en el perfil y que los comentarios estén habilitados en ese video.",
   no_input_box: "No se pudo activar el campo de texto del comentario.",
-  no_submit_button: "Se escribiÃ³ el comentario pero no se encontrÃ³ el botÃ³n de enviar.",
-  no_reply_button: "Se encontrÃ³ el comentario pero no el botÃ³n Responder.",
-  no_reply_input: "Se abriÃ³ el diÃ¡logo de respuesta pero no apareciÃ³ el campo de texto.",
-  no_reply_submit: "Se escribiÃ³ la respuesta pero no se encontrÃ³ el botÃ³n de enviar.",
-  comment_not_found: "No se encontrÃ³ el comentario especÃ­fico en la pÃ¡gina (cayÃ³ en top-level como fallback).",
-  not_logged_in: "El perfil no estÃ¡ logueado en la plataforma.",
-  dolphin_not_running: "No se pudo iniciar el perfil. Asegurate de que NSTBrowser estÃ© abierto.",
-  relay_fetch_failed: "No se pudo conectar al servidor relay local. Asegurate de que el relay y el Cloudflare Tunnel estÃ©n corriendo en la PC principal.",
-  publish_failed: "El agente fallÃ³ al intentar publicar. RevisÃ¡ los logs del servidor.",
-  rate_limited_spacing: "Esta cuenta publicÃ³ hace menos de 10 minutos. EsperÃ¡ un momento antes de reintentar.",
-  rate_limited_daily: "Esta cuenta alcanzÃ³ el lÃ­mite diario de publicaciones (8). UsÃ¡ otra cuenta o intentÃ¡ maÃ±ana.",
-  unknown: "Error desconocido. RevisÃ¡ los logs del servidor.",
+  no_submit_button: "Se escribió el comentario pero no se encontró el botón de enviar.",
+  no_reply_button: "Se encontró el comentario pero no el botón Responder.",
+  no_reply_input: "Se abrió el diálogo de respuesta pero no apareció el campo de texto.",
+  no_reply_submit: "Se escribió la respuesta pero no se encontró el botón de enviar.",
+  comment_not_found: "No se encontró el comentario específico en la página (cayó en top-level como fallback).",
+  not_logged_in: "El perfil no está logueado en la plataforma.",
+  dolphin_not_running: "No se pudo iniciar el perfil. Asegurate de que NSTBrowser esté abierto.",
+  relay_fetch_failed: "No se pudo conectar al servidor relay local. Asegurate de que el relay y el Cloudflare Tunnel estén corriendo en la PC principal.",
+  publish_failed: "El agente falló al intentar publicar. Revisá los logs del servidor.",
+  rate_limited_spacing: "Esta cuenta publicó hace menos de 10 minutos. Esperá un momento antes de reintentar.",
+  rate_limited_daily: "Esta cuenta alcanzó el límite diario de publicaciones (8). Usá otra cuenta o intentá mañana.",
+  unknown: "Error desconocido. Revisá los logs del servidor.",
 };
 
 export default async function OpportunityDetailPage({ params, searchParams }: PageProps) {
@@ -121,11 +121,11 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
         .map(([name, cfg]) => ({ name, label: cfg.label, defaultPersona: cfg.defaultPersona ?? "" }));
     }
   } catch {
-    // accounts no disponible â€” publicacion via agente deshabilitada
+    // accounts no disponible — publicacion via agente deshabilitada
   }
   const canPublishViaAgent = (channelLower === "youtube" || channelLower === "reddit" || channelLower === "x" || channelLower === "facebook" || channelLower === "instagram") && agentAccounts.length > 0;
 
-  // Cuenta sugerida: la que tiene como defaultPersona el arquetipo sugerido y estÃ¡ habilitada para este canal
+  // Cuenta sugerida: la que tiene como defaultPersona el arquetipo sugerido y está habilitada para este canal
   const suggestedAccount = agentAccounts.find((a) => a.defaultPersona === suggestion.personaName);
 
   return (
@@ -279,12 +279,12 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
             </label>
             {suggestedPersona ? (
               <p className="mt-2 rounded-md bg-white/10 px-3 py-2 text-xs leading-5 text-paper/70">
-                <span className="font-bold text-paper">Sugerencia automÃ¡tica:</span> {getPersonaDisplayName(suggestion.personaName, resolution.client.slug)}
-                {suggestion.reason ? <span className="text-paper/55"> â€” {suggestion.reason}</span> : null}
+                <span className="font-bold text-paper">Sugerencia automática:</span> {getPersonaDisplayName(suggestion.personaName, resolution.client.slug)}
+                {suggestion.reason ? <span className="text-paper/55"> — {suggestion.reason}</span> : null}
               </p>
             ) : null}
             <SubmitButton
-              loadingText="Generandoâ€¦"
+              loadingText="Generando…"
               className="mt-5 w-full rounded-full bg-paper px-5 py-3 text-sm font-bold text-ink transition hover:bg-white disabled:opacity-50"
             >
               Generar 3 variantes
@@ -361,10 +361,10 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
                 </div>
               )}
               <SubmitButton
-                loadingText="â³ Publicandoâ€¦ (puede tardar 1-2 min)"
+                loadingText="⏳ Publicando… (puede tardar 1-2 min)"
                 className="mt-5 w-full rounded-full bg-brass px-5 py-3 text-sm font-bold text-white transition hover:bg-ink disabled:opacity-50"
               >
-                Publicar vÃ­a agente
+                Publicar vía agente
               </SubmitButton>
             </form>
           ) : null}
@@ -373,16 +373,16 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
             <h2 className="font-display text-2xl">Estado rapido</h2>
             <input type="hidden" name="opportunityId" value={opportunity.id} />
             <div className="mt-4 grid grid-cols-2 gap-2">
-              <SubmitButton name="status" value="NEEDS_REVIEW" loadingText="Guardandoâ€¦" className="rounded-full border border-ink/15 px-3 py-2 text-sm font-bold text-ink hover:bg-paper disabled:opacity-50">
+              <SubmitButton name="status" value="NEEDS_REVIEW" loadingText="Guardando…" className="rounded-full border border-ink/15 px-3 py-2 text-sm font-bold text-ink hover:bg-paper disabled:opacity-50">
                 Revisar
               </SubmitButton>
-              <SubmitButton name="status" value="DISCARDED" loadingText="Guardandoâ€¦" className="rounded-full border border-ink/15 px-3 py-2 text-sm font-bold text-ink hover:bg-paper disabled:opacity-50">
+              <SubmitButton name="status" value="DISCARDED" loadingText="Guardando…" className="rounded-full border border-ink/15 px-3 py-2 text-sm font-bold text-ink hover:bg-paper disabled:opacity-50">
                 Descartar
               </SubmitButton>
-              <SubmitButton name="status" value="FOLLOW_UP" loadingText="Guardandoâ€¦" className="rounded-full border border-ink/15 px-3 py-2 text-sm font-bold text-ink hover:bg-paper disabled:opacity-50">
+              <SubmitButton name="status" value="FOLLOW_UP" loadingText="Guardando…" className="rounded-full border border-ink/15 px-3 py-2 text-sm font-bold text-ink hover:bg-paper disabled:opacity-50">
                 Seguimiento
               </SubmitButton>
-              <SubmitButton name="status" value="CONVERTED" loadingText="Guardandoâ€¦" className="rounded-full border border-ink/15 px-3 py-2 text-sm font-bold text-ink hover:bg-paper disabled:opacity-50">
+              <SubmitButton name="status" value="CONVERTED" loadingText="Guardando…" className="rounded-full border border-ink/15 px-3 py-2 text-sm font-bold text-ink hover:bg-paper disabled:opacity-50">
                 Convertida
               </SubmitButton>
             </div>

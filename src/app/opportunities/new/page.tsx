@@ -31,12 +31,14 @@ export default async function NewOpportunityPage({ searchParams }: { searchParam
           </p>
           <h1 className="font-display text-4xl text-ink">Cargar oportunidad</h1>
         </div>
-        <form>
-          <select name="client" defaultValue={activeClient?.slug ?? ""} className="rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm text-ink">
-            {clients.map((client) => <option key={client.id} value={client.slug}>{client.name}</option>)}
-          </select>
-          <button className="ml-2 rounded-full border border-ink/20 px-4 py-2 text-sm font-semibold text-ink">Cambiar</button>
-        </form>
+        {clients.length > 1 && (
+          <form>
+            <select name="client" defaultValue={activeClient?.slug ?? ""} className="rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm text-ink">
+              {clients.map((client) => <option key={client.id} value={client.slug}>{client.name}</option>)}
+            </select>
+            <button className="ml-2 rounded-full border border-ink/20 px-4 py-2 text-sm font-semibold text-ink">Cambiar</button>
+          </form>
+        )}
         <Link
           href={activeClient ? `/?client=${activeClient.slug}` : "/"}
           className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white"

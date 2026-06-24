@@ -79,7 +79,7 @@ export default async function HomePage({ searchParams }: PageProps) {
   ]);
   const activeClient = clients.find((client) => client.slug === searchParams.client) ?? clients[0] ?? null;
 
-  if (!searchParams.client) {
+  if (!searchParams.client && clients.length > 1) {
     const clientCards = await Promise.all(clients.map(async (client) => {
       const clientWhere: Prisma.OpportunityWhereInput = {
         OR: [

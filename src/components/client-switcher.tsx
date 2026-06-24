@@ -21,6 +21,8 @@ export function ClientSwitcher({ clients, activeSlug }: { clients: ClientOption[
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
+  if (clients.length <= 1) return null;
+
   const active = clients.find((c) => c.slug === activeSlug) ?? clients[0];
 
   return (

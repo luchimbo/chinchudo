@@ -39,10 +39,10 @@ export default async function ProductsPage({ searchParams }: { searchParams: { c
     <main className="relative mx-auto flex min-h-screen w-full max-w-5xl flex-col px-5 py-8">
       <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.28em] text-moss">CatÃ¡logo</p>
+          <p className="text-xs font-bold uppercase tracking-[0.28em] text-moss">Catálogo</p>
           <h1 className="font-display text-4xl text-ink">Productos</h1>
           <p className="mt-2 max-w-2xl text-sm text-slate">
-            Specs, garantÃ­a, stock y precio. Estos datos alimentan el contexto de las respuestas.
+            Specs, garantía, stock y precio. Estos datos alimentan el contexto de las respuestas.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -64,8 +64,8 @@ export default async function ProductsPage({ searchParams }: { searchParams: { c
             <input name="name" required className={inputCls} />
           </label>
           <label className={labelCls}>
-            CategorÃ­a
-            <input name="category" required placeholder="Controlador MIDI, BaterÃ­a electrÃ³nica..." className={inputCls} />
+            Categoría
+            <input name="category" required placeholder="Controlador MIDI, Batería electrónica..." className={inputCls} />
           </label>
           <label className={labelCls}>
             Stock
@@ -76,11 +76,11 @@ export default async function ProductsPage({ searchParams }: { searchParams: { c
             <input name="priceRange" placeholder="Por confirmar" className={inputCls} />
           </label>
           <label className={`${labelCls} md:col-span-2`}>
-            DescripciÃ³n
+            Descripción
             <textarea name="description" rows={2} className={`${inputCls} resize-y`} />
           </label>
           <label className={`${labelCls} md:col-span-2`}>
-            Specs tÃ©cnicas
+            Specs técnicas
             <textarea name="technicalSpecs" rows={2} className={`${inputCls} resize-y`} />
           </label>
           <label className={labelCls}>
@@ -88,7 +88,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: { c
             <input name="useCases" className={inputCls} />
           </label>
           <label className={labelCls}>
-            Notas de garantÃ­a
+            Notas de garantía
             <input name="warrantyNotes" className={inputCls} />
           </label>
           <div className="flex items-end justify-end md:col-span-2">
@@ -98,7 +98,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: { c
       </section>
 
       <section>
-        <h2 className="font-display text-2xl text-ink">CatÃ¡logo ({products.length})</h2>
+        <h2 className="font-display text-2xl text-ink">Catálogo ({products.length})</h2>
         <div className="mt-4 grid gap-3">
           {products.map((p) => (
             <form key={p.id} action={updateProduct} className="grid gap-3 rounded-lg border border-ink/10 bg-paper p-4 md:grid-cols-2">
@@ -109,7 +109,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: { c
                 <input name="name" defaultValue={p.name} required className={inputCls} />
               </label>
               <label className={labelCls}>
-                CategorÃ­a
+                Categoría
                 <input name="category" defaultValue={p.category} required className={inputCls} />
               </label>
               <label className={labelCls}>
@@ -125,15 +125,15 @@ export default async function ProductsPage({ searchParams }: { searchParams: { c
                 <input name="useCases" defaultValue={p.useCases} className={inputCls} />
               </label>
               <label className={`${labelCls} md:col-span-2`}>
-                DescripciÃ³n
+                Descripción
                 <textarea name="description" defaultValue={p.description} rows={2} className={`${inputCls} resize-y`} />
               </label>
               <label className={`${labelCls} md:col-span-2`}>
-                Specs tÃ©cnicas
+                Specs técnicas
                 <textarea name="technicalSpecs" defaultValue={p.technicalSpecs} rows={2} className={`${inputCls} resize-y`} />
               </label>
               <label className={`${labelCls} md:col-span-2`}>
-                Notas de garantÃ­a
+                Notas de garantía
                 <input name="warrantyNotes" defaultValue={p.warrantyNotes} className={inputCls} />
               </label>
               <div className="flex items-end justify-end gap-2 md:col-span-2">

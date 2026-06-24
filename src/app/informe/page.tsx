@@ -27,9 +27,9 @@ const CANAL_LABEL: Record<string, string> = {
 export default async function InformePage({
   searchParams,
 }: {
-  searchParams: Promise<{ client?: string }>;
+  searchParams: Promise<{ client?: string; showErrors?: string }>;
 }) {
-  const { client: clientSlug } = await searchParams;
+  const { client: clientSlug, showErrors } = await searchParams;
   const clients = await getVisibleClients(prisma);
   const activeClient = clients.find((c) => c.slug === clientSlug) ?? clients[0] ?? null;
   const cf = activeClient ? { clientId: activeClient.id } : {};
@@ -75,6 +75,7 @@ export default async function InformePage({
     // Monitoreo
     sources,
     systemErrors,
+    errorLogs,
   ] = await Promise.all([
     // Oportunidades
     prisma.opportunity.count(),
@@ -125,6 +126,13 @@ export default async function InformePage({
       orderBy: { lastRunAt: "desc" }, take: 8,
       select: { label: true, channel: true, lastRunAt: true, lastCount: true } }),
     prisma.systemLog.count({ where: { level: "error", createdAt: { gte: since7 } } }),
+    showErrors === "1"
+      ? prisma.systemLog.findMany({
+          where: { level: "error", createdAt: { gte: since7 } },
+          orderBy: { createdAt: "desc" },
+          take: 20,
+        })
+      : Promise.resolve([]),
   ]);
 
   // Resolver channelIds → nombres
@@ -157,12 +165,103 @@ export default async function InformePage({
         </div>
         {clients.length > 0 && <ClientSwitcher clients={clients} activeSlug={activeClient?.slug ?? ""} />}
         {systemErrors > 0 && (
-          <div className="rounded-xl border border-signal/30 bg-signal/10 px-4 py-2 text-center">
-            <p className="text-xs font-semibold text-signal">{systemErrors} errores</p>
+          <Link
+            href={
+              showErrors === "1"
+                ? `/informe${clientSlug ? `?client=${clientSlug}` : ""}`
+                : `/informe?${clientSlug ? `client=${clientSlug}&` : ""}showErrors=1`
+            }
+            className="group block rounded-xl border border-signal/30 bg-signal/10 px-4 py-2 text-center hover:bg-signal/15 transition duration-200"
+          >
+            <p className="text-xs font-semibold text-signal group-hover:underline">
+              {systemErrors} {systemErrors === 1 ? "error" : "errores"}
+            </p>
             <p className="text-xs text-signal/70">últimos 7 días</p>
-          </div>
+            <p className="mt-1 text-[10px] font-medium text-signal/90 uppercase tracking-wider group-hover:text-signal">
+              {showErrors === "1" ? "Ocultar detalles ▲" : "Ver detalles ▼"}
+            </p>
+          </Link>
         )}
       </header>
+
+      {/* ── SECCIÓN DE DETALLE DE ERRORES (Solo si showErrors === "1") ── */}
+      {showErrors === "1" && (
+        <section className="rounded-2xl border border-signal/20 bg-signal/5 p-6 animate-fadeIn">
+          <div className="mb-6 flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-signal">Errores recientes detectados</h2>
+              <p className="text-xs text-slate">Lista de fallas registradas en los últimos 7 días con guías de solución rápida.</p>
+            </div>
+            <Link
+              href={`/informe${clientSlug ? `?client=${clientSlug}` : ""}`}
+              className="text-xs font-semibold text-slate hover:text-ink hover:underline"
+            >
+              Cerrar panel
+            </Link>
+          </div>
+
+          {errorLogs.length === 0 ? (
+            <p className="text-sm text-slate italic">No se encontraron registros de error en el sistema.</p>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {errorLogs.map((log) => {
+                const fix = getErrorFix(log.event, log.message, log.meta);
+                return (
+                  <div key={log.id} className="rounded-xl border border-ink/10 bg-paper p-5 shadow-sm">
+                    <div className="flex flex-wrap items-start justify-between gap-2 border-b border-ink/5 pb-3">
+                      <div>
+                        <span className="inline-block rounded bg-signal/15 px-2 py-0.5 text-[10px] font-bold text-signal uppercase tracking-wider">
+                          {log.event}
+                        </span>
+                        <h3 className="mt-1 text-sm font-bold text-ink">{fix.title}</h3>
+                      </div>
+                      <span className="text-[11px] text-slate tabular-nums">
+                        {new Date(log.createdAt).toLocaleString("es-AR", {
+                          day: "numeric",
+                          month: "short",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          second: "2-digit",
+                        })}
+                      </span>
+                    </div>
+
+                    <div className="mt-3 space-y-3">
+                      <div>
+                        <p className="text-xs font-semibold text-slate">Mensaje original:</p>
+                        <p className="text-xs font-mono bg-ink/4 rounded px-2 py-1 mt-0.5 text-ink/80 break-words">{log.message}</p>
+                      </div>
+
+                      <div>
+                        <p className="text-xs font-semibold text-slate">¿Qué significa?</p>
+                        <p className="text-xs text-ink/80 mt-0.5">{fix.explanation}</p>
+                      </div>
+
+                      <div className="rounded-lg border border-brass/30 bg-brass/5 p-3">
+                        <p className="text-xs font-bold text-brass-dark flex items-center gap-1.5">
+                          🔧 Solución sugerida:
+                        </p>
+                        <p className="text-xs text-ink/95 mt-1 leading-relaxed">{fix.action}</p>
+                      </div>
+
+                      {log.meta && Object.keys(log.meta as object).length > 0 && (
+                        <details className="group mt-2 border-t border-ink/5 pt-2">
+                          <summary className="cursor-pointer text-[11px] font-medium text-slate hover:text-ink select-none outline-none">
+                            Ver metadatos técnicos y contexto ({Object.keys(log.meta as object).length} campos)
+                          </summary>
+                          <pre className="mt-2 max-h-48 overflow-y-auto rounded-lg bg-ink/4 p-3 font-mono text-[10px] text-ink/75 leading-normal whitespace-pre-wrap break-all">
+                            {JSON.stringify(log.meta, null, 2)}
+                          </pre>
+                        </details>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* ── 1. OPORTUNIDADES Y RESPUESTAS ── */}
       <section>
@@ -329,6 +428,78 @@ export default async function InformePage({
       )}
     </main>
   );
+}
+
+function getErrorFix(event: string, message: string, meta: any): { title: string; explanation: string; action: string } {
+  let metaObj: any = {};
+  if (meta) {
+    if (typeof meta === "string") {
+      try {
+        metaObj = JSON.parse(meta);
+      } catch {
+        metaObj = {};
+      }
+    } else {
+      metaObj = meta;
+    }
+  }
+
+  const msgLower = (message || "").toLowerCase();
+  const metaMsg = (metaObj?.error?.message || "").toLowerCase();
+
+  if (msgLower.includes("is not a valid model id") || metaMsg.includes("is not a valid model id")) {
+    return {
+      title: "Modelo de IA Inválido / Desactualizado",
+      explanation: "El modelo configurado en OpenRouter (por ejemplo, `deepseek/deepseek-v4-flash`) no es válido o ha sido descontinuado por el proveedor.",
+      action: "Revisá el archivo .env y cambiá la variable OPENROUTER_MODEL a un modelo activo válido (por ejemplo, deepseek/deepseek-r1:free o google/gemini-2.5-flash). Luego reiniciá el servidor."
+    };
+  }
+
+  if (msgLower.includes("http 400") || msgLower.includes("bad request")) {
+    return {
+      title: "Error de Solicitud (Bad Request) en OpenRouter",
+      explanation: "El portal OpenRouter rechazó la solicitud debido a un parámetro inválido o problemas con el modelo de IA configurado.",
+      action: "Comprobá las variables de entorno en el archivo .env, especialmente OPENROUTER_MODEL y OPENROUTER_API_KEY. Asegurate de que el modelo exista en la lista oficial de OpenRouter y la API key tenga crédito."
+    };
+  }
+
+  if (msgLower.includes("respuesta vacía") || msgLower.includes("empty response")) {
+    return {
+      title: "Respuesta Vacía del Proveedor de IA",
+      explanation: "El proveedor de IA respondió correctamente pero el cuerpo del texto estaba vacío, posiblemente debido a límites de tokens o un bloqueo temporal.",
+      action: "Reintentá generar el borrador de respuesta en unos minutos. Si el problema persiste, verificá si tu cuenta de OpenRouter tiene saldo o si el modelo está temporalmente congestionado."
+    };
+  }
+
+  if (msgLower.includes("no se pudo parsear json") || msgLower.includes("json parse")) {
+    return {
+      title: "Fallo de Formato en Respuesta IA (JSON)",
+      explanation: "El modelo de IA generó una respuesta pero no cumplió con el formato JSON estricto esperado por el sistema (por ejemplo, cortó el texto por la mitad o agregó comentarios extras).",
+      action: "Hacé clic en 'Reintentar generación' en la oportunidad. El sistema volverá a solicitar el formato JSON correcto. Si ocurre con frecuencia, considerá usar un modelo más capaz (como Claude 3.5 Sonnet o GPT-4o)."
+    };
+  }
+
+  if (event === "nurture_error" || msgLower.includes("nurture") || msgLower.includes("email") || msgLower.includes("mail")) {
+    return {
+      title: "Fallo en Envío de Email Automático",
+      explanation: "Ocurrió un error al intentar despachar un correo electrónico automatizado de nutrición (nurture) para leads o contactos.",
+      action: "Verificá la configuración del servidor de correo saliente (SMTP) o el servicio de email (ej. Resend, Sendgrid) en tu configuración de entorno. Asegurate de que el destinatario sea válido y la API key esté activa."
+    };
+  }
+
+  if (msgLower.includes("dolphin") || msgLower.includes("browser") || msgLower.includes("cdp") || msgLower.includes("playwright") || msgLower.includes("nstbrowser")) {
+    return {
+      title: "Error de Navegador Automático / Scraping",
+      explanation: "El agente de escucha (browser-cdp) no pudo interactuar con el navegador automatizado Dolphin o NSTBrowser local.",
+      action: "Asegurate de que la aplicación Dolphin/NSTBrowser esté abierta localmente en tu PC en el puerto configurado o iniciá el navegador manualmente con 'python agents/browser-cdp.py start-browser --account <nombre-cuenta>'."
+    };
+  }
+
+  return {
+    title: `Error en evento: ${event}`,
+    explanation: message || "No hay un mensaje detallado para este error.",
+    action: "Revisá los detalles técnicos (meta) expandiendo el panel correspondiente para ver el código de error y el contexto técnico de la falla."
+  };
 }
 
 /* ── Componentes internos ── */

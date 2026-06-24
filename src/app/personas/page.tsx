@@ -38,10 +38,10 @@ export default async function PersonasPage({ searchParams }: { searchParams: { c
       </header>
 
       <p className="mb-6 rounded-md border border-brass/40 bg-brass/10 p-3 text-xs leading-5 text-ink">
-        <strong>AtenciÃ³n:</strong> el <em>nombre</em> de cada persona debe coincidir exactamente con el
-        ruteador (<code>src/lib/persona-router.ts</code>). EditÃ¡ tono, objetivos y ejemplos con
-        libertad; si cambiÃ¡s el nombre y deja de coincidir, el ruteo de esa voz falla (el draft-worker
-        lo registra como error). Nombres canÃ³nicos: {Array.from(PERSONA_NAME_SET).join(", ")}.
+        <strong>Atención:</strong> el <em>nombre</em> de cada persona debe coincidir exactamente con el
+        ruteador (<code>src/lib/persona-router.ts</code>). Editá tono, objetivos y ejemplos con
+        libertad; si cambiás el nombre y deja de coincidir, el ruteo de esa voz falla (el draft-worker
+        lo registra como error). Nombres canónicos: {Array.from(PERSONA_NAME_SET).join(", ")}.
       </p>
 
       <section className="mb-10">
