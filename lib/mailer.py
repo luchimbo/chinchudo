@@ -1,7 +1,6 @@
 """
-Mailer para PC MIDI Center - Agente 4 Nurturing
-
-Configuracion del remitente: Bruno de PC MIDI Labs <lab@pcmidicenter.com>
+Mailer multi-cliente para Agente 4 Nurturing.
+Los datos del remitente y SMTP se toman del Client en la DB (via client_config dict).
 """
 
 import os
@@ -25,22 +24,48 @@ if ENV_FILE.exists():
                 key, value = line.split("=", 1)
                 os.environ.setdefault(key.strip(), value.strip())
 
-# Configuracion del remitente
+# Fallbacks desde .env (usados cuando no hay client_config)
 DEFAULT_FROM_NAME = os.getenv("NURTURE_FROM_NAME", "Bruno de PC MIDI Labs")
 DEFAULT_FROM_EMAIL = os.getenv("NURTURE_FROM_EMAIL", "lab@pcmidicenter.com")
+DEFAULT_SMTP_HOST = os.getenv("NURTURE_SMTP_HOST", "")
+DEFAULT_SMTP_PORT = int(os.getenv("NURTURE_SMTP_PORT", "465"))
+DEFAULT_SMTP_USER = os.getenv("NURTURE_SMTP_USER", "")
+DEFAULT_SMTP_PASS = os.getenv("NURTURE_SMTP_PASS", "").strip()
+DEFAULT_STORE_URL = os.getenv("STORE_URL", "https://www.pcmidi.com.ar")
+DEFAULT_LAB_NAME = os.getenv("LAB_NAME", "PC MIDI Labs")
 
-# Configuracion SMTP
-SMTP_HOST = os.getenv("NURTURE_SMTP_HOST", "")
-SMTP_PORT = int(os.getenv("NURTURE_SMTP_PORT", "465"))
-SMTP_USER = os.getenv("NURTURE_SMTP_USER", "")
-SMTP_PASS = os.getenv("NURTURE_SMTP_PASS", "").strip()
+# Mantener compatibilidad con código que importa SMTP_HOST/SMTP_PORT directamente
+SMTP_HOST = DEFAULT_SMTP_HOST
+SMTP_PORT = DEFAULT_SMTP_PORT
+SMTP_USER = DEFAULT_SMTP_USER
+SMTP_PASS = DEFAULT_SMTP_PASS
 
 
-def _tracking_secret() -> str:
+def _smtp_cfg(client_config: dict | None) -> tuple[str, int, str, str]:
+    """Devuelve (host, port, user, pass) desde client_config o .env."""
+    if client_config:
+        host = client_config.get("smtpHost") or DEFAULT_SMTP_HOST
+        port = int(client_config.get("smtpPort") or DEFAULT_SMTP_PORT)
+        user = client_config.get("smtpUser") or DEFAULT_SMTP_USER
+        pw = client_config.get("smtpPass") or DEFAULT_SMTP_PASS
+        if host and user and pw:
+            return host, port, user, pw
+    return DEFAULT_SMTP_HOST, DEFAULT_SMTP_PORT, DEFAULT_SMTP_USER, DEFAULT_SMTP_PASS
+
+
+def _tracking_secret(client_config: dict | None = None) -> str:
+    if client_config:
+        pw = client_config.get("smtpPass") or ""
+        if pw:
+            return pw
     return os.getenv("NURTURE_UNSUBSCRIBE_SECRET") or os.getenv("NURTURE_SMTP_PASS", "")
 
 
-def _tracking_base_url() -> str:
+def _tracking_base_url(client_config: dict | None = None) -> str:
+    if client_config:
+        track = (client_config.get("trackBaseUrl") or "").strip()
+        if track:
+            return track.rstrip("/")
     explicit = os.getenv("NURTURE_TRACK_BASE_URL", "").strip()
     if explicit:
         return explicit
@@ -53,11 +78,11 @@ def _tracking_base_url() -> str:
     return raw
 
 
-def signed_tracking_url(category_url: str, lead_id: int | None = None, slug: str = "", day_number: int | None = None) -> str:
+def signed_tracking_url(category_url: str, lead_id: int | None = None, slug: str = "", day_number: int | None = None, client_config: dict | None = None) -> str:
     if not category_url or not lead_id:
         return category_url
-    base_url = _tracking_base_url().strip().rstrip("/")
-    secret = _tracking_secret()
+    base_url = _tracking_base_url(client_config).strip().rstrip("/")
+    secret = _tracking_secret(client_config)
     if not base_url or not secret:
         return category_url
     day = "" if day_number is None else str(day_number)
@@ -165,8 +190,7 @@ def _parse_email_body(body_text: str) -> str:
     return "\n".join(html_parts)
 
 
-def _build_cta_html(category_url: str, category_name: str) -> str:
-    """Genera un CTA visual con link a la categoria de PC MIDI."""
+def _build_cta_html(category_url: str, category_name: str, client_name: str = "PC MIDI Center") -> str:
     if not category_url:
         return ""
     display_name = category_name or "Ver opciones"
@@ -174,14 +198,27 @@ def _build_cta_html(category_url: str, category_name: str) -> str:
 <div style="margin: 28px 0; text-align: center;">
   <div style="background: linear-gradient(135deg, #fef6f1 0%, #fff 100%); border: 2px solid #EB6517; border-radius: 12px; padding: 24px;">
     <p style="margin: 0 0 16px 0; font-size: 16px; color: #1D1D1B; font-weight: 600;">¿Querés ver modelos concretos?</p>
-    <p style="margin: 0 0 20px 0; font-size: 14px; color: #666;">Mirá los {display_name} que tenemos en PC MIDI Center y compará según lo que estés buscando.</p>
+    <p style="margin: 0 0 20px 0; font-size: 14px; color: #666;">Mirá los {display_name} que tenemos en {client_name} y compará según lo que estés buscando.</p>
     <a href="{category_url}" style="display: inline-block; background: linear-gradient(135deg, #EB6517 0%, #d45a14 100%); color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-size: 15px; font-weight: 600; letter-spacing: 0.5px; box-shadow: 0 4px 12px rgba(235,101,23,0.3);">Ver {display_name}</a>
   </div>
 </div>'''
 
 
-def build_html_body(body_text: str, unsubscribe_url: str = "", category_url: str = "", category_name: str = "") -> str:
-    """Genera el cuerpo HTML del email con el formato de PC MIDI Labs."""
+def build_html_body(
+    body_text: str,
+    unsubscribe_url: str = "",
+    category_url: str = "",
+    category_name: str = "",
+    client_config: dict | None = None,
+) -> str:
+    """Genera el cuerpo HTML del email parametrizado por cliente."""
+    cfg = client_config or {}
+    from_name_short = (cfg.get("fromName") or DEFAULT_FROM_NAME).split(" ")[0]
+    lab_name = cfg.get("labName") or DEFAULT_LAB_NAME
+    store_url = cfg.get("storeUrl") or DEFAULT_STORE_URL
+    from_email = cfg.get("fromEmail") or DEFAULT_FROM_EMAIL
+    client_name = cfg.get("name") or "PC MIDI Center"
+
     unsubscribe_html = ""
     if unsubscribe_url:
         unsubscribe_html = f'''<div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #eee;">
@@ -191,7 +228,7 @@ Si ya no querés recibir estos correos, podés
 </span></div>'''
 
     content_html = _parse_email_body(body_text)
-    cta_html = _build_cta_html(category_url, category_name)
+    cta_html = _build_cta_html(category_url, category_name, client_name)
 
     return f"""<!DOCTYPE html>
 <html lang="es">
@@ -201,8 +238,7 @@ Si ya no querés recibir estos correos, podés
 <tr><td align="center" style="padding: 30px 10px;">
 <table role="presentation" style="max-width: 600px; width: 100%; background-color: #ffffff; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); overflow: hidden;">
 <tr><td style="background: linear-gradient(135deg, #1D1D1B 0%, #2d2d2b 100%); padding: 28px 32px; text-align: center;">
-<div style="font-size: 22px; font-weight: 700; color: #F4F1EA; letter-spacing: 2px;">PC MIDI <span style="color: #EB6517;">LABS</span></div>
-<div style="font-size: 12px; color: #aaa; margin-top: 4px; letter-spacing: 1px;">TECNOLOGIA PARA PRODUCCION MUSICAL</div>
+<div style="font-size: 22px; font-weight: 700; color: #F4F1EA; letter-spacing: 2px;">{lab_name.upper()}</div>
 </td></tr>
 <tr><td style="padding: 32px;">
 {content_html}
@@ -210,10 +246,10 @@ Si ya no querés recibir estos correos, podés
 </td></tr>
 <tr><td style="background-color: #fafafa; padding: 24px 32px; border-top: 1px solid #eee;">
 <p style="font-size: 13px; color: #666; margin: 0; line-height: 1.6;">
-<strong style="color: #1D1D1B;">Bruno</strong><br>
-<span style="color: #888;">PC MIDI Labs - Tecnologia para produccion musical</span><br>
-<a href="https://www.pcmidi.com.ar" style="color: #EB6517; text-decoration: none;">www.pcmidi.com.ar</a><br>
-<a href="mailto:lab@pcmidicenter.com" style="color: #EB6517; text-decoration: none;">lab@pcmidicenter.com</a>
+<strong style="color: #1D1D1B;">{from_name_short}</strong><br>
+<span style="color: #888;">{lab_name}</span><br>
+<a href="{store_url}" style="color: #EB6517; text-decoration: none;">{store_url.replace("https://", "").replace("http://", "")}</a><br>
+<a href="mailto:{from_email}" style="color: #EB6517; text-decoration: none;">{from_email}</a>
 </p>
 {unsubscribe_html}
 </td></tr>
@@ -237,38 +273,38 @@ def send_email(
     lead_id: int | None = None,
     slug: str = "",
     day_number: int | None = None,
+    client_config: dict | None = None,
 ) -> tuple[bool, str]:
     """
     Envia un email via SMTP.
-    
-    Args:
-        to_email: Destinatario
-        subject: Asunto
-        body_text: Cuerpo en texto plano
-        from_name: Nombre del remitente (default: Bruno de PC MIDI Labs)
-        from_email: Email del remitente (default: lab@pcmidicenter.com)
-        dry_run: Si True, solo simula el envio
-        category_url: URL de la categoria de PC MIDI para el CTA
-        category_name: Nombre de la categoria para mostrar en el CTA
-    
-    Returns:
-        (exito: bool, mensaje_error: str)
+
+    client_config (opcional): dict con smtpHost/Port/User/Pass, fromName, fromEmail,
+    labName, storeUrl, trackBaseUrl.  Si se pasa, tiene prioridad sobre los args
+    from_name/from_email y sobre las variables de entorno.
     """
+    # Resolver remitente y SMTP desde client_config si está disponible
+    if client_config:
+        from_name = client_config.get("fromName") or from_name
+        from_email = client_config.get("fromEmail") or from_email
+
+    smtp_host, smtp_port, smtp_user, smtp_pass = _smtp_cfg(client_config)
+
     if dry_run:
-        print(f"  [DRY-RUN] Email a {to_email}: '{subject}'")
+        print(f"  [DRY-RUN] Email a {to_email}: '{subject}' (from {from_email}, smtp {smtp_host or '(env)'})")
         return True, ""
 
-    if not all([SMTP_HOST, SMTP_USER, SMTP_PASS]):
+    if not all([smtp_host, smtp_user, smtp_pass]):
         return False, "SMTP no configurado"
 
     try:
-        tracked_category_url = signed_tracking_url(category_url, lead_id=lead_id, slug=slug, day_number=day_number)
+        tracked_category_url = signed_tracking_url(
+            category_url, lead_id=lead_id, slug=slug, day_number=day_number, client_config=client_config
+        )
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
         msg["From"] = f"{from_name} <{from_email}>"
         msg["To"] = to_email
 
-        # Adjuntar versiones texto y HTML
         if unsubscribe_url:
             body_text = body_text.rstrip() + f"\n\nSi ya no querés recibir estos correos, podés darte de baja acá: {unsubscribe_url}"
 
@@ -278,17 +314,17 @@ def send_email(
             unsubscribe_url=unsubscribe_url,
             category_url=tracked_category_url,
             category_name=category_name,
+            client_config=client_config,
         ), "html", "utf-8"))
 
-        # Enviar via SSL (puerto 465) o STARTTLS (otros puertos)
-        if SMTP_PORT == 465:
-            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT) as server:
-                server.login(SMTP_USER, SMTP_PASS)
+        if smtp_port == 465:
+            with smtplib.SMTP_SSL(smtp_host, smtp_port) as server:
+                server.login(smtp_user, smtp_pass)
                 server.sendmail(from_email, [to_email], msg.as_string())
         else:
-            with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            with smtplib.SMTP(smtp_host, smtp_port) as server:
                 server.starttls()
-                server.login(SMTP_USER, SMTP_PASS)
+                server.login(smtp_user, smtp_pass)
                 server.sendmail(from_email, [to_email], msg.as_string())
 
         return True, ""

@@ -33,6 +33,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lib.mailer import send_email
 from lib import nurture_pg
+import db_pg as db_pg_mod
 
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
@@ -592,17 +593,26 @@ def show_status() -> dict[str, Any]:
 
 def process_command(args: argparse.Namespace) -> int:
     """Procesa mensajes pendientes de nurturing."""
+    client_slug = getattr(args, "client_slug", "") or ""
+    client_config: dict | None = None
+    if client_slug:
+        try:
+            client_config = db_pg_mod.get_client_config(client_slug)
+            print(f"nurture: Usando config de cliente '{client_slug}' ({client_config.get('name', '')})")
+        except Exception as e:
+            print(f"nurture: Advertencia — no se pudo cargar client_config para '{client_slug}': {e}")
+
     print(f"nurture: Procesando mensajes pendientes (limit={args.limit}, dry_run={args.dry_run})")
 
     if nurture_pg.enabled():
         nurture_pg.init_db()
-        results = nurture_pg.process_pending(limit=args.limit, dry_run=args.dry_run)
+        results = nurture_pg.process_pending(limit=args.limit, dry_run=args.dry_run, client_config=client_config)
         if args.retry and not args.dry_run:
-            retry_results = nurture_pg.retry_failed(limit=20, dry_run=args.dry_run)
+            retry_results = nurture_pg.retry_failed(limit=20, dry_run=args.dry_run, client_config=client_config)
             results["retry_processed"] = retry_results["processed"]
             results["retry_sent"] = retry_results["sent"]
             results["retry_failed"] = retry_results["failed"]
-        report_path = write_report("process", {"command": "process", "database": "postgres", "dry_run": args.dry_run, "limit": args.limit, "results": results})
+        report_path = write_report("process", {"command": "process", "database": "postgres", "dry_run": args.dry_run, "limit": args.limit, "client_slug": client_slug, "results": results})
         print(f"nurture: Procesados {results['processed']} mensajes")
         print(f"  Enviados: {results['sent']}")
         print(f"  Fallidos: {results['failed']}")
@@ -832,6 +842,7 @@ def main() -> int:
     process_parser.add_argument("--limit", type=int, default=50, help="Máximo de mensajes a procesar")
     process_parser.add_argument("--dry-run", action="store_true", help="Simula sin enviar emails")
     process_parser.add_argument("--retry", action="store_true", help="También reintenta mensajes fallidos")
+    process_parser.add_argument("--client-slug", default="", help="Slug del cliente (usa su SMTP y branding)")
 
     # capture
     capture_parser = sub.add_parser("capture", help="Captura nuevos leads desde formularios")

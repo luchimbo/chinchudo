@@ -419,7 +419,7 @@ def stats() -> dict[str, Any]:
     }
 
 
-def process_pending(limit: int = 50, dry_run: bool = False) -> dict[str, Any]:
+def process_pending(limit: int = 50, dry_run: bool = False, client_config: dict | None = None) -> dict[str, Any]:
     results = {"processed": 0, "sent": 0, "skipped": 0, "failed": 0, "errors": []}
     with connect() as conn:
         with conn.cursor() as cur:
@@ -458,6 +458,7 @@ def process_pending(limit: int = 50, dry_run: bool = False) -> dict[str, Any]:
                     lead_id=msg["lead_id"],
                     slug=msg.get("slug", ""),
                     day_number=msg["day_number"],
+                    client_config=client_config,
                 )
                 if ok:
                     if not dry_run:
@@ -475,7 +476,7 @@ def process_pending(limit: int = 50, dry_run: bool = False) -> dict[str, Any]:
     return results
 
 
-def retry_failed(limit: int = 20, dry_run: bool = False) -> dict[str, Any]:
+def retry_failed(limit: int = 20, dry_run: bool = False, client_config: dict | None = None) -> dict[str, Any]:
     results = {"processed": 0, "sent": 0, "failed": 0}
     with connect() as conn:
         with conn.cursor() as cur:
@@ -514,6 +515,7 @@ def retry_failed(limit: int = 20, dry_run: bool = False) -> dict[str, Any]:
                     lead_id=msg["lead_id"],
                     slug=msg.get("slug", ""),
                     day_number=msg["day_number"],
+                    client_config=client_config,
                 )
                 if ok:
                     if not dry_run:
