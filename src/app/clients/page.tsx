@@ -44,52 +44,115 @@ function ClientForm({
 
       {/* Identidad */}
       <label className={labelCls}>
-        Nombre {!isNew && (c.active ? <span className="text-moss">● activo</span> : <span className="text-slate/60">○ inactivo</span>)}
+        Nombre del cliente {!isNew && (c.active ? <span className="text-moss">● activo</span> : <span className="text-slate/60">○ inactivo</span>)}
         <input name="name" defaultValue={c.name ?? ""} required className={inputCls} />
       </label>
-      <label className={labelCls}>Slug<input name="slug" defaultValue={c.slug ?? ""} required placeholder="prestige-running" className={inputCls} /></label>
-      <label className={`${labelCls} md:col-span-2`}>Descripción<input name="description" defaultValue={c.description ?? ""} className={inputCls} /></label>
-      <label className={labelCls}>Keywords de dominio (una por línea)
+      <label className={labelCls}>
+        Identificador interno
+        <span className="font-normal text-slate/60 text-[11px]">Solo minúsculas y guiones. No se cambia después.</span>
+        <input name="slug" defaultValue={c.slug ?? ""} required placeholder="prestige-running" className={inputCls} />
+      </label>
+      <label className={`${labelCls} md:col-span-2`}>
+        Descripción breve
+        <input name="description" defaultValue={c.description ?? ""} className={inputCls} />
+      </label>
+      <label className={labelCls}>
+        Temas del negocio (uno por línea)
+        <span className="font-normal text-slate/60 text-[11px]">Palabras clave que definen el rubro. Los agentes las usan para no salirse del tema.</span>
         <textarea name="domainKeywords" defaultValue={listToText(c.domainKeywords ?? "[]")} rows={4} className={`${inputCls} resize-y`} />
       </label>
-      <label className={labelCls}>Exclusiones (una por línea)
+      <label className={labelCls}>
+        Temas a ignorar (uno por línea)
+        <span className="font-normal text-slate/60 text-[11px]">El agente no generará contenido sobre estos temas aunque aparezcan relacionados.</span>
         <textarea name="domainExclusions" defaultValue={listToText(c.domainExclusions ?? "[]")} rows={4} className={`${inputCls} resize-y`} />
       </label>
 
       {/* IA */}
-      <p className={`${sectionHead} md:col-span-2`}>OpenRouter / IA</p>
+      <p className={`${sectionHead} md:col-span-2`}>Inteligencia artificial</p>
       <label className={labelCls}>
-        API key {!isNew && <span className="font-normal text-slate/60">({maskKey(c.openrouterApiKey ?? "")})</span>}
-        <input name="openrouterApiKey" type="password" autoComplete="off" placeholder={isNew ? "sk-or-…" : "en blanco = conservar"} className={inputCls} />
+        Clave de IA (OpenRouter) {!isNew && <span className="font-normal text-slate/60">({maskKey(c.openrouterApiKey ?? "")})</span>}
+        <span className="font-normal text-slate/60 text-[11px]">Si queda vacía, se usa la clave global del sistema.</span>
+        <input name="openrouterApiKey" type="password" autoComplete="off" placeholder={isNew ? "sk-or-…" : "en blanco = conservar la actual"} className={inputCls} />
       </label>
-      <label className={labelCls}>Modelo<input name="openrouterModel" defaultValue={c.openrouterModel ?? ""} placeholder="google/gemini-2.0-flash-lite" className={inputCls} /></label>
-
-      {/* Branding / landings */}
-      <p className={`${sectionHead} md:col-span-2`}>Branding &amp; landings</p>
-      <label className={labelCls}>URL tienda<input name="storeUrl" defaultValue={c.storeUrl ?? ""} placeholder="https://www.pcmidi.com.ar" className={inputCls} /></label>
-      <label className={labelCls}>URL blog base<input name="blogBaseUrl" defaultValue={c.blogBaseUrl ?? ""} placeholder="https://blog.pcmidicenter.com" className={inputCls} /></label>
-      <label className={labelCls}>Nombre del lab<input name="labName" defaultValue={c.labName ?? ""} placeholder="PC MIDI Labs" className={inputCls} /></label>
-      <label className={labelCls}>URL logo<input name="logoUrl" defaultValue={c.logoUrl ?? ""} placeholder="https://…/logo.png" className={inputCls} /></label>
-
-      {/* Email / nurturing */}
-      <p className={`${sectionHead} md:col-span-2`}>Email / nurturing (Fase 2)</p>
-      <label className={labelCls}>Nombre remitente<input name="fromName" defaultValue={c.fromName ?? ""} placeholder="Bruno de PC MIDI Labs" className={inputCls} /></label>
-      <label className={labelCls}>Email remitente<input name="fromEmail" defaultValue={c.fromEmail ?? ""} placeholder="lab@pcmidicenter.com" className={inputCls} /></label>
-      <label className={labelCls}>SMTP host<input name="smtpHost" defaultValue={c.smtpHost ?? ""} placeholder="smtp.zoho.com" className={inputCls} /></label>
-      <label className={labelCls}>SMTP puerto<input name="smtpPort" type="number" defaultValue={c.smtpPort ?? 465} className={inputCls} /></label>
-      <label className={labelCls}>SMTP usuario<input name="smtpUser" defaultValue={c.smtpUser ?? ""} className={inputCls} /></label>
       <label className={labelCls}>
-        SMTP contraseña {!isNew && c.smtpPass ? <span className="font-normal text-slate/60">(configurada)</span> : null}
-        <input name="smtpPass" type="password" autoComplete="off" placeholder={isNew ? "" : "en blanco = conservar"} className={inputCls} />
+        Modelo de IA
+        <span className="font-normal text-slate/60 text-[11px]">Modelo a usar para generar contenido de este cliente.</span>
+        <input name="openrouterModel" defaultValue={c.openrouterModel ?? ""} placeholder="google/gemini-2.0-flash-lite" className={inputCls} />
       </label>
-      <label className={`${labelCls} md:col-span-2`}>URL base unsubscribe<input name="unsubscribeBaseUrl" defaultValue={c.unsubscribeBaseUrl ?? ""} placeholder="https://blog.pcmidicenter.com/api/unsubscribe/" className={inputCls} /></label>
-      <label className={`${labelCls} md:col-span-2`}>URL base tracking<input name="trackBaseUrl" defaultValue={c.trackBaseUrl ?? ""} placeholder="https://blog.pcmidicenter.com" className={inputCls} /></label>
 
-      {/* Flags */}
-      <div className="flex flex-wrap gap-4 md:col-span-2">
-        <label className="flex items-center gap-2 text-xs font-semibold text-slate"><input type="checkbox" name="active" defaultChecked={c.active ?? true} /> Activo</label>
-        <label className="flex items-center gap-2 text-xs font-semibold text-slate"><input type="checkbox" name="autoApprove" defaultChecked={c.autoApprove ?? false} /> Auto-aprobar</label>
-        <label className="flex items-center gap-2 text-xs font-semibold text-slate"><input type="checkbox" name="autoPublish" defaultChecked={c.autoPublish ?? false} /> Auto-publicar</label>
+      {/* Sitio y marca */}
+      <p className={`${sectionHead} md:col-span-2`}>Sitio web y marca</p>
+      <label className={labelCls}>
+        URL de la tienda
+        <input name="storeUrl" defaultValue={c.storeUrl ?? ""} placeholder="https://www.prestigemedias.com.ar" className={inputCls} />
+      </label>
+      <label className={labelCls}>
+        URL del blog
+        <span className="font-normal text-slate/60 text-[11px]">Donde se publican los artículos generados.</span>
+        <input name="blogBaseUrl" defaultValue={c.blogBaseUrl ?? ""} placeholder="https://blog.prestigemedias.com.ar" className={inputCls} />
+      </label>
+      <label className={labelCls}>
+        Firma del autor
+        <span className="font-normal text-slate/60 text-[11px]">Nombre que aparece al pie de cada artículo y email.</span>
+        <input name="labName" defaultValue={c.labName ?? ""} placeholder="Equipo Prestige Running" className={inputCls} />
+      </label>
+      <label className={labelCls}>
+        URL del logo
+        <input name="logoUrl" defaultValue={c.logoUrl ?? ""} placeholder="https://…/logo.png" className={inputCls} />
+      </label>
+
+      {/* Email automático */}
+      <p className={`${sectionHead} md:col-span-2`}>Emails automáticos a contactos</p>
+      <label className={labelCls}>
+        Nombre del remitente
+        <input name="fromName" defaultValue={c.fromName ?? ""} placeholder="Lucas de Prestige Running" className={inputCls} />
+      </label>
+      <label className={labelCls}>
+        Email del remitente
+        <input name="fromEmail" defaultValue={c.fromEmail ?? ""} placeholder="lucas@prestigemedias.com.ar" className={inputCls} />
+      </label>
+      <label className={labelCls}>
+        Servidor de correo saliente (host)
+        <input name="smtpHost" defaultValue={c.smtpHost ?? ""} placeholder="smtp.zoho.com" className={inputCls} />
+      </label>
+      <label className={labelCls}>
+        Puerto del servidor
+        <input name="smtpPort" type="number" defaultValue={c.smtpPort ?? 465} className={inputCls} />
+      </label>
+      <label className={labelCls}>
+        Usuario de correo
+        <input name="smtpUser" defaultValue={c.smtpUser ?? ""} className={inputCls} />
+      </label>
+      <label className={labelCls}>
+        Contraseña de correo {!isNew && c.smtpPass ? <span className="font-normal text-slate/60">(configurada)</span> : null}
+        <input name="smtpPass" type="password" autoComplete="off" placeholder={isNew ? "" : "en blanco = conservar la actual"} className={inputCls} />
+      </label>
+      <label className={`${labelCls} md:col-span-2`}>
+        URL para darse de baja
+        <span className="font-normal text-slate/60 text-[11px]">Se incluye al pie de cada email. Ej: https://blog.tudominio.com/api/unsubscribe/</span>
+        <input name="unsubscribeBaseUrl" defaultValue={c.unsubscribeBaseUrl ?? ""} placeholder="https://blog.prestigemedias.com.ar/api/unsubscribe/" className={inputCls} />
+      </label>
+      <label className={`${labelCls} md:col-span-2`}>
+        URL base para medir clicks en emails
+        <span className="font-normal text-slate/60 text-[11px]">Dominio donde vive la app. Ej: https://blog.tudominio.com</span>
+        <input name="trackBaseUrl" defaultValue={c.trackBaseUrl ?? ""} placeholder="https://blog.prestigemedias.com.ar" className={inputCls} />
+      </label>
+
+      {/* Comportamiento */}
+      <div className="flex flex-wrap gap-5 md:col-span-2">
+        <label className="flex items-center gap-2 text-xs font-semibold text-slate">
+          <input type="checkbox" name="active" defaultChecked={c.active ?? true} />
+          Activo
+        </label>
+        <label className="flex items-center gap-2 text-xs font-semibold text-slate">
+          <input type="checkbox" name="autoApprove" defaultChecked={c.autoApprove ?? false} />
+          Aprobar borradores automáticamente
+          <span className="font-normal text-slate/60">(sin revisión manual)</span>
+        </label>
+        <label className="flex items-center gap-2 text-xs font-semibold text-slate">
+          <input type="checkbox" name="autoPublish" defaultChecked={c.autoPublish ?? false} />
+          Publicar al aprobar automáticamente
+        </label>
       </div>
       <div className="flex flex-wrap items-end justify-end gap-2 md:col-span-2">
         <button className="rounded-full bg-ink px-5 py-2 text-sm font-bold text-paper transition hover:bg-slate">
@@ -113,7 +176,7 @@ export default async function ClientsPage() {
           <p className="text-xs font-bold uppercase tracking-[0.28em] text-moss">Admin</p>
           <h1 className="font-display text-4xl text-ink">Clientes</h1>
           <p className="mt-2 max-w-2xl text-sm text-slate">
-            Dominio, branding, API key de OpenRouter y configuración de email por cliente.
+            Configurá cada marca: su sitio, la firma del autor, los emails automáticos y el modelo de IA que usa para generar contenido.
           </p>
         </div>
         <Link href="/admin" className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
