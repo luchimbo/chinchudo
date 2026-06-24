@@ -36,13 +36,12 @@ export default async function HomePage({ searchParams }: PageProps) {
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-4xl flex-col justify-center px-5 py-10 lg:px-8">
-      <header className="mb-10">
+      <header className="mb-8">
         <p className="text-sm text-slate/70">
           {currentUser ? `Hola, ${currentUser.label}` : "Hola"}
           {activeClient ? <> · <span className="font-semibold text-ink">{activeClient.name}</span></> : null}
           {" · "}{hoy}
         </p>
-        <h1 className="mt-3 font-display text-5xl leading-none text-ink md:text-6xl">¿Por dónde arrancamos?</h1>
       </header>
 
       <section className="grid gap-5 sm:grid-cols-2">
