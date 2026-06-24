@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { updateClientAutoSettings } from "@/app/opportunities/actions";
+import { updateClientAutoSettings } from "@/app/(app)/opportunities/actions";
 
 type AutoPilotToggleProps = {
   clientId: string;
