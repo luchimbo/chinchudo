@@ -126,8 +126,10 @@ export default async function InformePage({
     prisma.monitoredSource.findMany({ where: { active: true },
       orderBy: { lastRunAt: "desc" }, take: 8,
       select: { label: true, channel: true, lastRunAt: true, lastCount: true } }),
-    prisma.systemLog.count({ where: { level: "error", createdAt: { gte: since7 } } }),
-    showErrors === "1"
+    activeClient?.slug === "pcmidi"
+      ? prisma.systemLog.count({ where: { level: "error", createdAt: { gte: since7 } } })
+      : Promise.resolve(0),
+    activeClient?.slug === "pcmidi" && showErrors === "1"
       ? prisma.systemLog.findMany({
           where: { level: "error", createdAt: { gte: since7 } },
           orderBy: { createdAt: "desc" },
@@ -186,7 +188,7 @@ export default async function InformePage({
       </header>
 
       {/* ── SECCIÓN DE DETALLE DE ERRORES (Solo si showErrors === "1") ── */}
-      {showErrors === "1" && (
+      {activeClient?.slug === "pcmidi" && showErrors === "1" && (
         <section className="rounded-2xl border border-signal/20 bg-signal/5 p-6 animate-fadeIn">
           <div className="mb-6 flex items-center justify-between">
             <div>
