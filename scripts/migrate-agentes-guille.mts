@@ -175,7 +175,8 @@ async function migrateLandings(slugToLmId: Map<string, string>) {
     }),
     seoTitle: r.seo_title ?? "",
     seoDescription: r.meta_description ?? "",
-    status: "APPROVED" as const,
+    status: "PUBLISHED" as const,
+    publishedAt: new Date(),
     leadMagnetId: slugToLmId.get(slug) ?? null,
   }));
 
