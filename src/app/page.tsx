@@ -21,7 +21,7 @@ const PAGE_SIZE = 12;
 const WORK_QUEUE = [
   { label: "Nuevas", status: "NEW", helper: "Entraron y todavia no se miraron." },
   { label: "A revisar", status: "NEEDS_REVIEW", helper: "Necesitan criterio humano." },
-  { label: "Con borrador", status: "DRAFTED", helper: "Listas para editar o aprobar." },
+  { label: "Borradores", status: "DRAFTED", helper: "Listas para editar o aprobar." },
   { label: "Para publicar", status: "APPROVED", helper: "Texto aprobado, falta accion." },
   { label: "Seguimiento", status: "FOLLOW_UP", helper: "Hay que volver sobre la charla." }
 ] as const;
@@ -106,7 +106,7 @@ export default async function HomePage({ searchParams }: PageProps) {
       <main className="relative mx-auto flex min-h-screen w-full max-w-7xl flex-col px-5 py-8 lg:px-8">
         <header className="mb-10 flex flex-wrap items-start justify-between gap-5">
           <div>
-            <p className="text-xs font-bold uppercase tracking-[0.32em] text-moss">Los 5 Apostoles</p>
+            <p className="text-xs font-bold uppercase tracking-[0.32em] text-moss">Clientes</p>
             <h1 className="mt-3 max-w-4xl font-display text-5xl leading-none text-ink md:text-7xl">
               Elegi el cliente
             </h1>
@@ -159,15 +159,15 @@ export default async function HomePage({ searchParams }: PageProps) {
 
                 <div className="mt-8 grid grid-cols-4 gap-2">
                   <div className="rounded-md bg-paper p-3">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate/60">Pend.</p>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate/60">Pendientes</p>
                     <p className="mt-1 font-display text-3xl text-ink">{pending}</p>
                   </div>
                   <div className="rounded-md bg-paper p-3">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate/60">Draft</p>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate/60">Borradores</p>
                     <p className="mt-1 font-display text-3xl text-ink">{drafted}</p>
                   </div>
                   <div className="rounded-md bg-paper p-3">
-                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate/60">Aprob.</p>
+                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate/60">Aprobadas</p>
                     <p className="mt-1 font-display text-3xl text-ink">{approved}</p>
                   </div>
                   <div className="rounded-md bg-paper p-3">
@@ -336,59 +336,43 @@ export default async function HomePage({ searchParams }: PageProps) {
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
           {clients.length > 0 ? <ClientSwitcher clients={clients} activeSlug={activeClient?.slug ?? clients[0].slug} /> : null}
-          {/* Grupo principal */}
-          <Link href={`/informe${activeClient ? `?client=${activeClient.slug}` : ""}`} className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
-            Informe
-          </Link>
-          <Link href="/analytics" className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
-            Analítica
-          </Link>
-          <Link href="/admin" className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
-            Configuración
-          </Link>
-          <Link href="/logins" className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
-            Cuentas
-          </Link>
 
-          {/* Separador */}
-          <span className="h-6 w-px bg-ink/15" />
+          <span className="h-5 w-px bg-ink/15 hidden sm:block" />
 
-          {/* Blog y captación */}
-          <Link href={`/landings${activeClient ? `?client=${activeClient.slug}` : ""}`} className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
-            Blog
-          </Link>
-          <Link href={`/leads${activeClient ? `?client=${activeClient.slug}` : ""}`} className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
-            Contactos
-          </Link>
-          <Link href="/actividad" className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
-            Actividad
-          </Link>
-          <Link href={`/distribution${activeClient ? `?client=${activeClient.slug}` : ""}`} className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
-            Para publicar
-          </Link>
-          <Link href={`/geo${activeClient ? `?client=${activeClient.slug}` : ""}`} className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
-            En las IAs
-          </Link>
+          {/* Navegación secundaria — texto plano */}
+          <nav className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <Link href={`/informe${activeClient ? `?client=${activeClient.slug}` : ""}`} className="text-sm text-slate/70 transition hover:text-ink">Informe</Link>
+            <Link href="/analytics" className="text-sm text-slate/70 transition hover:text-ink">Analítica</Link>
+            <Link href={`/landings${activeClient ? `?client=${activeClient.slug}` : ""}`} className="text-sm text-slate/70 transition hover:text-ink">Blog</Link>
+            <Link href={`/leads${activeClient ? `?client=${activeClient.slug}` : ""}`} className="text-sm text-slate/70 transition hover:text-ink">Contactos</Link>
+            <Link href={`/distribution${activeClient ? `?client=${activeClient.slug}` : ""}`} className="text-sm text-slate/70 transition hover:text-ink">Para publicar</Link>
+            <Link href={`/geo${activeClient ? `?client=${activeClient.slug}` : ""}`} className="text-sm text-slate/70 transition hover:text-ink">En las IAs</Link>
+            <Link href="/actividad" className="text-sm text-slate/70 transition hover:text-ink">Actividad</Link>
+            <Link href="/admin" className="text-sm text-slate/70 transition hover:text-ink">Configuración</Link>
+            <Link href="/logins" className="text-sm text-slate/70 transition hover:text-ink">Cuentas</Link>
+          </nav>
 
-          {/* Separador */}
-          <span className="h-6 w-px bg-ink/15" />
-          <Link
-            href="/opportunities/new"
-            className="inline-flex h-12 items-center justify-center rounded-full bg-ink px-5 text-sm font-bold text-paper shadow-lg transition hover:-translate-y-0.5 hover:bg-slate"
-          >
-            Nueva oportunidad
-          </Link>
-          <form action="/api/auth/logout" method="POST">
-            <button
-              type="submit"
-              className="inline-flex h-12 items-center justify-center rounded-full border border-ink/15 bg-white/30 px-4 text-sm text-slate/60 transition hover:border-ink/30 hover:text-ink"
-              title="Cerrar sesión"
+          <span className="h-5 w-px bg-ink/15 hidden sm:block" />
+
+          {/* Acciones primarias */}
+          <div className="flex items-center gap-2">
+            <Link
+              href="/opportunities/new"
+              className="inline-flex h-10 items-center justify-center rounded-full bg-ink px-5 text-sm font-bold text-paper shadow-sm transition hover:-translate-y-0.5 hover:bg-slate"
             >
-              ↩
-            </button>
-          </form>
+              Nueva oportunidad
+            </Link>
+            <form action="/api/auth/logout" method="POST">
+              <button
+                type="submit"
+                className="inline-flex h-10 items-center justify-center rounded-full border border-ink/15 px-4 text-sm font-semibold text-slate/60 transition hover:border-ink/30 hover:text-ink"
+              >
+                Salir
+              </button>
+            </form>
+          </div>
         </div>
       </header>
 
