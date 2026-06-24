@@ -339,7 +339,7 @@ export default async function HomePage({ searchParams }: PageProps) {
         <div className="flex flex-wrap items-center gap-2">
           {clients.length > 0 ? <ClientSwitcher clients={clients} activeSlug={activeClient?.slug ?? clients[0].slug} /> : null}
           {/* Grupo principal */}
-          <Link href="/informe" className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
+          <Link href={`/informe${activeClient ? `?client=${activeClient.slug}` : ""}`} className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
             Informe
           </Link>
           <Link href="/analytics" className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
@@ -356,19 +356,19 @@ export default async function HomePage({ searchParams }: PageProps) {
           <span className="h-6 w-px bg-ink/15" />
 
           {/* Blog y captación */}
-          <Link href="/landings" className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
+          <Link href={`/landings${activeClient ? `?client=${activeClient.slug}` : ""}`} className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
             Blog
           </Link>
-          <Link href="/leads" className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
+          <Link href={`/leads${activeClient ? `?client=${activeClient.slug}` : ""}`} className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
             Contactos
           </Link>
           <Link href="/actividad" className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
             Actividad
           </Link>
-          <Link href="/distribution" className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
+          <Link href={`/distribution${activeClient ? `?client=${activeClient.slug}` : ""}`} className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
             Para publicar
           </Link>
-          <Link href="/geo" className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
+          <Link href={`/geo${activeClient ? `?client=${activeClient.slug}` : ""}`} className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
             En las IAs
           </Link>
 

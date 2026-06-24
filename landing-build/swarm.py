@@ -296,6 +296,7 @@ def generate_args(args: argparse.Namespace) -> list[str]:
         cmd.append("--dry-run")
     if args.max_seconds:
         cmd.extend(["--max-seconds", str(args.max_seconds)])
+    cmd.extend(_client_slug_args())
     return cmd
 
 
@@ -309,6 +310,7 @@ def run_args(args: argparse.Namespace) -> list[str]:
         cmd.append("--dry-run")
     if args.max_seconds:
         cmd.extend(["--max-seconds", str(args.max_seconds)])
+    cmd.extend(_client_slug_args())
     return cmd
 
 
@@ -316,6 +318,7 @@ def research_args(args: argparse.Namespace) -> list[str]:
     cmd = ["research", "--limit", str(args.limit)]
     if args.no_web:
         cmd.append("--no-web")
+    cmd.extend(_client_slug_args())
     return cmd
 
 
@@ -708,6 +711,16 @@ def add_common_generation_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--model", default="", help="Modelo para generacion cuando aplique")
     parser.add_argument("--dry-run", action="store_true", help="Ejecuta sin guardar cambios cuando aplique")
     parser.add_argument("--max-seconds", type=int, default=0, help="Corta generacion despues de N segundos")
+    parser.add_argument("--client-slug", default="", help="Cliente activo para catálogo / branding")
+
+
+# Slug activo del cliente (se puebla desde --client-slug al arrancar swarm)
+_SWARM_CLIENT_SLUG: str = ""
+
+
+def _client_slug_args() -> list[str]:
+    """Devuelve ['--client-slug', slug] si hay cliente activo, o [] para pcmidi legacy."""
+    return ["--client-slug", _SWARM_CLIENT_SLUG] if _SWARM_CLIENT_SLUG else []
 
 
 def main() -> None:
@@ -897,6 +910,8 @@ def main() -> None:
         sub.add_parser(command)
 
     args = parser.parse_args()
+    global _SWARM_CLIENT_SLUG
+    _SWARM_CLIENT_SLUG = getattr(args, "client_slug", "") or ""
     if args.command == "weekly":
         run_weekly(args)
     elif args.command == "daily":

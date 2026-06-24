@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { getVisibleClients } from "@/lib/auth";
+import { ClientSwitcher } from "@/components/client-switcher";
 import { approveDistribution } from "./actions";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -36,14 +38,18 @@ const CANAL_EMOJI: Record<string, string> = {
 export default async function DistributionPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string }>;
+  searchParams: Promise<{ status?: string; client?: string }>;
 }) {
-  const { status = "NEW" } = await searchParams;
+  const { status = "NEW", client: clientSlug } = await searchParams;
+  const clients = await getVisibleClients(prisma);
+  const activeClient = clients.find((c) => c.slug === clientSlug) ?? clients[0] ?? null;
+  const clientFilter = activeClient ? { clientId: activeClient.id } : {};
+  const clientParam = activeClient ? `&client=${activeClient.slug}` : "";
 
   const [counts, pieces] = await Promise.all([
-    prisma.distributionPiece.groupBy({ by: ["status"], _count: { id: true } }),
+    prisma.distributionPiece.groupBy({ by: ["status"], where: clientFilter, _count: { id: true } }),
     prisma.distributionPiece.findMany({
-      where: { status: status as any },
+      where: { status: status as any, ...clientFilter },
       include: { landing: { select: { slug: true, titulo: true } } },
       orderBy: { createdAt: "desc" },
       take: 40,
@@ -51,7 +57,6 @@ export default async function DistributionPage({
   ]);
 
   const countMap = Object.fromEntries(counts.map((c) => [c.status, c._count.id]));
-
   const tabs = ["NEW", "APPROVED", "SCHEDULED", "PUBLISHED", "FAILED"];
 
   return (
@@ -62,13 +67,14 @@ export default async function DistributionPage({
           <h1 className="mt-1 text-2xl font-bold text-ink">Para publicar en redes</h1>
           <p className="mt-0.5 text-sm text-slate">Piezas de contenido generadas por los agentes, listas para aprobar y programar.</p>
         </div>
+        {clients.length > 0 && <ClientSwitcher clients={clients} activeSlug={activeClient?.slug ?? ""} />}
       </header>
 
       <div className="mb-6 flex flex-wrap gap-2 border-b border-ink/10 pb-2">
         {tabs.map((tab) => (
           <Link
             key={tab}
-            href={`/distribution?status=${tab}`}
+            href={`/distribution?status=${tab}${clientParam}`}
             className={`rounded-t px-3 py-2 text-sm font-medium transition ${
               status === tab ? "border-b-2 border-ink text-ink" : "text-slate hover:text-ink"
             }`}

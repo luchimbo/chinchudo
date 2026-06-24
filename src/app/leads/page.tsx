@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { getVisibleClients } from "@/lib/auth";
+import { ClientSwitcher } from "@/components/client-switcher";
 
 const STEP_STATUS_CLASS: Record<string, string> = {
   PENDING: "bg-signal/10 text-signal",
@@ -28,15 +30,21 @@ function fmt(d: Date | null | string) {
 export default async function LeadsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<{ page?: string; client?: string }>;
 }) {
-  const { page = "1" } = await searchParams;
+  const { page = "1", client: clientSlug } = await searchParams;
   const pageNum = Math.max(1, parseInt(page));
   const PAGE_SIZE = 20;
 
+  const clients = await getVisibleClients(prisma);
+  const activeClient = clients.find((c) => c.slug === clientSlug) ?? clients[0] ?? null;
+  const clientFilter = activeClient ? { clientId: activeClient.id } : {};
+  const clientParam = activeClient ? `&client=${activeClient.slug}` : "";
+
   const [total, leads] = await Promise.all([
-    prisma.lead.count(),
+    prisma.lead.count({ where: clientFilter }),
     prisma.lead.findMany({
+      where: clientFilter,
       include: {
         nurtureSteps: { orderBy: { stepDay: "asc" } },
         leadMagnet: { select: { tipo: true, titulo: true } },
@@ -55,15 +63,16 @@ export default async function LeadsPage({
         <div>
           <Link href="/" className="text-xs text-slate hover:text-ink">← Dashboard</Link>
           <h1 className="mt-1 text-2xl font-bold text-ink">Contactos</h1>
-          <p className="mt-0.5 text-sm text-slate">Personas que dejaron su mail en el blog. Les llegan emails automáticos los días 0, 3 y 5.</p>
+          <p className="mt-0.5 text-sm text-slate">Personas que dejaron su mail en el blog.</p>
         </div>
-        <span className="rounded-full bg-ink/5 px-3 py-1 text-xs text-slate">
-          {total} contactos
-        </span>
+        <div className="flex items-center gap-3">
+          {clients.length > 0 && <ClientSwitcher clients={clients} activeSlug={activeClient?.slug ?? ""} />}
+          <span className="rounded-full bg-ink/5 px-3 py-1 text-xs text-slate">{total} contactos</span>
+        </div>
       </header>
 
       {leads.length === 0 ? (
-        <p className="text-sm text-slate">Todavía no hay contactos registrados. Aparecen cuando alguien llena un formulario en el blog.</p>
+        <p className="text-sm text-slate">Todavía no hay contactos registrados.</p>
       ) : (
         <div className="flex flex-col gap-3">
           {leads.map((lead) => (
@@ -76,9 +85,7 @@ export default async function LeadsPage({
                     Llegó desde: <span className="font-medium">{lead.keyword || lead.slug}</span>
                   </p>
                   {lead.leadMagnet && (
-                    <p className="mt-0.5 text-xs text-brass">
-                      Recurso descargado: {lead.leadMagnet.titulo}
-                    </p>
+                    <p className="mt-0.5 text-xs text-brass">Recurso: {lead.leadMagnet.titulo}</p>
                   )}
                 </div>
                 <span className="text-xs text-slate">{fmt(lead.createdAt)}</span>
@@ -89,15 +96,11 @@ export default async function LeadsPage({
                   <span className="w-full text-xs font-semibold text-slate/60">Emails automáticos:</span>
                   {lead.nurtureSteps.map((step) => (
                     <div key={step.id} className="flex items-center gap-1.5">
-                      <span className="text-xs text-slate">
-                        {STEP_DAY_LABEL[step.stepDay] ?? `Día ${step.stepDay}`}
-                      </span>
+                      <span className="text-xs text-slate">{STEP_DAY_LABEL[step.stepDay] ?? `Día ${step.stepDay}`}</span>
                       <span className={`rounded-full px-2 py-0.5 text-xs ${STEP_STATUS_CLASS[step.status]}`}>
                         {STEP_STATUS_LABEL[step.status] ?? step.status}
                       </span>
-                      {step.sentAt && (
-                        <span className="text-xs text-slate/60">{fmt(step.sentAt)}</span>
-                      )}
+                      {step.sentAt && <span className="text-xs text-slate/60">{fmt(step.sentAt)}</span>}
                     </div>
                   ))}
                 </div>
@@ -110,21 +113,13 @@ export default async function LeadsPage({
       {totalPages > 1 && (
         <div className="mt-6 flex justify-center gap-2">
           {pageNum > 1 && (
-            <Link
-              href={`/leads?page=${pageNum - 1}`}
-              className="rounded-lg border border-ink/15 px-4 py-2 text-sm hover:bg-ink/5"
-            >
+            <Link href={`/leads?page=${pageNum - 1}${clientParam}`} className="rounded-lg border border-ink/15 px-4 py-2 text-sm hover:bg-ink/5">
               ← Anterior
             </Link>
           )}
-          <span className="px-4 py-2 text-sm text-slate">
-            {pageNum} / {totalPages}
-          </span>
+          <span className="px-4 py-2 text-sm text-slate">{pageNum} / {totalPages}</span>
           {pageNum < totalPages && (
-            <Link
-              href={`/leads?page=${pageNum + 1}`}
-              className="rounded-lg border border-ink/15 px-4 py-2 text-sm hover:bg-ink/5"
-            >
+            <Link href={`/leads?page=${pageNum + 1}${clientParam}`} className="rounded-lg border border-ink/15 px-4 py-2 text-sm hover:bg-ink/5">
               Siguiente →
             </Link>
           )}

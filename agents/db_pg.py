@@ -45,6 +45,103 @@ def connect() -> Generator[psycopg.Connection, None, None]:
 
 
 # ─── Configuración por cliente ────────────────────────────────────────────────
+#
+# Helpers para Pipeline B (landings, leads, nurturing, distribución, GEO)
+#
+
+def get_client_config(client_slug: str) -> dict:
+    """
+    Devuelve la config completa de un cliente (branding, SMTP, GEO patterns, etc.).
+    Lanza RuntimeError si el slug no existe.
+    """
+    with connect() as conn:
+        row = conn.execute(
+            """SELECT id, name, slug, "storeUrl", "blogBaseUrl", "labName", "logoUrl",
+                      "fromName", "fromEmail", "smtpHost", "smtpPort", "smtpUser", "smtpPass",
+                      "unsubscribeBaseUrl", "trackBaseUrl", "geoBrandPatterns",
+                      "openrouterApiKey", "openrouterModel", "autoPublish", "autoApprove"
+               FROM "Client" WHERE slug = %s""",
+            (client_slug,),
+        ).fetchone()
+    if not row:
+        raise RuntimeError(f"Cliente '{client_slug}' no encontrado en DB.")
+    return dict(row)
+
+
+def load_landing_catalog(client_slug: str) -> tuple[dict, dict]:
+    """
+    Devuelve (categories, products) de la DB para el cliente dado.
+    categories: {key: {"id": key, "nombre": name, "url": url, "descripcion": description, "keywords": [...]}}
+    products:   {externalId: {"id": externalId, "nombre": name, "marca": brand, "modelo": model,
+                              "categoria_id": categoryKey, "url": url, "uso": useText}}
+    """
+    with connect() as conn:
+        client_row = conn.execute('SELECT id FROM "Client" WHERE slug = %s', (client_slug,)).fetchone()
+        if not client_row:
+            raise RuntimeError(f"Cliente '{client_slug}' no encontrado en DB.")
+        client_id = client_row["id"]
+
+        cat_rows = conn.execute(
+            'SELECT key, name, url, description, keywords FROM "LandingCategory" WHERE "clientId" = %s',
+            (client_id,),
+        ).fetchall()
+        prod_rows = conn.execute(
+            'SELECT "externalId", name, brand, model, "categoryKey", url, "useText" FROM "LandingProduct" WHERE "clientId" = %s',
+            (client_id,),
+        ).fetchall()
+
+    categories = {}
+    for r in cat_rows:
+        kws = r["keywords"] if isinstance(r["keywords"], list) else json.loads(r["keywords"] or "[]")
+        categories[r["key"]] = {
+            "id": r["key"],
+            "nombre": r["name"],
+            "url": r["url"],
+            "descripcion": r["description"],
+            "keywords": kws,
+        }
+
+    products = {}
+    for r in prod_rows:
+        products[r["externalId"]] = {
+            "id": r["externalId"],
+            "nombre": r["name"],
+            "marca": r["brand"],
+            "modelo": r["model"],
+            "categoria_id": r["categoryKey"],
+            "url": r["url"],
+            "uso": r["useText"],
+        }
+
+    return categories, products
+
+
+def load_seed_topics(client_slug: str) -> list[dict]:
+    """
+    Devuelve la lista de temas semilla para el cliente desde la DB.
+    Formato compatible con el CSV: [{keyword, intencion, categorias_sugeridas}, ...]
+    """
+    with connect() as conn:
+        client_row = conn.execute('SELECT id FROM "Client" WHERE slug = %s', (client_slug,)).fetchone()
+        if not client_row:
+            raise RuntimeError(f"Cliente '{client_slug}' no encontrado en DB.")
+        rows = conn.execute(
+            'SELECT keyword, intent, "suggestedCategories" FROM "SeedTopic" WHERE "clientId" = %s ORDER BY "createdAt"',
+            (client_row["id"],),
+        ).fetchall()
+
+    result = []
+    for r in rows:
+        cats = r["suggestedCategories"] if isinstance(r["suggestedCategories"], list) else json.loads(r["suggestedCategories"] or "[]")
+        result.append({
+            "keyword": r["keyword"],
+            "intencion": r["intent"],
+            "categorias_sugeridas": ";".join(cats),
+        })
+    return result
+
+
+
 
 def get_client_openrouter(
     client_id: str | None = None,
@@ -94,12 +191,24 @@ def inject_openrouter_env(client_id: str | None = None, client_slug: str | None 
 
 # ─── Landings ────────────────────────────────────────────────────────────────
 
+def generate_cuid() -> str:
+    import random
+    import string
+    chars = string.ascii_lowercase + string.digits
+    return "c" + "".join(random.choices(chars, k=24))
+
+
 def upsert_landing(slug: str, keyword: str, html_content: str, **kwargs) -> str:
     """Inserta o actualiza una landing. Devuelve el id."""
+    import datetime
     fields = {"slug": slug, "keyword": keyword, "htmlContent": html_content, **kwargs}
+    if "id" not in fields:
+        fields["id"] = generate_cuid()
+    if "updatedAt" not in fields:
+        fields["updatedAt"] = datetime.datetime.now()
     cols = ", ".join(f'"{k}"' for k in fields)
     vals = ", ".join(f"%({k})s" for k in fields)
-    update = ", ".join(f'"{k}" = EXCLUDED."{k}"' for k in fields if k != "slug")
+    update = ", ".join(f'"{k}" = EXCLUDED."{k}"' for k in fields if k != "slug" and k != "id" and k != "updatedAt")
     sql = f"""
         INSERT INTO "Landing" ({cols})
         VALUES ({vals})

@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { getVisibleClients } from "@/lib/auth";
+import { ClientSwitcher } from "@/components/client-switcher";
 
 function fmt(d: Date | null | string | undefined) {
   if (!d) return "nunca";
@@ -22,7 +24,16 @@ const CANAL_LABEL: Record<string, string> = {
   FORUM: "Foros",
 };
 
-export default async function InformePage() {
+export default async function InformePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ client?: string }>;
+}) {
+  const { client: clientSlug } = await searchParams;
+  const clients = await getVisibleClients(prisma);
+  const activeClient = clients.find((c) => c.slug === clientSlug) ?? clients[0] ?? null;
+  const cf = activeClient ? { clientId: activeClient.id } : {};
+
   const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const since7  = new Date(Date.now() - 7  * 24 * 60 * 60 * 1000);
 
@@ -75,38 +86,38 @@ export default async function InformePage() {
     prisma.publishingLog.groupBy({ by: ["result"], _count: { id: true } }),
 
     // Blog
-    prisma.landing.count(),
-    prisma.landing.count({ where: { status: "PUBLISHED" } }),
-    prisma.landing.count({ where: { createdAt: { gte: since30 } } }),
+    prisma.landing.count({ where: cf }),
+    prisma.landing.count({ where: { status: "PUBLISHED", ...cf } }),
+    prisma.landing.count({ where: { createdAt: { gte: since30 }, ...cf } }),
     prisma.trackingEvent.groupBy({
       by: ["slug"], _count: { id: true },
-      where: { eventType: "page_view" },
+      where: { eventType: "page_view", ...cf },
     }),
-    prisma.trackingEvent.count({ where: { eventType: "page_view" } }),
+    prisma.trackingEvent.count({ where: { eventType: "page_view", ...cf } }),
     prisma.trackingEvent.groupBy({
       by: ["referrer"], _count: { id: true },
-      where: { eventType: "page_view", referrer: { not: "" } },
+      where: { eventType: "page_view", referrer: { not: "" }, ...cf },
     }),
 
     // Contactos
-    prisma.lead.count(),
-    prisma.lead.count({ where: { createdAt: { gte: since30 } } }),
-    prisma.nurtureStep.count(),
-    prisma.nurtureStep.count({ where: { status: "SENT" } }),
-    prisma.nurtureStep.count({ where: { status: "FAILED" } }),
+    prisma.lead.count({ where: cf }),
+    prisma.lead.count({ where: { createdAt: { gte: since30 }, ...cf } }),
+    prisma.nurtureStep.count({ where: cf }),
+    prisma.nurtureStep.count({ where: { status: "SENT", ...cf } }),
+    prisma.nurtureStep.count({ where: { status: "FAILED", ...cf } }),
 
     // Distribución
-    prisma.distributionPiece.count(),
-    prisma.distributionPiece.count({ where: { status: "PUBLISHED" } }),
+    prisma.distributionPiece.count({ where: cf }),
+    prisma.distributionPiece.count({ where: { status: "PUBLISHED", ...cf } }),
     prisma.distributionPiece.groupBy({
       by: ["canal"], _count: { id: true },
-      where: { status: "PUBLISHED" },
+      where: { status: "PUBLISHED", ...cf },
     }),
 
     // GEO
-    prisma.geoAudit.count(),
-    prisma.geoAudit.aggregate({ _avg: { score: true }, _max: { score: true } }),
-    prisma.geoAudit.findMany({ orderBy: { createdAt: "desc" }, take: 3,
+    prisma.geoAudit.count({ where: cf }),
+    prisma.geoAudit.aggregate({ where: cf, _avg: { score: true }, _max: { score: true } }),
+    prisma.geoAudit.findMany({ where: cf, orderBy: { createdAt: "desc" }, take: 3,
       select: { score: true, modeloIA: true, createdAt: true, prompt: true } }),
 
     // Monitoreo
@@ -144,6 +155,7 @@ export default async function InformePage() {
           <h1 className="mt-1 text-2xl font-bold text-ink">Informe de actividad</h1>
           <p className="mt-0.5 text-sm text-slate">Todo lo que hicieron los agentes. Números reales, sin rodeos.</p>
         </div>
+        {clients.length > 0 && <ClientSwitcher clients={clients} activeSlug={activeClient?.slug ?? ""} />}
         {systemErrors > 0 && (
           <div className="rounded-xl border border-signal/30 bg-signal/10 px-4 py-2 text-center">
             <p className="text-xs font-semibold text-signal">{systemErrors} errores</p>

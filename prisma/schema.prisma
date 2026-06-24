@@ -47,23 +47,49 @@ enum ResponseVariantType {
 // ─── Multi-Cliente ─────────────────────────────────────────────────────────────
 
 model Client {
-  id               String            @id @default(cuid())
-  name             String            @unique
-  slug             String            @unique
-  description      String            @default("")
-  domainKeywords   String            @default("[]")
-  domainExclusions String            @default("[]")
-  autoPublish      Boolean           @default(false)
-  autoApprove      Boolean           @default(false)
-  active           Boolean           @default(true)
-  openrouterApiKey String            @default("")
-  openrouterModel  String            @default("")
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  brands           Brand[]
-  personas         Persona[]
-  monitoredSources MonitoredSource[]
-  catalogRules     CatalogRule[]
+  id                  String            @id @default(cuid())
+  name                String            @unique
+  slug                String            @unique
+  description         String            @default("")
+  domainKeywords      String            @default("[]")
+  domainExclusions    String            @default("[]")
+  autoPublish         Boolean           @default(false)
+  autoApprove         Boolean           @default(false)
+  active              Boolean           @default(true)
+  openrouterApiKey    String            @default("")
+  openrouterModel     String            @default("")
+  // Branding / landings
+  storeUrl            String            @default("")
+  blogBaseUrl         String            @default("")
+  labName             String            @default("")
+  logoUrl             String            @default("")
+  // Email / nurturing (Fase 2)
+  fromName            String            @default("")
+  fromEmail           String            @default("")
+  smtpHost            String            @default("")
+  smtpPort            Int               @default(465)
+  smtpUser            String            @default("")
+  smtpPass            String            @default("")
+  unsubscribeBaseUrl  String            @default("")
+  trackBaseUrl        String            @default("")
+  // GEO (Fase 3)
+  geoBrandPatterns    Json              @default("[]")
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  brands              Brand[]
+  personas            Persona[]
+  monitoredSources    MonitoredSource[]
+  catalogRules        CatalogRule[]
+  landingCategories   LandingCategory[]
+  landingProducts     LandingProduct[]
+  seedTopics          SeedTopic[]
+  landings            Landing[]
+  leadMagnets         LeadMagnet[]
+  leads               Lead[]
+  nurtureSteps        NurtureStep[]
+  distributionPieces  DistributionPiece[]
+  geoAudits           GeoAudit[]
+  trackingEvents      TrackingEvent[]
 }
 
 model CatalogRule {
@@ -341,55 +367,65 @@ enum DistributionStatus {
 
 model LeadMagnet {
   id        String         @id @default(cuid())
+  clientId  String?
   tipo      LeadMagnetType
   titulo    String
   contenido String
   slug      String         @unique
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
+  client    Client?        @relation(fields: [clientId], references: [id])
   landings  Landing[]
   leads     Lead[]
+
+  @@index([clientId])
 }
 
 model Landing {
-  id            String        @id @default(cuid())
-  slug          String        @unique
-  keyword       String
-  intent        String        @default("")
-  titulo        String        @default("")
-  htmlContent   String
-  seoTitle      String        @default("")
-  seoDescription String       @default("")
-  status        LandingStatus @default(DRAFT)
-  publishedAt   DateTime?
-  opportunityId String?
-  leadMagnetId  String?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  opportunity   Opportunity?  @relation(fields: [opportunityId], references: [id])
-  leadMagnet    LeadMagnet?   @relation(fields: [leadMagnetId], references: [id])
-  leads         Lead[]
-  distribution  DistributionPiece[]
+  id             String        @id @default(cuid())
+  clientId       String?
+  slug           String        @unique
+  keyword        String
+  intent         String        @default("")
+  titulo         String        @default("")
+  htmlContent    String
+  seoTitle       String        @default("")
+  seoDescription String        @default("")
+  status         LandingStatus @default(DRAFT)
+  publishedAt    DateTime?
+  opportunityId  String?
+  leadMagnetId   String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  client         Client?       @relation(fields: [clientId], references: [id])
+  opportunity    Opportunity?  @relation(fields: [opportunityId], references: [id])
+  leadMagnet     LeadMagnet?   @relation(fields: [leadMagnetId], references: [id])
+  leads          Lead[]
+  distribution   DistributionPiece[]
   trackingEvents TrackingEvent[]
 
+  @@index([clientId])
   @@index([status])
   @@index([createdAt])
 }
 
 model Lead {
-  id           String    @id @default(cuid())
+  id           String        @id @default(cuid())
+  clientId     String?
   email        String
-  nombre       String    @default("")
+  nombre       String        @default("")
   slug         String
-  keyword      String    @default("")
+  keyword      String        @default("")
   leadMagnetId String?
-  consent      Boolean   @default(false)
-  createdAt    DateTime  @default(now())
+  consent      Boolean       @default(false)
+  createdAt    DateTime      @default(now())
   landingId    String?
-  landing      Landing?  @relation(fields: [landingId], references: [id])
-  leadMagnet   LeadMagnet? @relation(fields: [leadMagnetId], references: [id])
+  client       Client?       @relation(fields: [clientId], references: [id])
+  landing      Landing?      @relation(fields: [landingId], references: [id])
+  leadMagnet   LeadMagnet?   @relation(fields: [leadMagnetId], references: [id])
   nurtureSteps NurtureStep[]
 
+  @@index([clientId])
   @@index([email])
   @@index([slug])
   @@index([createdAt])
@@ -397,6 +433,7 @@ model Lead {
 
 model NurtureStep {
   id          String            @id @default(cuid())
+  clientId    String?
   leadId      String
   stepDay     Int
   subject     String            @default("")
@@ -407,58 +444,120 @@ model NurtureStep {
   openedAt    DateTime?
   clickedAt   DateTime?
   createdAt   DateTime          @default(now())
+  client      Client?           @relation(fields: [clientId], references: [id])
   lead        Lead              @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
+  @@index([clientId])
   @@index([status])
   @@index([scheduledAt])
 }
 
 model DistributionPiece {
-  id          String              @id @default(cuid())
-  canal       DistributionChannel
-  contenido   String
-  status      DistributionStatus  @default(NEW)
-  scheduledAt DateTime?
-  publishedAt DateTime?
-  publishedUrl String?
-  landingId   String?
+  id            String              @id @default(cuid())
+  clientId      String?
+  canal         DistributionChannel
+  contenido     String
+  status        DistributionStatus  @default(NEW)
+  scheduledAt   DateTime?
+  publishedAt   DateTime?
+  publishedUrl  String?
+  landingId     String?
   opportunityId String?
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
-  landing     Landing?            @relation(fields: [landingId], references: [id])
-  opportunity Opportunity?        @relation(fields: [opportunityId], references: [id])
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+  client        Client?             @relation(fields: [clientId], references: [id])
+  landing       Landing?            @relation(fields: [landingId], references: [id])
+  opportunity   Opportunity?        @relation(fields: [opportunityId], references: [id])
 
+  @@index([clientId])
   @@index([status])
   @@index([canal])
   @@index([scheduledAt])
 }
 
 model GeoAudit {
-  id                  String   @id @default(cuid())
-  prompt              String
-  modeloIA            String
-  score               Int
-  competidores        Json     @default("[]")
-  gapsSugeridos       Json     @default("[]")
-  respuestaCompleta   String   @default("")
-  createdAt           DateTime @default(now())
+  id                String   @id @default(cuid())
+  clientId          String?
+  prompt            String
+  modeloIA          String
+  score             Int
+  competidores      Json     @default("[]")
+  gapsSugeridos     Json     @default("[]")
+  respuestaCompleta String   @default("")
+  createdAt         DateTime @default(now())
+  client            Client?  @relation(fields: [clientId], references: [id])
 
+  @@index([clientId])
   @@index([createdAt])
   @@index([score])
 }
 
 model TrackingEvent {
   id        String   @id @default(cuid())
+  clientId  String?
   eventType String
   slug      String
   referrer  String   @default("")
   meta      Json     @default("{}")
   landingId String?
   createdAt DateTime @default(now())
+  client    Client?  @relation(fields: [clientId], references: [id])
   landing   Landing? @relation(fields: [landingId], references: [id])
 
+  @@index([clientId])
   @@index([slug])
   @@index([eventType])
   @@index([createdAt])
+}
+
+// ─── Catálogo de Landings (Pipeline B, multi-cliente) ────────────────────────
+
+model LandingCategory {
+  id          String   @id @default(cuid())
+  clientId    String
+  key         String
+  name        String
+  url         String   @default("")
+  description String   @default("")
+  keywords    Json     @default("[]")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, key])
+  @@index([clientId])
+}
+
+model LandingProduct {
+  id          String   @id @default(cuid())
+  clientId    String
+  externalId  String
+  name        String
+  brand       String   @default("")
+  model       String   @default("")
+  categoryKey String   @default("")
+  url         String   @default("")
+  useText     String   @default("")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, externalId])
+  @@index([clientId])
+  @@index([categoryKey])
+}
+
+model SeedTopic {
+  id                  String   @id @default(cuid())
+  clientId            String
+  keyword             String
+  intent              String   @default("")
+  suggestedCategories Json     @default("[]")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  client              Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([keyword])
 }
 

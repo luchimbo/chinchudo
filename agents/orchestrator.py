@@ -433,30 +433,37 @@ def main() -> None:
     research = sub.add_parser("research", help="Investigar oportunidades de keywords para landings")
     research.add_argument("--limit", type=int, default=50)
     research.add_argument("--dry-run", action="store_true")
+    research.add_argument("--client-slug", default="", help="Cliente para el cual investigar (default: pcmidi)")
 
     generate = sub.add_parser("generate", help="Generar landings desde oportunidades aprobadas")
     generate.add_argument("--limit", type=int, default=10)
     generate.add_argument("--dry-run", action="store_true")
+    generate.add_argument("--client-slug", default="", help="Cliente para el cual generar landings")
 
     build_l = sub.add_parser("build-landings", help="Build HTML estático de landings aprobadas")
     build_l.add_argument("--base-url", default="https://blog.pcmidicenter.com")
+    build_l.add_argument("--client-slug", default="", help="Cliente cuyo blog construir")
 
     nurture_cmd = sub.add_parser("nurture", help="Procesar emails de nurturing pendientes")
     nurture_cmd.add_argument("--limit", type=int, default=50)
     nurture_cmd.add_argument("--dry-run", action="store_true")
+    nurture_cmd.add_argument("--client-slug", default="", help="Cliente cuyos leads nutrir")
 
     dist_cmd = sub.add_parser("distribution", help="Generar / programar piezas de distribución social")
     dist_cmd.add_argument("action", choices=["generate", "approve", "schedule", "queue"], nargs="?", default="generate")
     dist_cmd.add_argument("--limit", type=int, default=10)
     dist_cmd.add_argument("--dry-run", action="store_true")
+    dist_cmd.add_argument("--client-slug", default="", help="Cliente para distribución")
 
-    geo_cmd = sub.add_parser("geo-audit", help="Auditar presencia GEO de PC MIDI en IAs")
+    geo_cmd = sub.add_parser("geo-audit", help="Auditar presencia GEO en IAs")
     geo_cmd.add_argument("--limit", type=int, default=10)
     geo_cmd.add_argument("--dry-run", action="store_true")
+    geo_cmd.add_argument("--client-slug", default="", help="Cliente a auditar en GEO")
 
     conv_cmd = sub.add_parser("conversion", help="Analizar conversión de landings")
     conv_cmd.add_argument("--window-days", type=int, default=30)
     conv_cmd.add_argument("--min-views", type=int, default=50)
+    conv_cmd.add_argument("--client-slug", default="", help="Cliente a analizar")
 
     parsed, unknown = parser.parse_known_args()
     args = apply_positional_fallback(apply_npm_flags(parsed), unknown)
@@ -483,32 +490,46 @@ def main() -> None:
         cmd = [sys.executable, str(SWARM), "research", "--limit", str(args.limit)]
         if args.dry_run:
             cmd.append("--dry-run")
+        if getattr(args, "client_slug", ""):
+            cmd.extend(["--client-slug", args.client_slug])
         run_step("research", cmd)
     elif args.command == "generate":
         cmd = [sys.executable, str(SWARM), "generate", "--limit", str(args.limit)]
         if args.dry_run:
             cmd.append("--dry-run")
+        if getattr(args, "client_slug", ""):
+            cmd.extend(["--client-slug", args.client_slug])
         run_step("generate-landings", cmd)
     elif args.command == "build-landings":
         cmd = [sys.executable, str(SWARM), "build", "--base-url", args.base_url]
+        if getattr(args, "client_slug", ""):
+            cmd.extend(["--client-slug", args.client_slug])
         run_step("build-landings", cmd)
     elif args.command == "nurture":
         cmd = [sys.executable, str(NURTURE_SCRIPT), "--limit", str(args.limit)]
         if args.dry_run:
             cmd.append("--dry-run")
+        if getattr(args, "client_slug", ""):
+            cmd.extend(["--client-slug", args.client_slug])
         run_step("nurture", cmd)
     elif args.command == "distribution":
         cmd = [sys.executable, str(DIST_SCRIPT), args.action, "--limit", str(args.limit)]
         if args.dry_run:
             cmd.append("--dry-run")
+        if getattr(args, "client_slug", ""):
+            cmd.extend(["--client-slug", args.client_slug])
         run_step(f"distribution-{args.action}", cmd)
     elif args.command == "geo-audit":
         cmd = [sys.executable, str(GEO_SCRIPT), "--limit", str(args.limit)]
         if args.dry_run:
             cmd.append("--dry-run")
+        if getattr(args, "client_slug", ""):
+            cmd.extend(["--client-slug", args.client_slug])
         run_step("geo-audit", cmd)
     elif args.command == "conversion":
         cmd = [sys.executable, str(CONV_SCRIPT), "--window-days", str(args.window_days), "--min-views", str(args.min_views)]
+        if getattr(args, "client_slug", ""):
+            cmd.extend(["--client-slug", args.client_slug])
         run_step("conversion", cmd)
 
 

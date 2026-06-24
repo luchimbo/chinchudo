@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -26,6 +27,38 @@ GENERATION_EVENTS_PATH = REPORTS_DIR / "generation_events.jsonl"
 CATEGORIES_PATH = DATA_DIR / "categorias_pcmidi.json"
 PRODUCTS_PATH = DATA_DIR / "productos_pcmidi.json"
 SEED_TOPICS_PATH = DATA_DIR / "temas_semilla.csv"
+
+# Config activa del cliente (se puebla desde --client-slug al arrancar)
+_CLIENT_CONFIG: dict = {}
+
+
+def _get_client() -> dict:
+    """Devuelve la config del cliente activo, o un dict vacío si es PC MIDI (comportamiento legacy)."""
+    return _CLIENT_CONFIG
+
+
+def client_name() -> str:
+    return _CLIENT_CONFIG.get("name") or "PC MIDI Center"
+
+
+def client_store_url() -> str:
+    return _CLIENT_CONFIG.get("storeUrl") or "https://www.pcmidi.com.ar"
+
+
+def client_blog_url() -> str:
+    return _CLIENT_CONFIG.get("blogBaseUrl") or "https://blog.pcmidicenter.com"
+
+
+def client_lab_name() -> str:
+    return _CLIENT_CONFIG.get("labName") or "PC MIDI Labs"
+
+
+def client_logo_url() -> str:
+    return _CLIENT_CONFIG.get("logoUrl") or ""
+
+
+def client_slug_active() -> str:
+    return _CLIENT_CONFIG.get("slug") or "pcmidi"
 LANDINGS_PATH = DATA_DIR / "landings_aprobadas.jsonl"
 OPPORTUNITIES_PATH = DATA_DIR / "oportunidades_research.jsonl"
 CONTENT_FEEDBACK_PATH = DATA_DIR / "content_feedback.jsonl"
@@ -84,15 +117,35 @@ def slugify(value: str) -> str:
 
 
 def load_categories() -> dict[str, dict]:
+    slug = client_slug_active()
+    if _CLIENT_CONFIG and slug != "pcmidi":
+        try:
+            cats, _ = _load_catalog_from_db(slug)
+            return cats
+        except Exception as exc:
+            print(f"[build_landings] No se pudo cargar categorías de DB para {slug}: {exc}. Usando archivos locales.")
     categories = json.loads(CATEGORIES_PATH.read_text(encoding="utf-8"))
     return {item["id"]: item for item in categories}
 
 
 def load_products() -> dict[str, dict]:
+    slug = client_slug_active()
+    if _CLIENT_CONFIG and slug != "pcmidi":
+        try:
+            _, prods = _load_catalog_from_db(slug)
+            return prods
+        except Exception as exc:
+            print(f"[build_landings] No se pudo cargar productos de DB para {slug}: {exc}. Usando archivos locales.")
     if not PRODUCTS_PATH.exists():
         return {}
     products = json.loads(PRODUCTS_PATH.read_text(encoding="utf-8"))
     return {item["id"]: item for item in products}
+
+
+def _load_catalog_from_db(slug: str) -> tuple[dict, dict]:
+    sys.path.insert(0, str(ROOT.parent / "agents"))
+    import db_pg  # type: ignore
+    return db_pg.load_landing_catalog(slug)
 
 
 def load_lead_magnets() -> dict[str, dict]:
@@ -183,6 +236,16 @@ def load_env() -> None:
 
 
 def load_seed_topics() -> list[dict]:
+    slug = client_slug_active()
+    if _CLIENT_CONFIG and slug != "pcmidi":
+        try:
+            sys.path.insert(0, str(ROOT.parent / "agents"))
+            import db_pg  # type: ignore
+            topics = db_pg.load_seed_topics(slug)
+            if topics:
+                return topics
+        except Exception as exc:
+            print(f"[build_landings] No se pudo cargar temas de DB para {slug}: {exc}. Usando CSV local.")
     if not SEED_TOPICS_PATH.exists():
         return []
     with SEED_TOPICS_PATH.open("r", encoding="utf-8", newline="") as handle:
@@ -214,6 +277,9 @@ def append_landing(landing: dict) -> None:
         try:
             sys.path.insert(0, str(ROOT.parent / "agents"))
             from db_pg import upsert_landing  # type: ignore
+            extra = {}
+            if _CLIENT_CONFIG.get("id"):
+                extra["clientId"] = _CLIENT_CONFIG["id"]
             upsert_landing(
                 slug=landing.get("slug", ""),
                 keyword=landing.get("keyword", ""),
@@ -223,6 +289,7 @@ def append_landing(landing: dict) -> None:
                 seoTitle=landing.get("seo_title", ""),
                 seoDescription=landing.get("seo_description", ""),
                 status="APPROVED",
+                **extra,
             )
         except Exception as exc:
             print(f"[build_landings] No se pudo persistir landing en Postgres: {exc}")
@@ -286,7 +353,9 @@ def validate_landings(landings: list[dict], categories: dict[str, dict], product
                 continue
             if product.get("categoria_id") not in categories:
                 errors.append(f"{label}: producto con categoria invalida: {product_id}")
-            if not str(product.get("url", "")).startswith("https://www.pcmidi.com.ar/productos/"):
+            store = client_store_url().rstrip("/")
+            product_base = f"{store}/productos/"
+            if not str(product.get("url", "")).startswith(product_base):
                 errors.append(f"{label}: URL de producto invalida: {product_id}")
 
         text = json.dumps(landing, ensure_ascii=False).lower()
@@ -541,8 +610,8 @@ def chat_json(system: str, user: str, model: str, temperature: float = 0.35) -> 
         headers={
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://www.pcmidi.com.ar/",
-            "X-Title": "PC MIDI Landing Generator",
+            "HTTP-Referer": client_store_url().rstrip("/") + "/",
+            "X-Title": f"{client_name()} Landing Generator",
         },
         method="POST",
     )
@@ -558,13 +627,15 @@ def chat_json(system: str, user: str, model: str, temperature: float = 0.35) -> 
 
 def generation_prompt(topic: dict, categories: dict[str, dict], products: dict[str, dict]) -> tuple[str, str]:
     catalog = compact_catalog(categories, products)
-    system = """Sos estratega SEO y especialista en landings comerciales para PC MIDI Center.
+    brand = client_name()
+    system = f"""Sos estratega SEO y especialista en landings comerciales para {brand}.
 Devolves solo JSON valido, sin markdown ni explicaciones.
-La landing debe ser unica, concreta, util para un posible comprador y relacionada con hardware vendido por PC MIDI.
+La landing debe ser unica, concreta, util para un posible comprador y relacionada con productos vendidos por {brand}.
 No inventes categorias, productos, marcas, modelos ni URLs. Solo usa IDs del catalogo recibido.
 No menciones precios, stock, disponibilidad, distribuidor oficial, soporte tecnico oficial, exclusividad, reparaciones, alquileres, clases formales, grabacion, mezcla ni mastering.
 No incluyas software Arturia tipo Modular V, CS-80 V, CMI V, Synclavier V ni packs de plugins.
 Usa español rioplatense claro y humano."""
+    brand = client_name()
     user = f"""Tema semilla:
 - keyword: {topic.get('keyword', '')}
 - intencion: {topic.get('intencion', '')}
@@ -609,7 +680,7 @@ Reglas:
 - product_ids debe contener 2 a 5 productos reales del catalogo, todos hardware.
 - Si un producto no ayuda al tema, no lo uses.
 - No uses frases genericas como "lo que entra en juego".
-- No afirmes que PC MIDI tiene stock ni disponibilidad.
+- No afirmes que {brand} tiene stock ni disponibilidad.
 - La landing debe responder una busqueda o problema real de comprador."""
     return system, user
 
@@ -1038,7 +1109,7 @@ def render_landing(landing: dict, categories: dict[str, dict], products: dict[st
           <form action="/api/leads" method="POST" class="lm-form">
             <input type="email" name="email" placeholder="tu@email.com" required class="lm-input" aria-label="Email">
             <input type="text" name="nombre" placeholder="Nombre (opcional)" class="lm-input" aria-label="Nombre">
-            <label class="lm-privacy" style="display:flex; gap:.55rem; align-items:flex-start; margin:.2rem 0 .9rem;"><input type="checkbox" name="consentimiento" value="true" required style="margin-top:.2rem;">Acepto recibir este recurso, informacion util y novedades de PC MIDI Labs.</label>
+            <label class="lm-privacy" style="display:flex; gap:.55rem; align-items:flex-start; margin:.2rem 0 .9rem;"><input type="checkbox" name="consentimiento" value="true" required style="margin-top:.2rem;">Acepto recibir este recurso, informacion util y novedades de {esc(client_lab_name())}.</label>
             <input type="hidden" name="slug" value="{esc(slug)}">
             <input type="hidden" name="keyword" value="{esc(landing.get('keyword', ''))}">
             <input type="hidden" name="lead_magnet" value="{magnet_title}">
@@ -1060,7 +1131,7 @@ def render_landing(landing: dict, categories: dict[str, dict], products: dict[st
             f'<h3 class="comp-name">{esc(component.get("cat", category["nombre"]))}</h3>'
             f'<p class="comp-text"><strong>Para que sirve:</strong> {esc(component.get("why", category["descripcion"]))}</p>'
             f'<p class="comp-text"><strong>Que mirar:</strong> {esc(component.get("look", "Comparar alternativas segun tu caso de uso."))}</p>'
-            f'<a class="comp-link" href="{esc(category["url"])}" target="_blank" rel="noopener"><span>Ver categoria en pcmidi.com.ar</span><span>↗</span></a></article>'
+            f'<a class="comp-link" href="{esc(category["url"])}" target="_blank" rel="noopener"><span>Ver categoria en {esc(client_name())}</span><span>↗</span></a></article>'
         )
 
     steps_html = []
@@ -1106,8 +1177,8 @@ def render_landing(landing: dict, categories: dict[str, dict], products: dict[st
         "faq_json_ld": esc(faq_json_ld).replace("&quot;", '"'),
         "primary_url": esc(primary["url"]),
         "primary_name": esc(primary["nombre"]),
-        "cta_text": "Ver opciones en PC MIDI Center",
-        "code": esc("PC MIDI · " + slug[:18].upper()),
+        "cta_text": f"Ver opciones en {client_name()}",
+        "code": esc(client_name()[:12].upper() + " · " + slug[:14].upper()),
         "eyebrow": esc("Guia tecnica · " + primary["nombre"]),
         "h1": esc(landing["h1"]),
         "lead_magnet_html": lead_magnet_html,
@@ -1188,7 +1259,7 @@ def render_index(landings: list[dict], categories: dict[str, dict], base_url: st
         category_html.append(
             f'<article class="topic-card"><span>{count} guias</span><h3>{esc(category["nombre"])}</h3>'
             f'<p>{esc(category["descripcion"])}</p>'
-            f'<a href="{esc(category["url"])}" target="_blank" rel="noopener">Ver categoria en PC MIDI</a></article>'
+            f'<a href="{esc(category["url"])}" target="_blank" rel="noopener">Ver categoria en {esc(brand)}</a></article>'
         )
 
     latest_html = []
@@ -1196,12 +1267,14 @@ def render_index(landings: list[dict], categories: dict[str, dict], base_url: st
         slug = landing.get("slug") or slugify(landing["keyword"])
         latest_html.append(f'<li><a href="/{esc(slug)}/">{esc(landing["h1"])}</a><span>{esc(landing["keyword"])}</span></li>')
 
+    brand = client_name()
+    store_url = client_store_url()
     schema = {
         "@context": "https://schema.org",
         "@type": "WebSite",
-        "name": "Blog PC MIDI Center",
+        "name": f"Blog {brand}",
         "url": canonical_url,
-        "description": "Guias de compra para produccion musical, home studio, streaming, controladores MIDI, interfaces de audio, microfonos y monitoreo.",
+        "description": f"Guias de compra y comparativas de productos de {brand}.",
     }
 
     return f'''<!DOCTYPE html>
@@ -1209,8 +1282,8 @@ def render_index(landings: list[dict], categories: dict[str, dict], base_url: st
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Blog PC MIDI Center | Guias de compra para produccion musical</title>
-  <meta name="description" content="Guias para elegir controladores MIDI, interfaces de audio, microfonos, auriculares, monitores, sintetizadores y equipos para home studio en Argentina.">
+  <title>Blog {esc(brand)} | Guias de compra</title>
+  <meta name="description" content="Guias para elegir productos de {esc(brand)} en Argentina.">
   <link rel="canonical" href="{esc(canonical_url)}">
   <meta name="robots" content="index,follow">
   <script type="application/ld+json">{esc(json.dumps(schema, ensure_ascii=False)).replace('&quot;', '"')}</script>
@@ -1267,21 +1340,21 @@ def render_index(landings: list[dict], categories: dict[str, dict], base_url: st
 </head>
 <body>
   <header class="container nav">
-    <a class="logo" href="/"><img src="/assets/LogoPCMIDINegro.png" alt="PC MIDI Center"><span>Blog</span></a>
-    <nav class="nav-links"><a href="#guias">Guias</a><a href="#temas">Temas</a><a href="#indice">Indice</a><a href="https://www.pcmidi.com.ar/" target="_blank" rel="noopener">Tienda</a></nav>
+    <a class="logo" href="/">{f'<img src="{esc(client_logo_url())}" alt="{esc(brand)}">' if client_logo_url() else ""}<span>{esc(brand)} Blog</span></a>
+    <nav class="nav-links"><a href="#guias">Guias</a><a href="#temas">Temas</a><a href="#indice">Indice</a><a href="{esc(store_url)}/" target="_blank" rel="noopener">Tienda</a></nav>
   </header>
   <main>
     <section class="hero">
       <div class="container hero-grid">
-        <div><span class="eyebrow">Guias de compra PC MIDI Center</span><h1>Elegir mejor tecnologia para producir musica.</h1><p class="lede">Comparativas y guias practicas para armar home studio, grabar voces, elegir controladores MIDI, mejorar streaming y conectar mejor tu setup.</p><div class="hero-actions"><a class="btn btn-primary" href="#guias">Explorar guias</a><a class="btn btn-ghost" href="https://www.pcmidi.com.ar/" target="_blank" rel="noopener">Ir a pcmidi.com.ar</a></div></div>
+        <div><span class="eyebrow">Guias de compra {esc(brand)}</span><h1>Elegir mejor con {esc(brand)}.</h1><p class="lede">Comparativas y guias practicas para elegir los productos de {esc(brand)} segun tu uso real.</p><div class="hero-actions"><a class="btn btn-primary" href="#guias">Explorar guias</a><a class="btn btn-ghost" href="{esc(store_url)}/" target="_blank" rel="noopener">Ir a la tienda</a></div></div>
         <aside class="meter"><span>Archivo indexable</span><strong>{len(landings)}</strong><span>guias publicadas</span><div class="bars" aria-hidden="true"><i style="height:38%"></i><i style="height:62%"></i><i style="height:84%"></i><i style="height:46%"></i><i style="height:92%"></i><i style="height:58%"></i><i style="height:74%"></i><i style="height:42%"></i><i style="height:100%"></i><i style="height:68%"></i><i style="height:52%"></i><i style="height:88%"></i></div></aside>
       </div>
     </section>
     <section class="section" id="guias"><div class="container"><div class="section-head"><h2>Guias destacadas</h2><p>Entradas orientadas a problemas reales de compra: que conectar, que comparar y que categoria revisar antes de decidir.</p></div><div class="guide-grid">{''.join(featured_html)}</div></div></section>
-    <section class="section" id="temas"><div class="container"><div class="section-head"><h2>Temas principales</h2><p>Cada tema enlaza con categorias reales de PC MIDI Center para pasar de la duda tecnica a opciones concretas.</p></div><div class="topic-grid">{''.join(category_html)}</div><div class="cta-band"><h2>Catalogo comercial en PC MIDI Center.</h2><a class="btn btn-primary" href="https://www.pcmidi.com.ar/" target="_blank" rel="noopener">Ver tienda</a></div></div></section>
+    <section class="section" id="temas"><div class="container"><div class="section-head"><h2>Temas principales</h2><p>Cada tema enlaza con categorias reales de {esc(brand)} para pasar de la duda tecnica a opciones concretas.</p></div><div class="topic-grid">{''.join(category_html)}</div><div class="cta-band"><h2>Catalogo comercial en {esc(brand)}.</h2><a class="btn btn-primary" href="{esc(store_url)}/" target="_blank" rel="noopener">Ver tienda</a></div></div></section>
     <section class="section" id="indice"><div class="container"><div class="section-head"><h2>Ultimas guias</h2><p>Indice editorial de busquedas frecuentes sobre produccion musical, audio, streaming y home studio.</p></div><ul class="latest">{''.join(latest_html)}</ul></div></section>
   </main>
-  <footer class="container">PC MIDI Center comercializa tecnologia para produccion musical. Este blog ayuda a comparar alternativas segun uso real y enlaza a categorias disponibles en pcmidi.com.ar.</footer>
+  <footer class="container">{esc(brand)} comercializa productos para sus clientes. Este blog ayuda a comparar alternativas segun uso real y enlaza a categorias disponibles en la tienda.</footer>
 </body>
 </html>'''
 
@@ -1474,12 +1547,14 @@ def main() -> None:
     args = parser.parse_args()
     if getattr(args, "client_slug", ""):
         try:
-            import sys
             sys.path.insert(0, str(ROOT.parent / "agents"))
             import db_pg
             db_pg.inject_openrouter_env(client_slug=args.client_slug)
+            global _CLIENT_CONFIG
+            _CLIENT_CONFIG = db_pg.get_client_config(args.client_slug)
+            print(f"build-landings: cliente activo → {_CLIENT_CONFIG.get('name')} ({args.client_slug})")
         except Exception as exc:
-            print(f"build-landings: no se pudo cargar la key del cliente ({exc}); uso .env")
+            print(f"build-landings: no se pudo cargar la config del cliente ({exc}); modo PC MIDI")
     if args.command == "validate":
         validate_command()
     elif args.command == "build":

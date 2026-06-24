@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { getVisibleClients } from "@/lib/auth";
+import { ClientSwitcher } from "@/components/client-switcher";
 
 // Marcas exclusivas de PC MIDI Center (solo nosotros las vendemos en Argentina)
 // Orden: modelos específicos primero, marca sola al final como fallback
@@ -87,13 +89,23 @@ function fmt(d: Date | string) {
   return new Date(d).toLocaleDateString("es-AR");
 }
 
-export default async function GeoPage() {
+export default async function GeoPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ client?: string }>;
+}) {
+  const { client: clientSlug } = await searchParams;
+  const clients = await getVisibleClients(prisma);
+  const activeClient = clients.find((c) => c.slug === clientSlug) ?? clients[0] ?? null;
+  const clientFilter = activeClient ? { clientId: activeClient.id } : {};
+
   const [audits, avg] = await Promise.all([
     prisma.geoAudit.findMany({
+      where: clientFilter,
       orderBy: { createdAt: "desc" },
       take: 200,
     }),
-    prisma.geoAudit.aggregate({ _avg: { score: true }, _count: { id: true } }),
+    prisma.geoAudit.aggregate({ where: clientFilter, _avg: { score: true }, _count: { id: true } }),
   ]);
 
   // Score efectivo por consulta = score DB + menciones de productos exclusivos (máx 5)
@@ -143,9 +155,11 @@ export default async function GeoPage() {
           <Link href="/" className="text-xs text-slate hover:text-ink">← Dashboard</Link>
           <h1 className="mt-1 text-2xl font-bold text-ink">Presencia en IAs</h1>
           <p className="mt-0.5 text-sm text-slate">
-            ¿Qué tan seguido aparece PC MIDI Center cuando alguien le pregunta a ChatGPT, Claude o Gemini sobre equipos de audio?
+            ¿Qué tan seguido aparece {activeClient?.name ?? "la marca"} cuando alguien le pregunta a ChatGPT, Claude o Gemini?
           </p>
         </div>
+        {clients.length > 0 && <div className="flex items-center gap-3">
+          <ClientSwitcher clients={clients} activeSlug={activeClient?.slug ?? ""} /></div>}
         <div className="rounded-xl border border-ink/10 bg-paper px-5 py-3 text-center shadow-sm">
           <p className="text-xs text-slate">Visibilidad promedio</p>
           <p className={`text-3xl ${scoreColor(parseFloat(avgScore) || 0)}`}>{avgScore}</p>
