@@ -20,8 +20,7 @@ export default async function LoginPage({ searchParams }: Props) {
       <div className="grain" />
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <p className="text-xs font-bold uppercase tracking-[0.32em] text-moss">PC MIDI Center</p>
-          <h1 className="mt-3 font-display text-4xl text-ink">Los 5 Apóstoles</h1>
+          <h1 className="mt-3 font-display text-4xl text-ink">Ingresar</h1>
           <p className="mt-2 text-sm text-slate/60">Sistema interno · Acceso restringido</p>
         </div>
 
@@ -48,7 +47,7 @@ export default async function LoginPage({ searchParams }: Props) {
                   autoFocus
                   autoComplete="username"
                   className="mt-2 w-full rounded-lg border border-ink/15 bg-paper px-4 py-3 text-sm text-ink placeholder:text-slate/30 focus:border-ink/40 focus:outline-none focus:ring-2 focus:ring-ink/10"
-                  placeholder="lucio / fede / prestige"
+                  placeholder="tu usuario"
                 />
               </label>
             ) : null}

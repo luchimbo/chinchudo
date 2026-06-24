@@ -1,4 +1,4 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { prisma } from "@/lib/db";
@@ -56,7 +56,7 @@ export default async function MonitoringPage({ searchParams }: { searchParams: {
         </div>
         <div className="flex items-center gap-3">
           {clients.length > 0 ? <ClientSwitcher clients={clients} activeSlug={activeClient?.slug ?? ""} /> : null}
-          <Link href="/admin" className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
+          <Link href={activeClient ? `/admin?client=${activeClient.slug}` : "/admin"} className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
             Volver
           </Link>
         </div>

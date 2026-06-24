@@ -38,7 +38,7 @@ export default async function NewOpportunityPage({ searchParams }: { searchParam
           <button className="ml-2 rounded-full border border-ink/20 px-4 py-2 text-sm font-semibold text-ink">Cambiar</button>
         </form>
         <Link
-          href="/"
+          href={activeClient ? `/?client=${activeClient.slug}` : "/"}
           className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white"
         >
           Volver
@@ -49,6 +49,7 @@ export default async function NewOpportunityPage({ searchParams }: { searchParam
         action={createOpportunity}
         className="grid gap-5 rounded-lg border border-ink/10 bg-white/70 p-5 shadow-panel backdrop-blur md:grid-cols-2"
       >
+        <input type="hidden" name="client" value={activeClient?.slug ?? ""} />
         <label className="grid gap-2 text-sm font-semibold text-slate">
           Red
           <select name="channelId" required className="rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink">

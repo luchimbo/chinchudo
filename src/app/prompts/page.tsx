@@ -5,8 +5,9 @@ import { createPrompt, updatePrompt, deletePrompt, activatePrompt } from "./acti
 const inputCls = "rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm text-ink";
 const labelCls = "grid gap-1 text-xs font-semibold text-slate";
 
-export default async function PromptsPage() {
+export default async function PromptsPage({ searchParams }: { searchParams?: { client?: string } }) {
   const prompts = await prisma.promptVersion.findMany({ orderBy: [{ name: "asc" }, { version: "asc" }] });
+  const clientQuery = searchParams?.client ? `?client=${searchParams.client}` : "";
 
   return (
     <main className="relative mx-auto flex min-h-screen w-full max-w-4xl flex-col px-5 py-8">
@@ -19,7 +20,7 @@ export default async function PromptsPage() {
             cada generación con IA. Solo uno activo por nombre.
           </p>
         </div>
-        <Link href="/admin" className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
+        <Link href={`/admin${clientQuery}`} className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
           Volver
         </Link>
       </header>

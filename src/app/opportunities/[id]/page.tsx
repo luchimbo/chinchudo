@@ -22,7 +22,7 @@ import { SubmitButton } from "./SubmitButton";
 
 type PageProps = {
   params: { id: string };
-  searchParams?: { agentError?: string; agentOk?: string; agentPending?: string };
+  searchParams?: { agentError?: string; agentOk?: string; agentPending?: string; client?: string };
 };
 
 function statusClass(status: string) {
@@ -30,6 +30,18 @@ function statusClass(status: string) {
   if (status === "APPROVED" || status === "FOLLOW_UP") return "bg-brass text-white";
   if (status === "DISCARDED") return "bg-ink/20 text-ink";
   return "bg-signal text-white";
+}
+
+function getPersonaDisplayName(name: string, clientSlug?: string | null) {
+  if (clientSlug === "prestige-running") {
+    if (name === "Baterista de Departamento") return "El Corredor";
+    if (name === "Técnico / Productor") return "Kinesiólogo";
+    if (name === "Trend-Setter Kressmer") return "Trend Setter";
+    if (name === "Profe / Madre-Padre") return "Escolar / Padres";
+  }
+  if (name === "Trend-Setter Kressmer") return "Trend Setter";
+  if (name === "Profe / Madre-Padre") return "Profe de Música";
+  return name;
 }
 
 const agentErrorMessages: Record<string, string> = {
@@ -124,6 +136,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
         agentPending={searchParams?.agentPending}
         opportunityId={params.id}
         agentErrorMessages={agentErrorMessages}
+        clientSlug={searchParams?.client}
       />
 
       <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
@@ -150,7 +163,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
         </div>
 
         <Link
-          href="/"
+          href={searchParams?.client ? `/?client=${searchParams.client}` : "/"}
           className="rounded-full border border-ink/20 bg-white/60 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white"
         >
           Volver
@@ -194,7 +207,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate/70">
-                          {response.variantType} / {response.persona.name}
+                          {response.variantType} / {getPersonaDisplayName(response.persona.name, resolution.client.slug)}
                         </p>
                         <p className="mt-1 text-sm font-bold text-ink">{response.brand.name}</p>
                       </div>
@@ -259,14 +272,14 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
               <select name="personaId" defaultValue={suggestedPersonaId} className="rounded-md border border-white/15 bg-paper px-3 py-3 text-ink">
                 {personas.map((persona) => (
                   <option key={persona.id} value={persona.id}>
-                    {persona.name}{persona.id === suggestedPersonaId ? " (sugerida)" : ""}
+                    {getPersonaDisplayName(persona.name, resolution.client.slug)}{persona.id === suggestedPersonaId ? " (sugerida)" : ""}
                   </option>
                 ))}
               </select>
             </label>
             {suggestedPersona ? (
               <p className="mt-2 rounded-md bg-white/10 px-3 py-2 text-xs leading-5 text-paper/70">
-                <span className="font-bold text-paper">Sugerencia automÃ¡tica:</span> {suggestion.personaName}
+                <span className="font-bold text-paper">Sugerencia automÃ¡tica:</span> {getPersonaDisplayName(suggestion.personaName, resolution.client.slug)}
                 {suggestion.reason ? <span className="text-paper/55"> â€” {suggestion.reason}</span> : null}
               </p>
             ) : null}
@@ -318,6 +331,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
               </p>
               <input type="hidden" name="opportunityId" value={opportunity.id} />
               <input type="hidden" name="responseId" value={approvedResponse.id} />
+              <input type="hidden" name="client" value={searchParams?.client ?? ""} />
               <label className="mt-4 grid gap-2 text-sm font-semibold text-slate">
                 Cuenta
                 <select name="account" defaultValue={suggestedAccount?.name ?? ""} className="rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink">
@@ -331,7 +345,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
               </label>
               {suggestedAccount ? (
                 <p className="mt-2 text-xs leading-5 text-slate/70">
-                  Cuenta sugerida para la voz <span className="font-bold text-ink">{suggestion.personaName}</span>.
+                  Cuenta sugerida para la voz <span className="font-bold text-ink">{getPersonaDisplayName(suggestion.personaName, resolution.client.slug)}</span>.
                 </p>
               ) : null}
               {(searchParams?.agentPending || searchParams?.agentOk || searchParams?.agentError) && (
@@ -342,6 +356,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
                     agentPending={searchParams?.agentPending}
                     opportunityId={params.id}
                     agentErrorMessages={agentErrorMessages}
+                    clientSlug={searchParams?.client}
                   />
                 </div>
               )}

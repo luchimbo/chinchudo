@@ -7,8 +7,9 @@ const inputCls = "rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm tex
 const labelCls = "grid gap-1 text-xs font-semibold text-slate";
 const hintCls = "font-normal text-slate/60 text-[11px]";
 
-export default async function ClientsPage() {
+export default async function ClientsPage({ searchParams }: { searchParams?: { client?: string } }) {
   const clients = await getVisibleClients(prisma);
+  const clientQuery = searchParams?.client ? `?client=${searchParams.client}` : "";
 
   return (
     <main className="relative mx-auto flex min-h-screen w-full max-w-2xl flex-col px-5 py-8">
@@ -20,7 +21,7 @@ export default async function ClientsPage() {
             Cada cliente tiene su propia configuración de marca, IA y emails.
           </p>
         </div>
-        <Link href="/admin" className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
+        <Link href={`/admin${clientQuery}`} className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
           Volver
         </Link>
       </header>
@@ -33,7 +34,7 @@ export default async function ClientsPage() {
             {clients.map((c) => (
               <Link
                 key={c.id}
-                href={`/clients/${c.slug}`}
+                href={`/clients/${c.slug}${clientQuery}`}
                 className="flex items-center justify-between rounded-lg border border-ink/10 bg-paper px-4 py-3 shadow-sm transition hover:border-ink/25 hover:bg-white"
               >
                 <div className="flex items-center gap-3">

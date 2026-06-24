@@ -51,8 +51,9 @@ export async function createOpportunity(formData: FormData) {
     }
   });
 
+  const client = formData.get("client") as string | null;
   revalidatePath("/");
-  redirect("/");
+  redirect(client ? `/?client=${client}` : "/");
 }
 
 const idSchema = z.string().min(1);
@@ -330,15 +331,17 @@ export async function publishViaAgent(formData: FormData) {
   revalidatePath("/");
   revalidatePath(`/opportunities/${parsed.opportunityId}`);
 
+  const client = formData.get("client") as string | null;
+  const clientQuery = client ? `&client=${encodeURIComponent(client)}` : "";
   const base = `/opportunities/${parsed.opportunityId}`;
   // redirect() debe estar FUERA de cualquier try/catch (Next.js lo implementa con throw interno)
   if (agentPending) {
-    redirect(`${base}?agentPending=1`);
+    redirect(`${base}?agentPending=1${clientQuery}`);
   }
   if (agentError) {
-    redirect(`${base}?agentError=${encodeURIComponent(agentError)}`);
+    redirect(`${base}?agentError=${encodeURIComponent(agentError)}${clientQuery}`);
   }
-  redirect(`${base}?agentOk=1`);
+  redirect(`${base}?agentOk=1${clientQuery}`);
 }
 
 export async function updateClientAutoSettings(clientId: string, autoApprove: boolean, autoPublish: boolean) {

@@ -31,7 +31,7 @@ export default async function BrandsPage({ searchParams }: { searchParams: { cli
           </select>
           <button className="ml-2 rounded-full border border-ink/20 px-4 py-2 text-sm font-semibold text-ink">Cambiar</button>
         </form>
-        <Link href="/admin" className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
+        <Link href={activeClient ? `/admin?client=${activeClient.slug}` : "/admin"} className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
           Volver
         </Link>
       </header>

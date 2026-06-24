@@ -9,9 +9,10 @@ type Props = {
   agentPending?: string;
   opportunityId: string;
   agentErrorMessages: Record<string, string>;
+  clientSlug?: string;
 };
 
-export function StatusBanner({ agentError, agentOk, agentPending, opportunityId, agentErrorMessages }: Props) {
+export function StatusBanner({ agentError, agentOk, agentPending, opportunityId, agentErrorMessages, clientSlug }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [resolvedError, setResolvedError] = useState<string | null>(null);
   const [resolvedOk, setResolvedOk] = useState(false);
@@ -84,7 +85,7 @@ export function StatusBanner({ agentError, agentOk, agentPending, opportunityId,
       {showOk ? (
         <div role="status" aria-live="polite" className="rounded-lg border border-moss/30 bg-moss/10 px-4 py-4 text-sm font-semibold text-moss">
           <p>Publicado correctamente.</p>
-          <Link href="/" className="mt-1 inline-block text-xs font-normal underline underline-offset-2">Volver al tablero</Link>
+          <Link href={clientSlug ? `/?client=${clientSlug}` : "/"} className="mt-1 inline-block text-xs font-normal underline underline-offset-2">Volver al tablero</Link>
         </div>
       ) : null}
       {stillPending && !showError && !showOk ? (

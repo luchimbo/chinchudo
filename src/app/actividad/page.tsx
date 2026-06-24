@@ -26,13 +26,26 @@ function fmt(d: Date | string | null) {
   return new Date(d).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" });
 }
 
-const PERSONA_LABEL: Record<string, string> = {
-  "baterista-departamento": "Baterista de Departamento",
-  "profe-musica":           "Profe de Música",
-  "productor-home-studio":  "Técnico / Productor",
-  "cazador-ofertas":        "Cazador de Ofertas",
-  "trend-setter-kressmer":  "Early Kressmer",
-};
+function getPersonaLabel(accountKeyOrName: string, clientSlug?: string | null) {
+  const normalized = (accountKeyOrName || "").toLowerCase().trim();
+  
+  if (clientSlug === "prestige-running") {
+    if (normalized.includes("baterista") || normalized.includes("corredor")) return "El Corredor";
+    if (normalized.includes("productor") || normalized.includes("tecnico") || normalized.includes("kinesiologo")) return "Kinesiólogo";
+    if (normalized.includes("kressmer") || normalized.includes("setter") || normalized.includes("early")) return "Trend Setter";
+    if (normalized.includes("profe") || normalized.includes("padre") || normalized.includes("escolar")) return "Escolar / Padres";
+    if (normalized.includes("ofertas") || normalized.includes("cazador")) return "Cazador de Ofertas";
+  }
+  
+  // Default (PC MIDI)
+  if (normalized.includes("baterista")) return "Baterista de Departamento";
+  if (normalized.includes("productor") || normalized.includes("tecnico")) return "Técnico / Productor";
+  if (normalized.includes("kressmer") || normalized.includes("setter") || normalized.includes("early")) return "Trend Setter";
+  if (normalized.includes("profe")) return "Profe de Música";
+  if (normalized.includes("ofertas") || normalized.includes("cazador")) return "Cazador de Ofertas";
+  
+  return accountKeyOrName;
+}
 
 const CANAL_LABEL: Record<string, string> = {
   INSTAGRAM: "Instagram",
@@ -70,6 +83,8 @@ export default async function ActividadPage({ searchParams }: PageProps) {
           select: {
             sourceText: true,
             channel: { select: { name: true } },
+            detectedBrand: { select: { clientId: true, client: { select: { slug: true } } } },
+            monitoredSource: { select: { clientId: true, client: { select: { slug: true } } } },
           },
         },
         response: {
@@ -141,7 +156,8 @@ export default async function ActividadPage({ searchParams }: PageProps) {
                 const texto = log.response?.editedText ?? log.response?.draftText ?? "";
                 const result = RESULT_LABEL[log.result] ?? { label: log.result, cls: "bg-ink/5 text-slate border-ink/10" };
                 const canal = log.opportunity?.channel?.name ?? "—";
-                const persona = PERSONA_LABEL[log.account] ?? log.account;
+                const clientSlug = log.opportunity?.detectedBrand?.client?.slug || log.opportunity?.monitoredSource?.client?.slug;
+                const persona = getPersonaLabel(log.account || log.response?.persona?.name || "", clientSlug);
                 return (
                   <div key={log.id} className="rounded-xl border border-ink/10 bg-paper p-4 shadow-sm">
                     <div className="flex flex-wrap items-start justify-between gap-3">

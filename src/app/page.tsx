@@ -119,7 +119,7 @@ export default async function HomePage({ searchParams }: PageProps) {
           </div>
 
           <div className="flex items-center gap-2">
-            <Link href="/admin" className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
+            <Link href={activeClient ? `/admin?client=${activeClient.slug}` : "/admin"} className="inline-flex h-10 items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
               Configuracion
             </Link>
             <form action="/api/auth/logout" method="POST">
@@ -344,14 +344,14 @@ export default async function HomePage({ searchParams }: PageProps) {
           {/* Navegación secundaria — texto plano */}
           <nav className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <Link href={`/informe${activeClient ? `?client=${activeClient.slug}` : ""}`} className="text-sm text-slate/70 transition hover:text-ink">Informe</Link>
-            <Link href="/analytics" className="text-sm text-slate/70 transition hover:text-ink">Analítica</Link>
+            <Link href={`/analytics${activeClient ? `?client=${activeClient.slug}` : ""}`} className="text-sm text-slate/70 transition hover:text-ink">Analítica</Link>
             <Link href={`/landings${activeClient ? `?client=${activeClient.slug}` : ""}`} className="text-sm text-slate/70 transition hover:text-ink">Blog</Link>
             <Link href={`/leads${activeClient ? `?client=${activeClient.slug}` : ""}`} className="text-sm text-slate/70 transition hover:text-ink">Contactos</Link>
             <Link href={`/distribution${activeClient ? `?client=${activeClient.slug}` : ""}`} className="text-sm text-slate/70 transition hover:text-ink">Para publicar</Link>
             <Link href={`/geo${activeClient ? `?client=${activeClient.slug}` : ""}`} className="text-sm text-slate/70 transition hover:text-ink">En las IAs</Link>
-            <Link href="/actividad" className="text-sm text-slate/70 transition hover:text-ink">Actividad</Link>
-            <Link href="/admin" className="text-sm text-slate/70 transition hover:text-ink">Configuración</Link>
-            <Link href="/logins" className="text-sm text-slate/70 transition hover:text-ink">Cuentas</Link>
+            <Link href={`/actividad${activeClient ? `?client=${activeClient.slug}` : ""}`} className="text-sm text-slate/70 transition hover:text-ink">Actividad</Link>
+            <Link href={withClient("/admin")} className="text-sm text-slate/70 transition hover:text-ink">Configuración</Link>
+            <Link href={withClient("/logins")} className="text-sm text-slate/70 transition hover:text-ink">Cuentas</Link>
           </nav>
 
           <span className="h-5 w-px bg-ink/15 hidden sm:block" />
@@ -359,7 +359,7 @@ export default async function HomePage({ searchParams }: PageProps) {
           {/* Acciones primarias */}
           <div className="flex items-center gap-2">
             <Link
-              href="/opportunities/new"
+              href={withClient("/opportunities/new")}
               className="inline-flex h-10 items-center justify-center rounded-full bg-ink px-5 text-sm font-bold text-paper shadow-sm transition hover:-translate-y-0.5 hover:bg-slate"
             >
               Nueva oportunidad

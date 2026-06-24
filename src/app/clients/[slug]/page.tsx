@@ -57,7 +57,7 @@ export default async function ClientSettingsPage({
     <main className="relative mx-auto flex min-h-screen w-full max-w-2xl flex-col px-5 py-8">
       <header className="mb-8 flex items-start justify-between gap-4">
         <div>
-          <Link href="/" className="text-xs text-slate hover:text-ink">← Dashboard</Link>
+          <Link href={`/?client=${slug}`} className="text-xs text-slate hover:text-ink">← Dashboard</Link>
           <div className="mt-2 flex items-center gap-3">
             <span
               className="inline-block h-3 w-3 rounded-full"
@@ -204,7 +204,7 @@ export default async function ClientSettingsPage({
               Borrar clave de IA
             </button>
           ) : null}
-          <Link href="/" className="ml-auto text-sm text-slate hover:text-ink">
+          <Link href={`/?client=${slug}`} className="ml-auto text-sm text-slate hover:text-ink">
             Cancelar
           </Link>
         </div>

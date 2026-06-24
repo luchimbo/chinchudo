@@ -64,7 +64,7 @@ function Cell({ state }: { state?: ChannelState }) {
   return <span className="text-ink/30">—</span>;
 }
 
-export default async function LoginsPage({ searchParams }: { searchParams: { started?: string } }) {
+export default async function LoginsPage({ searchParams }: { searchParams: { started?: string; client?: string } }) {
   const data = await getStatus();
   const started = searchParams.started === "1";
   const accounts = data.accounts ? Object.entries(data.accounts) : [];
@@ -74,12 +74,11 @@ export default async function LoginsPage({ searchParams }: { searchParams: { sta
     <main className="relative mx-auto flex min-h-screen w-full max-w-5xl flex-col px-5 py-8 lg:px-8">
       <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.32em] text-moss">PC MIDI Center</p>
           <h1 className="mt-3 font-display text-4xl leading-none text-ink md:text-5xl">Estado de logins</h1>
           <p className="mt-2 text-sm text-ink/60">Qué cuenta está logueada en qué red dentro del navegador de tu PC.</p>
         </div>
         <div className="flex items-center gap-3">
-          <Link href="/" className="text-sm font-semibold text-ink/60 underline-offset-4 hover:underline">← Volver</Link>
+          <Link href={searchParams.client ? `/?client=${searchParams.client}` : "/"} className="text-sm font-semibold text-ink/60 underline-offset-4 hover:underline">← Volver</Link>
           <form action={triggerCheck}>
             <button type="submit" className="rounded-lg bg-ink px-4 py-2 text-sm font-bold text-paper transition hover:bg-ink/85">
               Revisar logins
