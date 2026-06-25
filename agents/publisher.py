@@ -357,10 +357,26 @@ def _yt_reply_to_comment(client, page_url: str, comment_id: str, text: str) -> d
     return {"success": True, "url": page_url, "type": "reply", "comment_id": comment_id}
 
 
+def _poll_login(client, js: str, retries: int = 4, interval: float = 2.0) -> dict:
+    """Evalúa `js` hasta `retries` veces con `interval` segundos entre intentos.
+    Devuelve el primer resultado con loggedIn=True, o el último resultado si agota intentos."""
+    result: dict = {}
+    for attempt in range(retries):
+        try:
+            result = browser_cdp.evaluate(client, js) or {}
+        except Exception:
+            result = {}
+        if result.get("loggedIn"):
+            return result
+        if attempt < retries - 1:
+            time.sleep(interval)
+    return result
+
+
 def _yt_logged_in(client) -> bool:
-    """Detecta sesión activa en YouTube. Señal de NO logueado: botón 'Sign in / Acceder'.
-    Se usa el botón de login (no el avatar) para no bloquear por error a usuarios logueados."""
-    r = browser_cdp.evaluate(client, """
+    """Detecta sesión activa en YouTube. Usa señal positiva (avatar presente)
+    y negativa (botón Sign In ausente), con reintentos para tolerar carga lenta."""
+    js = """
     (() => {
       const signIn = document.querySelector(
         'a[aria-label*="Sign in" i], a[aria-label*="Acceder" i], ' +
@@ -368,10 +384,16 @@ def _yt_logged_in(client) -> bool:
         'ytd-button-renderer a[href*="ServiceLogin"], ' +
         'a[href*="accounts.google.com/ServiceLogin"]'
       );
-      return {loggedIn: !signIn};
+      const avatar = document.querySelector(
+        'button#avatar-btn, yt-img-shadow#avatar img, ytd-topbar-menu-button-renderer #avatar-btn'
+      );
+      // Logueado si hay avatar O si no hay botón de login y la página cargó
+      const pageLoaded = !!document.querySelector('ytd-watch-flexy, ytd-browse');
+      return {loggedIn: (!!avatar || (!signIn && pageLoaded))};
     })()
-    """)
-    return bool(r and r.get("loggedIn"))
+    """
+    r = _poll_login(client, js)
+    return bool(r.get("loggedIn"))
 
 
 def post_youtube_comment(client, video_url: str, text: str, dry_run: bool) -> dict:
@@ -411,13 +433,15 @@ def post_reddit_reply(client, comment_url: str, text: str, dry_run: bool) -> dic
     if dry_run:
         return {"success": True, "dry_run": True, "url": thread_url}
 
-    # Verify login
-    auth = browser_cdp.evaluate(client, """
+    # Verify login — mirrors the check in _login.py (LOGIN_CHECKS["reddit"]), con reintentos
+    auth = _poll_login(client, """
     (() => {
-      const noLoginLink = !document.querySelector('a[href*="/login"]') ||
-                           !!document.querySelector('#header-bottom-right .user a.reddit-user-link');
-      const user = document.querySelector('.user a.reddit-user-link')?.innerText || '';
-      return {loggedIn: noLoginLink && !!user, user};
+      const u = document.querySelector('.user a.reddit-user-link') ||
+                document.querySelector('#header-bottom-right .user a') ||
+                document.querySelector('.user a');
+      const user = (u?.innerText || u?.textContent || '').trim();
+      const loggedIn = !!user && !/login|register|conect/i.test(user);
+      return {loggedIn, user};
     })()
     """)
     if not auth or not auth.get("loggedIn"):
@@ -491,15 +515,16 @@ def post_x_reply(client, tweet_url: str, text: str, dry_run: bool) -> dict:
     if dry_run:
         return {"success": True, "dry_run": True, "url": tweet_url}
 
-    # Verificar login
-    auth = browser_cdp.evaluate(client, """
+    # Verificar login — señal positiva (sidebar de perfil) + negativa (URL de login), con reintentos
+    auth = _poll_login(client, """
     (() => {
-      const loginWall = !!(
-        document.querySelector('input[autocomplete="username"]') ||
-        location.href.includes('/i/flow/login') ||
-        location.href.includes('/login')
+      const onLoginPage = location.href.includes('/i/flow/login') || location.href.includes('/login');
+      const profileBtn = !!(
+        document.querySelector('[data-testid="SideNav_AccountSwitcher_Button"]') ||
+        document.querySelector('[data-testid="AppTabBar_Profile_Link"]') ||
+        document.querySelector('[data-testid="primaryColumn"]')
       );
-      return {loggedIn: !loginWall};
+      return {loggedIn: !onLoginPage && profileBtn};
     })()
     """)
     if not auth or not auth.get("loggedIn"):
@@ -568,14 +593,21 @@ def post_facebook_comment(client, post_url: str, text: str, dry_run: bool) -> di
     if dry_run:
         return {"success": True, "dry_run": True, "url": watch_url}
 
-    # Verificar login
-    auth = browser_cdp.evaluate(client, """
+    # Verificar login — señal positiva (navbar logueado) + negativa (form de login), con reintentos
+    auth = _poll_login(client, """
     (() => {
-      const loginWall = !!(
+      const loginForm = !!(
         document.querySelector('input[name="email"], #email') &&
         document.querySelector('input[name="pass"], #pass')
       );
-      return {loggedIn: !loginWall};
+      const onLoginPage = location.href.includes('/login') || location.href.includes('login_attempt');
+      const loggedInNav = !!(
+        document.querySelector('[aria-label="Facebook"][role="navigation"]') ||
+        document.querySelector('[data-pagelet="LeftRail"]') ||
+        document.querySelector('[data-pagelet="ProfileAppSection_0"]') ||
+        document.querySelector('div[role="banner"] a[href*="/me"]')
+      );
+      return {loggedIn: !loginForm && !onLoginPage && loggedInNav};
     })()
     """)
     if not auth or not auth.get("loggedIn"):
@@ -651,14 +683,20 @@ def post_instagram_comment(client, post_url: str, text: str, dry_run: bool) -> d
     if dry_run:
         return {"success": True, "dry_run": True, "url": post_url}
 
-    # Verificar login
-    auth = browser_cdp.evaluate(client, """
+    # Verificar login — señal positiva (nav de usuario) + negativa (form login), con reintentos
+    auth = _poll_login(client, """
     (() => {
-      const loginWall = !!(
-        document.querySelector('input[name="username"]') ||
-        location.href.includes('/accounts/login')
+      const onLoginPage = location.href.includes('/accounts/login');
+      const loginForm = !!document.querySelector('input[name="username"]');
+      const loggedInNav = !!(
+        document.querySelector('a[href="/direct/inbox/"]') ||
+        document.querySelector('svg[aria-label="Home"]') ||
+        document.querySelector('a[href*="/explore/"]') ||
+        document.querySelector('[data-testid="user-avatar"]') ||
+        document.querySelector('nav a[href^="/@"]') ||
+        document.querySelector('span[role="link"]')
       );
-      return {loggedIn: !loginWall};
+      return {loggedIn: !onLoginPage && !loginForm && loggedInNav};
     })()
     """)
     if not auth or not auth.get("loggedIn"):

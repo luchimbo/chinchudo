@@ -960,11 +960,29 @@ def run_publish(channel_filter: str | None, limit: int, dry_run: bool) -> dict:
         and e.get("date") == datetime.now(timezone.utc).strftime("%Y-%m-%d")
     )
 
+    # URLs que ya tienen una entrada publicada (cualquier estado != approved)
+    already_published_urls: set[str] = {
+        e["source_thread_url"]
+        for e in log
+        if e.get("source_thread_url") and e.get("status") != "approved"
+    }
+    # URLs publicadas en esta misma corrida (para evitar doble publicación en el mismo run)
+    published_in_run: set[str] = set()
+
     log_dirty = False
     published_at = datetime.now(timezone.utc).isoformat()
 
     for entry in approved:
         channel = entry.get("channel")
+        thread_url = entry.get("source_thread_url", "")
+
+        # Guardia: no publicar dos veces en el mismo thread
+        if thread_url and (thread_url in already_published_urls or thread_url in published_in_run):
+            print(f"  skip [{channel}]: ya publicado en {thread_url}")
+            skipped_count += 1
+            results.append({"slug": entry.get("landing_slug"), "channel": channel, "status": "skipped", "reason": "already_published_url"})
+            continue
+
         print(f"  publicando [{channel}]: {entry.get('title', '')[:60]}")
 
         if channel == "reddit":
@@ -994,6 +1012,8 @@ def run_publish(channel_filter: str | None, limit: int, dry_run: bool) -> dict:
             published_count += 1
             new_status = "published" if not dry_run else "approved"
             results.append({"slug": entry.get("landing_slug"), "channel": channel, "status": "published", "note": msg})
+            if thread_url:
+                published_in_run.add(thread_url)
         else:
             failed_count += 1
             results.append({"slug": entry.get("landing_slug"), "channel": channel, "status": "failed", "error": msg})
