@@ -130,9 +130,9 @@ async function main() {
         clientId: resolution.client.id,
       });
 
-      if (!aiResult.isSpanish || aiResult.isSpamOrFluff || !aiResult.isRelevant) {
+      if (!aiResult.isSupportedLanguage || aiResult.isSpamOrFluff || !aiResult.isRelevant) {
         isDiscarded = true;
-        discardNotes = `[Filtro IA] Descartado. Razón: ${aiResult.actionableReason}. (Idioma OK: ${aiResult.isSpanish}, Spam: ${aiResult.isSpamOrFluff}, Relevante: ${aiResult.isRelevant})`;
+        discardNotes = `[Filtro IA] Descartado. Razón: ${aiResult.actionableReason}. (Idioma: ${aiResult.language}, Spam: ${aiResult.isSpamOrFluff}, Relevante: ${aiResult.isRelevant})`;
         discardedAtImport += 1;
       }
     } catch (err) {
@@ -141,6 +141,8 @@ async function main() {
       const intent = row.detectedIntent || detectIntent(sourceText);
       aiResult = {
         isSpanish: true,
+        isSupportedLanguage: true,
+        language: "es" as const,
         isSpamOrFluff: false,
         isRelevant: true,
         actionableReason: `Fallback local por error de IA: ${(err as Error).message}`,

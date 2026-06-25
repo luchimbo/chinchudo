@@ -138,18 +138,20 @@ async function main() {
     where: { clientId_name: { clientId: pcmidi.id, name: "MidiPlus" } },
     update: {
       clientId: pcmidi.id,
-      positioning: "Confiabilidad, soporte local y relacion precio-calidad para home studio y educacion musical.",
+      strengths: "Confiabilidad, soporte local y relacion precio-calidad para home studio y educacion musical.",
       tone: "Tecnico, claro, seguro y orientado a resolver dudas.",
       allowedClaims: "Soporte local; buena relacion precio-calidad; opcion practica para home studio; compra con garantia.",
       forbiddenClaims: "El mejor del mercado; superior a todas las marcas; garantia no confirmada; datos tecnicos no verificados.",
+      competitorWeaknesses: "Marcas importadas genéricas carecen de soporte técnico local oficial y garantía en el país.",
     },
     create: {
       clientId: pcmidi.id,
       name: "MidiPlus",
-      positioning: "Confiabilidad, soporte local y relacion precio-calidad para home studio y educacion musical.",
+      strengths: "Confiabilidad, soporte local y relacion precio-calidad para home studio y educacion musical.",
       tone: "Tecnico, claro, seguro y orientado a resolver dudas.",
       allowedClaims: "Soporte local; buena relacion precio-calidad; opcion practica para home studio; compra con garantia.",
       forbiddenClaims: "El mejor del mercado; superior a todas las marcas; garantia no confirmada; datos tecnicos no verificados.",
+      competitorWeaknesses: "Marcas importadas genéricas carecen de soporte técnico local oficial y garantía en el país.",
     },
   });
 
@@ -157,18 +159,20 @@ async function main() {
     where: { clientId_name: { clientId: pcmidi.id, name: "Kressmer" } },
     update: {
       clientId: pcmidi.id,
-      positioning: "Linea nueva con diseno premium, novedad y propuesta diferenciada con respaldo comercial local.",
+      strengths: "Linea nueva con diseno premium, novedad y propuesta diferenciada con respaldo comercial local.",
       tone: "Moderno, curioso, aspiracional y cuidadoso con claims tecnicos.",
       allowedClaims: "Linea nueva; estetica cuidada; propuesta diferente; consultar modelo, stock y garantia.",
       forbiddenClaims: "Lo mejor; exclusivo sin confirmacion; caracteristicas no verificadas; comparaciones absolutas.",
+      competitorWeaknesses: "Marcas tradicionales del mismo rango de precio ofrecen diseños plásticos desactualizados y nula diferenciación estética.",
     },
     create: {
       clientId: pcmidi.id,
       name: "Kressmer",
-      positioning: "Linea nueva con diseno premium, novedad y propuesta diferenciada con respaldo comercial local.",
+      strengths: "Linea nueva con diseno premium, novedad y propuesta diferenciada con respaldo comercial local.",
       tone: "Moderno, curioso, aspiracional y cuidadoso con claims tecnicos.",
       allowedClaims: "Linea nueva; estetica cuidada; propuesta diferente; consultar modelo, stock y garantia.",
       forbiddenClaims: "Lo mejor; exclusivo sin confirmacion; caracteristicas no verificadas; comparaciones absolutas.",
+      competitorWeaknesses: "Marcas tradicionales del mismo rango de precio ofrecen diseños plásticos desactualizados y nula diferenciación estética.",
     },
   });
 
@@ -176,18 +180,20 @@ async function main() {
     where: { clientId_name: { clientId: prestigeClient.id, name: "Prestige Running" } },
     update: {
       clientId: prestigeClient.id,
-      positioning: "Medias deportivas tecnicas para running, trail, compresion y entrenamiento, con foco en comodidad, diseno y compra online simple.",
+      strengths: "Medias deportivas tecnicas para running, trail, compresion y entrenamiento, con foco en comodidad, diseno y compra online simple.",
       tone: "Deportivo, practico, cercano y tecnico solo cuando aporta.",
-      allowedClaims: "Medias tecnicas; opciones para running y trail; compresion graduada cuando el producto lo indique; envios a todo el pais; cuotas disponibles segun tienda.",
+      allowedClaims: "Medias tecnicas; opciones para running and trail; compresion graduada cuando el producto lo indique; envios a todo el pais; cuotas disponibles segun tienda.",
       forbiddenClaims: "Curar lesiones; evitar lesiones garantizado; mejorar rendimiento garantizado; recomendacion medica sin respaldo; stock/precio fijo sin verificar.",
+      competitorWeaknesses: "Medias de algodón convencionales acumulan sudor, causan ampollas y no ofrecen ajuste ergonómico ni compresión graduada.",
     },
     create: {
       clientId: prestigeClient.id,
       name: "Prestige Running",
-      positioning: "Medias deportivas tecnicas para running, trail, compresion y entrenamiento, con foco en comodidad, diseno y compra online simple.",
+      strengths: "Medias deportivas tecnicas para running, trail, compresion y entrenamiento, con foco en comodidad, diseno y compra online simple.",
       tone: "Deportivo, practico, cercano y tecnico solo cuando aporta.",
-      allowedClaims: "Medias tecnicas; opciones para running y trail; compresion graduada cuando el producto lo indique; envios a todo el pais; cuotas disponibles segun tienda.",
+      allowedClaims: "Medias tecnicas; opciones para running and trail; compresion graduada cuando el producto lo indique; envios a todo el pais; cuotas disponibles segun tienda.",
       forbiddenClaims: "Curar lesiones; evitar lesiones garantizado; mejorar rendimiento garantizado; recomendacion medica sin respaldo; stock/precio fijo sin verificar.",
+      competitorWeaknesses: "Medias de algodón convencionales acumulan sudor, causan ampollas y no ofrecen ajuste ergonómico ni compresión graduada.",
     },
   });
 

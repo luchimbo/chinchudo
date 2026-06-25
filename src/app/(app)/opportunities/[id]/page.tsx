@@ -19,6 +19,7 @@ import { suggestAllPersonasForClient } from "@/lib/persona-router";
 import { resolveOpportunityClient } from "@/lib/client-context";
 import { CopyButton } from "./CopyButton";
 import { SubmitButton } from "./SubmitButton";
+import { DraftCard } from "./DraftCard";
 
 type PageProps = {
   params: { id: string };
@@ -196,56 +197,20 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
 
           <section className="rounded-lg border border-ink/10 bg-white/75 p-5 shadow-panel backdrop-blur">
             <h2 className="font-display text-2xl">Borradores</h2>
-            <div className="mt-4 grid gap-4">
+            <div className="mt-4 grid gap-5">
               {opportunity.responses.length === 0 ? (
                 <p className="rounded-md bg-paper p-4 text-sm text-slate">
                   Todavia no hay respuestas generadas para esta oportunidad.
                 </p>
               ) : (
                 opportunity.responses.map((response) => (
-                  <article key={response.id} className="rounded-md border border-ink/10 bg-paper p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate/70">
-                          {response.variantType} / {getPersonaDisplayName(response.persona.name, resolution.client.slug)}
-                        </p>
-                        <p className="mt-1 text-sm font-bold text-ink">{response.brand.name}</p>
-                      </div>
-                      {response.approvedBy ? (
-                        <span className="rounded-full bg-moss px-3 py-1 text-xs font-bold text-white">
-                          Aprobada
-                        </span>
-                      ) : null}
-                    </div>
-
-                    <form action={approveResponse} className="mt-3 grid gap-3">
-                      <input type="hidden" name="responseId" value={response.id} />
-                      <input type="hidden" name="opportunityId" value={opportunity.id} />
-                      <textarea
-                        name="editedText"
-                        rows={5}
-                        defaultValue={response.editedText || response.draftText}
-                        className="w-full resize-y rounded-md border border-ink/15 bg-white px-3 py-3 text-sm leading-6 text-ink"
-                      />
-                      {response.riskNotes ? (
-                        <details className="rounded-md border border-ink/10 bg-white/60 px-3 py-2 text-xs text-slate/75">
-                          <summary className="cursor-pointer font-bold text-slate">
-                            Ver notas internas
-                          </summary>
-                          <p className="mt-2 leading-5">{response.riskNotes}</p>
-                        </details>
-                      ) : null}
-                      <div className="flex flex-wrap justify-end gap-2">
-                        <input type="hidden" name="approvedBy" value="Fede" />
-                        <SubmitButton
-                          loadingText="Aprobandoâ€¦"
-                          className="rounded-full bg-ink px-4 py-2 text-sm font-bold text-paper transition hover:bg-slate disabled:opacity-50"
-                        >
-                          Aprobar texto
-                        </SubmitButton>
-                      </div>
-                    </form>
-                  </article>
+                  <DraftCard
+                    key={response.id}
+                    response={response}
+                    opportunity={opportunity}
+                    clientSlug={resolution.client.slug}
+                    approveResponseAction={approveResponse}
+                  />
                 ))
               )}
             </div>

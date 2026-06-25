@@ -42,8 +42,12 @@ export default async function BrandsPage({ searchParams }: { searchParams: { cli
             <input name="tone" required minLength={2} maxLength={120} className={inputCls} />
           </label>
           <label className={`${labelCls} md:col-span-2`}>
-            Posicionamiento
-            <textarea name="positioning" required minLength={10} maxLength={2000} rows={2} className={`${inputCls} resize-y`} />
+            Fortalezas
+            <textarea name="strengths" required minLength={10} maxLength={2000} rows={2} className={`${inputCls} resize-y`} placeholder="Fortalezas clave de la marca..." />
+          </label>
+          <label className={`${labelCls} md:col-span-2`}>
+            Debilidades de la competencia
+            <textarea name="competitorWeaknesses" maxLength={2000} rows={2} className={`${inputCls} resize-y`} placeholder="Puntos débiles de competidores..." />
           </label>
           <label className={labelCls}>
             Claims permitidos
@@ -75,8 +79,12 @@ export default async function BrandsPage({ searchParams }: { searchParams: { cli
                 <input name="tone" defaultValue={b.tone} required className={inputCls} />
               </label>
               <label className={`${labelCls} md:col-span-2`}>
-                Posicionamiento
-                <textarea name="positioning" defaultValue={b.positioning} required rows={2} className={`${inputCls} resize-y`} />
+                Fortalezas
+                <textarea name="strengths" defaultValue={b.strengths} required rows={2} className={`${inputCls} resize-y`} />
+              </label>
+              <label className={`${labelCls} md:col-span-2`}>
+                Debilidades de la competencia
+                <textarea name="competitorWeaknesses" defaultValue={b.competitorWeaknesses || ""} rows={2} className={`${inputCls} resize-y`} />
               </label>
               <label className={labelCls}>
                 Claims permitidos

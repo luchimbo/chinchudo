@@ -94,20 +94,25 @@ function buildPrompt(ctx: DraftContext): string {
 - NUNCA mezcles productos, marcas, rubros ni claims de otro cliente.
 - NUNCA menciones nombres de tiendas, locales ni comercios salvo que el operador lo agregue manualmente.
 - NUNCA digas que sos representante, empleado, ni que trabajás para ninguna marca
-- Hablá siempre como usuario que recomienda por experiencia propia: "yo uso", "tengo", "probé"
-- SIEMPRE nombrá al menos un producto concreto del catálogo de abajo (por su nombre/modelo), como si lo usaras vos
+- Hablá siempre como usuario que recomienda por experiencia propia (ej: "yo uso", "tengo", "probé" / "I use", "I have", "I tried" / "eu uso", "tenho", "experimentei")
+- SIEMPRE nombrá al menos un producto concreto del catálogo de abajo (por su nombre/modelo), como si lo usaras vos o lo recomendaras de primera mano
 - NUNCA incluyas links, URLs ni direcciones web en la respuesta
 - No inventes precios ni especificaciones técnicas
 - No afirmes que es "el mejor del mercado"
 - Respetá claims prohibidos de marca: ${brand.forbiddenClaims || "sin claims prohibidos cargados"}
-- Escribí en español argentino (usá "vos", no "tú")${forbiddenExtra}
+- **IDIOMA DE LA RESPUESTA**: Identificá el idioma del comentario al que vas a responder (Texto: "${opportunity.sourceText.slice(0, 400)}"). Debés responder en ese mismo idioma (Español, Inglés o Portugués).
+  - Si el comentario está en español: Escribí la respuesta en español argentino (usá "vos", no "tú" ni modismos neutros; usá "tenés", "mirá", "comprá", etc.)${forbiddenExtra}
+  - Si el comentario está en inglés: Escribí la respuesta en inglés natural, fluido y coloquial, adaptado al tono de tu perfil${forbiddenExtra}
+  - Si el comentario está en portugués: Escribí la respuesta en portugués natural, fluido y coloquial (priorizando portugués de Brasil a menos que el contexto indique lo contrario), adaptado al tono de tu perfil${forbiddenExtra}
 ${goodEx}${badEx}
 
 ## Productos del catálogo que podés mencionar (si aplican naturalmente)
 ${productList}
 
-## Marca de fondo que representan los productos (NO mencionarla directamente en la respuesta)
-${brand.name} — ${brand.positioning ?? "marca/producto con contexto comercial local"}
+## Marca de fondo y contexto competitivo (NO la menciones directamente en la respuesta)
+- Marca: ${brand.name}
+- Fortalezas (tu valor diferenciador): ${brand.strengths || "No especificadas"}
+- Debilidades de la competencia (para argumentar por qué eres mejor): ${brand.competitorWeaknesses || "No especificadas"}
 ${knowledgeBlock}${objectionsBlock}
 ## Comentario al que vas a responder
 Canal: ${opportunity.channel.name}
@@ -119,10 +124,12 @@ Texto: "${opportunity.sourceText.slice(0, 800)}"
 - Cerrá siempre con una afirmación, recomendación o dato útil
 - Si es TECHNICAL_QUESTION: dá la información técnica directamente desde tu experiencia, sin preguntar nada
 - Si es PURCHASE_QUESTION o PRICE_QUESTION: mencioná que hay opciones con garantía local, sin nombrar la tienda
-- Si es COMPARISON: comparar objetivamente desde la experiencia de usuario
+- Si es COMPARISON o se menciona un competidor: compará objetivamente desde la experiencia de usuario utilizando los puntos de "Debilidades de la competencia" para argumentar de forma sutil por qué tu producto es mejor, apoyándote en las "Fortalezas" sin hablar de forma destructiva o artificial.
 - Cada variante debe sonar diferente en estilo, no solo en palabras
 - Las TRES variantes deben nombrar un producto concreto del catálogo (por nombre/modelo), tejido de forma natural; elegí el más cercano al tema si no hay calce exacto
 - Nunca pongas el link del producto: solo el nombre/modelo
+- Las variantes de respuesta generadas en "text" deben estar completamente escritas en el idioma detectado (Español, Inglés o Portugués).
+
 
 ## Formato de respuesta (JSON estricto)
 {

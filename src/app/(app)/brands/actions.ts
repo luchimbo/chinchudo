@@ -8,20 +8,22 @@ import { assertClientAccess } from "@/lib/auth";
 const brandSchema = z.object({
   clientId: z.string().min(1),
   name: z.string().min(2).max(120),
-  positioning: z.string().min(2).max(2000),
+  strengths: z.string().min(2).max(2000),
   tone: z.string().min(2).max(1000),
   allowedClaims: z.string().max(2000).optional().transform((v) => v ?? ""),
-  forbiddenClaims: z.string().max(2000).optional().transform((v) => v ?? "")
+  forbiddenClaims: z.string().max(2000).optional().transform((v) => v ?? ""),
+  competitorWeaknesses: z.string().max(2000).optional().transform((v) => v ?? "")
 });
 
 function parse(formData: FormData) {
   return brandSchema.parse({
     name: formData.get("name"),
     clientId: formData.get("clientId"),
-    positioning: formData.get("positioning"),
+    strengths: formData.get("strengths"),
     tone: formData.get("tone"),
     allowedClaims: formData.get("allowedClaims") || undefined,
-    forbiddenClaims: formData.get("forbiddenClaims") || undefined
+    forbiddenClaims: formData.get("forbiddenClaims") || undefined,
+    competitorWeaknesses: formData.get("competitorWeaknesses") || undefined
   });
 }
 

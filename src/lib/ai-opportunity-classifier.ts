@@ -3,6 +3,8 @@ import { logger } from "./logger";
 
 export type ClassificationResult = {
   isSpanish: boolean;
+  isSupportedLanguage: boolean;
+  language: "es" | "en" | "pt" | "other";
   isSpamOrFluff: boolean;
   isRelevant: boolean;
   actionableReason: string;
@@ -84,7 +86,7 @@ export async function classifyOpportunity(
   ]);
 
   // 2. Construir sumarios para el prompt
-  const brandsList = brands.map((b) => `- ${b.name}: ${b.positioning}`).join("\n");
+  const brandsList = brands.map((b) => `- ${b.name}: Fortalezas: ${b.strengths} | Debilidades competencia: ${b.competitorWeaknesses || "No especificadas"}`).join("\n");
   const productsList = products
     .map((p) => `- ID: ${p.id} | Nombre: ${p.name} | Marca: ${p.brand.name} | Categoría: ${p.category} | Descripción: ${p.description}`)
     .join("\n");
@@ -104,7 +106,7 @@ ${productsList || "- Ningún producto en catálogo"}
 ${kbSummary || "- Ningún conocimiento cargado"}
 
 ## Reglas de Evaluación e Idioma
-1. **Idioma**: La oportunidad debe estar estrictamente en idioma ESPAÑOL (debe ser la lengua principal del post/comentario. Se permiten modismos hispanos o palabras técnicas aisladas en inglés como 'driver', 'interface', 'plugin', pero si el texto completo está en inglés u otro idioma, marca "isSpanish": false).
+1. **Idioma**: Detectá el idioma del post/comentario. Soportamos los siguientes idiomas: ESPAÑOL ("es"), INGLÉS ("en") y PORTUGUÉS ("pt"). Si el comentario está en cualquiera de estos tres idiomas, consideralo soportado ("isSupportedLanguage": true). Si el comentario está en cualquier otro idioma, indicalo como "other" ("isSupportedLanguage": false). Si el idioma es español, marcá "isSpanish": true (de lo contrario false).
 2. **Spam o Ruido**: Comentarios de un solo emoji, etiquetas a amigos (ej. "@juan look"), o expresiones vacías y de alabanza sin contenido ("qué lindo", "me gusta", "buena foto") deben marcarse como "isSpamOrFluff": true.
 3. **Relevancia comercial**: Para ser relevante ("isRelevant": true), el texto debe mencionar, consultar o discutir temas de las marcas, productos o del nicho de mercado del cliente (ej: si el cliente vende controladores midi, preguntar sobre latencia, pianos, drivers, o grabaciones de home studio es relevante. Si el cliente vende medias, preguntar sobre abrigo, calzado, medias térmicas, es relevante. Si preguntan sobre comida, viajes o temas ajenos, marca "isRelevant": false).
 4. **Intención ("detectedIntent")**:
@@ -132,6 +134,8 @@ ${kbSummary || "- Ningún conocimiento cargado"}
 ## Formato de Salida Requerido (JSON estricto, sin tags markdown)
 Devuelve únicamente un objeto JSON con las siguientes propiedades. No agregues explicaciones fuera del JSON.
 {
+  "language": "es" | "en" | "pt" | "other",
+  "isSupportedLanguage": true/false,
   "isSpanish": true/false,
   "isSpamOrFluff": true/false,
   "isRelevant": true/false,
@@ -191,6 +195,8 @@ Devuelve únicamente un objeto JSON con las siguientes propiedades. No agregues 
     const parsed = JSON.parse(content) as ClassificationResult;
     return {
       isSpanish: !!parsed.isSpanish,
+      isSupportedLanguage: !!parsed.isSupportedLanguage,
+      language: parsed.language || "es",
       isSpamOrFluff: !!parsed.isSpamOrFluff,
       isRelevant: !!parsed.isRelevant,
       actionableReason: parsed.actionableReason || "",
@@ -205,6 +211,8 @@ Devuelve únicamente un objeto JSON con las siguientes propiedades. No agregues 
     // Fallback básico ante falla del modelo
     return {
       isSpanish: true,
+      isSupportedLanguage: true,
+      language: "es",
       isSpamOrFluff: false,
       isRelevant: true,
       actionableReason: "Falla de conexión con el clasificador IA. Importado con clasificación local básica.",

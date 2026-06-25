@@ -137,19 +137,20 @@ model PersonaRule {
 // ─── Modelos de Negocio ───────────────────────────────────────────────────────
 
 model Brand {
-  id              String        @id @default(cuid())
-  clientId        String?
-  name            String
-  positioning     String
-  tone            String
-  allowedClaims   String        @default("")
-  forbiddenClaims String        @default("")
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  client          Client?       @relation(fields: [clientId], references: [id])
-  opportunities   Opportunity[]
-  products        Product[]
-  responses       Response[]
+  id                   String        @id @default(cuid())
+  clientId             String?
+  name                 String
+  strengths            String        @map("positioning")
+  tone                 String
+  allowedClaims        String        @default("")
+  forbiddenClaims      String        @default("")
+  competitorWeaknesses String        @default("")
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  client               Client?       @relation(fields: [clientId], references: [id])
+  opportunities        Opportunity[]
+  products             Product[]
+  responses            Response[]
 
   @@unique([clientId, name])
 }
