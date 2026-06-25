@@ -100,9 +100,10 @@ function selectScopedProducts(
     return { product, score: exactScore + productScore + brandScore + categoryScore + keywordScore };
   });
 
-  return scored
-    .filter((item) => item.score > 0 || !scoped)
-    .sort((a, b) => b.score - a.score)
+  const sorted = scored.sort((a, b) => b.score - a.score);
+  // Siempre incluir todos los productos del cliente (los más relevantes primero),
+  // para que la IA pueda variar qué recomienda en vez de repetir siempre los mismos.
+  return sorted
     .slice(0, max)
     .map(({ product }) => productToEntry(product));
 }

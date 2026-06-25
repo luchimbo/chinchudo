@@ -42,14 +42,23 @@ function buildPrompt(ctx: DraftContext): string {
   const product = opportunity.detectedProduct;
   const intent = INTENT_LABELS[opportunity.detectedIntent] ?? opportunity.detectedIntent;
 
-  const relevantProducts = selectRelevantProducts(opportunity.sourceText, product, 5, {
+  const relevant = selectRelevantProducts(opportunity.sourceText, product, 8, {
     catalogProducts: ctx.catalogProducts,
     catalogRules: ctx.catalogRules,
     scoped: !!client,
   });
-  const productList = relevantProducts.length > 0
-    ? relevantProducts.map(p => `  - ${p.nombre} (${p.marca} ${p.modelo}): ${p.uso}`).join("\n")
-    : "  - (sin productos específicos identificados)";
+  const relevantIds = new Set(relevant.map(p => p.id));
+  const rest = (ctx.catalogProducts ?? [])
+    .filter(p => !relevantIds.has(p.id))
+    .map(p => ({ id: p.id, nombre: p.name, marca: p.brand?.name ?? "", modelo: p.name, uso: p.useCases || p.description }));
+
+  const relevantBlock = relevant.length > 0
+    ? `### Más relevantes para este comentario (priorizalos)\n${relevant.map(p => `  - ${p.nombre} (${p.marca} ${p.modelo}): ${p.uso}`).join("\n")}`
+    : "";
+  const restBlock = rest.length > 0
+    ? `### Resto del catálogo (usá solo si aplica al tema)\n${rest.map(p => `  - ${p.nombre} (${p.marca} ${p.modelo}): ${p.uso}`).join("\n")}`
+    : "";
+  const productList = [relevantBlock, restBlock].filter(Boolean).join("\n") || "  - (sin productos específicos identificados)";
 
   const forbiddenExtra = persona.forbiddenPhrases
     ? `\n- Frases prohibidas específicas de tu voz: ${persona.forbiddenPhrases}`
