@@ -93,6 +93,21 @@ model Client {
   distributionPieces  DistributionPiece[]
   geoAudits           GeoAudit[]
   trackingEvents      TrackingEvent[]
+  users               User[]
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         String   @default("operator") // "admin" | "operator"
+  clientId     String
+  client       Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([clientId])
 }
 
 model CatalogRule {

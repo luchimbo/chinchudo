@@ -56,7 +56,42 @@ export function decodeAuthUser(value: string | undefined): AuthUser | null {
 
 export async function getCurrentUser(): Promise<AuthUser | null> {
   const store = await cookies();
-  return decodeAuthUser(store.get(USER_COOKIE)?.value);
+  const session = store.get("auth_session")?.value;
+  if (!session) return null;
+
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) return null;
+
+  // 1. Caso Legado
+  if (session === secret) {
+    return {
+      username: "default",
+      label: "Administrador Global",
+      role: "admin",
+      clientSlugs: [],
+    };
+  }
+
+  // 2. Caso JWT de Base de Datos
+  try {
+    const { verifyJwt } = await import("./auth-crypto");
+    const decoded = verifyJwt(session, secret);
+    if (!decoded || !decoded.email) return null;
+
+    // Para mantener consistencia con los nombres de operador
+    const label = store.get(USER_COOKIE)?.value 
+      ? decodeAuthUser(store.get(USER_COOKIE)?.value)?.label || decoded.email.split("@")[0]
+      : decoded.email.split("@")[0];
+
+    return {
+      username: decoded.email,
+      label,
+      role: decoded.role as "admin" | "operator",
+      clientSlugs: [decoded.clientSlug],
+    };
+  } catch {
+    return null;
+  }
 }
 
 export async function getVisibleClients(prisma: PrismaClient): Promise<Client[]> {

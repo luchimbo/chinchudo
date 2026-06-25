@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import Link from "next/link";
 
 type Props = { searchParams: { from?: string; error?: string } };
 
@@ -13,47 +14,48 @@ export default async function LoginPage({ searchParams }: Props) {
 
   const from  = searchParams.from ?? "/";
   const error = searchParams.error;
-  const hasUsers = Boolean(process.env.AUTH_USERS_JSON);
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center px-4">
+    <main className="relative flex min-h-screen items-center justify-center px-4 bg-slate-50">
       <div className="grain" />
-      <div className="w-full max-w-sm">
+      <div className="w-full max-w-sm z-10">
         <div className="mb-8 text-center">
-          <h1 className="mt-3 font-display text-4xl text-ink">Ingresar</h1>
-          <p className="mt-2 text-sm text-slate/60">Sistema interno · Acceso restringido</p>
+          <h1 className="mt-3 font-display text-4xl text-slate-900 tracking-tight font-extrabold">Ingresar</h1>
+          <p className="mt-2 text-sm text-slate-500">Sistema interno · Acceso restringido</p>
         </div>
 
-        <div className="rounded-xl border border-ink/10 bg-white/80 p-8 shadow-panel backdrop-blur">
+        <div className="rounded-2xl border border-slate-200 bg-white/90 p-8 shadow-xl backdrop-blur-md">
           {error && (
-            <div className="mb-4 rounded-md bg-signal/10 px-4 py-3 text-sm text-signal">
-              Contraseña incorrecta. Intentá de nuevo.
+            <div className="mb-4 rounded-lg bg-red-50 border border-red-150 px-4 py-3 text-sm text-red-650 font-medium">
+              {error === "wrong"
+                ? "Usuario o contraseña incorrecta. Intentá de nuevo."
+                : error === "config"
+                ? "Error de configuración de seguridad."
+                : "Error en el servidor. Intentá más tarde."}
             </div>
           )}
 
-          <form action="/api/auth/login" method="POST">
+          <form action="/api/auth/login" method="POST" className="space-y-4">
             <input type="hidden" name="from" value={from} />
 
-            {hasUsers ? (
-              <label htmlFor="username" className="mb-4 block">
-                <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate/70">
-                  Usuario
-                </span>
-                <input
-                  id="username"
-                  type="text"
-                  name="username"
-                  required
-                  autoFocus
-                  autoComplete="username"
-                  className="mt-2 w-full rounded-lg border border-ink/15 bg-paper px-4 py-3 text-sm text-ink placeholder:text-slate/30 focus:border-ink/40 focus:outline-none focus:ring-2 focus:ring-ink/10"
-                  placeholder="tu usuario"
-                />
-              </label>
-            ) : null}
+            <label htmlFor="username" className="block">
+              <span className="text-xs font-bold uppercase tracking-[0.15em] text-slate-500 block mb-1.5">
+                Usuario / Email
+              </span>
+              <input
+                id="username"
+                type="text"
+                name="username"
+                required
+                autoFocus
+                autoComplete="email"
+                className="w-full rounded-xl border border-slate-250 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-800 focus:bg-white focus:outline-none focus:ring-4 focus:ring-slate-800/5 transition-all"
+                placeholder="tu@email.com"
+              />
+            </label>
 
             <label htmlFor="password" className="block">
-              <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate/70">
+              <span className="text-xs font-bold uppercase tracking-[0.15em] text-slate-500 block mb-1.5">
                 Contraseña
               </span>
               <input
@@ -61,20 +63,26 @@ export default async function LoginPage({ searchParams }: Props) {
                 type="password"
                 name="password"
                 required
-                autoFocus={!hasUsers}
                 autoComplete="current-password"
-                className="mt-2 w-full rounded-lg border border-ink/15 bg-paper px-4 py-3 text-sm text-ink placeholder:text-slate/30 focus:border-ink/40 focus:outline-none focus:ring-2 focus:ring-ink/10"
+                className="w-full rounded-xl border border-slate-250 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-800 focus:bg-white focus:outline-none focus:ring-4 focus:ring-slate-800/5 transition-all"
                 placeholder="••••••••"
               />
             </label>
 
             <button
               type="submit"
-              className="mt-5 w-full rounded-full bg-ink py-3 text-sm font-bold text-paper shadow transition hover:-translate-y-0.5 hover:bg-slate"
+              className="mt-6 w-full rounded-full bg-slate-950 py-3 text-sm font-semibold text-white shadow-lg hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-slate-500/20 active:bg-slate-900 transition-all duration-150 hover:-translate-y-0.5"
             >
               Entrar
             </button>
           </form>
+
+          <div className="mt-6 text-center text-xs text-slate-400">
+            ¿Nuevo aquí?{" "}
+            <Link href="/registro" className="text-slate-600 font-semibold hover:underline">
+              Crear espacio (Onboarding)
+            </Link>
+          </div>
         </div>
       </div>
     </main>

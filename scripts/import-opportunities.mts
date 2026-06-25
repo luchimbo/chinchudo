@@ -2,21 +2,14 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { rename } from "node:fs/promises";
 import { PrismaClient } from "@prisma/client";
-import {
-  dataDir,
-  loadEnv,
-  readJsonl,
-  writeReport,
-  extractPostKey,
-  isDomainRelevant,
-  looksLikeSpam
-} from "./agent-utils.mjs";
+// @ts-ignore
+import { dataDir, loadEnv, readJsonl, writeReport, extractPostKey, isDomainRelevant, looksLikeSpam } from "./agent-utils.mjs";
 import {
   normalizeForMatch,
   parseClientList,
   resolveOpportunityClient
-} from "../src/lib/client-context.ts";
-import { classifyOpportunity } from "../src/lib/ai-opportunity-classifier.ts";
+} from "../src/lib/client-context";
+import { classifyOpportunity } from "../src/lib/ai-opportunity-classifier";
 
 loadEnv();
 

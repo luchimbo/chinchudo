@@ -3,15 +3,16 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { PrismaClient } from "@prisma/client";
+// @ts-ignore
 import { loadEnv, writeReport } from "./agent-utils.mjs";
-import { suggestAllPersonasForClient } from "../src/lib/persona-router.ts";
-import { generateAIDrafts } from "../src/lib/ai-draft-generator.ts";
-import { generateLocalDrafts } from "../src/lib/draft-generator.ts";
-import { shouldUseAi } from "../src/lib/draft-policy.ts";
-import { loadRelevantKnowledge } from "../src/lib/knowledge.ts";
-import { loadActivePrompt } from "../src/lib/prompts.ts";
-import { loadClientContext, resolveOpportunityClient } from "../src/lib/client-context.ts";
-import { detectCrossClientTerms, validateClientScopedActors } from "../src/lib/guardrails.ts";
+import { suggestAllPersonasForClient } from "../src/lib/persona-router";
+import { generateAIDrafts } from "../src/lib/ai-draft-generator";
+import { generateLocalDrafts } from "../src/lib/draft-generator";
+import { shouldUseAi } from "../src/lib/draft-policy";
+import { loadRelevantKnowledge } from "../src/lib/knowledge";
+import { loadActivePrompt } from "../src/lib/prompts";
+import { loadClientContext, resolveOpportunityClient } from "../src/lib/client-context";
+import { detectCrossClientTerms, validateClientScopedActors } from "../src/lib/guardrails";
 
 loadEnv();
 
