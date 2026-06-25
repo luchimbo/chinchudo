@@ -16,13 +16,12 @@ export const NAV_GROUPS: NavGroup[] = [
     title: "Oportunidades",
     items: [
       { href: "/oportunidades", label: "Pendientes" },
-      { href: "/historial", label: "Historial" },
     ],
   },
   {
     title: "Contenido",
     items: [
-      { href: "/landings", label: "Blog" },
+      { href: "/landings/editor", label: "Editor" },
       { href: "/distribution", label: "Para publicar" },
       { href: "/actividad", label: "Publicado" },
     ],
@@ -36,8 +35,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     title: "Resultados",
     items: [
-      { href: "/analytics", label: "Analítica" },
-      { href: "/informe", label: "Informe" },
+      { href: "/analytics", label: "Analítica & Informe" },
       { href: "/geo", label: "Presencia en IAs" },
     ],
   },

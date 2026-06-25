@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 // detectIntent/detectPriority viven en el script de import; se exportan para testearlos.
-import { detectIntent, detectPriority } from "../../../scripts/import-opportunities.mts";
+import { detectIntent, detectPriority } from "../../../scripts/import-opportunities.mjs";
 
 describe("detectIntent", () => {
   it("driver/Windows → TECHNICAL_QUESTION", () => {

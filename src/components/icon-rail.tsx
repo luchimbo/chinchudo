@@ -63,7 +63,7 @@ const MAIN_SECTORS: Sector[] = [
   },
   {
     id: "creador",
-    href: "/landings",
+    href: "/landings/editor",
     label: "Creador de landings",
     paths: ["/landings", "/leads"],
     icon: <FileTextIcon />,

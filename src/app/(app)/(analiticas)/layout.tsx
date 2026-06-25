@@ -2,8 +2,7 @@ import { Suspense } from "react";
 import { SectorTabs } from "@/components/sector-tabs";
 
 const TABS = [
-  { href: "/analytics", label: "Analítica" },
-  { href: "/informe", label: "Informe" },
+  { href: "/analytics", label: "Analítica & Informe" },
   { href: "/geo", label: "Presencia en IAs" },
 ];
 

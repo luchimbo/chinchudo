@@ -27,7 +27,7 @@ function getSectorLabel(pathname: string): string {
 
 const MOBILE_SECTORS = [
   { href: "/", label: "Inicio" },
-  { href: "/landings", label: "Creador de landings" },
+  { href: "/landings/editor", label: "Creador de landings" },
   { href: "/oportunidades", label: "Publicador en Redes" },
   { href: "/analytics", label: "Analíticas" },
   { href: "/configuracion", label: "Configuración" },

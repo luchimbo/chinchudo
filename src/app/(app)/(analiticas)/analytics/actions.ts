@@ -11,7 +11,7 @@ export async function deleteSystemLog(formData: FormData) {
   } catch (error) {
     console.error("Failed to delete system log:", error);
   }
-  revalidatePath("/informe");
+  revalidatePath("/analytics");
 }
 
 export async function clearAllSystemErrors() {
@@ -20,5 +20,5 @@ export async function clearAllSystemErrors() {
   } catch (error) {
     console.error("Failed to clear system errors:", error);
   }
-  revalidatePath("/informe");
+  revalidatePath("/analytics");
 }

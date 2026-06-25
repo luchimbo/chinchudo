@@ -5,7 +5,6 @@ const TABS = [
   { href: "/oportunidades", label: "Oportunidades" },
   { href: "/distribution", label: "Para publicar" },
   { href: "/bitacora", label: "Bitácora" },
-  { href: "/historial", label: "Historial" },
   { href: "/redes/config", label: "Configuraciones" },
 ];
 
