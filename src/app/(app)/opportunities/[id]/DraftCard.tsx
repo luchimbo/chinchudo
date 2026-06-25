@@ -109,9 +109,17 @@ export function DraftCard({ response, opportunity, clientSlug, approveResponseAc
             {isCopied ? "¡Copiado!" : "Copiar"}
           </button>
           {response.approvedBy ? (
-            <span className="rounded-full bg-moss px-3 py-1 text-xs font-bold text-white shadow-sm">
-              ✓ Aprobada
-            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="rounded-full bg-moss px-3 py-1 text-xs font-bold text-white shadow-sm">
+                ✓ Aprobada
+              </span>
+              <a
+                href="#publish-section"
+                className="rounded-full border border-brass/35 bg-brass/10 hover:bg-brass hover:text-white transition px-3 py-1 text-xs font-bold text-brass shadow-sm"
+              >
+                Ir a publicar →
+              </a>
+            </div>
           ) : null}
         </div>
       </div>
@@ -149,10 +157,10 @@ export function DraftCard({ response, opportunity, clientSlug, approveResponseAc
 
           <div className="flex justify-end gap-2 pt-2 border-t border-ink/5">
             <SubmitButton
-              loadingText="Aprobando…"
+              loadingText={response.approvedBy ? "Actualizando…" : "Aprobando…"}
               className="rounded-full bg-ink px-5 py-2.5 text-sm font-bold text-paper transition hover:bg-slate-850 disabled:opacity-50"
             >
-              Aprobar texto
+              {response.approvedBy ? "Actualizar texto aprobado" : "Aprobar texto"}
             </SubmitButton>
           </div>
         </form>

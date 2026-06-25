@@ -33,15 +33,6 @@ function getStatusClass(status: string) {
   return "border-signal/30 bg-signal/10 text-signal";
 }
 
-function getNextAction(status: string) {
-  if (status === "NEW") return "Clasificar";
-  if (status === "NEEDS_REVIEW") return "Resolver";
-  if (status === "DRAFTED") return "Aprobar";
-  if (status === "APPROVED") return "Publicar";
-  if (status === "FOLLOW_UP") return "Seguir";
-  return "Ver";
-}
-
 function SourceLink({ href, compact = false }: { href: string; compact?: boolean }) {
   return (
     <a
@@ -148,7 +139,7 @@ export function OpportunityList({
                 href={`/opportunities/${opportunity.id}${clientQuery}`}
                 className="inline-flex h-9 items-center justify-center rounded-full bg-ink px-4 text-sm font-bold text-paper transition hover:bg-slate"
               >
-                {getNextAction(opportunity.status)}
+                Ver Post
               </Link>
             </div>
           </article>

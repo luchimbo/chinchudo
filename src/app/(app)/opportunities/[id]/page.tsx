@@ -126,8 +126,9 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
   }
   const canPublishViaAgent = (channelLower === "youtube" || channelLower === "reddit" || channelLower === "x" || channelLower === "facebook" || channelLower === "instagram") && agentAccounts.length > 0;
 
-  // Cuenta sugerida: la que tiene como defaultPersona el arquetipo sugerido y está habilitada para este canal
-  const suggestedAccount = agentAccounts.find((a) => a.defaultPersona === suggestion.personaName);
+  // Cuenta sugerida: la que tiene como defaultPersona el arquetipo de la respuesta aprobada (si existe) o el sugerido originalmente
+  const activePersonaName = approvedResponse ? approvedResponse.persona.name : (suggestion?.personaName ?? "");
+  const suggestedAccount = agentAccounts.find((a) => a.defaultPersona === activePersonaName);
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col px-5 py-8 lg:px-8">
@@ -257,7 +258,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
           </form>
 
           {approvedResponse ? (
-            <form className="rounded-lg border border-ink/10 bg-white/75 p-5 shadow-panel backdrop-blur" action={markAsPublished}>
+            <form id="publish-section" className="rounded-lg border border-ink/10 bg-white/75 p-5 shadow-panel backdrop-blur" action={markAsPublished}>
               <h2 className="font-display text-2xl">Publicacion</h2>
               <input type="hidden" name="opportunityId" value={opportunity.id} />
               <input type="hidden" name="responseId" value={approvedResponse.id} />
@@ -280,7 +281,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
               </label>
               <CopyButton text={approvedResponse.editedText || approvedResponse.draftText} className="mt-3 w-full rounded-full border border-ink/20 bg-paper px-5 py-3 text-sm font-bold text-ink transition hover:border-ink/45 hover:bg-white" />
               <SubmitButton
-                loadingText="Guardandoâ€¦"
+                loadingText="Guardando..."
                 className="mt-3 w-full rounded-full bg-moss px-5 py-3 text-sm font-bold text-white transition hover:bg-ink disabled:opacity-50"
               >
                 Marcar publicado
@@ -298,9 +299,9 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
               <input type="hidden" name="responseId" value={approvedResponse.id} />
               <input type="hidden" name="client" value={searchParams?.client ?? ""} />
               <label className="mt-4 grid gap-2 text-sm font-semibold text-slate">
-                Cuenta
+                Cuenta / Voz de publicación
                 <select name="account" defaultValue={suggestedAccount?.name ?? ""} className="rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink">
-                  <option value="">â€” Navegador personal â€”</option>
+                  <option value="">— Navegador personal (sin cuenta automatizada) —</option>
                   {agentAccounts.map(({ name, label }) => (
                     <option key={name} value={name}>
                       {label}{name === suggestedAccount?.name ? " (sugerida)" : ""}
@@ -310,7 +311,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
               </label>
               {suggestedAccount ? (
                 <p className="mt-2 text-xs leading-5 text-slate/70">
-                  Cuenta sugerida para la voz <span className="font-bold text-ink">{getPersonaDisplayName(suggestion.personaName, resolution.client.slug)}</span>.
+                  Cuenta sugerida para la voz <span className="font-bold text-ink">{getPersonaDisplayName(activePersonaName, resolution.client.slug)}</span>.
                 </p>
               ) : null}
               {(searchParams?.agentPending || searchParams?.agentOk || searchParams?.agentError) && (
@@ -333,25 +334,6 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
               </SubmitButton>
             </form>
           ) : null}
-
-          <form className="rounded-lg border border-ink/10 bg-white/75 p-5 shadow-panel backdrop-blur" action={updateOpportunityStatus}>
-            <h2 className="font-display text-2xl">Estado rapido</h2>
-            <input type="hidden" name="opportunityId" value={opportunity.id} />
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              <SubmitButton name="status" value="NEEDS_REVIEW" loadingText="Guardando…" className="rounded-full border border-ink/15 px-3 py-2 text-sm font-bold text-ink hover:bg-paper disabled:opacity-50">
-                Revisar
-              </SubmitButton>
-              <SubmitButton name="status" value="DISCARDED" loadingText="Guardando…" className="rounded-full border border-ink/15 px-3 py-2 text-sm font-bold text-ink hover:bg-paper disabled:opacity-50">
-                Descartar
-              </SubmitButton>
-              <SubmitButton name="status" value="FOLLOW_UP" loadingText="Guardando…" className="rounded-full border border-ink/15 px-3 py-2 text-sm font-bold text-ink hover:bg-paper disabled:opacity-50">
-                Seguimiento
-              </SubmitButton>
-              <SubmitButton name="status" value="CONVERTED" loadingText="Guardando…" className="rounded-full border border-ink/15 px-3 py-2 text-sm font-bold text-ink hover:bg-paper disabled:opacity-50">
-                Convertida
-              </SubmitButton>
-            </div>
-          </form>
         </aside>
       </section>
     </div>
