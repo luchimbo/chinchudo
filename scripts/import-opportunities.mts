@@ -2,15 +2,28 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { rename } from "node:fs/promises";
 import { PrismaClient } from "@prisma/client";
-import { dataDir, loadEnv, readJsonl, writeReport, extractPostKey, isDomainRelevant, looksLikeSpam } from "./agent-utils.mjs";
-import { normalizeForMatch, parseClientList, resolveOpportunityClient } from "../src/lib/client-context.ts";
+import {
+  dataDir,
+  loadEnv,
+  readJsonl,
+  writeReport,
+  extractPostKey,
+  isDomainRelevant,
+  looksLikeSpam
+} from "./agent-utils.mjs";
+import {
+  normalizeForMatch,
+  parseClientList,
+  resolveOpportunityClient
+} from "../src/lib/client-context.ts";
+import { classifyOpportunity } from "../src/lib/ai-opportunity-classifier.ts";
 
 loadEnv();
 
 const prisma = new PrismaClient();
 const intakePath = join(dataDir, "social-listen-intake.jsonl");
 
-const channelDefaults = {
+const channelDefaults: Record<string, { name: string; type: string; baseUrl: string }> = {
   youtube: { name: "YouTube", type: "video_comments", baseUrl: "https://www.youtube.com" },
   facebook: { name: "Facebook", type: "groups_posts", baseUrl: "https://www.facebook.com" },
   instagram: { name: "Instagram", type: "reels_comments", baseUrl: "https://www.instagram.com" },
@@ -24,7 +37,7 @@ function parseArgs() {
   };
 }
 
-function channelDefaultsFor(value) {
+function channelDefaultsFor(value: string) {
   const key = String(value || "youtube").toLowerCase();
   return channelDefaults[key] ?? {
     name: key.charAt(0).toUpperCase() + key.slice(1),
@@ -33,9 +46,9 @@ function channelDefaultsFor(value) {
   };
 }
 
-export function detectIntent(text) {
+export function detectIntent(text: string): string {
   const lower = text.toLowerCase();
-  const has = (kws) => kws.some((kw) => lower.includes(kw));
+  const has = (kws: string[]) => kws.some((kw) => lower.includes(kw));
   if (has(["driver", "compatib", "instalar", "instala", "funciona", "funcionar", "conectar", "puerto", "reconoce", "detecta", "hz", "latencia", "midi", "software", "plugin", "daw", "error", "configurar", "no suena", "no funciona", "no reconoce", "windows", "mac", "usb", "bluetooth", "asio"])) return "TECHNICAL_QUESTION";
   if (has(["garantia", "garantía", "devolucion", "devolución", "cambio", "roto", "falla", "fallo", "service", "posventa"])) return "WARRANTY_QUESTION";
   if (has(["precio", "cuanto", "cuánto", "costo", "cuesta", "$"])) return "PRICE_QUESTION";
@@ -44,7 +57,7 @@ export function detectIntent(text) {
   return "GENERAL_DISCUSSION";
 }
 
-export function detectPriority(intent, text) {
+export function detectPriority(intent: string, text: string): string {
   if (intent === "PURCHASE_QUESTION" || intent === "TECHNICAL_QUESTION") return "HIGH";
   if (intent === "WARRANTY_QUESTION" || intent === "PRICE_QUESTION" || intent === "COMPARISON") return "MEDIUM";
   const lower = text.toLowerCase();
@@ -52,7 +65,7 @@ export function detectPriority(intent, text) {
   return "LOW";
 }
 
-function buildNotes(row) {
+function buildNotes(row: any) {
   const parts = [row.notes || "Importada desde social-listen; revisar antes de generar respuesta."];
   if (row.sourceType) parts.push(`Fuente: ${row.sourceType}.`);
   if (row.videoUrl) parts.push(`Video: ${row.videoUrl}.`);
@@ -61,30 +74,16 @@ function buildNotes(row) {
   return parts.join(" ");
 }
 
-function isClientDomainRelevant(text, client) {
-  const norm = normalizeForMatch(text);
-  const exclusions = parseClientList(client.domainExclusions);
-  if (exclusions.some((kw) => norm.includes(normalizeForMatch(kw)))) return false;
-  const keywords = parseClientList(client.domainKeywords);
-  return keywords.length === 0 ? isDomainRelevant(text) : keywords.some((kw) => norm.includes(normalizeForMatch(kw)));
-}
-
-async function findBrand(text, clientId) {
-  const brands = await prisma.brand.findMany({ where: { clientId } });
-  const lower = normalizeForMatch(text);
-  return brands.find((brand) => lower.includes(normalizeForMatch(brand.name))) ?? null;
-}
-
 async function main() {
   const args = parseArgs();
-  const rows = readJsonl(intakePath);
+  const rows = readJsonl(intakePath) as any[];
   let created = 0;
   let duplicates = 0;
   let skipped = 0;
   let discardedAtImport = 0;
-  const errors = [];
-  const sourceCounts = new Map();
-  const routing = [];
+  const errors: { sourceUrl: string; error: string }[] = [];
+  const sourceCounts = new Map<string, number>();
+  const routing: any[] = [];
 
   for (const row of rows) {
     const sourceUrl = String(row.sourceUrl || "").trim();
@@ -124,31 +123,43 @@ async function main() {
       account: row.account || "",
     });
 
-    if (looksLikeSpam(sourceText, row.sourceAuthor) || !isClientDomainRelevant(relevanceText, resolution.client)) {
-      discardedAtImport += 1;
-      continue;
-    }
+    // ── Clasificación por IA ──
+    let isDiscarded = false;
+    let discardNotes = "";
+    let aiResult;
 
-    const intent = row.detectedIntent || detectIntent(sourceText);
-    const sourceType = String(row.sourceType || "");
-    const isComment = ["instagram_comment", "facebook_comment", "tiktok_comment"].includes(sourceType);
+    try {
+      aiResult = await classifyOpportunity(prisma, {
+        sourceText,
+        sourceTitle: row.sourceTitle || "",
+        videoTitle: row.videoTitle || "",
+        channel: row.channel,
+        clientId: resolution.client.id,
+      });
 
-    if (isComment) {
-      const hasQuestion = sourceText.includes("?");
-      const hasKeyword = intent !== "GENERAL_DISCUSSION";
-      const isSubstantial = sourceText.length >= 80;
-      const realWords = sourceText.split(/\s+/).filter((w) => /[a-záéíóúñü]{3,}/i.test(w)).length;
-      if (realWords < 4 || (!hasQuestion && !hasKeyword && !isSubstantial)) {
+      if (!aiResult.isSpanish || aiResult.isSpamOrFluff || !aiResult.isRelevant) {
+        isDiscarded = true;
+        discardNotes = `[Filtro IA] Descartado. Razón: ${aiResult.actionableReason}. (Idioma OK: ${aiResult.isSpanish}, Spam: ${aiResult.isSpamOrFluff}, Relevante: ${aiResult.isRelevant})`;
         discardedAtImport += 1;
-        continue;
       }
-    } else if (intent === "GENERAL_DISCUSSION" && !sourceText.includes("?") && sourceText.length < 40) {
-      discardedAtImport += 1;
-      continue;
+    } catch (err) {
+      errors.push({ sourceUrl, error: `Clasificador IA falló: ${(err as Error).message}` });
+      // Fallback a clasificación local si falla la IA
+      const intent = row.detectedIntent || detectIntent(sourceText);
+      aiResult = {
+        isSpanish: true,
+        isSpamOrFluff: false,
+        isRelevant: true,
+        actionableReason: `Fallback local por error de IA: ${(err as Error).message}`,
+        detectedIntent: intent as any,
+        priority: (row.priority || detectPriority(intent, sourceText)) as any,
+        matchedBrandId: null,
+        matchedProductId: null,
+        confidence: "low" as const
+      };
     }
 
     const channelSeed = channelDefaultsFor(row.channel);
-    const brand = await findBrand(`${sourceText} ${row.sourceTitle || ""}`, resolution.client.id);
 
     if (args.dryRun) {
       created += 1;
@@ -165,24 +176,30 @@ async function main() {
         },
       });
 
+      const finalStatus = isDiscarded ? "DISCARDED" : "NEW";
+      const notes = isDiscarded
+        ? `${buildNotes(row)} ${discardNotes} Cliente: ${resolution.client.slug}.`
+        : `${buildNotes(row)} Cliente: ${resolution.client.slug} (${resolution.confidence}, ${resolution.reason}). Razón IA: ${aiResult.actionableReason}`;
+
       await prisma.opportunity.create({
         data: {
           channelId: channel.id,
           sourceUrl,
           sourceAuthor: row.sourceAuthor || "",
           sourceText,
-          detectedBrandId: brand?.id ?? null,
-          detectedIntent: intent,
-          priority: row.priority || detectPriority(intent, sourceText),
-          status: "NEW",
-          notes: `${buildNotes(row)} Cliente: ${resolution.client.slug} (${resolution.confidence}, ${resolution.reason}).`,
+          detectedBrandId: aiResult.matchedBrandId,
+          detectedProductId: aiResult.matchedProductId,
+          detectedIntent: aiResult.detectedIntent,
+          priority: aiResult.priority,
+          status: finalStatus,
+          notes,
           monitoredSourceId,
         },
       });
       created += 1;
       if (monitoredSourceId) sourceCounts.set(monitoredSourceId, (sourceCounts.get(monitoredSourceId) ?? 0) + 1);
     } catch (error) {
-      errors.push({ sourceUrl, error: error.message });
+      errors.push({ sourceUrl, error: (error as Error).message });
     }
   }
 
@@ -194,7 +211,7 @@ async function main() {
           data: { lastRunAt: new Date(), lastCount: count },
         });
       } catch (error) {
-        errors.push({ sourceUrl: `source:${sourceId}`, error: error.message });
+        errors.push({ sourceUrl: `source:${sourceId}`, error: (error as Error).message });
       }
     }
   }
@@ -227,7 +244,7 @@ async function main() {
     console.error(`import-opportunities: ${errors.length} errores. Reporte: ${report}`);
     process.exit(1);
   }
-  console.log(`import-opportunities: ${created} nuevas, ${duplicates} duplicadas, ${discardedAtImport} descartadas. Reporte: ${report}`);
+  console.log(`import-opportunities: ${created} procesadas (${discardedAtImport} de ellas auto-descartadas), ${duplicates} duplicadas. Reporte: ${report}`);
 }
 
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;

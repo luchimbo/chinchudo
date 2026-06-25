@@ -1194,6 +1194,8 @@ def render_landing(landing: dict, categories: dict[str, dict], products: dict[st
         "step_leds": step_leds,
         "asset_prefix": "../",
         "index_href": "../index.html",
+        "primary_color": _CLIENT_CONFIG.get("landingPrimaryColor") or "#EB6517",
+        "secondary_color": _CLIENT_CONFIG.get("landingSecondaryColor") or "#F6A00C",
     }
     return render_template(TEMPLATE_PATH.read_text(encoding="utf-8"), values)
 
@@ -1232,6 +1234,7 @@ def validate_built_site(landings: list[dict], sitemap_urls: list[str]) -> list[s
 
 
 def render_index(landings: list[dict], categories: dict[str, dict], base_url: str) -> str:
+    primary_color = _CLIENT_CONFIG.get("landingPrimaryColor") or "#EB6517"
     canonical_url = f"{base_url.rstrip('/')}/" if base_url else "/"
     featured = landings[:12]
     latest = landings[:48]
@@ -1289,7 +1292,7 @@ def render_index(landings: list[dict], categories: dict[str, dict], base_url: st
   <script type="application/ld+json">{esc(json.dumps(schema, ensure_ascii=False)).replace('&quot;', '"')}</script>
   <style>
     * {{ box-sizing: border-box; }}
-    :root {{ --paper:#F4F1EA; --paper-2:#ECE7DB; --ink:#1D1D1B; --muted:#706B61; --orange:#EB6517; --dark:#11110F; --line:rgba(29,29,27,.16); }}
+    :root {{ --paper:#F4F1EA; --paper-2:#ECE7DB; --ink:#1D1D1B; --muted:#706B61; --orange:{esc(primary_color)}; --dark:#11110F; --line:rgba(29,29,27,.16); }}
     body {{ margin:0; font-family: Georgia, 'Times New Roman', serif; background:var(--paper); color:var(--ink); }}
     a {{ color:inherit; }}
     .container {{ width:min(1180px, calc(100% - 32px)); margin:0 auto; }}

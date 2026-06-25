@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 // detectIntent/detectPriority viven en el script de import; se exportan para testearlos.
-// @ts-ignore – módulo JS sin tipado
-import { detectIntent, detectPriority } from "../../../scripts/import-opportunities.mjs";
+import { detectIntent, detectPriority } from "../../../scripts/import-opportunities.mts";
 
 describe("detectIntent", () => {
   it("driver/Windows → TECHNICAL_QUESTION", () => {

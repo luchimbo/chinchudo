@@ -141,7 +141,7 @@ def run_listen(args: argparse.Namespace) -> None:
     steps: list[dict] = []
     require_ok(run_step("social-listen", listen_command(args)), steps, "listen")
     if not args.dry_run:
-        require_ok(run_step("import-opportunities", [resolve_bin("node"), "scripts/import-opportunities.mjs"]), steps, "listen")
+        require_ok(run_step("import-opportunities", [resolve_bin("npx"), "tsx", "scripts/import-opportunities.mts"]), steps, "listen")
     report = write_report("listen", {"command": "listen", "status": "ok", "dry_run": args.dry_run, "steps": steps})
     print(f"agents: listen OK. Reporte: {report}")
 
@@ -309,7 +309,7 @@ def run_monitor(args: argparse.Namespace) -> None:
         require_ok(run_step(f"listen:{src['label']}", command), steps, "monitor")
 
     if not args.dry_run:
-        require_ok(run_step("import-opportunities", ["node", "scripts/import-opportunities.mjs"]), steps, "monitor")
+        require_ok(run_step("import-opportunities", [resolve_bin("npx"), "tsx", "scripts/import-opportunities.mts"]), steps, "monitor")
     report = write_report("monitor", {
         "command": "monitor", "status": "ok", "dry_run": args.dry_run,
         "sources_total": len(sources), "sources_run": len(sources_to_run),
@@ -323,7 +323,7 @@ def run_daily(args: argparse.Namespace) -> None:
     steps: list[dict] = []
     require_ok(run_step("social-listen", listen_command(args)), steps, "daily")
     if not args.dry_run:
-        require_ok(run_step("import-opportunities", ["node", "scripts/import-opportunities.mjs"]), steps, "daily")
+        require_ok(run_step("import-opportunities", [resolve_bin("npx"), "tsx", "scripts/import-opportunities.mts"]), steps, "daily")
     require_ok(run_step("draft-worker", node_command("scripts/draft-worker.mts", args)), steps, "daily")
     # Pasar --dry-run explícito al export para no depender solo de variables npm.
     export_command = [resolve_bin("node"), "scripts/export-csv.mjs"]

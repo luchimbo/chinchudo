@@ -20,7 +20,7 @@ export default async function ClientsPage({ searchParams }: { searchParams?: { c
             Cada cliente tiene su propia configuración de marca, IA y emails.
           </p>
         </div>
-        <Link href={`/admin${clientQuery}`} className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
+        <Link href={`/configuracion${clientQuery}`} className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
           ← Configuración
         </Link>
       </header>

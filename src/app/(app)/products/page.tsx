@@ -44,7 +44,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: { c
             Specs, garantía, stock y precio. Estos datos alimentan el contexto de las respuestas.
           </p>
         </div>
-        <Link href={activeClient ? `/admin?client=${activeClient.slug}` : "/admin"} className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
+        <Link href={activeClient ? `/configuracion?client=${activeClient.slug}` : "/configuracion"} className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
           ← Configuración
         </Link>
       </header>

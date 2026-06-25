@@ -238,27 +238,17 @@ def classify_priority(intent: str, text: str) -> str:
 
 _COMMENT_TYPES = {"instagram_comment", "facebook_comment", "tiktok_comment"}
 
-def is_actionable(text: str, intent: str, source_type: str = "") -> tuple[bool, str]:
-    is_comment = source_type in _COMMENT_TYPES
-
-    if is_comment:
-        # Comentarios de redes: mucho ruido ("🔥", "@amigo mira", "lo quiero!").
-        # Solo pasa si tiene pregunta, keyword de valor, o es un comentario largo (discusión real).
-        has_question   = "?" in text
-        has_keyword    = intent != "GENERAL_DISCUSSION"   # técnico, precio, compra, garantía, comparación
-        is_substantial = len(text) >= 80                  # texto largo = opinión o relato real
-        # Descartar si es solo emojis / tags / reacciones cortas
-        words = [w for w in text.split() if w.isalpha() or "'" in w]
-        has_real_words = len(words) >= 4
-        if not has_real_words:
-            return False, "comentario_sin_texto_real"
-        if not (has_question or has_keyword or is_substantial):
-            return False, "comentario_sin_valor"
-        return True, ""
-
-    # Posts / captions: filtro original
-    if intent == "GENERAL_DISCUSSION" and "?" not in text and len(text) < 40:
-        return False, "elogio_o_texto_corto_sin_pregunta"
+def is_actionable(text: str, source_type: str = "") -> tuple[bool, str]:
+    cleaned = text.strip()
+    if len(cleaned) < 8:
+        return False, "texto_demasiado_corto"
+    
+    # Descartar si es solo etiquetas o menciones (ej: "@usuario @usuario2")
+    words = cleaned.split()
+    real_words = [w for w in words if not w.startswith("@") and len(w) > 1]
+    if len(real_words) < 2:
+        return False, "sin_suficientes_palabras_reales"
+    
     return True, ""
 
 
@@ -401,7 +391,7 @@ def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str
             discarded.append({"reason": "comentario_viejo", "age": published, "text": (item.get("context") or "")[:60]})
             continue
         row = normalize_item(channel, query, item, account, source_id)
-        ok, reason = is_actionable(row["sourceText"], row["detectedIntent"], row.get("sourceType", ""))
+        ok, reason = is_actionable(row["sourceText"], row.get("sourceType", ""))
         if not ok:
             discarded.append({"reason": reason, "text": row["sourceText"][:60]})
             continue

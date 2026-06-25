@@ -63,6 +63,9 @@ model Client {
   blogBaseUrl         String            @default("")
   labName             String            @default("")
   logoUrl             String            @default("")
+  landingTemplate     String            @default("")
+  landingPrimaryColor String            @default("")
+  landingSecondaryColor String            @default("")
   // Email / nurturing (Fase 2)
   fromName            String            @default("")
   fromEmail           String            @default("")
@@ -213,6 +216,10 @@ model Opportunity {
   @@index([status])
   @@index([priority])
   @@index([createdAt])
+  @@index([channelId])
+  @@index([detectedBrandId])
+  @@index([detectedProductId])
+  @@index([monitoredSourceId])
 }
 
 model Response {
@@ -231,6 +238,10 @@ model Response {
   brand         Brand               @relation(fields: [brandId], references: [id])
   opportunity   Opportunity         @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
   persona       Persona             @relation(fields: [personaId], references: [id])
+
+  @@index([opportunityId])
+  @@index([personaId])
+  @@index([brandId])
 }
 
 model PublishingLog {
@@ -246,6 +257,8 @@ model PublishingLog {
   account        String      @default("")
   opportunity    Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
   response       Response    @relation(fields: [responseId], references: [id], onDelete: Cascade)
+
+  @@index([opportunityId])
 }
 
 model KnowledgeBase {

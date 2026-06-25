@@ -12,6 +12,17 @@ const CANAL_EMOJI: Record<string, string> = {
   FORUM: "💬",
 };
 
+const CANAL_LABEL: Record<string, string> = {
+  INSTAGRAM: "Instagram",
+  FACEBOOK:  "Facebook",
+  TWITTER:   "X / Twitter",
+  LINKEDIN:  "LinkedIn",
+  YOUTUBE:   "YouTube",
+  REDDIT:    "Reddit",
+  NEWSLETTER:"Newsletter",
+  FORUM:     "Foro",
+};
+
 const RESULT_LABEL: Record<string, { label: string; cls: string }> = {
   published_via_agent: { label: "Publicado", cls: "bg-moss/10 text-moss border-moss/30" },
   published_manually:  { label: "Manual",    cls: "bg-moss/10 text-moss border-moss/30" },
@@ -45,22 +56,15 @@ function getPersonaLabel(accountKeyOrName: string, clientSlug?: string | null) {
   return accountKeyOrName;
 }
 
-const CANAL_LABEL: Record<string, string> = {
-  INSTAGRAM: "Instagram",
-  FACEBOOK:  "Facebook",
-  TWITTER:   "X / Twitter",
-  LINKEDIN:  "LinkedIn",
-  YOUTUBE:   "YouTube",
-  REDDIT:    "Reddit",
-  NEWSLETTER:"Newsletter",
-  FORUM:     "Foro",
+type PageProps = {
+  searchParams: Promise<{ client?: string }>;
 };
 
-type PageProps = { searchParams: { client?: string } };
+export default async function BitacoraPage({ searchParams }: PageProps) {
+  const { client: clientSlug } = await searchParams;
 
-export default async function ActividadPage({ searchParams }: PageProps) {
   const clients = await getVisibleClients(prisma);
-  const activeClient = clients.find((c) => c.slug === searchParams.client) ?? clients[0] ?? null;
+  const activeClient = clients.find((c) => c.slug === clientSlug) ?? clients[0] ?? null;
 
   const [apostolLogs, enjambrePubs] = await Promise.all([
     // Respuestas publicadas en redes (comentarios en posts ajenos)
@@ -118,15 +122,14 @@ export default async function ActividadPage({ searchParams }: PageProps) {
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col px-5 py-8">
       <header className="mb-8">
-        <h1 className="text-2xl font-bold text-ink">Actividad en redes</h1>
+        <h1 className="font-display text-3xl font-bold text-ink">Bitácora</h1>
         <p className="mt-0.5 text-sm text-slate">
           Todo lo que se publicó: respuestas en redes y posts propios de la marca.
         </p>
       </header>
 
       <div className="flex flex-col gap-10">
-
-        {/* ── APÓSTOLES ── */}
+        {/* ── APÓSTOLES / RESPUESTAS EN REDES ── */}
         <section>
           <div className="mb-4 flex items-center gap-3">
             <div className="h-px flex-1 bg-ink/10" />
@@ -196,7 +199,7 @@ export default async function ActividadPage({ searchParams }: PageProps) {
           )}
         </section>
 
-        {/* ── ENJAMBRE / BRUNO LABS ── */}
+        {/* ── ENJAMBRE / POSTS DE LA MARCA ── */}
         <section>
           <div className="mb-4 flex items-center gap-3">
             <div className="h-px flex-1 bg-ink/10" />
@@ -207,12 +210,12 @@ export default async function ActividadPage({ searchParams }: PageProps) {
             <div className="h-px flex-1 bg-ink/10" />
           </div>
           <p className="mb-4 text-xs text-slate">
-            Posts propios de {activeClient?.name ?? "la marca"} generados a partir del blog: Instagram, Facebook, X, LinkedIn, YouTube.
+            Posts propios de {activeClient?.name ?? "la marca"} generados a partir del blog.
           </p>
 
           {enjambrePubs.length === 0 ? (
             <p className="text-sm text-slate">
-              Las publicaciones del enjambre aparecen acá una vez importadas.
+              Las publicaciones de la marca aparecerán acá una vez realizadas.
             </p>
           ) : (
             <div className="flex flex-col gap-3">
@@ -254,7 +257,6 @@ export default async function ActividadPage({ searchParams }: PageProps) {
             </div>
           )}
         </section>
-
       </div>
     </div>
   );

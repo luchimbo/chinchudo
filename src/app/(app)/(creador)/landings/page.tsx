@@ -56,9 +56,10 @@ export default async function LandingsPage({
     { status: "ARCHIVED", label: "Archivadas" },
   ];
 
-  const blogBase = activeClient
+  const dbBlogBase = activeClient
     ? ((await prisma.client.findUnique({ where: { id: activeClient.id }, select: { blogBaseUrl: true } }))?.blogBaseUrl || "")
-    : process.env.LANDING_BASE_URL ?? "https://blog.pcmidicenter.com";
+    : "";
+  const blogBase = dbBlogBase || process.env.LANDING_BASE_URL || "https://blog.pcmidicenter.com";
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col px-5 py-8">
@@ -114,34 +115,70 @@ export default async function LandingsPage({
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 items-center">
                   {landing.status === "DRAFT" && (
-                    <form action={updateLandingStatus}>
-                      <input type="hidden" name="id" value={landing.id} />
-                      <input type="hidden" name="status" value="APPROVED" />
-                      <button type="submit" className="rounded-lg border border-brass/40 bg-brass/10 px-3 py-1.5 text-xs font-semibold text-brass transition hover:bg-brass/20">
-                        Aprobar
-                      </button>
-                    </form>
+                    <>
+                      <form action={updateLandingStatus}>
+                        <input type="hidden" name="id" value={landing.id} />
+                        <input type="hidden" name="status" value="APPROVED" />
+                        <button type="submit" className="rounded-lg border border-brass/40 bg-brass/10 px-3 py-1.5 text-xs font-semibold text-brass transition hover:bg-brass/20">
+                          Aprobar
+                        </button>
+                      </form>
+                      <form action={updateLandingStatus}>
+                        <input type="hidden" name="id" value={landing.id} />
+                        <input type="hidden" name="status" value="ARCHIVED" />
+                        <button type="submit" className="rounded-lg border border-signal/40 bg-signal/5 px-3 py-1.5 text-xs font-semibold text-signal transition hover:bg-signal/15">
+                          Archivar
+                        </button>
+                      </form>
+                    </>
                   )}
                   {landing.status === "APPROVED" && (
+                    <>
+                      <form action={updateLandingStatus}>
+                        <input type="hidden" name="id" value={landing.id} />
+                        <input type="hidden" name="status" value="PUBLISHED" />
+                        <button type="submit" className="rounded-lg border border-moss/40 bg-moss/10 px-3 py-1.5 text-xs font-semibold text-moss transition hover:bg-moss/20">
+                          Publicar
+                        </button>
+                      </form>
+                      <form action={updateLandingStatus}>
+                        <input type="hidden" name="id" value={landing.id} />
+                        <input type="hidden" name="status" value="ARCHIVED" />
+                        <button type="submit" className="rounded-lg border border-signal/40 bg-signal/5 px-3 py-1.5 text-xs font-semibold text-signal transition hover:bg-signal/15">
+                          Archivar
+                        </button>
+                      </form>
+                    </>
+                  )}
+                  {landing.status === "PUBLISHED" && (
+                    <>
+                      <a
+                        href={`${blogBase.replace(/\/$/, "")}/${landing.slug}/`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-lg border border-ink/15 px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-ink/40"
+                      >
+                        Ver landing
+                      </a>
+                      <form action={updateLandingStatus}>
+                        <input type="hidden" name="id" value={landing.id} />
+                        <input type="hidden" name="status" value="ARCHIVED" />
+                        <button type="submit" className="rounded-lg border border-signal/40 bg-signal/5 px-3 py-1.5 text-xs font-semibold text-signal transition hover:bg-signal/15">
+                          Despublicar / Archivar
+                        </button>
+                      </form>
+                    </>
+                  )}
+                  {landing.status === "ARCHIVED" && (
                     <form action={updateLandingStatus}>
                       <input type="hidden" name="id" value={landing.id} />
-                      <input type="hidden" name="status" value="PUBLISHED" />
-                      <button type="submit" className="rounded-lg border border-moss/40 bg-moss/10 px-3 py-1.5 text-xs font-semibold text-moss transition hover:bg-moss/20">
-                        Publicar
+                      <input type="hidden" name="status" value="DRAFT" />
+                      <button type="submit" className="rounded-lg border border-ink/20 px-3 py-1.5 text-xs font-semibold text-slate transition hover:border-ink/40 hover:text-ink">
+                        Restaurar a borrador
                       </button>
                     </form>
-                  )}
-                  {landing.publishedAt && blogBase && (
-                    <a
-                      href={`${blogBase.replace(/\/$/, "")}/${landing.slug}/`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="rounded-lg border border-ink/15 px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-ink/40"
-                    >
-                      Ver landing
-                    </a>
                   )}
                 </div>
               </div>

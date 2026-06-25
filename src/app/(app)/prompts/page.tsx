@@ -19,7 +19,7 @@ export default async function PromptsPage({ searchParams }: { searchParams?: { c
             cada generación con IA. Solo uno activo por nombre.
           </p>
         </div>
-        <Link href={`/admin${clientQuery}`} className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
+        <Link href={`/configuracion${clientQuery}`} className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white">
           ← Configuración
         </Link>
       </header>

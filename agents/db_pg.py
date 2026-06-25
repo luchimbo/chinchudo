@@ -57,6 +57,7 @@ def get_client_config(client_slug: str) -> dict:
     with connect() as conn:
         row = conn.execute(
             """SELECT id, name, slug, "storeUrl", "blogBaseUrl", "labName", "logoUrl",
+                      "landingPrimaryColor", "landingSecondaryColor",
                       "fromName", "fromEmail", "smtpHost", "smtpPort", "smtpUser", "smtpPass",
                       "unsubscribeBaseUrl", "trackBaseUrl", "geoBrandPatterns",
                       "openrouterApiKey", "openrouterModel", "autoPublish", "autoApprove"

@@ -2,6 +2,86 @@
 
 ## Proyecto: Los 5 Apostoles
 
+---
+
+## ESTADO ACTUAL DEL PROYECTO
+
+> Esta sección se actualiza sesión a sesión. Es la referencia rápida para cualquier agente o desarrollador que retome el trabajo.
+
+### Resumen del sistema (al 2026-06-25)
+
+El proyecto está operativo en producción. Ya no es un MVP: es una plataforma funcional con las siguientes capacidades activas:
+
+- **Social listening** con agentes Python que monitorizan canales y detectan oportunidades.
+- **Dashboard de oportunidades** con generación de respuestas IA, estados y flujo de aprobación.
+- **Landings generadas por IA** con publicación automática y manual.
+- **Lead capture** desde landings con tracking de clicks y apertura de emails.
+- **Email nurturing** automático multi-step (día 0, 3, 5...) con SMTP por cliente.
+- **Sistema multi-cliente** (Client model en Prisma) con configuración SMTP, branding y comportamiento por cliente.
+- **Shell renovado** con menú lateral agrupado, home con dos cuadrados de acceso rápido y páginas internas limpias.
+- **Reporte de actividad** con log de errores de sistema, acciones de borrar y limpiar.
+
+### Stack en producción
+
+- Next.js 14 + TypeScript + Tailwind CSS
+- Prisma ORM + PostgreSQL (Supabase)
+- Agentes Python (monitoring, nurturing, landing generation)
+- IA via OpenRouter (DeepSeek / Gemini)
+
+---
+
+## HISTORIAL DE TRABAJO POR SESIÓN
+
+### Sesión ~2026-06-25 — Shell y UX
+
+**Hecho:**
+- Rediseño del shell: menú lateral agrupado por categorías.
+- Home con dos cuadrados de acceso rápido (sin título "¿Por dónde arrancamos?").
+- Páginas internas limpias (sin ruido visual extra).
+- Restricción del conteo de errores de sistema al cliente PC MIDI Center.
+- Acciones de eliminar y limpiar errores en la página de actividad.
+
+**Estado:** Completo. UX/UI pausada hasta nueva necesidad.
+
+---
+
+### Sesión ~2026-06-25 — Panel de Configuración ✅
+
+**Hecho:**
+- `/configuracion` — hub con 3 cards: Identidad e IA, Emails automáticos, Landings.
+- `/configuracion/identidad` — nombre, descripción, temas del negocio, clave y modelo de IA.
+- `/configuracion/emails` — remitente, SMTP, firma, URLs de tracking/baja.
+- `/configuracion/landings` — logo (upload a Supabase Storage), URLs de tienda/blog, comportamiento (autoApprove, autoPublish).
+- Logo upload: bucket `assets` en Supabase Storage, API route `/api/upload/logo`, componente `LogoUpload` con preview inmediato.
+- Sidebar: link "Configuración" en el footer apunta a `/configuracion`. Sin cambios al nav principal.
+- Instalado `@supabase/supabase-js`, creado `src/lib/supabase.ts` con `createServiceClient()`.
+- `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` agregados al `.env`.
+
+---
+
+### Sesión ~2026-06-25 — Rediseño completo del nav (Operación + Ajustes) ✅
+
+**Modelo de producto adoptado:** dos mundos.
+- **Operación** (menú lateral): lo que se hace día a día.
+- **Ajustes** (hub `/configuracion`, link en footer del sidebar): todo lo que se configura.
+
+**Hecho:**
+- `src/components/sidebar-nav.tsx` — `NAV_GROUPS` reescrito: Inicio · Oportunidades (Pendientes, Historial) · Contenido (Blog, Para publicar, Publicado) · Contactos · Resultados (Analítica, Informe, Presencia en IAs). Monitoreo y Cuentas salieron del menú principal.
+- `src/app/(app)/configuracion/page.tsx` — hub único con 5 cajones de cards: Negocio (Identidad e IA, Marcas, Productos) · Voces y mensajes (Personas, Prompts, Conocimiento) · Canales (Cuentas, Fuentes) · Emails automáticos · Landings.
+- `src/app/(app)/admin/page.tsx` — ahora redirige a `/configuracion` (se retiró el hub duplicado).
+- Back-links `/admin` → `/configuracion` repunteados en clients, prompts, brands, products, personas, knowledge.
+
+**Decisiones:** la sección de responder online se mantiene como "Oportunidades"; estilo de menú = grupos con sub-ítems.
+
+---
+
+## PRÓXIMOS PASOS (backlog inmediato)
+
+- [x] **Panel de Configuración** — completado.
+- [ ] *(agregar siguientes tareas acá a medida que aparezcan)*
+
+---
+
 ### Version
 
 Documento inicial para desarrollo y operacion.

@@ -13,29 +13,32 @@ export const NAV_GROUPS: NavGroup[] = [
     items: [{ href: "/", label: "Inicio" }],
   },
   {
-    title: "Escucha y respuesta",
+    title: "Oportunidades",
     items: [
-      { href: "/oportunidades", label: "Oportunidades" },
+      { href: "/oportunidades", label: "Pendientes" },
       { href: "/historial", label: "Historial" },
-      { href: "/actividad", label: "Actividad" },
-      { href: "/monitoring", label: "Monitoreo" },
-      { href: "/logins", label: "Cuentas" },
     ],
   },
   {
-    title: "Contenido y captación",
+    title: "Contenido",
     items: [
       { href: "/landings", label: "Blog" },
-      { href: "/leads", label: "Contactos" },
       { href: "/distribution", label: "Para publicar" },
-      { href: "/geo", label: "Presencia en IAs" },
+      { href: "/actividad", label: "Publicado" },
     ],
   },
   {
-    title: "Medición",
+    title: "Contactos",
     items: [
-      { href: "/informe", label: "Informe" },
+      { href: "/leads", label: "Contactos" },
+    ],
+  },
+  {
+    title: "Resultados",
+    items: [
       { href: "/analytics", label: "Analítica" },
+      { href: "/informe", label: "Informe" },
+      { href: "/geo", label: "Presencia en IAs" },
     ],
   },
 ];

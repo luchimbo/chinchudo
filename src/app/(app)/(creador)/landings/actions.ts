@@ -8,7 +8,7 @@ export async function updateLandingStatus(formData: FormData) {
   const status = formData.get("status") as string;
   await prisma.landing.update({
     where: { id },
-    data: { status: status as any, publishedAt: status === "PUBLISHED" ? new Date() : undefined },
+    data: { status: status as any, publishedAt: status === "PUBLISHED" ? new Date() : null },
   });
   revalidatePath("/landings");
 }
