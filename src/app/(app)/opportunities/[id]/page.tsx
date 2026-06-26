@@ -20,6 +20,7 @@ import { resolveOpportunityClient } from "@/lib/client-context";
 import { CopyButton } from "./CopyButton";
 import { SubmitButton } from "./SubmitButton";
 import { DraftCard } from "./DraftCard";
+import { BrowserPreview } from "./BrowserPreview";
 
 type PageProps = {
   params: { id: string };
@@ -211,6 +212,11 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
                     opportunity={opportunity}
                     clientSlug={resolution.client.slug}
                     approveResponseAction={approveResponse}
+                    publishViaAgentAction={publishViaAgent}
+                    agentAccounts={agentAccounts}
+                    suggestedAccount={suggestedAccount?.name ?? null}
+                    canPublishViaAgent={canPublishViaAgent}
+                    clientParam={searchParams?.client ?? ""}
                   />
                 ))
               )}
@@ -219,6 +225,28 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
         </div>
 
         <aside className="grid content-start gap-4">
+          <BrowserPreview
+            sourceUrl={opportunity.sourceUrl}
+            sourceAuthor={opportunity.sourceAuthor}
+            sourceText={opportunity.sourceText}
+            channelName={opportunity.channel.name}
+            brandName={opportunity.detectedBrand?.name ?? brands[0]?.name ?? ""}
+            brandBg={
+              (opportunity.detectedBrand?.name ?? "").toLowerCase().includes("midiplus") ? "bg-moss" :
+              (opportunity.detectedBrand?.name ?? "").toLowerCase().includes("kressmer") ? "bg-brass" :
+              (opportunity.detectedBrand?.name ?? "").toLowerCase().includes("prestige") ? "bg-ink" : "bg-slate-700"
+            }
+            brandText={
+              (opportunity.detectedBrand?.name ?? "").toLowerCase().includes("prestige") ? "text-paper" : "text-white"
+            }
+            brandLabel={
+              (opportunity.detectedBrand?.name ?? "").toLowerCase().includes("midiplus") ? "MidiPlus" :
+              (opportunity.detectedBrand?.name ?? "").toLowerCase().includes("kressmer") ? "Kressmer" :
+              (opportunity.detectedBrand?.name ?? "").toLowerCase().includes("prestige") ? "Prestige" :
+              (opportunity.detectedBrand?.name ?? brands[0]?.name ?? "XX").slice(0, 2)
+            }
+            approvedText={approvedResponse?.editedText || approvedResponse?.draftText}
+          />
           <form
             action={generateResponseDrafts}
             className="rounded-lg border border-ink/10 bg-ink p-5 text-paper shadow-panel"
@@ -289,51 +317,6 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
             </form>
           ) : null}
 
-          {approvedResponse && canPublishViaAgent ? (
-            <form className="rounded-lg border border-brass/30 bg-white/75 p-5 shadow-panel backdrop-blur" action={publishViaAgent}>
-              <h2 className="font-display text-2xl">Publicar con agente</h2>
-              <p className="mt-1 text-xs text-slate/70">
-                El agente abre el navegador y publica el texto aprobado directamente en {opportunity.channel.name}.
-              </p>
-              <input type="hidden" name="opportunityId" value={opportunity.id} />
-              <input type="hidden" name="responseId" value={approvedResponse.id} />
-              <input type="hidden" name="client" value={searchParams?.client ?? ""} />
-              <label className="mt-4 grid gap-2 text-sm font-semibold text-slate">
-                Cuenta / Voz de publicación
-                <select name="account" defaultValue={suggestedAccount?.name ?? ""} className="rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink">
-                  <option value="">— Navegador personal (sin cuenta automatizada) —</option>
-                  {agentAccounts.map(({ name, label }) => (
-                    <option key={name} value={name}>
-                      {label}{name === suggestedAccount?.name ? " (sugerida)" : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {suggestedAccount ? (
-                <p className="mt-2 text-xs leading-5 text-slate/70">
-                  Cuenta sugerida para la voz <span className="font-bold text-ink">{getPersonaDisplayName(activePersonaName, resolution.client.slug)}</span>.
-                </p>
-              ) : null}
-              {(searchParams?.agentPending || searchParams?.agentOk || searchParams?.agentError) && (
-                <div className="mt-4">
-                  <StatusBanner
-                    agentError={searchParams?.agentError}
-                    agentOk={searchParams?.agentOk}
-                    agentPending={searchParams?.agentPending}
-                    opportunityId={params.id}
-                    agentErrorMessages={agentErrorMessages}
-                    clientSlug={searchParams?.client}
-                  />
-                </div>
-              )}
-              <SubmitButton
-                loadingText="⏳ Publicando… (puede tardar 1-2 min)"
-                className="mt-5 w-full rounded-full bg-brass px-5 py-3 text-sm font-bold text-white transition hover:bg-ink disabled:opacity-50"
-              >
-                Publicar vía agente
-              </SubmitButton>
-            </form>
-          ) : null}
         </aside>
       </section>
     </div>
