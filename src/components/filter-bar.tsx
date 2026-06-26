@@ -16,6 +16,7 @@ export function FilterBar({ channels }: FilterBarProps) {
   const status = searchParams.get("status") ?? "";
   const channel = searchParams.get("channel") ?? "";
   const view = searchParams.get("view") ?? "";
+  const sort = searchParams.get("sort") ?? "";
 
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
   const firstRender = useRef(true);
@@ -50,7 +51,7 @@ export function FilterBar({ channels }: FilterBarProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
-  const hasActiveFilters = Boolean((!view && status) || channel || query);
+  const hasActiveFilters = Boolean((!view && status) || channel || query || sort === "oldest");
 
   return (
     <div className="flex flex-wrap items-end gap-3 border-b border-ink/10 px-5 py-4">
@@ -83,6 +84,18 @@ export function FilterBar({ channels }: FilterBarProps) {
               {c}
             </option>
           ))}
+        </select>
+      </label>
+
+      <label className="grid gap-1 text-xs font-bold uppercase tracking-[0.18em] text-slate/70">
+        Orden
+        <select
+          value={sort}
+          onChange={(e) => setParam("sort", e.target.value)}
+          className="min-w-[170px] rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm font-semibold text-ink"
+        >
+          <option value="">Más nuevos primero</option>
+          <option value="oldest">Más viejos primero</option>
         </select>
       </label>
 

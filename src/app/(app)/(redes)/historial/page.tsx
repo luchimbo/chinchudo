@@ -11,7 +11,7 @@ const PAGE_SIZE = 12;
 const RESPONDED_STATUSES = ["PUBLISHED", "CONVERTED"] as const;
 
 type PageProps = {
-  searchParams: { channel?: string; q?: string; page?: string; client?: string };
+  searchParams: { channel?: string; q?: string; page?: string; client?: string; sort?: string };
 };
 
 export default async function HistorialPage({ searchParams }: PageProps) {
@@ -24,6 +24,7 @@ export default async function HistorialPage({ searchParams }: PageProps) {
   const validChannel = channelsList.find((c) => c.name === searchParams.channel)?.name ?? "";
   const q = (searchParams.q ?? "").trim();
   const page = Math.max(1, Number(searchParams.page) || 1);
+  const sort = searchParams.sort === "oldest" ? "oldest" : "newest";
 
   const where: Prisma.OpportunityWhereInput = {
     status: { in: [...RESPONDED_STATUSES] },
@@ -36,6 +37,9 @@ export default async function HistorialPage({ searchParams }: PageProps) {
     where.AND = [{ OR: [{ sourceText: { contains: q } }, { sourceAuthor: { contains: q } }] }];
   }
 
+  const orderBy: Prisma.OpportunityOrderByWithRelationInput =
+    sort === "oldest" ? { createdAt: "asc" } : { createdAt: "desc" };
+
   const [opportunities, matchingCount] = await Promise.all([
     prisma.opportunity.findMany({
       where,
@@ -45,7 +49,7 @@ export default async function HistorialPage({ searchParams }: PageProps) {
         detectedProduct: true,
         _count: { select: { responses: true } },
       },
-      orderBy: { updatedAt: "desc" },
+      orderBy,
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
     }),
@@ -58,6 +62,7 @@ export default async function HistorialPage({ searchParams }: PageProps) {
     if (activeClient) params.set("client", activeClient.slug);
     if (validChannel) params.set("channel", validChannel);
     if (q) params.set("q", q);
+    if (sort === "oldest") params.set("sort", "oldest");
     if (targetPage > 1) params.set("page", String(targetPage));
     const qs = params.toString();
     return qs ? `/historial?${qs}` : "/historial";
