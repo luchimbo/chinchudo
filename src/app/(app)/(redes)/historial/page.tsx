@@ -29,10 +29,7 @@ export default async function HistorialPage({ searchParams }: PageProps) {
     status: { in: [...RESPONDED_STATUSES] },
   };
   if (activeClient) {
-    where.OR = [
-      { detectedBrand: { clientId: activeClient.id } },
-      { monitoredSource: { clientId: activeClient.id } },
-    ];
+    where.clientId = activeClient.id;
   }
   if (validChannel) where.channel = { name: validChannel };
   if (q) {

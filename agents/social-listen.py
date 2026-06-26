@@ -156,8 +156,7 @@ def load_client_rules(source_id: str | None = None, client_id: str | None = None
 
 
 def is_on_topic(item: dict, query: str, keywords: list[str], exclusions: list[str]) -> bool:
-    # La query con la que se encontró el ítem se incluye en el contexto:
-    # si buscamos "controlador midi" y el comentario dice "lo quiero!" sigue siendo on-topic.
+    import unicodedata
     combined = (
         " " + query + " " +
         (item.get("context") or "") + " " +
@@ -165,10 +164,32 @@ def is_on_topic(item: dict, query: str, keywords: list[str], exclusions: list[st
         (item.get("videoTitle") or "") +
         " "
     ).lower()
+
+    # Normalizar diacríticos (eliminar acentos)
+    normalized_combined = "".join(
+        c for c in unicodedata.normalize("NFD", combined)
+        if unicodedata.category(c) != "Mn"
+    )
+
     for exc in exclusions:
-        if exc.lower() in combined:
+        norm_exc = "".join(
+            c for c in unicodedata.normalize("NFD", exc.lower())
+            if unicodedata.category(c) != "Mn"
+        )
+        pattern = r"\b" + re.escape(norm_exc) + r"\b"
+        if re.search(pattern, normalized_combined):
             return False
-    return any(kw.lower() in combined for kw in keywords)
+
+    for kw in keywords:
+        norm_kw = "".join(
+            c for c in unicodedata.normalize("NFD", kw.lower())
+            if unicodedata.category(c) != "Mn"
+        )
+        pattern = r"\b" + re.escape(norm_kw) + r"\b"
+        if re.search(pattern, normalized_combined):
+            return True
+
+    return False
 
 
 
@@ -316,12 +337,61 @@ def normalize_item(channel: str, query: str, item: dict, account: str | None, so
     }
 
 
+def normalize_author_name(author: str) -> str:
+    if not author:
+        return ""
+    author = author.strip().lower()
+    if author.startswith("@"):
+        author = author[1:]
+    elif author.startswith("u/"):
+        author = author[2:]
+    elif author.startswith("r/"):
+        author = author[2:]
+    return author.strip()
+
+
+def load_own_usernames() -> set[str]:
+    own = set()
+    for handle in ["midiplus_ok", "pcmidicenter", "prestigearg", "kressmer_audio", "midiplus", "kressmer", "pcmidi", "prestige-running"]:
+        own.add(handle.lower())
+
+    path = ROOT / "agents" / "accounts.json"
+    if path.exists():
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+                for key, cfg in data.items():
+                    own.add(key.lower())
+                    if "label" in cfg:
+                        own.add(cfg["label"].lower())
+                    if "twitterUsername" in cfg and cfg["twitterUsername"]:
+                        own.add(cfg["twitterUsername"].lower())
+        except Exception as exc:
+            log.warning("listen_own_accounts_load_failed", error=str(exc))
+            
+    try:
+        from db_pg import connect
+        with connect() as conn:
+            brands = conn.execute('SELECT name FROM "Brand"').fetchall()
+            for b in brands:
+                own.add(b["name"].lower())
+            clients = conn.execute('SELECT name, slug FROM "Client"').fetchall()
+            for c in clients:
+                own.add(c["name"].lower())
+                own.add(c["slug"].lower())
+    except Exception as exc:
+        log.warning("listen_db_brands_load_failed", error=str(exc))
+        
+    return own
+
+
 def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str | None, source_id: str | None = None, client_id: str | None = None) -> dict:
     log.info("listen_start", channel=channel, account=account or "default", query=query[:60], limit=limit, dry_run=dry_run)
     
     # Cargar dinámicamente palabras clave y exclusiones del cliente
     keywords, exclusions = load_client_rules(source_id=source_id, client_id=client_id, query=query)
     log.info("listen_rules_loaded", keywords_count=len(keywords), exclusions_count=len(exclusions))
+    own_usernames = load_own_usernames()
 
     try:
         ws_url = browser_cdp.get_page_ws_url(account)
@@ -377,6 +447,11 @@ def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str
     for item in items:
         if not item.get("url"):
             discarded.append({"reason": "sin_url", "text": (item.get("context") or "")[:60]})
+            continue
+        author = item.get("author", "")
+        norm_author = normalize_author_name(author)
+        if norm_author and norm_author in own_usernames:
+            discarded.append({"reason": "autor_propio", "text": f"{author} ({norm_author})"})
             continue
         if not is_on_topic(item, query, keywords, exclusions):
             discarded.append({"reason": "fuera_de_tema", "text": (item.get("context") or item.get("title") or "")[:60]})

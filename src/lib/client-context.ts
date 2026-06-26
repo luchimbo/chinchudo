@@ -23,6 +23,10 @@ export function normalizeForMatch(text: string): string {
   return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
+function escapeRegex(str: string): string {
+  return str.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+}
+
 function parseList(value: string | null | undefined): string[] {
   if (!value) return [];
   try {
@@ -35,10 +39,19 @@ function parseList(value: string | null | undefined): string[] {
 
 function keywordScore(text: string, keywords: string[], exclusions: string[]) {
   const haystack = normalizeForMatch(text);
-  const exclusionHits = exclusions.filter((kw) => haystack.includes(normalizeForMatch(kw)));
+  
+  const exclusionHits = exclusions.filter((kw) => {
+    const normalizedKw = normalizeForMatch(kw);
+    const regex = new RegExp('\\b' + escapeRegex(normalizedKw) + '\\b', 'i');
+    return regex.test(haystack);
+  });
   if (exclusionHits.length > 0) return { score: -1000, hits: [], exclusionHits };
 
-  const hits = keywords.filter((kw) => haystack.includes(normalizeForMatch(kw)));
+  const hits = keywords.filter((kw) => {
+    const normalizedKw = normalizeForMatch(kw);
+    const regex = new RegExp('\\b' + escapeRegex(normalizedKw) + '\\b', 'i');
+    return regex.test(haystack);
+  });
   return { score: hits.length, hits, exclusionHits };
 }
 

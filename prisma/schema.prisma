@@ -94,6 +94,7 @@ model Client {
   geoAudits           GeoAudit[]
   trackingEvents      TrackingEvent[]
   users               User[]
+  opportunities       Opportunity[]
 }
 
 model User {
@@ -211,6 +212,7 @@ model Opportunity {
   sourceUrl         String
   sourceAuthor      String              @default("")
   sourceText        String
+  clientId          String?
   detectedBrandId   String?
   detectedProductId String?
   detectedIntent    OpportunityIntent   @default(GENERAL_DISCUSSION)
@@ -221,6 +223,7 @@ model Opportunity {
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
   channel           Channel             @relation(fields: [channelId], references: [id])
+  client            Client?             @relation(fields: [clientId], references: [id], onDelete: Cascade)
   detectedBrand     Brand?              @relation(fields: [detectedBrandId], references: [id])
   detectedProduct   Product?            @relation(fields: [detectedProductId], references: [id])
   monitoredSource   MonitoredSource?    @relation(fields: [monitoredSourceId], references: [id])
@@ -233,6 +236,7 @@ model Opportunity {
   @@index([priority])
   @@index([createdAt])
   @@index([channelId])
+  @@index([clientId])
   @@index([detectedBrandId])
   @@index([detectedProductId])
   @@index([monitoredSourceId])

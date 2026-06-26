@@ -21,16 +21,27 @@ export function validateClientScopedActors(args: {
   return { ok: riskNotes.length === 0, riskNotes };
 }
 
+let cachedClients: any = null;
+let lastCacheTime = 0;
+const CACHE_TTL_MS = 10000; // 10 segundos para scripts y respuestas rápidas
+
 export async function detectCrossClientTerms(
   prisma: PrismaClient,
   clientId: string,
   text: string,
 ): Promise<string[]> {
   const norm = normalizeForMatch(text);
-  const otherClients = await prisma.client.findMany({
-    where: { active: true, NOT: { id: clientId } },
-    include: { brands: true },
-  });
+  const now = Date.now();
+
+  if (!cachedClients || now - lastCacheTime > CACHE_TTL_MS) {
+    cachedClients = await prisma.client.findMany({
+      where: { active: true },
+      include: { brands: true },
+    });
+    lastCacheTime = now;
+  }
+
+  const otherClients = cachedClients.filter((c: any) => c.id !== clientId);
 
   const hits: string[] = [];
   for (const client of otherClients) {
@@ -38,11 +49,16 @@ export async function detectCrossClientTerms(
       client.name,
       client.slug,
       ...parseClientList(client.domainKeywords),
-      ...client.brands.map((brand) => brand.name),
+      ...client.brands.map((brand: any) => brand.name),
     ];
     const matched = keywords
       .filter((kw) => kw.length >= 4)
-      .filter((kw) => norm.includes(normalizeForMatch(kw)));
+      .filter((kw) => {
+        const normalizedKw = normalizeForMatch(kw);
+        const escaped = normalizedKw.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        const regex = new RegExp('\\b' + escaped + '\\b', 'i');
+        return regex.test(norm);
+      });
     if (matched.length > 0) hits.push(`${client.slug}:${Array.from(new Set(matched)).join(",")}`);
   }
   return hits;

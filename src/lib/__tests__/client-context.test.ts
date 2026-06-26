@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { catalogRuleMatches, resolveOpportunityClient } from "../client-context";
 import { detectCrossClientTerms, validateClientScopedActors } from "../guardrails";
+import { generateLocalDrafts } from "../draft-generator";
 
 const clients = [
   {
@@ -95,5 +96,52 @@ describe("guardrails", () => {
       },
     } as any, "pcmidi", "Recomendaria unas medias deportivas Prestige Running");
     expect(hits[0]).toContain("prestige-running");
+  });
+});
+
+describe("local fallback drafts by client", () => {
+  const mockOpp = (intent: any, text: string) => ({
+    id: "opp1",
+    channelId: "c1",
+    sourceUrl: "https://youtube.com/123",
+    sourceAuthor: "user1",
+    sourceText: text,
+    detectedBrandId: "b1",
+    detectedProductId: null,
+    detectedIntent: intent,
+    priority: "MEDIUM" as const,
+    status: "NEW" as const,
+    notes: "",
+    monitoredSourceId: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    channel: { id: "c1", name: "YouTube", type: "video", baseUrl: "", responseStyleNotes: "" },
+    detectedBrand: { id: "b1", name: "MidiPlus", clientId: "pcmidi", strengths: "", tone: "", allowedClaims: "", forbiddenClaims: "", competitorWeaknesses: "", createdAt: new Date(), updatedAt: new Date() },
+    detectedProduct: null,
+  });
+
+  const mockBrand = { id: "b1", name: "MidiPlus", clientId: "pcmidi", strengths: "", tone: "", allowedClaims: "", forbiddenClaims: "", competitorWeaknesses: "", createdAt: new Date(), updatedAt: new Date() };
+  const mockPersona = { id: "p1", clientId: "pcmidi", name: "Técnico / Productor", role: "Técnico", tone: "serio", goals: "ayudar", preferredLength: "SHORT", allowedPhrases: "", forbiddenPhrases: "", goodExamples: "", badExamples: "", angle: "tecnico", createdAt: new Date(), updatedAt: new Date() };
+
+  it("genera fallbacks de pcmidi con referencias tecnicas de audio", () => {
+    const drafts = generateLocalDrafts({
+      opportunity: mockOpp("TECHNICAL_QUESTION", "Tengo un controlador y no suena"),
+      brand: mockBrand,
+      persona: mockPersona,
+      client: { id: "pcmidi", name: "PC MIDI", slug: "pcmidi", description: "", domainKeywords: "", domainExclusions: "", autoPublish: false, autoApprove: false, active: true, openrouterApiKey: "", openrouterModel: "", storeUrl: "", blogBaseUrl: "", labName: "", logoUrl: "", landingTemplate: "", landingPrimaryColor: "", landingSecondaryColor: "", fromName: "", fromEmail: "", smtpHost: "", smtpPort: 465, smtpUser: "", smtpPass: "", unsubscribeBaseUrl: "", trackBaseUrl: "", geoBrandPatterns: [], createdAt: new Date(), updatedAt: new Date() },
+    });
+    expect(drafts[0].draftText).toContain("sistema operativo");
+  });
+
+  it("genera fallbacks genericos sin referencias tecnicas para otros clientes", () => {
+    const drafts = generateLocalDrafts({
+      opportunity: mockOpp("TECHNICAL_QUESTION", "Tengo una duda con el producto"),
+      brand: { ...mockBrand, clientId: "other", name: "Generic" },
+      persona: { ...mockPersona, clientId: "other", name: "Generic Persona" },
+      client: { id: "other", name: "Other Client", slug: "other-client", description: "", domainKeywords: "", domainExclusions: "", autoPublish: false, autoApprove: false, active: true, openrouterApiKey: "", openrouterModel: "", storeUrl: "", blogBaseUrl: "", labName: "", logoUrl: "", landingTemplate: "", landingPrimaryColor: "", landingSecondaryColor: "", fromName: "", fromEmail: "", smtpHost: "", smtpPort: 465, smtpUser: "", smtpPass: "", unsubscribeBaseUrl: "", trackBaseUrl: "", geoBrandPatterns: [], createdAt: new Date(), updatedAt: new Date() },
+    });
+    expect(drafts[0].draftText).not.toContain("sistema operativo");
+    expect(drafts[0].draftText).not.toContain("placa/SO");
+    expect(drafts[0].draftText).toContain("dudas específicas");
   });
 });

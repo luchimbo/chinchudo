@@ -210,6 +210,9 @@ async function main() {
 
   console.log(`Insertando ${toInsert.length} fuentes nuevas (${skipped} ya existían)…\n`);
 
+  const pcmidi = await prisma.client.findUnique({ where: { slug: "pcmidi" } });
+  if (!pcmidi) throw new Error("Client 'pcmidi' not found!");
+
   for (const src of toInsert) {
     await prisma.monitoredSource.create({
       data: {
@@ -219,6 +222,7 @@ async function main() {
         account: src.account ?? "",
         limit:   src.limit ?? 15,
         active:  true,
+        clientId: pcmidi.id,
       },
     });
     console.log(`  + [${src.channel.padEnd(9)}] ${src.label}`);

@@ -49,10 +49,18 @@ const sources = [
   { label: "LinkedIn - home studio midi controller", channel: "linkedin", query: "home studio setup midi controller", account: "productor-home-studio", limit: 8 },
 ];
 
+const pcmidi = await prisma.client.findUnique({ where: { slug: "pcmidi" } });
+if (!pcmidi) throw new Error("Client 'pcmidi' not found!");
+
 let created = 0, skipped = 0;
 for (const s of sources) {
   try {
-    await prisma.monitoredSource.create({ data: s });
+    await prisma.monitoredSource.create({
+      data: {
+        ...s,
+        clientId: pcmidi.id
+      }
+    });
     created++;
     console.log("  [OK]  " + s.label);
   } catch (e) {

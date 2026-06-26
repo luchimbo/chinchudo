@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { rename } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { PrismaClient } from "@prisma/client";
 // @ts-ignore
 import { dataDir, loadEnv, readJsonl, writeReport, extractPostKey, isDomainRelevant, looksLikeSpam } from "./agent-utils.mjs";
@@ -67,6 +68,10 @@ function buildNotes(row: any) {
   return parts.join(" ");
 }
 
+function normalizeAuthorName(author: string): string {
+  return author.trim().toLowerCase().replace(/^(@|u\/|r\/)/, "");
+}
+
 async function main() {
   const args = parseArgs();
   const rows = readJsonl(intakePath) as any[];
@@ -78,10 +83,54 @@ async function main() {
   const sourceCounts = new Map<string, number>();
   const routing: any[] = [];
 
+  // Cargar listado de cuentas propias para exclusión
+  const ownUsernames = new Set<string>();
+  const accountsPath = join(process.cwd(), "agents/accounts.json");
+  try {
+    const rawAccounts = JSON.parse(readFileSync(accountsPath, "utf-8"));
+    for (const [key, cfg] of Object.entries(rawAccounts) as [string, any][]) {
+      ownUsernames.add(normalizeAuthorName(key));
+      ownUsernames.add(normalizeAuthorName(cfg.label));
+      if (cfg.twitterUsername) ownUsernames.add(normalizeAuthorName(cfg.twitterUsername));
+    }
+  } catch (err: any) {
+    console.warn("import-opportunities: No se pudo leer agents/accounts.json para filtrado de autor:", err.message);
+  }
+
+  // Cargar marcas y clientes
+  try {
+    const clients = await prisma.client.findMany({ select: { name: true, slug: true } });
+    const brands = await prisma.brand.findMany({ select: { name: true } });
+    for (const c of clients) {
+      ownUsernames.add(normalizeAuthorName(c.slug));
+      ownUsernames.add(normalizeAuthorName(c.name));
+    }
+    for (const b of brands) {
+      ownUsernames.add(normalizeAuthorName(b.name));
+    }
+  } catch (err: any) {
+    console.warn("import-opportunities: No se pudieron cargar marcas de DB para exclusión:", err.message);
+  }
+
+  // Agrega handles conocidos de marca como salvaguarda
+  ownUsernames.add("midiplus_ok");
+  ownUsernames.add("pcmidicenter");
+  ownUsernames.add("prestigearg");
+  ownUsernames.add("kressmer_audio");
+
   for (const row of rows) {
     const sourceUrl = String(row.sourceUrl || "").trim();
     const sourceText = String(row.sourceText || "").trim();
     if (!sourceUrl || sourceText.length < 10) {
+      skipped += 1;
+      continue;
+    }
+
+    // Filtrar por autor propio o marcas propias
+    const author = String(row.sourceAuthor || "").trim();
+    const normAuthor = normalizeAuthorName(author);
+    if (normAuthor && ownUsernames.has(normAuthor)) {
+      console.log(`[Skip] Oportunidad omitida. Autor propio/marca detectada: "${author}" (normalizado: "${normAuthor}")`);
       skipped += 1;
       continue;
     }
@@ -182,6 +231,7 @@ async function main() {
           sourceUrl,
           sourceAuthor: row.sourceAuthor || "",
           sourceText,
+          clientId: resolution.client.id,
           detectedBrandId: aiResult.matchedBrandId,
           detectedProductId: aiResult.matchedProductId,
           detectedIntent: aiResult.detectedIntent,

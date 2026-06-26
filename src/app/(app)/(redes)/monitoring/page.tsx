@@ -33,7 +33,7 @@ export default async function MonitoringPage({ searchParams }: { searchParams: {
       where: {
         monitoredSourceId: { not: null },
         createdAt: { gte: since },
-        ...(activeClient ? { monitoredSource: { clientId: activeClient.id } } : {}),
+        ...(activeClient ? { clientId: activeClient.id } : {}),
       },
       include: { channel: true, monitoredSource: true },
       orderBy: { createdAt: "desc" },

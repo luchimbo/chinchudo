@@ -171,7 +171,7 @@ function makePrestigeDrafts(original: string, riskNotes: string): DraftVariant[]
   ];
 }
 
-function makeDrafts(
+function makePcmidiDrafts(
   intent: string,
   original: string,
   voice: PersonaVoice,
@@ -300,6 +300,135 @@ function makeDrafts(
   ];
 }
 
+function makeGenericDrafts(
+  intent: string,
+  original: string,
+  voice: PersonaVoice,
+  product: ProductEntry | undefined,
+  riskNotes: string,
+): DraftVariant[] {
+  const prodName = product ? `${product.marca} ${product.modelo}` : "el que estás mirando";
+  const intro = voice.intro(product);
+
+  if (intent === "TECHNICAL_QUESTION") {
+    return [
+      {
+        variantType: "SHORT",
+        draftText: `${intro}. ¿Qué dudas específicas tenés sobre este modelo? Te puedo dar una mano.`,
+        riskNotes,
+      },
+      {
+        variantType: "TECHNICAL",
+        draftText: `${intro}. ${voice.angle} Para ver el detalle conviene mirar la ficha técnica o especificaciones del fabricante. ${voice.tail}`,
+        riskNotes,
+      },
+      {
+        variantType: "CONVERSATIONAL",
+        draftText: `Tengo uno parecido y la verdad que para uso normal cumple bien. ${voice.angle} ${voice.tail}`,
+        riskNotes,
+      },
+    ];
+  }
+
+  if (intent === "PURCHASE_QUESTION") {
+    return [
+      {
+        variantType: "SHORT",
+        draftText: `${intro}. Para lo que buscás puede andar muy bien. ${voice.tail}`,
+        riskNotes,
+      },
+      {
+        variantType: "TECHNICAL",
+        draftText: `${intro}. ${voice.angle} Si lo conseguís con garantía oficial local, mejor todavía. ${voice.tail}`,
+        riskNotes,
+      },
+      {
+        variantType: "CONVERSATIONAL",
+        draftText: `Yo no lo descartaría. ${prodName} cumple bien y comprándolo con garantía oficial te quedás tranquilo. ${voice.angle}`,
+        riskNotes,
+      },
+    ];
+  }
+
+  if (intent === "PRICE_QUESTION") {
+    return [
+      {
+        variantType: "SHORT",
+        draftText: `Ni idea del precio exacto hoy, varía bastante. Pero por lo que rinde, a mí me pareció que valió la pena. ${voice.tail}`,
+        riskNotes,
+      },
+      {
+        variantType: "TECHNICAL",
+        draftText: `${intro}. El precio cambia seguido según el momento, pero ${voice.angle.toLowerCase()} ${voice.tail}`,
+        riskNotes,
+      },
+      {
+        variantType: "CONVERSATIONAL",
+        draftText: `El valor te conviene chequearlo al momento porque se mueve. Por lo que me dio a mí, lo volvería a comprar. ${voice.angle}`,
+        riskNotes,
+      },
+    ];
+  }
+
+  if (intent === "WARRANTY_QUESTION") {
+    return [
+      {
+        variantType: "SHORT",
+        draftText: `${intro}. Comprándolo con garantía oficial estás cubierto si pasa algo. ${voice.tail}`,
+        riskNotes,
+      },
+      {
+        variantType: "TECHNICAL",
+        draftText: `Por experiencia, lo importante es comprar con garantía y soporte local. ${voice.angle}`,
+        riskNotes,
+      },
+      {
+        variantType: "CONVERSATIONAL",
+        draftText: `${intro}. Si comprás con respaldo oficial, cualquier inconveniente lo resolvés sin drama. ${voice.angle}`,
+        riskNotes,
+      },
+    ];
+  }
+
+  if (intent === "COMPARISON") {
+    return [
+      {
+        variantType: "SHORT",
+        draftText: `Depende mucho del uso. ${voice.angle} ${voice.tail}`,
+        riskNotes,
+      },
+      {
+        variantType: "TECHNICAL",
+        draftText: `${intro}. Para comparar bien iría por el modelo específico y prestaciones de cada uno. ${voice.angle} ${voice.tail}`,
+        riskNotes,
+      },
+      {
+        variantType: "CONVERSATIONAL",
+        draftText: `La comparación cambia según para qué lo quieras. ${voice.angle} ${voice.tail}`,
+        riskNotes,
+      },
+    ];
+  }
+
+  return [
+    {
+      variantType: "SHORT",
+      draftText: `${intro}. Para ese caso puede ser buena opción. ${voice.tail}`,
+      riskNotes,
+    },
+    {
+      variantType: "TECHNICAL",
+      draftText: `Por lo que comentás ("${original.slice(0, 140)}${original.length > 140 ? "..." : ""}"), ${voice.angle.toLowerCase()} ${intro.toLowerCase()}.`,
+      riskNotes,
+    },
+    {
+      variantType: "CONVERSATIONAL",
+      draftText: `${intro}. No lo descartaría si buscás algo práctico. ${voice.angle} ${voice.tail}`,
+      riskNotes,
+    },
+  ];
+}
+
 export function generateLocalDrafts(ctx: DraftContext): DraftVariant[] {
   const { opportunity, brand, persona, knowledge, objections } = ctx;
   const original = compactText(opportunity.sourceText);
@@ -320,9 +449,15 @@ export function generateLocalDrafts(ctx: DraftContext): DraftVariant[] {
     riskNotes += ` Objeciones a tener en cuenta: ${objections.map((o) => `${o.objection} → ${o.recommendedAnswer}`).join("; ")}.`;
   }
 
-  if (isPrestigeContext({ client: ctx.client, brand })) {
+  const clientSlug = ctx.client?.slug;
+
+  if (clientSlug === "prestige-running") {
     return makePrestigeDrafts(original, riskNotes);
   }
 
-  return makeDrafts(opportunity.detectedIntent, original, voice, product, riskNotes);
+  if (clientSlug === "pcmidi") {
+    return makePcmidiDrafts(opportunity.detectedIntent, original, voice, product, riskNotes);
+  }
+
+  return makeGenericDrafts(opportunity.detectedIntent, original, voice, product, riskNotes);
 }

@@ -61,6 +61,14 @@ def client_slug_active() -> str:
     return _CLIENT_CONFIG.get("slug") or "pcmidi"
 LANDINGS_PATH = DATA_DIR / "landings_aprobadas.jsonl"
 OPPORTUNITIES_PATH = DATA_DIR / "oportunidades_research.jsonl"
+
+
+def _opportunities_path() -> Path:
+    """Devuelve el archivo de oportunidades del cliente activo (uno por slug)."""
+    slug = client_slug_active()
+    if slug and slug != "pcmidi":
+        return DATA_DIR / f"oportunidades_research_{slug}.jsonl"
+    return OPPORTUNITIES_PATH
 CONTENT_FEEDBACK_PATH = DATA_DIR / "content_feedback.jsonl"
 TEMPLATE_PATH = TEMPLATES_DIR / "landing-static-template.html"
 MAX_GENERATE_PER_RUN = 50
@@ -176,11 +184,19 @@ def _load_landings_from_pg() -> list[dict] | None:
         import psycopg
         from psycopg.rows import dict_row
         url = db_url.replace("postgres://", "postgresql://", 1)
+        client_id = _CLIENT_CONFIG.get("id")
         with psycopg.connect(url, row_factory=dict_row) as conn:
-            rows = conn.execute(
-                "SELECT slug, keyword, intent, titulo, \"htmlContent\", \"seoTitle\", \"seoDescription\", \"leadMagnetId\", \"createdAt\" "
-                "FROM \"Landing\" WHERE status = 'APPROVED' ORDER BY \"createdAt\" DESC"
-            ).fetchall()
+            if client_id:
+                rows = conn.execute(
+                    "SELECT slug, keyword, intent, titulo, \"htmlContent\", \"seoTitle\", \"seoDescription\", \"leadMagnetId\", \"createdAt\" "
+                    "FROM \"Landing\" WHERE status = 'APPROVED' AND \"clientId\" = %s ORDER BY \"createdAt\" DESC",
+                    (client_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT slug, keyword, intent, titulo, \"htmlContent\", \"seoTitle\", \"seoDescription\", \"leadMagnetId\", \"createdAt\" "
+                    "FROM \"Landing\" WHERE status = 'APPROVED' ORDER BY \"createdAt\" DESC"
+                ).fetchall()
         # Mapear campos Prisma → formato que espera el builder
         result = []
         for r in rows:
@@ -752,11 +768,29 @@ def opportunity_from_keyword(keyword: str, intent: str, source: str, categories:
     }
 
 
-def generate_keyword_variations(seed: dict) -> list[tuple[str, str]]:
+def _generic_category_suffixes(categories: dict[str, dict]) -> list[str]:
+    """Para clientes no-pcmidi: genera sufijos desde los keywords de sus propias categorías."""
+    extras: list[str] = []
+    for cat in categories.values():
+        for kw in (cat.get("keywords") or []):
+            kw = kw.strip()
+            if kw and 3 <= len(kw) <= 40 and kw.lower() not in ("", "none"):
+                extras.append(f"para {kw}")
+        name = (cat.get("nombre") or "").strip()
+        if name and 3 <= len(name) <= 40:
+            extras.append(f"de {name}")
+    return list(dict.fromkeys(extras))
+
+
+def generate_keyword_variations(seed: dict, categories: dict[str, dict] | None = None) -> list[tuple[str, str]]:
     keyword = seed.get("keyword", "").strip()
     intent = seed.get("intencion", "").strip()
     if not keyword:
         return []
+    category_text = seed.get("categorias_sugeridas", "")
+    kl = keyword.lower()
+
+    # ── Prefijos de intención de búsqueda ─────────────────────────────────────
     prefixes = [
         "que comprar para",
         "como elegir",
@@ -764,54 +798,260 @@ def generate_keyword_variations(seed: dict) -> list[tuple[str, str]]:
         "guia para elegir",
         "comparar opciones de",
         "setup con",
+        "cual es el mejor",
+        "recomendacion de",
+        "que tipo de",
+        "vale la pena comprar",
+        "diferencia entre modelos de",
+        "como empezar con",
+        "opciones economicas de",
+        "opciones profesionales de",
     ]
-    category_text = seed.get("categorias_sugeridas", "")
-    suffixes = ["para principiantes", "para home studio"]
-    category_suffixes = {
-        "microfonos-streaming": ["para YouTube", "para Twitch", "para podcast", "para clases online", "sin complicarse"],
-        "microfonos": ["para voces", "para locucion", "con interfaz de audio", "para grabar covers"],
-        "microfonos-profesionales": ["para voz hablada", "para cantar", "con phantom power", "para grabacion casera"],
-        "interfaces-audio": ["para dos entradas", "para guitarra", "para voz", "para notebook", "para conectar monitores"],
-        "controladores-midi": ["para hacer beats", "para tocar acordes", "para producir en notebook", "para escritorio chico", "con pads"],
-        "controladores-pads": ["para finger drumming", "para samples", "para trap", "para live set"],
-        "auriculares": ["para grabar voces", "para mezclar de noche", "para tocar guitarra", "para streaming"],
-        "monitores-estudio": ["para cuarto chico", "para escritorio", "para producir", "para editar video"],
-        "sintetizadores": ["para bajos", "para leads", "para pads", "para directo", "sin computadora"],
-        "sintes-analogicos-hibridos": ["para aprender sintesis", "para texturas", "para musica electronica", "con vocoder"],
-        "secuenciadores": ["para dawless", "para sintes hardware", "para patrones", "para directo"],
-        "baterias-electronicas": ["para practicar de noche", "para chicos", "para grabar MIDI", "para tocar en vivo"],
-        "camaras": ["para YouTube", "para streaming", "para podcast de video", "para cursos online"],
+
+    # ── Sufijos universales (aplican a cualquier cliente/producto) ─────────────
+    suffixes: list[str] = [
+        "para principiantes",
+        "para uso profesional",
+        "para uso diario",
+        "relacion calidad precio",
+        "economico",
+        "de calidad profesional",
+        "para adultos",
+        "para ninos",
+        "para regalo",
+        "portatil",
+        "resistente",
+    ]
+
+    # ── Sufijos específicos de PC MIDI (solo para is_pcmidi) ─────────────────
+    pcmidi_generic_suffixes: list[str] = [
+        "para home studio",
+        "para departamento",
+        "para cuarto chico",
+        "para uso en vivo",
+        "para grabar en casa",
+        "para setup minimalista",
+        "para escritorio",
+        "para musica electronica",
+        "para produccion musical",
+        "para grabar covers",
+        "para grabar podcasts",
+        "para clases online",
+        "para trabajar desde casa",
+        "para laptop",
+    ]
+
+    # ── Sufijos por DAW ─────────────────────────────────────────────────────
+    daw_suffixes = [
+        "compatible con Ableton",
+        "compatible con FL Studio",
+        "compatible con Logic Pro",
+        "compatible con GarageBand",
+        "compatible con Reaper",
+        "compatible con Cubase",
+        "compatible con Studio One",
+        "compatible con Bitwig",
+        "para Ableton Live",
+        "para FL Studio",
+        "para Logic Pro",
+        "para GarageBand",
+        "para Reaper",
+    ]
+
+    # ── Sufijos por perfil de comprador ────────────────────────────────────
+    buyer_suffixes = [
+        "para beatmaker",
+        "para productor de trap",
+        "para productor de reggaeton",
+        "para productor de musica electronica",
+        "para DJ",
+        "para cantante",
+        "para guitarrista",
+        "para baterista",
+        "para musico amateur",
+        "para musico profesional",
+        "para streamer",
+        "para youtuber",
+        "para podcaster",
+        "para locutor",
+        "para compositor",
+        "para estudiante de musica",
+        "para ninos",
+        "para adolescentes",
+        "para adultos mayores",
+    ]
+
+    # ── Sufijos por género musical ──────────────────────────────────────────
+    genre_suffixes = [
+        "para trap",
+        "para reggaeton",
+        "para cumbia digital",
+        "para rock",
+        "para metal",
+        "para jazz",
+        "para musica clasica",
+        "para lo-fi",
+        "para techno",
+        "para house",
+        "para ambient",
+        "para hip hop",
+        "para folk",
+        "para pop",
+    ]
+
+    # ── Sufijos por categoría de producto ──────────────────────────────────
+    category_suffixes: dict[str, list[str]] = {
+        "microfonos-streaming": [
+            "para YouTube", "para Twitch", "para podcast", "para clases online",
+            "sin complicarse", "USB", "con soporte de mesa", "cardioide",
+            "para voces claras", "para ambiente silencioso",
+        ],
+        "microfonos": [
+            "para voces", "para locucion", "con interfaz de audio", "para grabar covers",
+            "dinamico", "de condensador", "cardioide", "XLR", "con phantom power",
+            "para cuarto sin tratamiento", "para habitacion con eco",
+        ],
+        "microfonos-profesionales": [
+            "para voz hablada", "para cantar", "con phantom power", "para grabacion casera",
+            "de condensador de gran diafragma", "para voces femeninas", "para voces masculinas",
+            "para narrador", "para locutora", "para doblaje",
+        ],
+        "interfaces-audio": [
+            "para dos entradas", "para guitarra", "para voz", "para notebook",
+            "para conectar monitores", "USB-C", "USB", "con preamp limpio",
+            "para dos micros", "para bajo electrico", "con phantompara condensador",
+            "de dos canales", "de cuatro canales", "con auriculares integrado",
+        ],
+        "controladores-midi": [
+            "para hacer beats", "para tocar acordes", "para producir en notebook",
+            "para escritorio chico", "con pads", "con 25 teclas", "con 49 teclas",
+            "con 61 teclas", "con aftertouch", "con ruedas de pitch y mod",
+            "sin alimentacion externa", "bus-powered",
+        ],
+        "controladores-pads": [
+            "para finger drumming", "para samples", "para trap", "para live set",
+            "sensibles a la velocidad", "con iluminacion RGB", "para Maschine style",
+            "para MPC style", "con 16 pads", "con efectos integrados",
+        ],
+        "auriculares": [
+            "para grabar voces", "para mezclar de noche", "para tocar guitarra", "para streaming",
+            "cerrados", "abiertos", "semiabiertos", "para monitoreo", "para DJing",
+            "con cable desmontable", "para sesiones largas", "comodidad premium",
+        ],
+        "monitores-estudio": [
+            "para cuarto chico", "para escritorio", "para producir", "para editar video",
+            "de campo cercano", "de 5 pulgadas", "de 8 pulgadas",
+            "activos", "con entrada XLR", "con DSP", "para cuarto sin tratamiento",
+        ],
+        "sintetizadores": [
+            "para bajos", "para leads", "para pads", "para directo", "sin computadora",
+            "analogico", "digital", "virtual analogico", "polifonico", "monofonico",
+            "de escritorio", "compacto", "con secuenciador integrado", "con efectos onboard",
+        ],
+        "sintes-analogicos-hibridos": [
+            "para aprender sintesis", "para texturas", "para musica electronica", "con vocoder",
+            "semi-modular", "modular", "con parche", "para drone", "para basslines",
+        ],
+        "secuenciadores": [
+            "para dawless", "para sintes hardware", "para patrones", "para directo",
+            "de pasos", "para groovebox", "MIDI y CV", "de 16 pasos", "de 64 pasos",
+        ],
+        "baterias-electronicas": [
+            "para practicar de noche", "para chicos", "para grabar MIDI", "para tocar en vivo",
+            "silenciosa", "con mesh heads", "para jazz", "para rock",
+            "con modulos HD", "con pedal doble", "para sesiones en vivo",
+        ],
+        "camaras": [
+            "para YouTube", "para streaming", "para podcast de video", "para cursos online",
+            "4K", "con autoenfoque", "mirrorless", "con lente luminoso",
+            "para interiores", "para grabar con poco luz",
+        ],
     }
-    if any(item in category_text for item in ["baterias-electronicas", "auriculares"]):
-        suffixes.append("para departamento")
-    if any(item in category_text for item in ["microfonos", "microfonos-streaming", "interfaces-audio", "camaras"]):
-        suffixes.extend(["para streaming", "para grabar en casa"])
-    if "controladores-midi" in category_text:
-        suffixes.extend(["compatible con Ableton", "compatible con FL Studio"])
-    for category_id, extra_suffixes in category_suffixes.items():
-        if category_id in category_text:
-            suffixes.extend(extra_suffixes)
-    suffixes = list(dict.fromkeys(suffixes))
-    variations = [(keyword, intent)]
+
+    # ── Sufijos de conectividad y formato físico ────────────────────────────
+    connectivity_suffixes: list[str] = []
+    if any(c in category_text for c in ["controladores-midi", "interfaces-audio", "microfonos-streaming"]):
+        connectivity_suffixes = ["USB", "USB-C", "sin drivers", "plug and play", "con alimentacion USB"]
+    if "sintetizadores" in category_text or "secuenciadores" in category_text:
+        connectivity_suffixes += ["con MIDI DIN", "con CV gate", "con salida USB MIDI"]
+
+    # ── Armar sufijos finales ────────────────────────────────────────────────
+    is_pcmidi = client_slug_active() == "pcmidi"
+    all_suffixes = list(suffixes)
+
+    if is_pcmidi:
+        # Sufijos específicos de PC MIDI (música/producción)
+        all_suffixes.extend(pcmidi_generic_suffixes)
+        if any(c in category_text for c in ["controladores-midi", "sintetizadores", "secuenciadores", "controladores-pads"]):
+            all_suffixes.extend(daw_suffixes)
+        all_suffixes.extend(buyer_suffixes)
+        if any(c in category_text for c in [
+            "controladores-midi", "controladores-pads", "sintetizadores", "sintes-analogicos-hibridos",
+            "secuenciadores", "baterias-electronicas",
+        ]):
+            all_suffixes.extend(genre_suffixes)
+        for cat_id, extra in category_suffixes.items():
+            if cat_id in category_text:
+                all_suffixes.extend(extra)
+        all_suffixes.extend(connectivity_suffixes)
+    elif categories:
+        # Cliente genérico: sufijos derivados de sus propias categorías en DB
+        all_suffixes.extend(_generic_category_suffixes(categories))
+
+    all_suffixes = list(dict.fromkeys(all_suffixes))
+
+    # ── Construir variaciones ────────────────────────────────────────────────
+    variations: list[tuple[str, str]] = [(keyword, intent)]
+
     for prefix in prefixes:
         variations.append((f"{prefix} {keyword}", intent))
-    use_cases = ["home studio chico", "departamento", "creadores de contenido", "principiantes", "setup portable"]
+
+    if is_pcmidi:
+        use_cases = [
+            "home studio chico", "departamento", "creadores de contenido",
+            "principiantes", "setup portable", "uso profesional",
+            "produccion en vivo", "grabacion en casa", "estudio casero",
+            "musica en cuarto", "espacio reducido",
+        ]
+    else:
+        use_cases = [
+            "principiantes", "uso profesional", "uso diario", "adultos",
+            "ninos", "adolescentes", "deporte amateur", "alta competencia",
+            "entrenamiento", "partidos oficiales", "uso en exterior",
+        ]
     for use_case in use_cases:
-        if use_case not in keyword.lower():
+        if use_case not in kl:
             variations.append((f"{keyword} para {use_case}", intent))
-    if any(item in category_text for item in ["microfonos", "interfaces-audio", "auriculares", "monitores-estudio"]):
-        variations.extend([
-            (f"{keyword} para mejorar audio en casa", intent),
-            (f"{keyword} para grabar contenido", intent),
-        ])
-    if any(item in category_text for item in ["controladores-midi", "controladores-pads", "sintetizadores", "secuenciadores"]):
-        variations.extend([
-            (f"{keyword} para producir musica electronica", intent),
-            (f"{keyword} para workflow sin complicarse", intent),
-        ])
-    for suffix in suffixes:
-        if suffix.lower() not in keyword.lower():
+
+    # Frases de intención universal (aplican a cualquier cliente)
+    variations.extend([
+        (f"cual es el mejor {keyword}", intent),
+        (f"que {keyword} comprar sin gastar de mas", intent),
+        (f"como elegir el {keyword} adecuado", intent),
+        (f"vale la pena el {keyword}", intent),
+    ])
+
+    if is_pcmidi:
+        if any(c in category_text for c in ["microfonos", "interfaces-audio", "auriculares", "monitores-estudio"]):
+            variations.extend([
+                (f"{keyword} para mejorar audio en casa", intent),
+                (f"{keyword} para grabar contenido", intent),
+                (f"{keyword} para grabacion sin ruido", intent),
+                (f"como conectar {keyword} a la computadora", intent),
+            ])
+        if any(c in category_text for c in ["controladores-midi", "controladores-pads", "sintetizadores", "secuenciadores"]):
+            variations.extend([
+                (f"{keyword} para producir musica electronica", intent),
+                (f"{keyword} para workflow sin complicarse", intent),
+                (f"{keyword} para empezar a producir", intent),
+                (f"primer {keyword} para productor", intent),
+                (f"cual {keyword} tiene mejor relacion precio calidad", intent),
+            ])
+
+    for suffix in all_suffixes:
+        if suffix.lower() not in kl:
             variations.append((f"{keyword} {suffix}", intent))
+
     return list(dict.fromkeys(variations))
 
 
@@ -844,7 +1084,8 @@ def research_opportunities(limit: int, use_web: bool = True) -> None:
     products = load_products()
     seeds = load_seed_topics()
     existing_landings = load_landings()
-    existing_opps = load_jsonl(OPPORTUNITIES_PATH)
+    opps_path = _opportunities_path()
+    existing_opps = load_jsonl(opps_path)
     seen = {topic_key_from_record(item) for item in existing_landings}
     seen.update(topic_key_from_record(item) for item in existing_opps)
 
@@ -852,7 +1093,7 @@ def research_opportunities(limit: int, use_web: bool = True) -> None:
     for seed in seeds:
         if len(opportunities) >= limit:
             break
-        for keyword, intent in generate_keyword_variations(seed):
+        for keyword, intent in generate_keyword_variations(seed, categories):
             key = topic_key(keyword)
             if not key or key in seen:
                 continue
@@ -878,8 +1119,8 @@ def research_opportunities(limit: int, use_web: bool = True) -> None:
             if len(opportunities) >= limit:
                 break
 
-    append_jsonl(OPPORTUNITIES_PATH, opportunities)
-    print(f"Oportunidades nuevas: {len(opportunities)} en {OPPORTUNITIES_PATH}")
+    append_jsonl(opps_path, opportunities)
+    print(f"Oportunidades nuevas: {len(opportunities)} en {opps_path}")
 
 
 def discover_opportunities(limit: int = 30, use_reddit: bool = True, use_youtube: bool = True) -> None:
@@ -887,7 +1128,8 @@ def discover_opportunities(limit: int = 30, use_reddit: bool = True, use_youtube
     categories = load_categories()
     products = load_products()
     existing_landings = load_landings()
-    existing_opps = load_jsonl(OPPORTUNITIES_PATH)
+    opps_path = _opportunities_path()
+    existing_opps = load_jsonl(opps_path)
     seen = {topic_key_from_record(item) for item in existing_landings}
     seen.update(topic_key_from_record(item) for item in existing_opps)
 
@@ -986,7 +1228,7 @@ def discover_opportunities(limit: int = 30, use_reddit: bool = True, use_youtube
             print(f"discover: youtube_rss no disponible ({exc})")
 
     if opportunities:
-        append_jsonl(OPPORTUNITIES_PATH, opportunities)
+        append_jsonl(opps_path, opportunities)
     print(f"discover: {len(opportunities)} nuevas oportunidades (feedback={sum(1 for o in opportunities if o.get('source')=='content_feedback')}, reddit={sum(1 for o in opportunities if o.get('source')=='reddit')}, youtube={sum(1 for o in opportunities if o.get('source')=='youtube_rss')})")
 
 
@@ -1000,7 +1242,7 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
     existing = load_landings()
     existing_slugs = {item.get("slug") for item in existing}
     existing_keywords = {topic_key_from_record(item) for item in existing}
-    topics = load_seed_topics() + load_jsonl(OPPORTUNITIES_PATH)
+    topics = load_seed_topics() + load_jsonl(_opportunities_path())
     created = 0
     created_items = []
     skipped_items = []

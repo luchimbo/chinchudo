@@ -42,18 +42,24 @@ export async function createOpportunity(formData: FormData) {
     notes: formData.get("notes") || ""
   });
 
+  const clientSlug = formData.get("client") as string | null;
+  let clientObj = null;
+  if (clientSlug) {
+    clientObj = await prisma.client.findUnique({ where: { slug: clientSlug } });
+  }
+
   await prisma.opportunity.create({
     data: {
       ...parsed,
+      clientId: clientObj?.id || null,
       detectedBrandId: parsed.detectedBrandId || null,
       detectedProductId: parsed.detectedProductId || null,
       status: OpportunityStatus.NEW
     }
   });
 
-  const client = formData.get("client") as string | null;
   revalidatePath("/oportunidades");
-  redirect(client ? `/oportunidades?client=${client}` : "/oportunidades");
+  redirect(clientSlug ? `/oportunidades?client=${clientSlug}` : "/oportunidades");
 }
 
 const idSchema = z.string().min(1);

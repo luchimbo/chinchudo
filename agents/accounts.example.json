@@ -1,4 +1,5 @@
 {
+  "_instructions": "clientSlug matches slug in Client DB. Persona names in defaultPersona map to persona names in Prisma.",
   "cazador-ofertas": {
     "clientSlug": "pcmidi",
     "label": "Cazador de Ofertas",

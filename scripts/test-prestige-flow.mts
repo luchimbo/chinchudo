@@ -30,6 +30,7 @@ async function main() {
       sourceUrl: `https://www.instagram.com/p/test-prestige-multicliente-${Date.now()}`,
       sourceAuthor: "runner_test",
       sourceText: "Estoy preparando mi primer 10K y me salen rozaduras con los soquetes comunes. Para correr conviene media cana o soquete corto?",
+      clientId: client.id,
       detectedBrandId: brand.id,
       detectedIntent: "PURCHASE_QUESTION",
       priority: "HIGH",

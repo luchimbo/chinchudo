@@ -82,6 +82,41 @@ function buildPrompt(ctx: DraftContext): string {
     ? `\n## Objeciones frecuentes y cómo encararlas (guía interna, adaptá a tu voz)\n${objections.map((o) => `- Si plantea "${o.objection}" → ${o.recommendedAnswer}`).join("\n")}\n`
     : "";
 
+  // Carga de exclusiones y reglas específicas de rubro
+  let exclusions: string[] = [];
+  if (client?.domainExclusions) {
+    try {
+      const parsed = JSON.parse(client.domainExclusions);
+      exclusions = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      exclusions = client.domainExclusions.split(",").map(k => k.trim()).filter(Boolean);
+    }
+  }
+  const exclusionsLine = exclusions.length > 0
+    ? `- NUNCA uses o menciones las siguientes palabras o conceptos prohibidos: ${exclusions.join(", ")}.`
+    : "";
+
+  let rubroRule = "";
+  if (client?.slug === "pcmidi") {
+    rubroRule = "- NUNCA uses palabras o conceptos del rubro de indumentaria deportiva, medias o running (ej: medias, calcetines, soquetes, pantorrilleras, correr, trail, compresión, etc.). Tu nicho es exclusivamente instrumentos musicales y home studio.";
+  } else if (client?.slug === "prestige-running") {
+    rubroRule = "- NUNCA uses palabras o conceptos del rubro de música, sonido, audio o informática (ej: MIDI, controlador, DAW, interfaz, drivers, Ableton, piano, teclado, etc.). Tu nicho es exclusivamente indumentaria deportiva, compresión graduada y running/trail.";
+  }
+
+  const absoluteRules = [
+    "- NUNCA mezcles productos, marcas, rubros ni claims de otro cliente.",
+    rubroRule,
+    exclusionsLine,
+    "- NUNCA menciones nombres de tiendas, locales ni comercios salvo que el operador lo agregue manualmente.",
+    "- NUNCA digas que sos representante, empleado, ni que trabajás para ninguna marca.",
+    '- Hablá siempre como usuario que recomienda por experiencia propia (ej: "yo uso", "tengo", "probé" / "I use", "I have", "I tried" / "eu uso", "tenho", "experimentei")',
+    "- SIEMPRE nombrá al menos un producto concreto del catálogo de abajo (por su nombre/modelo), como si lo usaras vos o lo recomendaras de primera mano",
+    "- NUNCA incluyas links, URLs ni direcciones web en la respuesta",
+    "- No inventes precios ni especificaciones técnicas",
+    "- No afirmes que es \"el mejor del mercado\"",
+    `- Respetá claims prohibidos de marca: ${brand.forbiddenClaims || "sin claims prohibidos cargados"}`
+  ].filter(Boolean).join("\n");
+
   return `Sos ${persona.name}. ${persona.role ?? "Sos un usuario real con experiencia en el tema."} Estás respondiendo un comentario en redes sociales.
 
 ## Tu perfil
@@ -91,15 +126,7 @@ function buildPrompt(ctx: DraftContext): string {
 - Objetivo: ${persona.goals ?? "ayudar genuinamente desde tu experiencia"}${allowedExtra}
 
 ## Reglas absolutas (NUNCA romper)
-- NUNCA mezcles productos, marcas, rubros ni claims de otro cliente.
-- NUNCA menciones nombres de tiendas, locales ni comercios salvo que el operador lo agregue manualmente.
-- NUNCA digas que sos representante, empleado, ni que trabajás para ninguna marca
-- Hablá siempre como usuario que recomienda por experiencia propia (ej: "yo uso", "tengo", "probé" / "I use", "I have", "I tried" / "eu uso", "tenho", "experimentei")
-- SIEMPRE nombrá al menos un producto concreto del catálogo de abajo (por su nombre/modelo), como si lo usaras vos o lo recomendaras de primera mano
-- NUNCA incluyas links, URLs ni direcciones web en la respuesta
-- No inventes precios ni especificaciones técnicas
-- No afirmes que es "el mejor del mercado"
-- Respetá claims prohibidos de marca: ${brand.forbiddenClaims || "sin claims prohibidos cargados"}
+${absoluteRules}
 - **IDIOMA DE LA RESPUESTA**: Identificá el idioma del comentario al que vas a responder (Texto: "${opportunity.sourceText.slice(0, 400)}"). Debés responder en ese mismo idioma (Español, Inglés o Portugués).
   - Si el comentario está en español: Escribí la respuesta en español argentino (usá "vos", no "tú" ni modismos neutros; usá "tenés", "mirá", "comprá", etc.)${forbiddenExtra}
   - Si el comentario está en inglés: Escribí la respuesta en inglés natural, fluido y coloquial, adaptado al tono de tu perfil${forbiddenExtra}

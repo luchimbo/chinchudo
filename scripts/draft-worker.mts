@@ -20,10 +20,12 @@ const prisma = new PrismaClient();
 
 function parseArgs() {
   const limitIndex = process.argv.indexOf("--limit");
+  const clientIndex = process.argv.indexOf("--client");
   return {
     dryRun: process.argv.includes("--dry-run") || process.env.npm_config_dry_run === "true",
     useAi: process.argv.includes("--use-ai") || process.env.npm_config_use_ai === "true",
     limit: limitIndex >= 0 ? Number(process.argv[limitIndex + 1] || 5) : Number(process.env.npm_config_limit || 5),
+    clientSlug: clientIndex >= 0 ? process.argv[clientIndex + 1] : process.env.npm_config_client || null,
   };
 }
 
@@ -42,18 +44,24 @@ async function main() {
     // accounts.json no disponible
   }
 
+  const whereClause: any = {
+    status: { in: ["NEW", "NEEDS_REVIEW"] },
+    responses: { none: {} },
+  };
+
+  if (args.clientSlug) {
+    whereClause.client = { slug: args.clientSlug };
+  }
+
   const opportunities = await prisma.opportunity.findMany({
-    where: {
-      status: { in: ["NEW", "NEEDS_REVIEW"] },
-      responses: { none: {} },
-    },
+    where: whereClause,
     include: {
       channel: true,
       detectedBrand: { include: { client: true } },
       detectedProduct: true,
       monitoredSource: { include: { client: true } },
     },
-    orderBy: { createdAt: "asc" },
+    orderBy: { createdAt: "desc" },
     take: args.limit,
   });
 

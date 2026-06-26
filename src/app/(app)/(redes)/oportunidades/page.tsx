@@ -31,10 +31,7 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
     responses: { some: {} },
   };
   if (activeClient) {
-    where.OR = [
-      { detectedBrand: { clientId: activeClient.id } },
-      { monitoredSource: { clientId: activeClient.id } },
-    ];
+    where.clientId = activeClient.id;
   }
   if (validChannel) where.channel = { name: validChannel };
   if (q) {
