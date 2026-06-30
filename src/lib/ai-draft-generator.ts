@@ -103,14 +103,23 @@ function buildPrompt(ctx: DraftContext): string {
     rubroRule = "- NUNCA uses palabras o conceptos del rubro de música, sonido, audio o informática (ej: MIDI, controlador, DAW, interfaz, drivers, Ableton, piano, teclado, etc.). Tu nicho es exclusivamente indumentaria deportiva, compresión graduada y running/trail.";
   }
 
+  const isPcmidi = client?.slug === "pcmidi";
+  const isCazador = persona.name === "Cazador de Ofertas";
+
+  const storeRule = isPcmidi && isCazador
+    ? "- DEBÉS mencionar explícitamente a 'PC MIDI Center' como la tienda física/online de confianza donde comprar el producto, consultar stock o conseguir financiación/cuotas (ej: 'en PC MIDI Center tienen cuotas', 'fijate en la web de PC MIDI Center'). Recomendalo desde el punto de vista de un cliente/usuario, NUNCA digas que sos empleado o que trabajás ahí."
+    : "- NUNCA menciones nombres de tiendas, locales, comercios ni sitios web específicos (ej: no nombres a PC MIDI Center ni a ningún otro local) para que la respuesta suene como una recomendación de usuario 100% independiente y orgánica.";
+
   const absoluteRules = [
     "- NUNCA mezcles productos, marcas, rubros ni claims de otro cliente.",
     rubroRule,
     exclusionsLine,
-    "- NUNCA menciones nombres de tiendas, locales ni comercios salvo que el operador lo agregue manualmente.",
+    storeRule,
     "- NUNCA digas que sos representante, empleado, ni que trabajás para ninguna marca.",
     '- Hablá siempre como usuario que recomienda por experiencia propia (ej: "yo uso", "tengo", "probé" / "I use", "I have", "I tried" / "eu uso", "tenho", "experimentei")',
-    "- SIEMPRE nombrá al menos un producto concreto del catálogo de abajo (por su nombre/modelo), como si lo usaras vos o lo recomendaras de primera mano",
+    "- SIEMPRE recomendá y mencioná al menos un modelo o producto específico de la lista del catálogo de abajo (por su marca y modelo). Está prohibido dar respuestas vagas o hablar de forma genérica.",
+    "- NUNCA inventes, recomiendes ni menciones marcas ni modelos de productos que no estén listados en el catálogo de abajo. Está estrictamente prohibido inventar o recomendar marcas de la competencia o externas.",
+    "- NUNCA incluyas ninguna pregunta en tu respuesta (ni al inicio, ni al medio, ni al final). La respuesta debe consistir únicamente en afirmaciones, recomendaciones o datos útiles.",
     "- NUNCA incluyas links, URLs ni direcciones web en la respuesta",
     "- No inventes precios ni especificaciones técnicas",
     "- No afirmes que es \"el mejor del mercado\"",
@@ -147,10 +156,10 @@ Intención: ${intent}
 Texto: "${opportunity.sourceText.slice(0, 800)}"
 
 ## Instrucciones de respuesta
-- NUNCA termines la respuesta con una pregunta — ni retórica, ni para invitar a seguir la charla
-- Cerrá siempre con una afirmación, recomendación o dato útil
-- Si es TECHNICAL_QUESTION: dá la información técnica directamente desde tu experiencia, sin preguntar nada
-- Si es PURCHASE_QUESTION o PRICE_QUESTION: mencioná que hay opciones con garantía local, sin nombrar la tienda
+- NUNCA incluyas ninguna pregunta en tu respuesta — ni al principio, ni al medio, ni al final. Está prohibido hacer preguntas (ni de seguimiento, ni retóricas).
+- Cerrá siempre con una afirmación, recomendación o dato útil.
+- Si es TECHNICAL_QUESTION: dá la información técnica directamente desde tu experiencia, sin preguntar nada.
+- Si es PURCHASE_QUESTION o PRICE_QUESTION: mencioná que hay opciones con garantía local, respetando las reglas de nombres de tiendas indicadas en las Reglas absolutas.
 - Si es COMPARISON o se menciona un competidor: compará objetivamente desde la experiencia de usuario utilizando los puntos de "Debilidades de la competencia" para argumentar de forma sutil por qué tu producto es mejor, apoyándote en las "Fortalezas" sin hablar de forma destructiva o artificial.
 - Cada variante debe sonar diferente en estilo, no solo en palabras
 - Las TRES variantes deben nombrar un producto concreto del catálogo (por nombre/modelo), tejido de forma natural; elegí el más cercano al tema si no hay calce exacto
@@ -163,17 +172,17 @@ Texto: "${opportunity.sourceText.slice(0, 800)}"
   "variants": [
     {
       "type": "SHORT",
-      "text": "respuesta corta 1-2 oraciones que nombre un producto concreto del catálogo (sin link), cierra con afirmación o recomendación — NUNCA con pregunta",
+      "text": "respuesta corta de 1-2 oraciones consistiendo exclusivamente de afirmaciones, nombrando un producto concreto del catálogo (sin link), recomendándolo — NUNCA debe contener ninguna pregunta, signo de interrogación ni formular preguntas",
       "riskNotes": "nota interna sobre qué verificar antes de publicar"
     },
     {
       "type": "TECHNICAL",
-      "text": "respuesta con detalle técnico, mencioná el modelo específico del catálogo (sin link), cierra con dato útil — NUNCA con pregunta",
+      "text": "respuesta con detalle técnico consistiendo exclusivamente de afirmaciones, mencionando el modelo específico del catálogo (sin link), recomendándolo — NUNCA debe contener ninguna pregunta, signo de interrogación ni formular preguntas",
       "riskNotes": "nota interna sobre qué verificar antes de publicar"
     },
     {
       "type": "CONVERSATIONAL",
-      "text": "respuesta casual entre músicos, nombrando un producto del catálogo que 'usás vos' (sin link), cierra con recomendación — NUNCA con pregunta",
+      "text": "respuesta casual entre músicos consistiendo exclusivamente de afirmaciones, recomendando un producto del catálogo que 'usás vos' (sin link) — NUNCA debe contener ninguna pregunta, signo de interrogación ni formular preguntas",
       "riskNotes": "nota interna sobre qué verificar antes de publicar"
     }
   ]
