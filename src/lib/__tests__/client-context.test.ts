@@ -142,6 +142,6 @@ describe("local fallback drafts by client", () => {
     });
     expect(drafts[0].draftText).not.toContain("sistema operativo");
     expect(drafts[0].draftText).not.toContain("placa/SO");
-    expect(drafts[0].draftText).toContain("dudas específicas");
+    expect(drafts[0].draftText).toContain("especificaciones");
   });
 });
