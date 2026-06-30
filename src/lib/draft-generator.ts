@@ -65,7 +65,7 @@ function getPersonaVoice(persona: Persona, product?: ProductEntry): PersonaVoice
     return {
       intro: (p) => p ? `Yo en mi home studio uso el ${p.modelo} y va muy bien` : "Te hablo desde el uso diario en home studio",
       angle: "Lo que más importa es cómo te queda el flujo de trabajo: cantidad de controles, sensibilidad y poder grabar ideas rápido.",
-      tail: "¿Con qué DAW estás laburando?",
+      tail: "Se adapta de diez a cualquier DAW standard.",
     };
   }
 
@@ -73,7 +73,7 @@ function getPersonaVoice(persona: Persona, product?: ProductEntry): PersonaVoice
     return {
       intro: (p) => p ? `Yo vivo en departamento y tengo el ${p.modelo}; con auriculares no molesto a nadie` : "Yo practico en un depto chico y se puede sin molestar a los vecinos",
       angle: "Para departamento lo clave es el ruido bajo y poder usar auriculares cómodo.",
-      tail: "¿Cuánto espacio tenés para armarla?",
+      tail: "Es una opción muy compacta si no te sobra espacio.",
     };
   }
 
@@ -81,7 +81,7 @@ function getPersonaVoice(persona: Persona, product?: ProductEntry): PersonaVoice
     return {
       intro: (p) => p ? `Vengo de tocar acústica y el rebote del ${p.modelo} se siente bastante natural` : "Vengo de la acústica y se nota cuando el rebote está bien logrado",
       angle: "Lo que miro es la resistencia al golpe y el feeling de los parches, que aguante uso real.",
-      tail: "¿Venís de batería acústica o arrancás de cero?",
+      tail: "Sirve tanto para aprender como para seguir practicando con buen feeling.",
     };
   }
 
@@ -89,7 +89,7 @@ function getPersonaVoice(persona: Persona, product?: ProductEntry): PersonaVoice
     return {
       intro: (p) => p ? `Mis alumnos arrancan con el ${p.modelo} y aguanta el uso diario` : "Doy clases y suelo recomendar pensando en que dure",
       angle: "Para aprender conviene algo durable, simple de usar y con garantía por las dudas.",
-      tail: "¿Es para vos o para alguien que está empezando?",
+      tail: "Es ideal para dar los primeros pasos de forma segura.",
     };
   }
 
@@ -97,7 +97,7 @@ function getPersonaVoice(persona: Persona, product?: ProductEntry): PersonaVoice
     return {
       intro: (p) => p ? `Estuve mirando el ${p.modelo} y la verdad que en diseño la rompe` : "Vengo siguiendo lo nuevo y hay propuestas que se destacan por diseño",
       angle: "Más allá de la ficha, lo que me gusta es la estética cuidada y que sea algo distinto a lo de siempre.",
-      tail: "¿Lo viste en persona o solo en fotos?",
+      tail: "La verdad que estéticamente destaca bastante.",
     };
   }
 
@@ -105,7 +105,7 @@ function getPersonaVoice(persona: Persona, product?: ProductEntry): PersonaVoice
     return {
       intro: (p) => p ? `Estuve cazando precio del ${p.modelo} y conviene mirar cuotas` : "Siempre ando atento a las cuotas y la financiación",
       angle: "Lo que más mueve la aguja es el precio en cuotas y la disponibilidad, sin resignar garantía.",
-      tail: "¿Lo necesitás ya o podés esperar una buena promo?",
+      tail: "Conviene aprovechar las cuotas y facilidades de pago si están disponibles.",
     };
   }
 
@@ -113,14 +113,14 @@ function getPersonaVoice(persona: Persona, product?: ProductEntry): PersonaVoice
     return {
       intro: (p) => p ? `Yo compré el ${p.modelo} y cuando tuve una duda me la resolvieron rapidísimo` : "Por experiencia propia, el respaldo post-venta cuando comprás con garantía hace la diferencia",
       angle: "Tuve un problema una vez y la garantía funcionó sin vueltas, eso me dio tranquilidad.",
-      tail: "¿Lo estás por comprar nuevo?",
+      tail: "El soporte técnico y respaldo local dan mucha tranquilidad.",
     };
   }
 
   return {
     intro: (p) => p ? `Yo uso el ${p.modelo} y me anda bien` : "Te cuento desde mi experiencia",
     angle: "Conviene compararlo por modelo y uso real antes de cerrar.",
-    tail: "¿Qué uso le pensás dar?",
+    tail: "Se acomoda bastante bien a distintas necesidades.",
   };
 }
 
@@ -185,7 +185,7 @@ function makePcmidiDrafts(
     return [
       {
         variantType: "SHORT",
-        draftText: `${intro}. Depende mucho del modelo y del sistema operativo. ¿Qué placa/SO tenés? Con eso te digo si va directo.`,
+        draftText: `${intro}. Depende mucho del modelo y del sistema operativo. Te conviene chequear que sea class-compliant para tu versión.`,
         riskNotes,
       },
       {
@@ -314,7 +314,7 @@ function makeGenericDrafts(
     return [
       {
         variantType: "SHORT",
-        draftText: `${intro}. ¿Qué dudas específicas tenés sobre este modelo? Te puedo dar una mano.`,
+        draftText: `${intro}. Podés revisar las especificaciones de latencia y compatibilidad del fabricante para quedarte tranquilo.`,
         riskNotes,
       },
       {
