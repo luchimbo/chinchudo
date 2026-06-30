@@ -7,7 +7,8 @@ import {
   generateResponseDrafts,
   markAsPublished,
   publishViaAgent,
-  updateOpportunityStatus
+  updateOpportunityStatus,
+  deleteResponse
 } from "../actions";
 import { prisma } from "@/lib/db";
 import { StatusBanner } from "./StatusBanner";
@@ -212,6 +213,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
                     opportunity={opportunity}
                     clientSlug={resolution.client.slug}
                     approveResponseAction={approveResponse}
+                    deleteResponseAction={deleteResponse}
                     publishViaAgentAction={publishViaAgent}
                     agentAccounts={agentAccounts}
                     suggestedAccount={suggestedAccount?.name ?? null}

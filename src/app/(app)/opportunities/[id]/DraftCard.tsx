@@ -29,6 +29,7 @@ type DraftCardProps = {
   opportunity: OpportunityEntry;
   clientSlug?: string | null;
   approveResponseAction: (formData: FormData) => Promise<void>;
+  deleteResponseAction: (formData: FormData) => Promise<void>;
   publishViaAgentAction?: (formData: FormData) => Promise<void>;
   agentAccounts?: AgentAccount[];
   suggestedAccount?: string | null;
@@ -61,6 +62,7 @@ export function DraftCard({
   opportunity,
   clientSlug,
   approveResponseAction,
+  deleteResponseAction,
   publishViaAgentAction,
   agentAccounts = [],
   suggestedAccount,
@@ -69,6 +71,23 @@ export function DraftCard({
 }: DraftCardProps) {
   const [text, setText] = useState(response.editedText || response.draftText);
   const [isCopied, setIsCopied] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    if (confirm("¿Estás seguro de que querés eliminar esta respuesta/variante generada? Esta acción no se puede deshacer.")) {
+      setIsDeleting(true);
+      try {
+        const formData = new FormData();
+        formData.append("responseId", response.id);
+        formData.append("opportunityId", opportunity.id);
+        await deleteResponseAction(formData);
+      } catch (err) {
+        console.error("Error al eliminar la respuesta:", err);
+        alert("Hubo un error al intentar eliminar la respuesta.");
+        setIsDeleting(false);
+      }
+    }
+  };
 
   const brandStyle = getBrandAvatarStyles(response.brand.name);
 
@@ -138,13 +157,25 @@ export function DraftCard({
             </details>
           ) : null}
 
-          <div className="flex justify-end gap-2 pt-2 border-t border-ink/5">
-            <SubmitButton
-              loadingText={response.approvedBy ? "Actualizando…" : "Aprobando…"}
-              className="rounded-full bg-ink px-5 py-2.5 text-sm font-bold text-paper transition hover:bg-slate-850 disabled:opacity-50"
-            >
-              {response.approvedBy ? "Actualizar texto aprobado" : "Aprobar texto"}
-            </SubmitButton>
+          <div className="flex items-center justify-between pt-2 border-t border-ink/5">
+            <div>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="rounded-full border border-signal/20 text-signal hover:bg-signal/5 px-4 py-2.5 text-sm font-bold transition disabled:opacity-50"
+              >
+                {isDeleting ? "Eliminando…" : "Eliminar"}
+              </button>
+            </div>
+            <div>
+              <SubmitButton
+                loadingText={response.approvedBy ? "Actualizando…" : "Aprobando…"}
+                className="rounded-full bg-ink px-5 py-2.5 text-sm font-bold text-paper transition hover:bg-slate-850 disabled:opacity-50"
+              >
+                {response.approvedBy ? "Actualizar texto aprobado" : "Aprobar texto"}
+              </SubmitButton>
+            </div>
           </div>
         </form>
 

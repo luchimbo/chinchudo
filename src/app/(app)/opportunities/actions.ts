@@ -115,7 +115,7 @@ export async function generateResponseDrafts(formData: FormData) {
     persona,
     brand,
     client: resolution.client,
-    catalogProducts: clientContext.catalogProducts,
+    catalogProducts: clientContext.catalogProducts.filter((p) => p.brandId === brandId),
     catalogRules: clientContext.catalogRules,
     knowledge,
     objections,
@@ -356,5 +356,55 @@ export async function updateClientAutoSettings(clientId: string, autoApprove: bo
     data: { autoApprove, autoPublish },
   });
   revalidatePath("/");
+}
+
+const deleteResponseSchema = z.object({
+  responseId: z.string().min(1),
+  opportunityId: z.string().min(1),
+});
+
+export async function deleteResponse(formData: FormData) {
+  const parsed = deleteResponseSchema.parse({
+    responseId: formData.get("responseId"),
+    opportunityId: formData.get("opportunityId"),
+  });
+
+  const response = await prisma.response.findUnique({
+    where: { id: parsed.responseId },
+    select: { approvedBy: true },
+  });
+
+  if (!response) {
+    throw new Error("La respuesta que intentas eliminar no existe.");
+  }
+
+  const wasApproved = !!response.approvedBy;
+
+  await prisma.response.delete({
+    where: { id: parsed.responseId },
+  });
+
+  if (wasApproved) {
+    const remainingResponses = await prisma.response.findMany({
+      where: { opportunityId: parsed.opportunityId },
+      select: { approvedBy: true },
+    });
+
+    const hasApproved = remainingResponses.some((r) => r.approvedBy);
+
+    if (!hasApproved) {
+      const newStatus = remainingResponses.length > 0
+        ? OpportunityStatus.DRAFTED
+        : OpportunityStatus.NEEDS_REVIEW;
+
+      await prisma.opportunity.update({
+        where: { id: parsed.opportunityId },
+        data: { status: newStatus },
+      });
+    }
+  }
+
+  revalidatePath("/");
+  revalidatePath(`/opportunities/${parsed.opportunityId}`);
 }
 

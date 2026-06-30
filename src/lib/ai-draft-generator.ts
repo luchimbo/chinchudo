@@ -36,6 +36,15 @@ const INTENT_LABELS: Record<string, string> = {
   GENERAL_DISCUSSION: "comentario general / consulta abierta",
 };
 
+function formatProductName(brandName: string, productName: string): string {
+  const brand = brandName.toLowerCase();
+  const prod = productName.toLowerCase();
+  if (prod.includes(brand)) {
+    return productName;
+  }
+  return `${brandName} ${productName}`;
+}
+
 function buildPrompt(ctx: DraftContext): string {
   const { opportunity, brand, persona } = ctx;
   const client = ctx.client;
@@ -53,10 +62,10 @@ function buildPrompt(ctx: DraftContext): string {
     .map(p => ({ id: p.id, nombre: p.name, marca: p.brand?.name ?? "", modelo: p.name, uso: p.useCases || p.description }));
 
   const relevantBlock = relevant.length > 0
-    ? `### Más relevantes para este comentario (priorizalos)\n${relevant.map(p => `  - ${p.nombre} (${p.marca} ${p.modelo}): ${p.uso}`).join("\n")}`
+    ? `### Más relevantes para este comentario (priorizalos)\n${relevant.map(p => `  - ${formatProductName(p.marca, p.nombre)}: ${p.uso}`).join("\n")}`
     : "";
   const restBlock = rest.length > 0
-    ? `### Resto del catálogo (usá solo si aplica al tema)\n${rest.map(p => `  - ${p.nombre} (${p.marca} ${p.modelo}): ${p.uso}`).join("\n")}`
+    ? `### Resto del catálogo (usá solo si aplica al tema)\n${rest.map(p => `  - ${formatProductName(p.marca, p.nombre)}: ${p.uso}`).join("\n")}`
     : "";
   const productList = [relevantBlock, restBlock].filter(Boolean).join("\n") || "  - (sin productos específicos identificados)";
 
@@ -117,7 +126,7 @@ function buildPrompt(ctx: DraftContext): string {
     storeRule,
     "- NUNCA digas que sos representante, empleado, ni que trabajás para ninguna marca.",
     '- Hablá siempre como usuario que recomienda por experiencia propia (ej: "yo uso", "tengo", "probé" / "I use", "I have", "I tried" / "eu uso", "tenho", "experimentei")',
-    "- SIEMPRE recomendá y mencioná al menos un modelo o producto específico de la lista del catálogo de abajo (por su marca y modelo). Está prohibido dar respuestas vagas o hablar de forma genérica.",
+    "- SIEMPRE recomendá y mencioná al menos un modelo o producto específico de la lista del catálogo de abajo. Debés incluir el nombre del modelo o producto concreto (por ejemplo, 'AK490', 'AKM322', 'Studio M', 'LM-281', etc.). Está estrictamente prohibido usar solo la marca de forma genérica (ej: no digas solo 'el MidiPlus' o 'un Kressmer' si la lista tiene productos específicos).",
     "- NUNCA inventes, recomiendes ni menciones marcas ni modelos de productos que no estén listados en el catálogo de abajo. Está estrictamente prohibido inventar o recomendar marcas de la competencia o externas.",
     "- NUNCA incluyas ninguna pregunta en tu respuesta (ni al inicio, ni al medio, ni al final). La respuesta debe consistir únicamente en afirmaciones, recomendaciones o datos útiles.",
     "- NUNCA incluyas links, URLs ni direcciones web en la respuesta",
@@ -172,17 +181,17 @@ Texto: "${opportunity.sourceText.slice(0, 800)}"
   "variants": [
     {
       "type": "SHORT",
-      "text": "respuesta corta de 1-2 oraciones consistiendo exclusivamente de afirmaciones, nombrando un producto concreto del catálogo (sin link), recomendándolo — NUNCA debe contener ninguna pregunta, signo de interrogación ni formular preguntas",
+      "text": "respuesta corta de 1-2 oraciones consistiendo exclusivamente de afirmaciones, nombrando un producto concreto del catálogo (ej: 'Midiplus AKM322', sin link), recomendándolo — NUNCA debe contener ninguna pregunta, signo de interrogación ni formular preguntas",
       "riskNotes": "nota interna sobre qué verificar antes de publicar"
     },
     {
       "type": "TECHNICAL",
-      "text": "respuesta con detalle técnico consistiendo exclusivamente de afirmaciones, mencionando el modelo específico del catálogo (sin link), recomendándolo — NUNCA debe contener ninguna pregunta, signo de interrogación ni formular preguntas",
+      "text": "respuesta con detalle técnico consistiendo exclusivamente de afirmaciones, mencionando el modelo específico del catálogo (ej: 'Midiplus AKM322', sin link), recomendándolo — NUNCA debe contener ninguna pregunta, signo de interrogación ni formular preguntas",
       "riskNotes": "nota interna sobre qué verificar antes de publicar"
     },
     {
       "type": "CONVERSATIONAL",
-      "text": "respuesta casual entre músicos consistiendo exclusivamente de afirmaciones, recomendando un producto del catálogo que 'usás vos' (sin link) — NUNCA debe contener ninguna pregunta, signo de interrogación ni formular preguntas",
+      "text": "respuesta casual entre músicos consistiendo exclusivamente de afirmaciones, recomendando un producto del catálogo que 'usás vos' (ej: 'Midiplus AKM322', sin link) — NUNCA debe contener ninguna pregunta, signo de interrogación ni formular preguntas",
       "riskNotes": "nota interna sobre qué verificar antes de publicar"
     }
   ]
