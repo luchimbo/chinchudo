@@ -217,9 +217,13 @@ def start_nstbrowser_profile(config: dict) -> dict:
     if not api_key:
         raise SystemExit("Falta NSTBROWSER_API_KEY en .env")
 
-    launch_config: dict = {}
+    launch_config: dict = {
+        "config": {
+            "headless": False
+        }
+    }
     if os.environ.get("NSTBROWSER_HEADLESS", "").lower() in ("1", "true", "yes"):
-        launch_config["headless"] = True
+        launch_config["config"]["headless"] = True
 
     try:
         response = nstbrowser_request(f"{base}/browsers/{profile_id}", method="POST", data=launch_config)

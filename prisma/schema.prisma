@@ -95,6 +95,8 @@ model Client {
   trackingEvents      TrackingEvent[]
   users               User[]
   opportunities       Opportunity[]
+  trends              Trend[]
+  videoScripts        VideoScript[]
 }
 
 model User {
@@ -152,6 +154,7 @@ model Brand {
   opportunities        Opportunity[]
   products             Product[]
   responses            Response[]
+  videoScripts         VideoScript[]
 
   @@unique([clientId, name])
 }
@@ -171,6 +174,7 @@ model Product {
   updatedAt      DateTime      @updatedAt
   opportunities  Opportunity[]
   brand          Brand         @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  videoScripts   VideoScript[]
 
   @@unique([brandId, name])
 }
@@ -188,11 +192,13 @@ model Persona {
   goodExamples     String        @default("")
   badExamples      String        @default("")
   angle            String        @default("")
+  avatarUrl        String        @default("")
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
   client           Client?       @relation(fields: [clientId], references: [id])
   responses        Response[]
   rules            PersonaRule[]
+  videoScripts     VideoScript[]
 
   @@unique([clientId, name])
 }
@@ -593,4 +599,53 @@ model SeedTopic {
   @@index([clientId])
   @@index([keyword])
 }
+
+model Trend {
+  id            String         @id @default(cuid())
+  clientId      String?
+  title         String
+  description   String
+  sourceUrl     String         @default("")
+  platform      String         // "TIKTOK" | "YOUTUBE" | "GOOGLE_TRENDS" | "TWITTER" | "REDDIT"
+  queryUsed     String         @default("")
+  metadata      Json           @default("{}") // volumen de búsqueda, hashtags asociados, etc.
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  client        Client?        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  videoScripts  VideoScript[]
+
+  @@index([clientId])
+  @@index([createdAt])
+}
+
+model VideoScript {
+  id             String        @id @default(cuid())
+  clientId       String?
+  trendId        String?
+  brandId        String?
+  productId      String?
+  personaId      String
+  hook           String
+  bodyText       String
+  cta            String
+  visualCues     String        @default("") // Instrucciones visuales
+  audioPrompt    String        @default("") // Estilo de música o audio de fondo
+  avatarVideoUrl String        @default("") // Video renderizado final
+  avatarJobId    String        @default("") // ID del Talk en D-ID
+  avatarStatus   String        @default("PENDING") // PENDING | PROCESSING | COMPLETED | FAILED
+  status         String        @default("NEW") // NEW | APPROVED | RENDERING | READY | DISCARDED
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  
+  trend          Trend?        @relation(fields: [trendId], references: [id], onDelete: SetNull)
+  brand          Brand?        @relation(fields: [brandId], references: [id])
+  product        Product?      @relation(fields: [productId], references: [id])
+  persona        Persona       @relation(fields: [personaId], references: [id])
+  client         Client?       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([status])
+  @@index([createdAt])
+}
+
 

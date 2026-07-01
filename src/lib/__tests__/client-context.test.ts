@@ -106,6 +106,7 @@ describe("local fallback drafts by client", () => {
     sourceUrl: "https://youtube.com/123",
     sourceAuthor: "user1",
     sourceText: text,
+    clientId: "pcmidi",
     detectedBrandId: "b1",
     detectedProductId: null,
     detectedIntent: intent,
@@ -121,7 +122,7 @@ describe("local fallback drafts by client", () => {
   });
 
   const mockBrand = { id: "b1", name: "MidiPlus", clientId: "pcmidi", strengths: "", tone: "", allowedClaims: "", forbiddenClaims: "", competitorWeaknesses: "", createdAt: new Date(), updatedAt: new Date() };
-  const mockPersona = { id: "p1", clientId: "pcmidi", name: "Técnico / Productor", role: "Técnico", tone: "serio", goals: "ayudar", preferredLength: "SHORT", allowedPhrases: "", forbiddenPhrases: "", goodExamples: "", badExamples: "", angle: "tecnico", createdAt: new Date(), updatedAt: new Date() };
+  const mockPersona = { id: "p1", clientId: "pcmidi", name: "Técnico / Productor", role: "Técnico", tone: "serio", goals: "ayudar", preferredLength: "SHORT", allowedPhrases: "", forbiddenPhrases: "", goodExamples: "", badExamples: "", angle: "tecnico", avatarUrl: "", createdAt: new Date(), updatedAt: new Date() };
 
   it("genera fallbacks de pcmidi con referencias tecnicas de audio", () => {
     const drafts = generateLocalDrafts({

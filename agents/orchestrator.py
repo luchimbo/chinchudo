@@ -465,6 +465,10 @@ def main() -> None:
     conv_cmd.add_argument("--min-views", type=int, default=50)
     conv_cmd.add_argument("--client-slug", default="", help="Cliente a analizar")
 
+    trend_cmd = sub.add_parser("trend-listen", help="Buscar tendencias calientes en AR relacionadas al catálogo")
+    trend_cmd.add_argument("--limit", type=int, default=15)
+    trend_cmd.add_argument("--dry-run", action="store_true")
+
     parsed, unknown = parser.parse_known_args()
     args = apply_positional_fallback(apply_npm_flags(parsed), unknown)
 
@@ -531,6 +535,17 @@ def main() -> None:
         if getattr(args, "client_slug", ""):
             cmd.extend(["--client-slug", args.client_slug])
         run_step("conversion", cmd)
+    elif args.command == "trend-listen":
+        TREND_SCRIPT = ROOT / "agents" / "trend-listen.py"
+        cmd = [sys.executable, str(TREND_SCRIPT), "--limit", str(args.limit)]
+        if args.dry_run:
+            cmd.append("--dry-run")
+        steps: list[dict] = []
+        require_ok(run_step("trend-listen", cmd), steps, "trend-listen")
+        if not args.dry_run:
+            require_ok(run_step("import-trends", [resolve_bin("npx"), "tsx", "scripts/import-trends.mts"]), steps, "trend-listen")
+        report = write_report("trend-listen", {"command": "trend-listen", "status": "ok", "dry_run": args.dry_run, "steps": steps})
+        print(f"agents: trend-listen OK. Reporte: {report}")
 
 
 if __name__ == "__main__":

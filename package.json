@@ -31,6 +31,7 @@
     "agents:distribution": "python agents/orchestrator.py distribution generate",
     "agents:geo-audit": "python agents/orchestrator.py geo-audit",
     "agents:conversion": "python agents/orchestrator.py conversion",
+    "agents:trend-listen": "python agents/orchestrator.py trend-listen",
     "db:backup": "node scripts/backup-db.mjs",
     "db:supabase-push": "prisma db push",
     "relay": "node scripts/agent-relay.mjs",
