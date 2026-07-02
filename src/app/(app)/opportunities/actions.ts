@@ -91,6 +91,10 @@ export async function generateResponseDrafts(formData: FormData) {
     productId ? prisma.product.findUnique({ where: { id: productId }, include: { brand: true } }) : Promise.resolve(null)
   ]);
 
+  if (opportunity.status === "PUBLISHED" || opportunity.status === "CONVERTED" || opportunity.status === "FOLLOW_UP") {
+    throw new Error("Esta oportunidad ya fue respondida/publicada y no se pueden generar más borradores.");
+  }
+
   const resolution = await resolveOpportunityClient(prisma, opportunity);
   const clientContext = await loadClientContext(prisma, resolution.client.id, opportunity);
   if (brand.clientId && brand.clientId !== resolution.client.id) {
@@ -195,6 +199,15 @@ export async function approveResponse(formData: FormData) {
     approvedBy: formData.get("approvedBy") || "Fede"
   });
 
+  const opportunity = await prisma.opportunity.findUniqueOrThrow({
+    where: { id: parsed.opportunityId },
+    select: { status: true }
+  });
+
+  if (opportunity.status === "PUBLISHED" || opportunity.status === "CONVERTED" || opportunity.status === "FOLLOW_UP") {
+    throw new Error("La oportunidad ya está publicada/respondida y no se puede modificar la aprobación.");
+  }
+
   await prisma.$transaction([
     prisma.response.update({
       where: { id: parsed.responseId },
@@ -230,6 +243,34 @@ export async function markAsPublished(formData: FormData) {
     followUpNeeded: formData.get("followUpNeeded") || ""
   });
 
+  const opportunity = await prisma.opportunity.findUniqueOrThrow({
+    where: { id: parsed.opportunityId },
+    include: { channel: true }
+  });
+
+  if (opportunity.status === "PUBLISHED" || opportunity.status === "CONVERTED" || opportunity.status === "FOLLOW_UP") {
+    throw new Error("Esta oportunidad ya fue respondida/publicada.");
+  }
+
+  // Cerrar oportunidades HERMANAS del mismo post (mismo video/hilo/publicación)
+  const postKey = extractPostKey(opportunity.channel.name, opportunity.sourceUrl);
+  const siblingUpdate = postKey
+    ? [
+        prisma.opportunity.updateMany({
+          where: {
+            id: { not: parsed.opportunityId },
+            channelId: opportunity.channelId,
+            status: { in: ["NEW", "NEEDS_REVIEW", "DRAFTED", "APPROVED"] },
+            sourceUrl: { contains: postKey },
+          },
+          data: {
+            status: OpportunityStatus.DISCARDED,
+            notes: `Auto-descartada: ya se publicó un comentario en este post (${postKey}).`,
+          },
+        }),
+      ]
+    : [];
+
   await prisma.$transaction([
     prisma.publishingLog.upsert({
       where: { responseId: parsed.responseId },
@@ -249,7 +290,8 @@ export async function markAsPublished(formData: FormData) {
     prisma.opportunity.update({
       where: { id: parsed.opportunityId },
       data: { status: parsed.followUpNeeded === "on" ? OpportunityStatus.FOLLOW_UP : OpportunityStatus.PUBLISHED }
-    })
+    }),
+    ...siblingUpdate
   ]);
 
   revalidatePath("/");
@@ -288,6 +330,15 @@ export async function publishViaAgent(formData: FormData) {
     responseId: formData.get("responseId"),
     account: formData.get("account") || undefined
   });
+
+  const opportunity = await prisma.opportunity.findUniqueOrThrow({
+    where: { id: parsed.opportunityId },
+    select: { status: true }
+  });
+
+  if (opportunity.status === "PUBLISHED" || opportunity.status === "CONVERTED" || opportunity.status === "FOLLOW_UP") {
+    throw new Error("La oportunidad ya está publicada/respondida y no se puede publicar de nuevo.");
+  }
 
   const relayUrl = await getRelayUrl();
   const relayToken = process.env.AGENT_RELAY_TOKEN;
@@ -420,5 +471,34 @@ export async function deleteResponse(formData: FormData) {
 
   revalidatePath("/");
   revalidatePath(`/opportunities/${parsed.opportunityId}`);
+}
+
+function extractPostKey(channel: string, url: string): string | null {
+  try {
+    const ch = (channel || "").toLowerCase();
+    if (ch === "youtube") {
+      const v = new URL(url).searchParams.get("v");
+      return v ? `v=${v}` : null;
+    }
+    if (ch === "reddit") {
+      const m = url.match(/\/comments\/([a-z0-9]+)/i);
+      return m ? `/comments/${m[1]}` : null;
+    }
+    if (ch === "instagram") {
+      const m = url.match(/\/(p|reel|tv)\/([A-Za-z0-9_-]+)/);
+      return m ? `/${m[1]}/${m[2]}` : null;
+    }
+    if (ch === "facebook") {
+      const m = url.match(/\/posts\/(\d+)/) || url.match(/\/permalink\/(\d+)/) || url.match(/[?&]story_fbid=(\d+)/);
+      return m ? m[1] : null;
+    }
+    if (ch === "x" || ch === "twitter") {
+      const m = url.match(/\/status\/(\d+)/);
+      return m ? `/status/${m[1]}` : null;
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 

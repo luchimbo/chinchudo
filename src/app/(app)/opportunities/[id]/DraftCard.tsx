@@ -3,6 +3,16 @@
 import React, { useState } from "react";
 import { SubmitButton } from "./SubmitButton";
 
+type PublishingLogEntry = {
+  id: string;
+  publishedUrl: string;
+  publishedAt: string | Date;
+  publishedBy: string;
+  result: string;
+  followUpNeeded: boolean;
+  account: string;
+};
+
 type ResponseEntry = {
   id: string;
   variantType: string;
@@ -12,6 +22,7 @@ type ResponseEntry = {
   approvedBy: string;
   brand: { name: string };
   persona: { name: string };
+  publishingLog?: PublishingLogEntry | null;
 };
 
 type OpportunityEntry = {
@@ -36,6 +47,7 @@ type DraftCardProps = {
   suggestedAccount?: string | null;
   canPublishViaAgent?: boolean;
   clientParam?: string;
+  isAlreadyPublished?: boolean;
 };
 
 function getPersonaDisplayName(name: string, clientSlug?: string | null) {
@@ -70,6 +82,7 @@ export function DraftCard({
   suggestedAccount,
   canPublishViaAgent,
   clientParam,
+  isAlreadyPublished = false,
 }: DraftCardProps) {
   const [text, setText] = useState(response.editedText || response.draftText);
   const [isCopied, setIsCopied] = useState(false);
@@ -145,7 +158,10 @@ export function DraftCard({
               rows={8}
               value={text}
               onChange={(e) => setText(e.target.value)}
-              className="w-full flex-1 resize-y rounded-md border border-ink/15 bg-white px-4 py-3 text-sm leading-relaxed text-ink focus:border-ink/40 focus:ring-1 focus:ring-ink/20 focus:outline-none"
+              readOnly={isAlreadyPublished}
+              className={`w-full flex-1 resize-y rounded-md border border-ink/15 px-4 py-3 text-sm leading-relaxed text-ink focus:border-ink/40 focus:ring-1 focus:ring-ink/20 focus:outline-none ${
+                isAlreadyPublished ? "bg-slate-50 cursor-not-allowed opacity-85" : "bg-white"
+              }`}
               placeholder="Escribe la respuesta aquí..."
             />
           </div>
@@ -159,29 +175,31 @@ export function DraftCard({
             </details>
           ) : null}
 
-          <div className="flex items-center justify-between pt-2 border-t border-ink/5">
-            <div>
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={isDeleting}
-                className="rounded-full border border-signal/20 text-signal hover:bg-signal/5 px-4 py-2.5 text-sm font-bold transition disabled:opacity-50"
-              >
-                {isDeleting ? "Eliminando…" : "Eliminar"}
-              </button>
+          {!isAlreadyPublished ? (
+            <div className="flex items-center justify-between pt-2 border-t border-ink/5">
+              <div>
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={isDeleting}
+                  className="rounded-full border border-signal/20 text-signal hover:bg-signal/5 px-4 py-2.5 text-sm font-bold transition disabled:opacity-50"
+                >
+                  {isDeleting ? "Eliminando…" : "Eliminar"}
+                </button>
+              </div>
+              <div>
+                <SubmitButton
+                  loadingText={response.approvedBy ? "Actualizando…" : "Aprobando…"}
+                  className="rounded-full bg-ink px-5 py-2.5 text-sm font-bold text-paper transition hover:bg-slate-850 disabled:opacity-50"
+                >
+                  {response.approvedBy ? "Actualizar texto aprobado" : "Aprobar texto"}
+                </SubmitButton>
+              </div>
             </div>
-            <div>
-              <SubmitButton
-                loadingText={response.approvedBy ? "Actualizando…" : "Aprobando…"}
-                className="rounded-full bg-ink px-5 py-2.5 text-sm font-bold text-paper transition hover:bg-slate-850 disabled:opacity-50"
-              >
-                {response.approvedBy ? "Actualizar texto aprobado" : "Aprobar texto"}
-              </SubmitButton>
-            </div>
-          </div>
+          ) : null}
         </form>
 
-        {response.approvedBy && canPublishViaAgent && publishViaAgentAction ? (
+        {response.approvedBy && canPublishViaAgent && publishViaAgentAction && !isAlreadyPublished ? (
           <form action={publishViaAgentAction} className="mt-4 rounded-md border border-brass/30 bg-brass/5 p-4">
             <p className="text-xs font-bold uppercase tracking-wider text-brass/80 mb-3">Publicar vía agente</p>
             <input type="hidden" name="opportunityId" value={opportunity.id} />
@@ -211,7 +229,7 @@ export function DraftCard({
           </form>
         ) : null}
 
-        {response.approvedBy ? (
+        {response.approvedBy && !isAlreadyPublished ? (
           <form action={markAsPublishedAction} className="mt-4 rounded-md border border-moss/25 bg-moss/5 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs font-bold uppercase tracking-wider text-moss">Publicacion manual</p>
@@ -256,6 +274,39 @@ export function DraftCard({
               Marcar publicado
             </SubmitButton>
           </form>
+        ) : null}
+
+        {response.publishingLog ? (
+          <div className="mt-4 rounded-md border border-moss/25 bg-moss/5 p-4 text-xs animate-fade-in">
+            <p className="font-bold text-moss flex items-center gap-1.5">
+              <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-moss text-white text-[10px]">✓</span>
+              Comentario Publicado Exitosamente
+            </p>
+            <div className="mt-2 text-slate/75 space-y-1">
+              <p><span className="font-bold text-ink">Fecha:</span> {new Date(response.publishingLog.publishedAt).toLocaleString("es-AR")}</p>
+              {response.publishingLog.account ? (
+                <p><span className="font-bold text-ink">Cuenta:</span> {response.publishingLog.account}</p>
+              ) : null}
+              {response.publishingLog.publishedBy ? (
+                <p><span className="font-bold text-ink">Por:</span> {response.publishingLog.publishedBy}</p>
+              ) : null}
+              {response.publishingLog.result ? (
+                <p><span className="font-bold text-ink">Resultado:</span> {response.publishingLog.result}</p>
+              ) : null}
+              {response.publishingLog.publishedUrl ? (
+                <div className="pt-2">
+                  <a
+                    href={response.publishingLog.publishedUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 font-bold text-moss underline hover:text-ink transition-colors"
+                  >
+                    Ver comentario publicado ↗
+                  </a>
+                </div>
+              ) : null}
+            </div>
+          </div>
         ) : null}
       </div>
     </article>

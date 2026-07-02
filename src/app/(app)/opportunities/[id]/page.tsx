@@ -123,6 +123,11 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
       })),
   ];
   const approvedResponse = opportunity.responses.find((response) => response.approvedBy);
+  const isAlreadyPublished =
+    opportunity.status === "PUBLISHED" ||
+    opportunity.status === "CONVERTED" ||
+    opportunity.status === "FOLLOW_UP" ||
+    opportunity.responses.some((r) => !!r.publishingLog);
   const suggestions = await suggestAllPersonasForClient(prisma, opportunity, resolution.client.id);
   const suggestion = suggestions[0];
   const suggestedPersona = personas.find((p) => p.name === suggestion?.personaName);
@@ -248,6 +253,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
                     suggestedAccount={suggestedAccount?.name ?? null}
                     canPublishViaAgent={canPublishViaAgent}
                     clientParam={searchParams?.client ?? ""}
+                    isAlreadyPublished={isAlreadyPublished}
                   />
                 ))
               )}
@@ -278,91 +284,129 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
             }
             approvedText={approvedResponse?.editedText || approvedResponse?.draftText}
           />
-          <form
-            action={generateResponseDrafts}
-            className="rounded-lg border border-ink/10 bg-ink p-5 text-paper shadow-panel"
-          >
-            <h2 className="font-display text-3xl">Generar respuestas</h2>
-            <input type="hidden" name="opportunityId" value={opportunity.id} />
-            <label className="mt-4 grid gap-2 text-sm font-semibold text-paper/80">
-              Marca
-              <select name="brandId" defaultValue={selectedBrandId} className="rounded-md border border-white/15 bg-paper px-3 py-3 text-ink">
-                {brands.map((brand) => (
-                  <option key={brand.id} value={brand.id}>{brand.name}</option>
-                ))}
-              </select>
-            </label>
-            <label className="mt-4 grid gap-2 text-sm font-semibold text-paper/80">
-              Producto
-              <select name="productId" defaultValue={suggestedProductId} className="rounded-md border border-white/15 bg-paper px-3 py-3 text-ink">
-                {productOptions.map((product) => (
-                  <option key={product.id} value={product.id}>
-                    {product.nombre}{product.id === recommendedProducts[0]?.id ? " (mejor match)" : recommendedIds.has(product.id) ? " (alternativa)" : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {recommendedProducts.length > 0 ? (
-              <p className="mt-2 rounded-md bg-white/10 px-3 py-2 text-xs leading-5 text-paper/70">
-                <span className="font-bold text-paper">Auto:</span> {recommendedProducts[0].nombre}
-                {recommendedProducts.length > 1 ? <span className="text-paper/55">. Alternativas reales disponibles en el selector.</span> : null}
+          {isAlreadyPublished ? (
+            <div className="rounded-lg border border-moss/35 bg-moss/5 p-5 text-ink shadow-panel backdrop-blur">
+              <h2 className="font-display text-2xl text-moss flex items-center gap-2 font-bold animate-fade-in">
+                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-moss text-white text-xs">✓</span>
+                Respondido
+              </h2>
+              <p className="mt-3 text-sm leading-relaxed text-slate">
+                Esta oportunidad ya fue respondida y registrada como comentada/publicada. No se requiere realizar más acciones.
               </p>
-            ) : null}
-            <label className="mt-4 grid gap-2 text-sm font-semibold text-paper/80">
-              Voz
-              <select name="personaId" defaultValue={suggestedPersonaId} className="rounded-md border border-white/15 bg-paper px-3 py-3 text-ink">
-                {personas.map((persona) => (
-                  <option key={persona.id} value={persona.id}>
-                    {getPersonaDisplayName(persona.name, resolution.client.slug)}{persona.id === suggestedPersonaId ? " (sugerida)" : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {suggestedPersona ? (
-              <p className="mt-2 rounded-md bg-white/10 px-3 py-2 text-xs leading-5 text-paper/70">
-                <span className="font-bold text-paper">Sugerencia automática:</span> {getPersonaDisplayName(suggestion.personaName, resolution.client.slug)}
-                {suggestion.reason ? <span className="text-paper/55"> — {suggestion.reason}</span> : null}
-              </p>
-            ) : null}
-            <SubmitButton
-              loadingText="Generando…"
-              className="mt-5 w-full rounded-full bg-paper px-5 py-3 text-sm font-bold text-ink transition hover:bg-white disabled:opacity-50"
-            >
-              Generar 3 variantes
-            </SubmitButton>
-          </form>
-
-          {approvedResponse ? (
-            <form id="publish-section" className="rounded-lg border border-ink/10 bg-white/75 p-5 shadow-panel backdrop-blur" action={markAsPublished}>
-              <h2 className="font-display text-2xl">Publicacion</h2>
-              <input type="hidden" name="opportunityId" value={opportunity.id} />
-              <input type="hidden" name="responseId" value={approvedResponse.id} />
-              <label className="mt-4 grid gap-2 text-sm font-semibold text-slate">
-                URL publicada
-                <input name="publishedUrl" type="url" placeholder="https://..." className="rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink" />
-              </label>
-              <label className="mt-4 grid gap-2 text-sm font-semibold text-slate">
-                Resultado
-                <select name="result" className="rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink">
-                  <option value="published">Publicado</option>
-                  <option value="reply_received">Respondio usuario</option>
-                  <option value="whatsapp">Derivo a WhatsApp</option>
-                  <option value="sale_assist">Venta asistida</option>
-                </select>
-              </label>
-              <label className="mt-4 flex items-center gap-2 text-sm font-semibold text-slate">
-                <input name="followUpNeeded" type="checkbox" className="h-4 w-4" />
-                Necesita seguimiento
-              </label>
-              <CopyButton text={approvedResponse.editedText || approvedResponse.draftText} className="mt-3 w-full rounded-full border border-ink/20 bg-paper px-5 py-3 text-sm font-bold text-ink transition hover:border-ink/45 hover:bg-white" />
-              <SubmitButton
-                loadingText="Guardando..."
-                className="mt-3 w-full rounded-full bg-moss px-5 py-3 text-sm font-bold text-white transition hover:bg-ink disabled:opacity-50"
+              {opportunity.responses.find(r => r.publishingLog)?.publishingLog ? (
+                (() => {
+                  const log = opportunity.responses.find(r => r.publishingLog)!.publishingLog!;
+                  return (
+                    <div className="mt-4 border-t border-moss/20 pt-3 text-xs text-slate/80 space-y-2">
+                      <p><span className="font-bold text-ink">Fecha:</span> {new Date(log.publishedAt).toLocaleString("es-AR")}</p>
+                      {log.publishedBy ? <p><span className="font-bold text-ink">Por:</span> {log.publishedBy}</p> : null}
+                      {log.account ? <p><span className="font-bold text-ink">Cuenta:</span> {log.account}</p> : null}
+                      {log.publishedUrl ? (
+                        <div className="pt-2">
+                          <a
+                            href={log.publishedUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 font-bold text-moss underline hover:text-ink transition-colors"
+                          >
+                            Ver comentario publicado ↗
+                          </a>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })()
+              ) : null}
+            </div>
+          ) : (
+            <>
+              <form
+                action={generateResponseDrafts}
+                className="rounded-lg border border-ink/10 bg-ink p-5 text-paper shadow-panel"
               >
-                Marcar publicado
-              </SubmitButton>
-            </form>
-          ) : null}
+                <h2 className="font-display text-3xl">Generar respuestas</h2>
+                <input type="hidden" name="opportunityId" value={opportunity.id} />
+                <label className="mt-4 grid gap-2 text-sm font-semibold text-paper/80">
+                  Marca
+                  <select name="brandId" defaultValue={selectedBrandId} className="rounded-md border border-white/15 bg-paper px-3 py-3 text-ink">
+                    {brands.map((brand) => (
+                      <option key={brand.id} value={brand.id}>{brand.name}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="mt-4 grid gap-2 text-sm font-semibold text-paper/80">
+                  Producto
+                  <select name="productId" defaultValue={suggestedProductId} className="rounded-md border border-white/15 bg-paper px-3 py-3 text-ink">
+                    {productOptions.map((product) => (
+                      <option key={product.id} value={product.id}>
+                        {product.nombre}{product.id === recommendedProducts[0]?.id ? " (mejor match)" : recommendedIds.has(product.id) ? " (alternativa)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {recommendedProducts.length > 0 ? (
+                  <p className="mt-2 rounded-md bg-white/10 px-3 py-2 text-xs leading-5 text-paper/70">
+                    <span className="font-bold text-paper">Auto:</span> {recommendedProducts[0].nombre}
+                    {recommendedProducts.length > 1 ? <span className="text-paper/55">. Alternativas reales disponibles en el selector.</span> : null}
+                  </p>
+                ) : null}
+                <label className="mt-4 grid gap-2 text-sm font-semibold text-paper/80">
+                  Voz
+                  <select name="personaId" defaultValue={suggestedPersonaId} className="rounded-md border border-white/15 bg-paper px-3 py-3 text-ink">
+                    {personas.map((persona) => (
+                      <option key={persona.id} value={persona.id}>
+                        {getPersonaDisplayName(persona.name, resolution.client.slug)}{persona.id === suggestedPersonaId ? " (sugerida)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {suggestedPersona ? (
+                  <p className="mt-2 rounded-md bg-white/10 px-3 py-2 text-xs leading-5 text-paper/70">
+                    <span className="font-bold text-paper">Sugerencia automática:</span> {getPersonaDisplayName(suggestion.personaName, resolution.client.slug)}
+                    {suggestion.reason ? <span className="text-paper/55"> — {suggestion.reason}</span> : null}
+                  </p>
+                ) : null}
+                <SubmitButton
+                  loadingText="Generando…"
+                  className="mt-5 w-full rounded-full bg-paper px-5 py-3 text-sm font-bold text-ink transition hover:bg-white disabled:opacity-50"
+                >
+                  Generar 3 variantes
+                </SubmitButton>
+              </form>
+
+              {approvedResponse ? (
+                <form id="publish-section" className="rounded-lg border border-ink/10 bg-white/75 p-5 shadow-panel backdrop-blur" action={markAsPublished}>
+                  <h2 className="font-display text-2xl">Publicacion</h2>
+                  <input type="hidden" name="opportunityId" value={opportunity.id} />
+                  <input type="hidden" name="responseId" value={approvedResponse.id} />
+                  <label className="mt-4 grid gap-2 text-sm font-semibold text-slate">
+                    URL publicada
+                    <input name="publishedUrl" type="url" placeholder="https://..." className="rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink" />
+                  </label>
+                  <label className="mt-4 grid gap-2 text-sm font-semibold text-slate">
+                    Resultado
+                    <select name="result" className="rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink">
+                      <option value="published">Publicado</option>
+                      <option value="reply_received">Respondio usuario</option>
+                      <option value="whatsapp">Derivo a WhatsApp</option>
+                      <option value="sale_assist">Venta asistida</option>
+                    </select>
+                  </label>
+                  <label className="mt-4 flex items-center gap-2 text-sm font-semibold text-slate">
+                    <input name="followUpNeeded" type="checkbox" className="h-4 w-4" />
+                    Necesita seguimiento
+                  </label>
+                  <CopyButton text={approvedResponse.editedText || approvedResponse.draftText} className="mt-3 w-full rounded-full border border-ink/20 bg-paper px-5 py-3 text-sm font-bold text-ink transition hover:border-ink/45 hover:bg-white" />
+                  <SubmitButton
+                    loadingText="Guardando..."
+                    className="mt-3 w-full rounded-full bg-moss px-5 py-3 text-sm font-bold text-white transition hover:bg-ink disabled:opacity-50"
+                  >
+                    Marcar publicado
+                  </SubmitButton>
+                </form>
+              ) : null}
+            </>
+          )}
 
         </aside>
       </section>
