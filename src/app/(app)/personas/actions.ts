@@ -15,7 +15,9 @@ const personaSchema = z.object({
   allowedPhrases: z.string().max(2000).optional().transform((v) => v ?? ""),
   forbiddenPhrases: z.string().max(2000).optional().transform((v) => v ?? ""),
   goodExamples: z.string().max(4000).optional().transform((v) => v ?? ""),
-  badExamples: z.string().max(4000).optional().transform((v) => v ?? "")
+  badExamples: z.string().max(4000).optional().transform((v) => v ?? ""),
+  avatarUrl: z.string().max(2000).optional().transform((v) => v ?? ""),
+  voiceId: z.string().min(2).max(120).optional().transform((v) => v || "es-AR-TomasNeural")
 });
 
 function parse(formData: FormData) {
@@ -29,7 +31,9 @@ function parse(formData: FormData) {
     allowedPhrases: formData.get("allowedPhrases") || undefined,
     forbiddenPhrases: formData.get("forbiddenPhrases") || undefined,
     goodExamples: formData.get("goodExamples") || undefined,
-    badExamples: formData.get("badExamples") || undefined
+    badExamples: formData.get("badExamples") || undefined,
+    avatarUrl: formData.get("avatarUrl") || undefined,
+    voiceId: formData.get("voiceId") || undefined
   });
 }
 

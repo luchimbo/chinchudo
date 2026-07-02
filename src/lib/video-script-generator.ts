@@ -48,17 +48,38 @@ export async function generateVideoScript(ctx: ScriptGenerationContext): Promise
 
   const model = client.openrouterModel?.trim() || process.env.OPENROUTER_MODEL || "google/gemini-2.0-flash-lite";
 
-  // 3. Construir el Prompt
+  // 3. Construir el Prompt dinámico según el origen de la tendencia
+  let taskInstruction = `Vas a escribir un guion de video basado en una TENDENCIA ACTUAL y en un PRODUCTO específico de nuestro catálogo, hablando con el arquetipo de voz de una PERSONA específica.`;
+  let contextDetail = `1. **Tendencia (Trend)**:
+   - Título: ${trend.title}
+   - Descripción: ${trend.description}
+   - Red/Origen: ${trend.platform}`;
+
+  if (trend.platform === "VIRAL_CLONE") {
+    taskInstruction = `Vas a escribir un guion de video CLONANDO LA ESTRUCTURA, EL RITMO Y EL GANCHO de un video viral exitoso.
+Replica el tipo de gancho (hook), el desarrollo y la llamada a la acción (CTA) del video original, adaptándolos a nuestro producto y a la Persona elegida.`;
+    
+    contextDetail = `1. **Estructura/Dinámica del Video Viral a Clonar**:
+   - Título/Concepto del original: ${trend.title}
+   - Enlace de origen: ${trend.sourceUrl || "N/A"}
+   - Dinámica original del video: ${trend.description}`;
+  } else if (trend.platform === "URL_ARTICLE") {
+    taskInstruction = `Vas a escribir un guion de video corto (tipo Reels/TikTok) basándote en la información técnica o artículo de un enlace de referencia (URL).
+Extrae los puntos fuertes del producto, sus mejores casos de uso y redacta el guion en la voz de la Persona elegida.`;
+
+    contextDetail = `1. **Texto/Artículo de Referencia**:
+   - Título/Fuente: ${trend.title}
+   - Enlace: ${trend.sourceUrl || "N/A"}
+   - Contenido del Artículo extraído: ${trend.description}`;
+  }
+
   const prompt = `
 Actúa como un redactor de guiones experto en videos cortos (Reels, TikTok, YouTube Shorts, formato 9:16) para la tienda de instrumentos y audio "PC MIDI Center" en Argentina.
 
-Vas a escribir un guion de video basado en una TENDENCIA ACTUAL y en un PRODUCTO específico de nuestro catálogo, hablando con el arquetipo de voz de una PERSONA específica.
+${taskInstruction}
 
 ### DATOS DE ENTRADA:
-1. **Tendencia (Trend)**:
-   - Título: ${trend.title}
-   - Descripción: ${trend.description}
-   - Red/Origen: ${trend.platform}
+${contextDetail}
 
 2. **Producto**:
    - Nombre: ${product.name}
@@ -87,8 +108,8 @@ Vas a escribir un guion de video basado en una TENDENCIA ACTUAL y en un PRODUCTO
 ### FORMATO JSON REQUERIDO:
 El output debe ser estrictamente un objeto JSON con las siguientes propiedades:
 {
-  "hook": "El gancho del video (primeros 3 segundos). Debe capturar la atención mencionando la tendencia o el dolor común del músico/productor de forma muy directa.",
-  "bodyText": "El desarrollo del guion (15-30 segundos). Aquí la Persona habla sobre el producto de forma natural, resolviendo la duda o conectándola con la tendencia de forma conversacional y creíble.",
+  "hook": "El gancho del video (primeros 3 segundos). Debe capturar la atención de forma muy directa y de acuerdo a la dinámica especificada.",
+  "bodyText": "El desarrollo del guion (15-30 segundos). Aquí la Persona habla sobre el producto de forma natural, explicándolo de forma conversacional y creíble.",
   "cta": "El llamado a la acción final (5 segundos). Debe sugerir ver la landing page o visitar la tienda sin ser demasiado agresivo. Ej: 'Si querés saber más, date una vuelta por el link de la bio.'",
   "visualCues": "Lista o párrafos breves describiendo qué se debe mostrar visualmente en cada parte del video (ej: 'Mostrar primer plano del controlador Midiplus', 'Texto grande en pantalla con la especificación').",
   "audioPrompt": "Descripción del fondo de audio sugerido (ej: 'Beat de lo-fi relajado', 'Sonido de redoblante con mucha reverberación')."
@@ -135,12 +156,34 @@ El output debe ser estrictamente un objeto JSON con las siguientes propiedades:
     }
 
     // 5. Parsear el output y guardarlo en la base de datos
-    let parsed: ScriptOutput;
+    let parsed: any;
     try {
-      parsed = JSON.parse(content) as ScriptOutput;
+      parsed = JSON.parse(content);
     } catch (parseErr) {
       console.error("[Script Generator] Error al parsear JSON devuelto por la IA:", content, parseErr);
       return null;
+    }
+
+    // Normalizar visualCues (si es array de strings, unir con saltos de línea)
+    let visualCuesStr = "";
+    if (parsed.visualCues) {
+      if (Array.isArray(parsed.visualCues)) {
+        visualCuesStr = parsed.visualCues.join("\n");
+      } else if (typeof parsed.visualCues === "object") {
+        visualCuesStr = JSON.stringify(parsed.visualCues);
+      } else {
+        visualCuesStr = String(parsed.visualCues);
+      }
+    }
+
+    // Normalizar audioPrompt
+    let audioPromptStr = "";
+    if (parsed.audioPrompt) {
+      if (Array.isArray(parsed.audioPrompt)) {
+        audioPromptStr = parsed.audioPrompt.join("\n");
+      } else {
+        audioPromptStr = String(parsed.audioPrompt);
+      }
     }
 
     const script = await prisma.videoScript.create({
@@ -153,8 +196,8 @@ El output debe ser estrictamente un objeto JSON con las siguientes propiedades:
         hook: parsed.hook || "",
         bodyText: parsed.bodyText || "",
         cta: parsed.cta || "",
-        visualCues: parsed.visualCues || "",
-        audioPrompt: parsed.audioPrompt || "",
+        visualCues: visualCuesStr,
+        audioPrompt: audioPromptStr,
         status: "NEW",
       },
     });

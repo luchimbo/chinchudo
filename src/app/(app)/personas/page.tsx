@@ -45,6 +45,17 @@ export default async function PersonasPage({ searchParams }: { searchParams: { c
           <label className={labelCls}>Longitud preferida<input name="preferredLength" placeholder="Corta / Media" className={inputCls} /></label>
           <label className={labelCls}>Rol<input name="role" required className={inputCls} /></label>
           <label className={labelCls}>Tono<input name="tone" required className={inputCls} /></label>
+           <label className={labelCls}>Avatar (Local: Ruta Video/Imagen o URL)<input name="avatarUrl" placeholder="Ej: https://images.unsplash.com/... o D:\avatar.mp4" className={inputCls} /></label>
+          <label className={labelCls}>Voz IA (Local Edge-TTS)
+            <select name="voiceId" className={inputCls}>
+              <option value="es-AR-TomasNeural">Argentina - Tomás (Masculino)</option>
+              <option value="es-AR-ElenaNeural">Argentina - Elena (Femenino)</option>
+              <option value="es-MX-JorgeNeural">México - Jorge (Masculino)</option>
+              <option value="es-MX-DaliaNeural">México - Dalia (Femenino)</option>
+              <option value="es-ES-AlvaroNeural">España - Álvaro (Masculino)</option>
+              <option value="es-ES-ElviraNeural">España - Elvira (Femenino)</option>
+            </select>
+          </label>
           <label className={`${labelCls} md:col-span-2`}>Objetivos<textarea name="goals" required rows={2} className={`${inputCls} resize-y`} /></label>
           <label className={labelCls}>Frases habituales<textarea name="allowedPhrases" rows={2} className={`${inputCls} resize-y`} /></label>
           <label className={labelCls}>Frases prohibidas<textarea name="forbiddenPhrases" rows={2} className={`${inputCls} resize-y`} /></label>
@@ -72,6 +83,17 @@ export default async function PersonasPage({ searchParams }: { searchParams: { c
                 <label className={labelCls}>Longitud preferida<input name="preferredLength" defaultValue={p.preferredLength} className={inputCls} /></label>
                 <label className={labelCls}>Rol<input name="role" defaultValue={p.role} required className={inputCls} /></label>
                 <label className={labelCls}>Tono<input name="tone" defaultValue={p.tone} required className={inputCls} /></label>
+                 <label className={labelCls}>Avatar (Local: Ruta Video/Imagen o URL)<input name="avatarUrl" defaultValue={p.avatarUrl} placeholder="Ej: https://images.unsplash.com/... o D:\avatar.mp4" className={inputCls} /></label>
+                <label className={labelCls}>Voz IA (Local Edge-TTS)
+                  <select name="voiceId" defaultValue={p.voiceId} className={inputCls}>
+                    <option value="es-AR-TomasNeural">Argentina - Tomás (Masculino)</option>
+                    <option value="es-AR-ElenaNeural">Argentina - Elena (Femenino)</option>
+                    <option value="es-MX-JorgeNeural">México - Jorge (Masculino)</option>
+                    <option value="es-MX-DaliaNeural">México - Dalia (Femenino)</option>
+                    <option value="es-ES-AlvaroNeural">España - Álvaro (Masculino)</option>
+                    <option value="es-ES-ElviraNeural">España - Elvira (Femenino)</option>
+                  </select>
+                </label>
                 <label className={`${labelCls} md:col-span-2`}>Objetivos<textarea name="goals" defaultValue={p.goals} required rows={2} className={`${inputCls} resize-y`} /></label>
                 <label className={labelCls}>Frases habituales<textarea name="allowedPhrases" defaultValue={p.allowedPhrases} rows={2} className={`${inputCls} resize-y`} /></label>
                 <label className={labelCls}>Frases prohibidas<textarea name="forbiddenPhrases" defaultValue={p.forbiddenPhrases} rows={2} className={`${inputCls} resize-y`} /></label>

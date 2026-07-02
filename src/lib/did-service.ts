@@ -3,7 +3,15 @@ import { prisma } from "./db";
 type CreateTalkOptions = {
   scriptText: string;
   avatarUrl?: string | null;
-  personaName: string;
+  voiceId?: string | null;
+  voiceStyle?: string | null;
+  ssml?: boolean;
+  stitch?: boolean;
+  bgColor?: string | null;
+  styleDegree?: number | null;
+  padAudio?: number | null;
+  elevenLabsVoiceId?: string | null;
+  driverExpressions?: any | null;
 };
 
 type TalkResponse = {
@@ -13,18 +21,10 @@ type TalkResponse = {
   error?: string;
 };
 
-// Mapeo de Personas de Los 5 Apóstoles a voces de Microsoft en D-ID (Argentina/LATAM)
-const PERSONA_VOICE_MAP: Record<string, { voice_id: string; gender: "male" | "female" }> = {
-  "Técnico / Productor": { voice_id: "es-AR-TomasNeural", gender: "male" },
-  "Baterista de Departamento": { voice_id: "es-AR-TomasNeural", gender: "male" },
-  "Trend-Setter Kressmer": { voice_id: "es-AR-ElenaNeural", gender: "female" },
-  "Profe / Madre-Padre": { voice_id: "es-AR-ElenaNeural", gender: "female" },
-  "Cazador de Ofertas": { voice_id: "es-AR-TomasNeural", gender: "male" },
-};
-
+// Mapeo fallback si hace falta
 const DEFAULT_AVATARS = {
-  male: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=400",
-  female: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=400",
+  male: "https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&cs=tinysrgb&dpr=1&w=500",
+  female: "https://images.pexels.com/photos/3763188/pexels-photo-3763188.jpeg?auto=compress&cs=tinysrgb&dpr=1&w=500",
 };
 
 export class DIDService {
@@ -44,15 +44,28 @@ export class DIDService {
     const apiKey = process.env.DID_API_KEY?.trim();
     const isMock = !apiKey || apiKey === "mock";
 
-    const voiceConfig = PERSONA_VOICE_MAP[options.personaName] || {
-      voice_id: "es-AR-TomasNeural",
-      gender: "male",
-    };
+    const voiceId = options.voiceId || "es-AR-TomasNeural";
+    const isFemaleVoice =
+      voiceId.toLowerCase().includes("elena") ||
+      voiceId.toLowerCase().includes("dalia") ||
+      voiceId.toLowerCase().includes("elvira");
+    const fallbackGender = isFemaleVoice ? "female" : "male";
 
-    const avatarUrl =
+    let avatarUrl =
       options.avatarUrl ||
       process.env.DID_DEFAULT_AVATAR_URL ||
-      DEFAULT_AVATARS[voiceConfig.gender];
+      DEFAULT_AVATARS[fallbackGender];
+
+    // D-ID requiere estrictamente que la URL termine en jpg, jpeg o png.
+    // Si la URL tiene parámetros query (ej. Unsplash), agregamos un parámetro ficticio al final.
+    const lowerUrl = avatarUrl.toLowerCase();
+    if (!lowerUrl.endsWith(".jpg") && !lowerUrl.endsWith(".jpeg") && !lowerUrl.endsWith(".png")) {
+      if (avatarUrl.includes("?")) {
+        avatarUrl = `${avatarUrl}&ext=.jpg`;
+      } else {
+        avatarUrl = `${avatarUrl}?ext=.jpg`;
+      }
+    }
 
     if (isMock) {
       console.log("[D-ID Service] Iniciando en Modo MOCK");
@@ -65,6 +78,45 @@ export class DIDService {
     }
 
     try {
+      // Configurar proveedor de voz
+      let providerPayload: any = {};
+      if (options.elevenLabsVoiceId) {
+        providerPayload = {
+          type: "elevenlabs",
+          voice_id: options.elevenLabsVoiceId,
+        };
+      } else {
+        const voiceConfig: any = {};
+        if (options.voiceStyle && options.voiceStyle !== "Default") {
+          voiceConfig.style = options.voiceStyle;
+        }
+        if (options.styleDegree !== undefined && options.styleDegree !== null) {
+          voiceConfig.style_degree = options.styleDegree;
+        }
+
+        providerPayload = {
+          type: "microsoft",
+          voice_id: voiceId,
+          voice_config: Object.keys(voiceConfig).length > 0 ? voiceConfig : undefined,
+        };
+      }
+
+      const configPayload: any = {
+        fluent: false,
+        pad_audio: options.padAudio !== undefined && options.padAudio !== null ? options.padAudio : 0.0,
+        stitch: options.stitch !== undefined ? options.stitch : true,
+      };
+
+      if (options.bgColor) {
+        configPayload.background = {
+          color: options.bgColor,
+        };
+      }
+
+      if (options.driverExpressions) {
+        configPayload.driver_expressions = options.driverExpressions;
+      }
+
       const response = await fetch("https://api.d-id.com/talks", {
         method: "POST",
         headers: this.getHeaders(apiKey!),
@@ -72,17 +124,11 @@ export class DIDService {
           source_url: avatarUrl,
           script: {
             type: "text",
+            ssml: options.ssml || false,
             input: options.scriptText,
-            provider: {
-              type: "microsoft",
-              voice_id: voiceConfig.voice_id,
-            },
+            provider: providerPayload,
           },
-          config: {
-            fluent: false,
-            pad_audio: 0.0,
-            stitch: true,
-          },
+          config: configPayload,
         }),
       });
 
@@ -127,7 +173,7 @@ export class DIDService {
           id: talkId,
           status: "COMPLETED",
           // Usamos un video de test público
-          videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
+          videoUrl: "https://www.w3schools.com/html/mov_bbb.mp4",
         };
       }
       return {

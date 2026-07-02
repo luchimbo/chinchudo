@@ -1,4 +1,6 @@
 node_modules
+.venv/
+.venv-wav2lip/
 .next
 out
 dist
@@ -24,6 +26,9 @@ data/1browser-profile.json
 data/nstbrowser_import_*.xlsx
 reports/*.json
 exports/*.csv
+models/wav2lip/
+public/videos/*.mp4
+!public/videos/.gitkeep
 tsconfig.tsbuildinfo
 
 .vercel

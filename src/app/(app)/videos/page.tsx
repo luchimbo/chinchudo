@@ -44,8 +44,8 @@ export default async function VideosPage({ searchParams }: PageProps) {
     prisma.videoScript.findMany({
       where: { clientId: activeClient.id },
       include: {
-        product: { select: { name: true } },
-        persona: { select: { name: true } },
+        product: true,
+        persona: true,
         trend: { select: { title: true } },
       },
       orderBy: { createdAt: "desc" },
