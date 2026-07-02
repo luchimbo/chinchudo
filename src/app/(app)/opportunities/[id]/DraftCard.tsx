@@ -30,6 +30,7 @@ type DraftCardProps = {
   clientSlug?: string | null;
   approveResponseAction: (formData: FormData) => Promise<void>;
   deleteResponseAction: (formData: FormData) => Promise<void>;
+  markAsPublishedAction: (formData: FormData) => Promise<void>;
   publishViaAgentAction?: (formData: FormData) => Promise<void>;
   agentAccounts?: AgentAccount[];
   suggestedAccount?: string | null;
@@ -63,6 +64,7 @@ export function DraftCard({
   clientSlug,
   approveResponseAction,
   deleteResponseAction,
+  markAsPublishedAction,
   publishViaAgentAction,
   agentAccounts = [],
   suggestedAccount,
@@ -205,6 +207,53 @@ export function DraftCard({
               className="mt-3 w-full rounded-full bg-brass px-5 py-2.5 text-sm font-bold text-white transition hover:bg-ink disabled:opacity-50"
             >
               Publicar vía agente
+            </SubmitButton>
+          </form>
+        ) : null}
+
+        {response.approvedBy ? (
+          <form action={markAsPublishedAction} className="mt-4 rounded-md border border-moss/25 bg-moss/5 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-bold uppercase tracking-wider text-moss">Publicacion manual</p>
+              <button
+                type="button"
+                onClick={handleCopy}
+                className="rounded-full border border-ink/15 bg-white/80 px-3.5 py-1 text-xs font-bold text-ink transition hover:border-ink/40 hover:bg-white"
+              >
+                {isCopied ? "Copiado" : "Copiar texto"}
+              </button>
+            </div>
+            <input type="hidden" name="opportunityId" value={opportunity.id} />
+            <input type="hidden" name="responseId" value={response.id} />
+            <label className="mt-3 grid gap-1.5 text-xs font-semibold text-slate">
+              URL publicada
+              <input
+                name="publishedUrl"
+                type="url"
+                placeholder="https://..."
+                className="rounded-md border border-ink/15 bg-white px-3 py-2.5 text-sm text-ink"
+              />
+            </label>
+            <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+              <label className="grid gap-1.5 text-xs font-semibold text-slate">
+                Resultado
+                <select name="result" className="rounded-md border border-ink/15 bg-white px-3 py-2.5 text-sm text-ink">
+                  <option value="published">Publicado</option>
+                  <option value="reply_received">Respondio usuario</option>
+                  <option value="whatsapp">Derivo a WhatsApp</option>
+                  <option value="sale_assist">Venta asistida</option>
+                </select>
+              </label>
+              <label className="flex items-center gap-2 rounded-md border border-ink/10 bg-white px-3 py-2.5 text-xs font-semibold text-slate">
+                <input name="followUpNeeded" type="checkbox" className="h-4 w-4" />
+                Seguimiento
+              </label>
+            </div>
+            <SubmitButton
+              loadingText="Guardando..."
+              className="mt-3 w-full rounded-full bg-moss px-5 py-2.5 text-sm font-bold text-white transition hover:bg-ink disabled:opacity-50"
+            >
+              Marcar publicado
             </SubmitButton>
           </form>
         ) : null}

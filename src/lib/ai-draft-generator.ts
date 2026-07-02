@@ -45,29 +45,59 @@ function formatProductName(brandName: string, productName: string): string {
   return `${brandName} ${productName}`;
 }
 
+function normalizeProductText(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function hasUncataloguedProductCode(text: string, ctx: DraftContext): boolean {
+  const allowedProducts = [
+    ...(ctx.catalogProducts ?? []).map((product) => product.name),
+    ctx.opportunity.detectedProduct?.name ?? "",
+  ].filter(Boolean);
+  const allowedText = normalizeProductText(allowedProducts.join(" "));
+
+  const midiplusCodePattern = /\b(?:midi\s*plus|midiplus)\s+([a-z]{0,5}[- ]?\d{1,4}[a-z]*)\b/gi;
+  const matches = text.matchAll(midiplusCodePattern);
+
+  for (const match of matches) {
+    const rawCode = match[1] ?? "";
+    const compactCode = normalizeProductText(rawCode).replace(/\s+/g, "");
+    const spacedCode = normalizeProductText(rawCode);
+    if (compactCode && !allowedText.replace(/\s+/g, "").includes(compactCode) && !allowedText.includes(spacedCode)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 function buildPrompt(ctx: DraftContext): string {
   const { opportunity, brand, persona } = ctx;
   const client = ctx.client;
   const product = opportunity.detectedProduct;
   const intent = INTENT_LABELS[opportunity.detectedIntent] ?? opportunity.detectedIntent;
 
-  const relevant = selectRelevantProducts(opportunity.sourceText, product, 8, {
+  const relevant = selectRelevantProducts(opportunity.sourceText, product, 5, {
     catalogProducts: ctx.catalogProducts,
     catalogRules: ctx.catalogRules,
     scoped: !!client,
   });
-  const relevantIds = new Set(relevant.map(p => p.id));
-  const rest = (ctx.catalogProducts ?? [])
-    .filter(p => !relevantIds.has(p.id))
-    .map(p => ({ id: p.id, nombre: p.name, marca: p.brand?.name ?? "", modelo: p.name, uso: p.useCases || p.description }));
+  const primary = relevant[0];
+  const alternatives = relevant.slice(1);
 
-  const relevantBlock = relevant.length > 0
-    ? `### Más relevantes para este comentario (priorizalos)\n${relevant.map(p => `  - ${formatProductName(p.marca, p.nombre)}: ${p.uso}`).join("\n")}`
+  const primaryBlock = primary
+    ? `### Producto recomendado principal (usalo por defecto en las 3 variantes)\n  - ${formatProductName(primary.marca, primary.nombre)}: ${primary.uso}`
     : "";
-  const restBlock = rest.length > 0
-    ? `### Resto del catálogo (usá solo si aplica al tema)\n${rest.map(p => `  - ${formatProductName(p.marca, p.nombre)}: ${p.uso}`).join("\n")}`
+  const alternativesBlock = alternatives.length > 0
+    ? `### Alternativas reales permitidas (solo si encajan mejor con el comentario)\n${alternatives.map(p => `  - ${formatProductName(p.marca, p.nombre)}: ${p.uso}`).join("\n")}`
     : "";
-  const productList = [relevantBlock, restBlock].filter(Boolean).join("\n") || "  - (sin productos específicos identificados)";
+  const productList = [primaryBlock, alternativesBlock].filter(Boolean).join("\n") || "  - (sin productos específicos identificados)";
+  const allowedProductNames = relevant.map((p) => formatProductName(p.marca, p.nombre)).join("; ");
 
   const forbiddenExtra = persona.forbiddenPhrases
     ? `\n- Frases prohibidas específicas de tu voz: ${persona.forbiddenPhrases}`
@@ -126,8 +156,9 @@ function buildPrompt(ctx: DraftContext): string {
     storeRule,
     "- NUNCA digas que sos representante, empleado, ni que trabajás para ninguna marca.",
     '- Hablá siempre como usuario que recomienda por experiencia propia (ej: "yo uso", "tengo", "probé" / "I use", "I have", "I tried" / "eu uso", "tenho", "experimentei")',
-    "- SIEMPRE recomendá y mencioná al menos un modelo o producto específico de la lista del catálogo de abajo. Debés incluir el nombre del modelo o producto concreto (por ejemplo, 'AK490', 'AKM322', 'Studio M', 'LM-281', etc.). Está estrictamente prohibido usar solo la marca de forma genérica (ej: no digas solo 'el MidiPlus' o 'un Kressmer' si la lista tiene productos específicos).",
-    "- NUNCA inventes, recomiendes ni menciones marcas ni modelos de productos que no estén listados en el catálogo de abajo. Está estrictamente prohibido inventar o recomendar marcas de la competencia o externas.",
+    "- SIEMPRE recomendá y mencioná el Producto recomendado principal salvo que una alternativa real permitida encaje claramente mejor.",
+    `- Productos/modelos autorizados para nombrar en esta respuesta: ${allowedProductNames || "ninguno"}.`,
+    "- NUNCA inventes, recomiendes ni menciones marcas ni modelos que no estén en la lista autorizada anterior. Si dudás, usá el Producto recomendado principal.",
     "- NUNCA incluyas ninguna pregunta en tu respuesta (ni al inicio, ni al medio, ni al final). La respuesta debe consistir únicamente en afirmaciones, recomendaciones o datos útiles.",
     "- NUNCA incluyas links, URLs ni direcciones web en la respuesta",
     "- No inventes precios ni especificaciones técnicas",
@@ -151,7 +182,7 @@ ${absoluteRules}
   - Si el comentario está en portugués: Escribí la respuesta en portugués natural, fluido y coloquial (priorizando portugués de Brasil a menos que el contexto indique lo contrario), adaptado al tono de tu perfil${forbiddenExtra}
 ${goodEx}${badEx}
 
-## Productos del catálogo que podés mencionar (si aplican naturalmente)
+## Productos autorizados para esta respuesta
 ${productList}
 
 ## Marca de fondo y contexto competitivo (NO la menciones directamente en la respuesta)
@@ -171,7 +202,7 @@ Texto: "${opportunity.sourceText.slice(0, 800)}"
 - Si es PURCHASE_QUESTION o PRICE_QUESTION: mencioná que hay opciones con garantía local, respetando las reglas de nombres de tiendas indicadas en las Reglas absolutas.
 - Si es COMPARISON o se menciona un competidor: compará objetivamente desde la experiencia de usuario utilizando los puntos de "Debilidades de la competencia" para argumentar de forma sutil por qué tu producto es mejor, apoyándote en las "Fortalezas" sin hablar de forma destructiva o artificial.
 - Cada variante debe sonar diferente en estilo, no solo en palabras
-- Las TRES variantes deben nombrar un producto concreto del catálogo (por nombre/modelo), tejido de forma natural; elegí el más cercano al tema si no hay calce exacto
+- Las TRES variantes deben nombrar el Producto recomendado principal o una alternativa real permitida, tejido de forma natural
 - Nunca pongas el link del producto: solo el nombre/modelo
 - Las variantes de respuesta generadas en "text" deben estar completamente escritas en el idioma detectado (Español, Inglés o Portugués).
 
@@ -311,7 +342,7 @@ export async function generateAIDrafts(ctx: DraftContext): Promise<DraftVariant[
     const variants = parsed.variants ?? [];
     const order: DraftVariant["variantType"][] = ["SHORT", "TECHNICAL", "CONVERSATIONAL"];
 
-    return order.map((variantType) => {
+    const drafts = order.map((variantType) => {
       const match = variants.find((v) => v.type === variantType);
       return {
         variantType,
@@ -319,6 +350,16 @@ export async function generateAIDrafts(ctx: DraftContext): Promise<DraftVariant[
         riskNotes: match?.riskNotes ?? "Revisar antes de publicar.",
       };
     }).filter((v) => v.draftText.length > 0);
+
+    const hasInvalidProduct = drafts.some((draft) => hasUncataloguedProductCode(draft.draftText, ctx));
+    if (hasInvalidProduct) {
+      logAIError("OpenRouter menciono un codigo de producto fuera del catalogo; usando fallback local", {
+        opportunityId: ctx.opportunity.id,
+      });
+      return null;
+    }
+
+    return drafts;
   } catch {
     logAIError("No se pudo parsear JSON de OpenRouter", raw.slice(0, 300));
     return null;

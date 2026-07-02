@@ -74,8 +74,9 @@ export async function generateResponseDrafts(formData: FormData) {
   const opportunityId = idSchema.parse(formData.get("opportunityId"));
   const personaId = idSchema.parse(formData.get("personaId"));
   const brandId = idSchema.parse(formData.get("brandId"));
+  const productId = (formData.get("productId") || "") as string;
 
-  const [opportunity, persona, brand] = await Promise.all([
+  const [opportunity, persona, brand, selectedProduct] = await Promise.all([
     prisma.opportunity.findUniqueOrThrow({
       where: { id: opportunityId },
       include: {
@@ -86,7 +87,8 @@ export async function generateResponseDrafts(formData: FormData) {
       }
     }),
     prisma.persona.findUniqueOrThrow({ where: { id: personaId } }),
-    prisma.brand.findUniqueOrThrow({ where: { id: brandId } })
+    prisma.brand.findUniqueOrThrow({ where: { id: brandId } }),
+    productId ? prisma.product.findUnique({ where: { id: productId }, include: { brand: true } }) : Promise.resolve(null)
   ]);
 
   const resolution = await resolveOpportunityClient(prisma, opportunity);
@@ -97,21 +99,32 @@ export async function generateResponseDrafts(formData: FormData) {
   if (persona.clientId && persona.clientId !== resolution.client.id) {
     throw new Error("La persona seleccionada no pertenece al cliente de esta oportunidad.");
   }
+  if (selectedProduct && selectedProduct.brandId !== brandId) {
+    throw new Error("El producto seleccionado no pertenece a la marca elegida.");
+  }
   const actorValidation = validateClientScopedActors({ client: resolution.client, brand, persona });
   if (!actorValidation.ok) throw new Error(actorValidation.riskNotes.join("; "));
+
+  const opportunityForDraft = {
+    ...opportunity,
+    detectedBrandId: brandId,
+    detectedBrand: brand,
+    detectedProductId: selectedProduct?.id ?? opportunity.detectedProductId,
+    detectedProduct: selectedProduct ?? opportunity.detectedProduct,
+  };
 
   const [{ knowledge, objections }, activeSystemPrompt] = await Promise.all([
     loadRelevantKnowledge(prisma, {
       sourceText: opportunity.sourceText,
       clientId: resolution.client.id,
       brandId,
-      productId: opportunity.detectedProductId
+      productId: opportunityForDraft.detectedProductId
     }),
     loadActivePrompt(prisma)
   ]);
 
   const ctx = {
-    opportunity,
+    opportunity: opportunityForDraft,
     persona,
     brand,
     client: resolution.client,
@@ -157,6 +170,7 @@ export async function generateResponseDrafts(formData: FormData) {
       where: { id: opportunityId },
       data: {
         detectedBrandId: brandId,
+        detectedProductId: opportunityForDraft.detectedProductId,
         status: OpportunityStatus.DRAFTED
       }
     })

@@ -130,7 +130,7 @@ export default async function NewOpportunityPage({ searchParams }: { searchParam
             minLength={10}
             maxLength={4000}
             rows={6}
-            placeholder="Pegar aca el comentario, duda o publicacion."
+            placeholder="Estoy buscando controladores MIDI hace tiempo, estoy entre este y el MiniLab 3 que me parece un poco mejor. Que opinion me podrias dar?"
             className="resize-y rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink"
           />
         </label>

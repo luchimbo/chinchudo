@@ -649,7 +649,7 @@ async function main() {
       channelId: youtube.id,
       sourceUrl: "https://www.youtube.com/watch?v=demo",
       sourceAuthor: "usuario_demo",
-      sourceText: "Estoy buscando un controlador MIDI para empezar en home studio, vale la pena MidiPlus?",
+      sourceText: "Estoy buscando controladores MIDI hace tiempo, estoy entre este y el MiniLab 3 que me parece un poco mejor. Que opinion me podrias dar?",
       detectedBrandId: midiplus.id,
       detectedIntent: "PURCHASE_QUESTION",
       priority: "HIGH",

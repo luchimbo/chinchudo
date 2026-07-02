@@ -18,6 +18,7 @@ import {
 } from "@/lib/labels";
 import { suggestAllPersonasForClient } from "@/lib/persona-router";
 import { resolveOpportunityClient } from "@/lib/client-context";
+import { selectRelevantProducts } from "@/lib/catalog";
 import { CopyButton } from "./CopyButton";
 import { SubmitButton } from "./SubmitButton";
 import { DraftCard } from "./DraftCard";
@@ -88,12 +89,39 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
   }
 
   const resolution = await resolveOpportunityClient(prisma, opportunity);
-  const [personas, brands] = await Promise.all([
+  const [personas, brands, products] = await Promise.all([
     prisma.persona.findMany({ where: { clientId: resolution.client.id }, orderBy: { name: "asc" } }),
-    prisma.brand.findMany({ where: { clientId: resolution.client.id }, orderBy: { name: "asc" } })
+    prisma.brand.findMany({ where: { clientId: resolution.client.id }, orderBy: { name: "asc" } }),
+    prisma.product.findMany({
+      where: { brand: { clientId: resolution.client.id } },
+      include: { brand: true },
+      orderBy: [{ brand: { name: "asc" } }, { name: "asc" }]
+    })
   ]);
 
   const selectedBrandId = opportunity.detectedBrandId ?? brands[0]?.id ?? "";
+  const selectedBrand = brands.find((brand) => brand.id === selectedBrandId);
+  const brandProducts = products.filter((product) => product.brandId === selectedBrandId);
+  const recommendedProducts = selectRelevantProducts(opportunity.sourceText, opportunity.detectedProduct, 5, {
+    catalogProducts: brandProducts,
+    scoped: true,
+  });
+  const suggestedProductId = opportunity.detectedProductId ?? recommendedProducts[0]?.id ?? brandProducts[0]?.id ?? "";
+  const recommendedIds = new Set(recommendedProducts.map((product) => product.id));
+  const productOptions = [
+    ...recommendedProducts,
+    ...brandProducts
+      .filter((product) => !recommendedIds.has(product.id))
+      .map((product) => ({
+        id: product.id,
+        nombre: product.name,
+        marca: product.brand?.name ?? selectedBrand?.name ?? "",
+        modelo: product.name,
+        categoria_id: product.category,
+        url: "",
+        uso: product.useCases || product.description,
+      })),
+  ];
   const approvedResponse = opportunity.responses.find((response) => response.approvedBy);
   const suggestions = await suggestAllPersonasForClient(prisma, opportunity, resolution.client.id);
   const suggestion = suggestions[0];
@@ -214,6 +242,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
                     clientSlug={resolution.client.slug}
                     approveResponseAction={approveResponse}
                     deleteResponseAction={deleteResponse}
+                    markAsPublishedAction={markAsPublished}
                     publishViaAgentAction={publishViaAgent}
                     agentAccounts={agentAccounts}
                     suggestedAccount={suggestedAccount?.name ?? null}
@@ -263,6 +292,22 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
                 ))}
               </select>
             </label>
+            <label className="mt-4 grid gap-2 text-sm font-semibold text-paper/80">
+              Producto
+              <select name="productId" defaultValue={suggestedProductId} className="rounded-md border border-white/15 bg-paper px-3 py-3 text-ink">
+                {productOptions.map((product) => (
+                  <option key={product.id} value={product.id}>
+                    {product.nombre}{product.id === recommendedProducts[0]?.id ? " (mejor match)" : recommendedIds.has(product.id) ? " (alternativa)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {recommendedProducts.length > 0 ? (
+              <p className="mt-2 rounded-md bg-white/10 px-3 py-2 text-xs leading-5 text-paper/70">
+                <span className="font-bold text-paper">Auto:</span> {recommendedProducts[0].nombre}
+                {recommendedProducts.length > 1 ? <span className="text-paper/55">. Alternativas reales disponibles en el selector.</span> : null}
+              </p>
+            ) : null}
             <label className="mt-4 grid gap-2 text-sm font-semibold text-paper/80">
               Voz
               <select name="personaId" defaultValue={suggestedPersonaId} className="rounded-md border border-white/15 bg-paper px-3 py-3 text-ink">

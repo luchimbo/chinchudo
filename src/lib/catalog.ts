@@ -50,6 +50,29 @@ const CATEGORY_HINTS: Record<string, string[]> = {
   "accesorios-microfonos": ["brazo", "soporte microfono", "pie de microfono"],
 };
 
+const PRODUCT_INTENT_HINTS: Record<string, string[]> = {
+  "controladores-midi": ["controlador", "midi", "minilab", "akai", "mpk", "teclas", "pads", "knobs", "ableton", "fl studio", "home studio"],
+  "interfaces-audio": ["interfaz", "interface", "placa", "audio", "grabar", "latencia", "microfono", "guitarra", "voz"],
+  "microfonos": ["microfono", "mic", "condensador", "podcast", "streaming", "voz", "grabar"],
+  "microfonos-profesionales": ["microfono", "mic", "condensador", "cardioide", "voz", "estudio"],
+  "microfonos-streaming": ["usb", "streaming", "podcast", "gaming", "microfono"],
+  "baterias-electronicas": ["bateria", "drum", "parche", "pads", "vecinos", "departamento"],
+  "pianos-digitales": ["piano", "88", "hammer", "mueble", "teclas pesadas"],
+  "monitores-estudio": ["monitor", "monitores", "parlante", "mezcla", "estudio"],
+  "auriculares": ["auricular", "auriculares", "headphones", "monitoreo"],
+  "medias-tecnicas-running": ["medias", "running", "correr", "10k", "21k", "ampolla", "rozadura", "roce", "entrenar"],
+  "compresion-graduada": ["compresion", "recuperar", "recuperacion", "pantorrilla", "15 20", "mm hg"],
+  "tripack": ["pack", "tripack", "combo", "barato", "precio", "promo", "todos los dias"],
+  "trail": ["trail", "montana", "barro", "sendero", "media cana", "media caña"],
+  "cuarto-de-cana": ["cuarto", "cana", "caña", "gimnasio", "entrenamiento"],
+};
+
+function modelTokens(value: string): string[] {
+  return normalize(value)
+    .split(/\s+/)
+    .filter((token) => /[a-z]/.test(token) && /\d/.test(token));
+}
+
 export function matchCategories(sourceText: string, detectedProduct?: Product | null): string[] {
   const norm = normalize(sourceText);
   const cats = Object.entries(CATEGORY_HINTS)
@@ -91,18 +114,35 @@ function selectScopedProducts(
   const scored = catalogProducts.map((product) => {
     const cat = categoryId(product.category);
     const rule = catalogRules.find((item) => categoryId(item.category) === cat);
-    const keywords = rule ? parseClientList(rule.keywords) : [];
+    const keywords = [
+      ...(rule ? parseClientList(rule.keywords) : []),
+      ...(PRODUCT_INTENT_HINTS[cat] ?? []),
+    ];
     const keywordScore = keywords.filter((kw) => norm.includes(normalize(kw))).length;
+    const productName = normalize(product.name);
+    const productUse = normalize(`${product.category} ${product.description} ${product.useCases}`);
+    const productTokens = productName.split(/\s+/).filter((token) => token.length >= 3);
+    const modelScore = modelTokens(product.name).filter((token) => norm.includes(token)).length * 8;
+    const nameTokenScore = productTokens.filter((token) => norm.includes(token)).length;
+    const useScore = keywords.filter((kw) => productUse.includes(normalize(kw)) && norm.includes(normalize(kw))).length;
     const categoryScore = matchingCategories.has(cat) ? 4 : 0;
-    const productScore = norm.includes(normalize(product.name)) ? 6 : 0;
+    const productScore = norm.includes(productName) ? 10 : nameTokenScore;
     const brandScore = product.brand?.name && norm.includes(normalize(product.brand.name)) ? 5 : 0;
     const exactScore = detectedProduct?.id === product.id ? 10 : 0;
-    return { product, score: exactScore + productScore + brandScore + categoryScore + keywordScore };
+    const wantsKeyboardController = /\b(controlador|controller|minilab|mpk|akai|teclas|pads|knobs)\b/.test(norm);
+    const windControllerPenalty = wantsKeyboardController && /\b(flauta|elefue|saxo|viento)\b/.test(productName) ? -8 : 0;
+    const minilabLikeBonus = norm.includes("minilab") && /\b(tiny|akm|ak490|controlador|teclado)\b/.test(productName) ? 3 : 0;
+    const packIntentBonus = /\b(pack|tripack|combo|barato|precio|promo)\b/.test(norm) && /\b(pack|tripack|combo)\b/.test(productName) ? 10 : 0;
+    const compressionIntentBonus = /\b(compresion|compresion|recuperar|recuperacion|15 20|mm hg)\b/.test(norm) && /\b(compresion|15 20|mm hg)\b/.test(productName) ? 10 : 0;
+    const trailIntentBonus = /\b(trail|montana|barro|sendero)\b/.test(norm) && /\b(trail)\b/.test(productName) ? 8 : 0;
+    const stockPenalty = product.name.toLowerCase().includes("outlet") ? -1 : 0;
+    return { product, score: exactScore + productScore + modelScore + brandScore + categoryScore + keywordScore + useScore + minilabLikeBonus + packIntentBonus + compressionIntentBonus + trailIntentBonus + windControllerPenalty + stockPenalty };
   });
 
-  const sorted = scored.sort((a, b) => b.score - a.score);
-  // Siempre incluir todos los productos del cliente (los más relevantes primero),
-  // para que la IA pueda variar qué recomienda en vez de repetir siempre los mismos.
+  const sorted = scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.product.name.localeCompare(b.product.name);
+  });
   return sorted
     .slice(0, max)
     .map(({ product }) => productToEntry(product));
