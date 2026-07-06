@@ -120,9 +120,15 @@ def apply_npm_flags(args: argparse.Namespace) -> argparse.Namespace:
 
 
 def apply_positional_fallback(args: argparse.Namespace, unknown: list[str]) -> argparse.Namespace:
-    if args.command not in {"listen", "daily"} or not unknown:
+    if args.command not in {"listen", "daily", "trend-listen"} or not unknown:
         return args
     cleaned = [item for item in unknown if item != "--"]
+    if args.command == "trend-listen":
+        for item in cleaned:
+            if str(item).isdigit():
+                args.limit = int(item)
+                break
+        return args
     if len(cleaned) >= 1 and not getattr(args, "account", ""):
         args.account = cleaned[0]
     if len(cleaned) >= 2 and getattr(args, "channel", "youtube") == "youtube":

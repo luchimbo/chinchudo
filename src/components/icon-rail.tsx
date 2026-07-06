@@ -78,7 +78,7 @@ const MAIN_SECTORS: Sector[] = [
   {
     id: "videos",
     href: "/videos",
-    label: "Videos IA",
+    label: "Tendencias y guiones",
     paths: ["/videos"],
     icon: <VideoIcon />,
   },

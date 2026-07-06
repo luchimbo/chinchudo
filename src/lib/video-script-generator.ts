@@ -7,20 +7,11 @@ type ScriptGenerationContext = {
   clientId: string;
 };
 
-type ScriptOutput = {
-  hook: string;
-  bodyText: string;
-  cta: string;
-  visualCues: string;
-  audioPrompt: string;
-};
-
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 export async function generateVideoScript(ctx: ScriptGenerationContext): Promise<string | null> {
   const { trendId, productId, personaId, clientId } = ctx;
 
-  // 1. Obtener entidades de la base de datos
   const trend = await prisma.trend.findUnique({ where: { id: trendId } });
   const product = await prisma.product.findUnique({
     where: { id: productId },
@@ -30,7 +21,7 @@ export async function generateVideoScript(ctx: ScriptGenerationContext): Promise
   const client = await prisma.client.findUnique({ where: { id: clientId } });
 
   if (!trend || !product || !persona || !client) {
-    console.error("[Script Generator] Error: No se encontraron todas las entidades en la base de datos", {
+    console.error("[Script Generator] Faltan entidades para generar guion", {
       trend: !!trend,
       product: !!product,
       persona: !!persona,
@@ -39,99 +30,78 @@ export async function generateVideoScript(ctx: ScriptGenerationContext): Promise
     return null;
   }
 
-  // 2. Resolver API Key y Modelo de OpenRouter
   const apiKey = client.openrouterApiKey?.trim() || process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
-    console.error("[Script Generator] Error: OPENROUTER_API_KEY no configurada.");
+    console.error("[Script Generator] OPENROUTER_API_KEY no configurada.");
     return null;
   }
 
   const model = client.openrouterModel?.trim() || process.env.OPENROUTER_MODEL || "google/gemini-2.0-flash-lite";
-
-  // 3. Construir el Prompt dinámico según el origen de la tendencia
-  let taskInstruction = `Vas a escribir un guion de video basado en una TENDENCIA ACTUAL y en un PRODUCTO específico de nuestro catálogo, hablando con el arquetipo de voz de una PERSONA específica.`;
-  let contextDetail = `1. **Tendencia (Trend)**:
-   - Título: ${trend.title}
-   - Descripción: ${trend.description}
-   - Red/Origen: ${trend.platform}`;
-
-  if (trend.platform === "VIRAL_CLONE") {
-    taskInstruction = `Vas a escribir un guion de video CLONANDO LA ESTRUCTURA, EL RITMO Y EL GANCHO de un video viral exitoso.
-Replica el tipo de gancho (hook), el desarrollo y la llamada a la acción (CTA) del video original, adaptándolos a nuestro producto y a la Persona elegida.`;
-    
-    contextDetail = `1. **Estructura/Dinámica del Video Viral a Clonar**:
-   - Título/Concepto del original: ${trend.title}
-   - Enlace de origen: ${trend.sourceUrl || "N/A"}
-   - Dinámica original del video: ${trend.description}`;
-  } else if (trend.platform === "URL_ARTICLE") {
-    taskInstruction = `Vas a escribir un guion de video corto (tipo Reels/TikTok) basándote en la información técnica o artículo de un enlace de referencia (URL).
-Extrae los puntos fuertes del producto, sus mejores casos de uso y redacta el guion en la voz de la Persona elegida.`;
-
-    contextDetail = `1. **Texto/Artículo de Referencia**:
-   - Título/Fuente: ${trend.title}
-   - Enlace: ${trend.sourceUrl || "N/A"}
-   - Contenido del Artículo extraído: ${trend.description}`;
-  }
+  const { taskInstruction, contextDetail } = buildTrendContext(trend);
 
   const prompt = `
-Actúa como un redactor de guiones experto en videos cortos (Reels, TikTok, YouTube Shorts, formato 9:16) para la tienda de instrumentos y audio "PC MIDI Center" en Argentina.
+Actua como redactor experto en guiones para videos cortos verticales (TikTok, Instagram Reels y YouTube Shorts) para PC MIDI Center en Argentina.
 
 ${taskInstruction}
 
-### DATOS DE ENTRADA:
+### DATOS DE ENTRADA
 ${contextDetail}
 
-2. **Producto**:
-   - Nombre: ${product.name}
-   - Marca: ${product.brand.name}
-   - Descripción: ${product.description}
-   - Especificaciones Técnicas: ${product.technicalSpecs || "N/A"}
-   - Casos de Uso: ${product.useCases || "N/A"}
-   - Posicionamiento de la marca: ${product.brand.strengths}
-   - Tono de la marca: ${product.brand.tone}
+2. Producto:
+- Nombre: ${product.name}
+- Marca: ${product.brand.name}
+- Descripcion: ${product.description}
+- Especificaciones tecnicas: ${product.technicalSpecs || "N/A"}
+- Casos de uso: ${product.useCases || "N/A"}
+- Posicionamiento de marca: ${product.brand.strengths}
+- Tono de marca: ${product.brand.tone}
 
-3. **Voz del Operador (Persona)**:
-   - Nombre: ${persona.name}
-   - Rol: ${persona.role}
-   - Tono/Voz: ${persona.tone}
-   - Objetivo: ${persona.goals}
-   - Longitud deseada: ${persona.preferredLength}
-   - Frases recomendadas: ${persona.allowedPhrases || "Ninguna"}
-   - Frases/Términos prohibidos: ${persona.forbiddenPhrases || "Ninguno"}
+3. Persona:
+- Nombre: ${persona.name}
+- Rol: ${persona.role}
+- Tono: ${persona.tone}
+- Objetivo: ${persona.goals}
+- Longitud deseada: ${persona.preferredLength}
+- Frases recomendadas: ${persona.allowedPhrases || "Ninguna"}
+- Frases prohibidas: ${persona.forbiddenPhrases || "Ninguna"}
 
-### INSTRUCCIONES DE REDACCIÓN:
-- Debes redactar el guion enfocado al público de **Argentina**. Utilizá modismos locales (lunfardo sutil, voseo: "tenés", "mirá", "comprá", "está", "che") si se adapta al tono de la Persona, pero sin exagerar para no sonar artificial.
-- El guion debe ser corto (aprox. 30-45 segundos de lectura fluida).
-- Respetá estrictamente las frases prohibidas de la Persona y los lineamientos de claims prohibidos de la marca.
-- Estructurá el output en formato JSON válido.
+### REGLAS
+- El resultado sera usado por un operador humano para grabar o editar, no para render automatico.
+- No menciones render, avatar, D-ID, FFmpeg, IA de video ni automatizacion.
+- Escribe para Argentina con voseo natural si encaja con la persona.
+- El hook debe funcionar en los primeros 3 segundos.
+- El guion completo debe durar 20 a 40 segundos.
+- No inventes stock, precio, garantia, datos tecnicos ni claims de superioridad.
+- Resuelve una duda o muestra un caso de uso antes de vender.
+- Respeta tono, frases prohibidas y claims de marca.
+- Devuelve solamente JSON valido.
 
-### FORMATO JSON REQUERIDO:
-El output debe ser estrictamente un objeto JSON con las siguientes propiedades:
+### JSON REQUERIDO
 {
-  "hook": "El gancho del video (primeros 3 segundos). Debe capturar la atención de forma muy directa y de acuerdo a la dinámica especificada.",
-  "bodyText": "El desarrollo del guion (15-30 segundos). Aquí la Persona habla sobre el producto de forma natural, explicándolo de forma conversacional y creíble.",
-  "cta": "El llamado a la acción final (5 segundos). Debe sugerir ver la landing page o visitar la tienda sin ser demasiado agresivo. Ej: 'Si querés saber más, date una vuelta por el link de la bio.'",
-  "visualCues": "Lista o párrafos breves describiendo qué se debe mostrar visualmente en cada parte del video (ej: 'Mostrar primer plano del controlador Midiplus', 'Texto grande en pantalla con la especificación').",
-  "audioPrompt": "Descripción del fondo de audio sugerido (ej: 'Beat de lo-fi relajado', 'Sonido de redoblante con mucha reverberación')."
+  "hook": "Gancho de 1 a 2 frases para los primeros 3 segundos.",
+  "bodyText": "Desarrollo conversacional y creible para 15 a 30 segundos.",
+  "cta": "Cierre suave, accion siguiente o pregunta util.",
+  "visualCues": "Planos, textos en pantalla y acciones grabables para hook, cuerpo y cierre.",
+  "audioPrompt": "Audio, ritmo o estilo de edicion sugerido para el operador.",
+  "recommendedFormat": "TikTok | Reel | Short, con una razon breve si hace falta."
 }
 `;
 
-  // 4. Llamar a OpenRouter
   try {
     const response = await fetch(OPENROUTER_URL, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://10apostoles.local",
-        "X-Title": "10 Apostoles - Video Script Generator",
+        "HTTP-Referer": "https://los5apostoles.local",
+        "X-Title": "Los 5 Apostoles - Editorial Video Script Generator",
       },
       body: JSON.stringify({
         model,
         messages: [
           {
             role: "system",
-            content: "Eres un asistente de redacción experto en videos de redes sociales que devuelve únicamente JSON válido.",
+            content: "Eres un asistente experto en guiones de redes sociales. Devuelve unicamente JSON valido.",
           },
           { role: "user", content: prompt },
         ],
@@ -143,48 +113,29 @@ El output debe ser estrictamente un objeto JSON con las siguientes propiedades:
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`[Script Generator] OpenRouter error HTTP ${response.status}:`, errorText);
+      console.error(`[Script Generator] OpenRouter HTTP ${response.status}:`, errorText);
       return null;
     }
 
     const data = (await response.json()) as { choices?: { message?: { content?: string } }[] };
     const content = data.choices?.[0]?.message?.content ?? "";
-
     if (!content.trim()) {
-      console.error("[Script Generator] OpenRouter devolvió un contenido vacío.");
+      console.error("[Script Generator] OpenRouter devolvio contenido vacio.");
       return null;
     }
 
-    // 5. Parsear el output y guardarlo en la base de datos
     let parsed: any;
     try {
       parsed = JSON.parse(content);
     } catch (parseErr) {
-      console.error("[Script Generator] Error al parsear JSON devuelto por la IA:", content, parseErr);
+      console.error("[Script Generator] JSON invalido devuelto por IA:", content, parseErr);
       return null;
     }
 
-    // Normalizar visualCues (si es array de strings, unir con saltos de línea)
-    let visualCuesStr = "";
-    if (parsed.visualCues) {
-      if (Array.isArray(parsed.visualCues)) {
-        visualCuesStr = parsed.visualCues.join("\n");
-      } else if (typeof parsed.visualCues === "object") {
-        visualCuesStr = JSON.stringify(parsed.visualCues);
-      } else {
-        visualCuesStr = String(parsed.visualCues);
-      }
-    }
-
-    // Normalizar audioPrompt
-    let audioPromptStr = "";
-    if (parsed.audioPrompt) {
-      if (Array.isArray(parsed.audioPrompt)) {
-        audioPromptStr = parsed.audioPrompt.join("\n");
-      } else {
-        audioPromptStr = String(parsed.audioPrompt);
-      }
-    }
+    const visualCues = normalizeField(parsed.visualCues);
+    const audioPrompt = [normalizeField(parsed.audioPrompt), parsed.recommendedFormat ? `Formato recomendado: ${parsed.recommendedFormat}` : ""]
+      .filter(Boolean)
+      .join("\n");
 
     const script = await prisma.videoScript.create({
       data: {
@@ -193,18 +144,60 @@ El output debe ser estrictamente un objeto JSON con las siguientes propiedades:
         brandId: product.brandId,
         productId,
         personaId,
-        hook: parsed.hook || "",
-        bodyText: parsed.bodyText || "",
-        cta: parsed.cta || "",
-        visualCues: visualCuesStr,
-        audioPrompt: audioPromptStr,
+        hook: normalizeField(parsed.hook),
+        bodyText: normalizeField(parsed.bodyText),
+        cta: normalizeField(parsed.cta),
+        visualCues,
+        audioPrompt,
         status: "NEW",
       },
     });
 
     return script.id;
   } catch (err) {
-    console.error("[Script Generator] Error en la llamada API a OpenRouter:", err);
+    console.error("[Script Generator] Error en llamada a OpenRouter:", err);
     return null;
   }
+}
+
+function buildTrendContext(trend: NonNullable<Awaited<ReturnType<typeof prisma.trend.findUnique>>>) {
+  if (trend.platform === "VIRAL_CLONE") {
+    return {
+      taskInstruction:
+        "Escribe un guion clonando la estructura, el ritmo y el tipo de gancho de un video viral, adaptandolo al producto y a la persona elegida.",
+      contextDetail: `1. Estructura viral:
+- Titulo/concepto: ${trend.title}
+- Enlace: ${trend.sourceUrl || "N/A"}
+- Dinamica original: ${trend.description}`,
+    };
+  }
+
+  if (trend.platform === "URL_ARTICLE") {
+    return {
+      taskInstruction:
+        "Escribe un guion corto a partir de una referencia tecnica o articulo, extrayendo puntos fuertes, casos de uso y objeciones utiles.",
+      contextDetail: `1. Referencia:
+- Titulo/fuente: ${trend.title}
+- Enlace: ${trend.sourceUrl || "N/A"}
+- Contenido extraido: ${trend.description}`,
+    };
+  }
+
+  return {
+    taskInstruction:
+      "Escribe un guion basado en una tendencia actual y un producto especifico del catalogo, listo para que un operador lo revise, edite y grabe.",
+    contextDetail: `1. Tendencia:
+- Titulo: ${trend.title}
+- Descripcion: ${trend.description}
+- Red/origen: ${trend.platform}
+- URL: ${trend.sourceUrl || "N/A"}
+- Busqueda usada: ${trend.queryUsed || "N/A"}`,
+  };
+}
+
+function normalizeField(value: unknown): string {
+  if (!value) return "";
+  if (Array.isArray(value)) return value.map((item) => String(item)).join("\n");
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
 }

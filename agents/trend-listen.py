@@ -1,262 +1,313 @@
 #!/usr/bin/env python3
-"""
-Agente de escucha de tendencias (Trend Listener) para Los 5 Apóstoles.
-Busca diariamente búsquedas calientes, hashtags y discusiones relevantes en Argentina (AR)
-filtrándolas y mapeándolas con las palabras clave del catálogo de la tienda.
+"""Radar de tendencias editoriales para Los 5 Apostoles.
+
+Recolecta senales de Google Trends Argentina, TikTok, YouTube Shorts e
+Instagram para alimentar la guionera. Es solo lectura: no publica, no comenta
+ni interactua con redes.
 """
 import argparse
 import json
-import os
 import re
 import sys
-from datetime import datetime, timezone
-from pathlib import Path
+import time
 import urllib.parse
+from pathlib import Path
 
-import requests
 import feedparser
+import requests
 
-# Configurar encoding UTF-8 para evitar errores con emojis en consolas Windows (cp1252)
-if sys.platform.startswith('win'):
+if sys.platform.startswith("win"):
     try:
-        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "agents"))
+
 from _log import get_logger
 from db_pg import connect
 
 log = get_logger("trend-listen")
 INTAKE_PATH = ROOT / "data" / "trends-intake.jsonl"
+DEFAULT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept-Language": "es-419,es;q=0.9,en;q=0.8",
+}
+MAX_KEYWORDS_PER_SOURCE = 4
 
 
 def load_client_keywords() -> list[dict]:
-    """Obtiene los clientes activos y sus keywords del catálogo/dominio."""
     clients_data = []
     with connect() as conn:
-        rows = conn.execute(
-            'SELECT id, name, slug, "domainKeywords" FROM "Client" WHERE active = true'
-        ).fetchall()
-        for r in rows:
+        rows = conn.execute('SELECT id, name, slug, "domainKeywords" FROM "Client" WHERE active = true').fetchall()
+        for row in rows:
             try:
-                kws = json.loads(r["domainKeywords"] or "[]")
+                keywords = json.loads(row["domainKeywords"] or "[]")
             except Exception:
-                kws = []
-            
-            # Obtener también marcas asociadas para ampliar keywords
-            brands = conn.execute(
-                'SELECT name FROM "Brand" WHERE "clientId" = %s', (r["id"],)
-            ).fetchall()
-            brand_names = [b["name"].lower() for b in brands]
-            
-            # Combinar keywords
-            kws = list(set([k.lower() for k in kws] + brand_names))
-            
+                keywords = []
+
+            brands = conn.execute('SELECT name FROM "Brand" WHERE "clientId" = %s', (row["id"],)).fetchall()
+            brand_names = [brand["name"].lower() for brand in brands]
+            merged = sorted({str(keyword).lower() for keyword in keywords if keyword} | set(brand_names))
+
             clients_data.append({
-                "id": r["id"],
-                "name": r["name"],
-                "slug": r["slug"],
-                "keywords": kws
+                "id": row["id"],
+                "name": row["name"],
+                "slug": row["slug"],
+                "keywords": merged,
             })
     return clients_data
 
 
+def keyword_match(text: str, keywords: list[str]) -> str:
+    lowered = text.lower()
+    for keyword in keywords:
+        if not keyword:
+            continue
+        if re.search(r"\b" + re.escape(keyword) + r"\b", lowered):
+            return keyword
+        if len(keyword) > 4 and keyword in lowered:
+            return keyword
+    return ""
+
+
 def get_google_trends_ar(keywords: list[str]) -> list[dict]:
-    """Obtiene tendencias diarias de Google Trends en Argentina y las filtra por keywords."""
-    log.info("google_trends_start", details="Obteniendo RSS de Google Trends AR")
-    url = "https://trends.google.com/trending/rss?geo=AR"
+    log.info("google_trends_start", details="Google Trends RSS AR")
     trends = []
     try:
-        response = requests.get(url, timeout=15)
+        response = requests.get("https://trends.google.com/trending/rss?geo=AR", headers=DEFAULT_HEADERS, timeout=15)
         if response.status_code != 200:
-            log.error("google_trends_error", status=response.status_code)
+            log.warning("google_trends_http", status=response.status_code)
             return []
-        
+
         feed = feedparser.parse(response.content)
         for entry in feed.entries:
-            title = entry.title
+            title = getattr(entry, "title", "")
             desc = getattr(entry, "description", "")
             traffic = getattr(entry, "ht_approx_traffic", "N/A")
-            
-            # Buscar coincidencia con nuestras palabras clave
-            combined_text = (title + " " + desc).lower()
-            matched_kw = None
-            for kw in keywords:
-                if re.search(r'\b' + re.escape(kw) + r'\b', combined_text):
-                    matched_kw = kw
-                    break
-            
-            if matched_kw or any(kw in combined_text for kw in keywords if len(kw) > 4):
-                trends.append({
-                    "title": f"Google Trend: {title}",
-                    "description": f"Tendencia en Google Argentina con {traffic} búsquedas. Relacionado con: {matched_kw or 'catálogo'}. {desc}",
-                    "source_url": entry.link,
-                    "platform": "GOOGLE_TRENDS",
-                    "query_used": matched_kw or "general_match",
-                    "metadata": {
-                        "approx_traffic": traffic,
-                        "published": getattr(entry, "published", "")
-                    }
-                })
-    except Exception as e:
-        log.error("google_trends_exception", error=str(e))
-    
+            matched = keyword_match(f"{title} {desc}", keywords)
+            if not matched:
+                continue
+            trends.append({
+                "title": f"Google Trend: {title}",
+                "description": f"Tendencia en Google Argentina con {traffic} busquedas aproximadas. Relacionado con: {matched}. {desc}",
+                "source_url": getattr(entry, "link", ""),
+                "platform": "GOOGLE_TRENDS",
+                "query_used": matched,
+                "metadata": {
+                    "source": "google_trends_rss",
+                    "country": "AR",
+                    "approx_traffic": traffic,
+                    "published": getattr(entry, "published", ""),
+                },
+            })
+    except Exception as exc:
+        log.error("google_trends_failed", error=str(exc))
     log.info("google_trends_done", found=len(trends))
     return trends
 
 
 def get_twitter_trends_ar(keywords: list[str]) -> list[dict]:
-    """Obtiene tendencias de Twitter (X) en Argentina desde Trends24 y filtra."""
-    log.info("twitter_trends_start", details="Obteniendo tendencias de Twitter AR de Trends24")
-    url = "https://trends24.in/argentina/"
+    log.info("twitter_trends_start", details="Trends24 Argentina")
     trends = []
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
     try:
-        response = requests.get(url, headers=headers, timeout=15)
+        response = requests.get("https://trends24.in/argentina/", headers=DEFAULT_HEADERS, timeout=15)
         if response.status_code != 200:
-            log.error("twitter_trends_error", status=response.status_code)
+            log.warning("twitter_trends_http", status=response.status_code)
             return []
-        
+
         matches = re.findall(r'href="/search\?q=([^"]+)"[^>]*>([^<]+)</a>', response.text)
-        
         unique_tags = {}
         for query_encoded, name in matches:
-            query = urllib.parse.unquote(query_encoded)
-            name_clean = name.strip()
-            if name_clean and name_clean not in unique_tags:
-                unique_tags[name_clean] = query
-        
+            clean = name.strip()
+            if clean and clean not in unique_tags:
+                unique_tags[clean] = urllib.parse.unquote(query_encoded)
+
         for name, query in unique_tags.items():
-            name_lower = name.lower()
-            matched_kw = None
-            for kw in keywords:
-                if re.search(r'\b' + re.escape(kw) + r'\b', name_lower) or (kw in name_lower and len(kw) > 4):
-                    matched_kw = kw
-                    break
-            
-            if matched_kw:
-                trends.append({
-                    "title": f"Twitter Trend: {name}",
-                    "description": f"Tema caliente en Twitter/X Argentina. Detectado bajo el término: {matched_kw}.",
-                    "source_url": f"https://x.com/search?q={urllib.parse.quote(name)}",
-                    "platform": "TWITTER",
-                    "query_used": matched_kw,
-                    "metadata": {
-                        "trend_query": query
-                    }
-                })
-    except Exception as e:
-        log.error("twitter_trends_exception", error=str(e))
-        
+            matched = keyword_match(name, keywords)
+            if not matched:
+                continue
+            trends.append({
+                "title": f"X/Twitter Trend: {name}",
+                "description": f"Tema caliente en X/Twitter Argentina detectado por Trends24. Termino relacionado: {matched}.",
+                "source_url": f"https://x.com/search?q={urllib.parse.quote(name)}",
+                "platform": "TWITTER",
+                "query_used": matched,
+                "metadata": {"source": "trends24", "trend_query": query, "country": "AR"},
+            })
+    except Exception as exc:
+        log.error("twitter_trends_failed", error=str(exc))
     log.info("twitter_trends_done", found=len(trends))
     return trends
 
 
 def get_youtube_videos_direct(query: str, limit: int = 3) -> list[dict]:
-    """Busca videos en YouTube directamente analizando la respuesta HTML y ytInitialData."""
     url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}"
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept-Language": "es-419,es;q=0.9"
-    }
     videos = []
     try:
-        r = requests.get(url, headers=headers, timeout=12)
-        if r.status_code != 200:
+        response = requests.get(url, headers=DEFAULT_HEADERS, timeout=12)
+        if response.status_code != 200:
             return []
-        
-        match = re.search(r"ytInitialData\s*=\s*(\{.+?\});", r.text)
+
+        match = re.search(r"ytInitialData\s*=\s*(\{.+?\});", response.text)
         if not match:
-            match = re.search(r"var ytInitialData\s*=\s*(\{.+?\});", r.text)
-            
-        if match:
-            data = json.loads(match.group(1))
-            try:
-                contents = data['contents']['twoColumnSearchResultsRenderer']['primaryContents']['sectionListRenderer']['contents']
-                for section in contents:
-                    if 'itemSectionRenderer' in section:
-                        items = section['itemSectionRenderer']['contents']
-                        for item in items:
-                            if 'videoRenderer' in item:
-                                vr = item['videoRenderer']
-                                video_id = vr.get('videoId')
-                                title = vr.get('title', {}).get('runs', [{}])[0].get('text', '')
-                                desc = "".join([x.get('text', '') for x in vr.get('descriptionSnippet', {}).get('runs', [])])
-                                if not desc and 'detailedMetadataSnippets' in vr:
-                                    desc = vr['detailedMetadataSnippets'][0].get('snippetText', {}).get('runs', [{}])[0].get('text', '')
-                                
-                                if video_id and title:
-                                    videos.append({
-                                        "title": title,
-                                        "description": desc,
-                                        "url": f"https://www.youtube.com/watch?v={video_id}"
-                                    })
-                                    if len(videos) >= limit:
-                                        return videos
-            except Exception as je:
-                log.warning("yt_json_parse_error", error=str(je))
-    except Exception as e:
-        log.warning("youtube_html_search_failed", query=query, error=str(e))
+            match = re.search(r"var ytInitialData\s*=\s*(\{.+?\});", response.text)
+        if not match:
+            return []
+
+        data = json.loads(match.group(1))
+        contents = data["contents"]["twoColumnSearchResultsRenderer"]["primaryContents"]["sectionListRenderer"]["contents"]
+        for section in contents:
+            for item in section.get("itemSectionRenderer", {}).get("contents", []):
+                renderer = item.get("videoRenderer")
+                if not renderer:
+                    continue
+                video_id = renderer.get("videoId")
+                title = renderer.get("title", {}).get("runs", [{}])[0].get("text", "")
+                desc = "".join(part.get("text", "") for part in renderer.get("descriptionSnippet", {}).get("runs", []))
+                if video_id and title:
+                    videos.append({
+                        "title": title,
+                        "description": desc,
+                        "url": f"https://www.youtube.com/watch?v={video_id}",
+                    })
+                if len(videos) >= limit:
+                    return videos
+    except Exception as exc:
+        log.warning("youtube_search_failed", query=query, error=str(exc))
     return videos
 
 
-def get_youtube_and_tiktok_trends(keywords: list[str]) -> list[dict]:
-    """Encuentra videos recientes de YouTube y TikTok relacionados a keywords."""
-    log.info("video_trends_start", details="Buscando videos en YouTube para keywords de catálogo")
+def get_youtube_trends(keywords: list[str]) -> list[dict]:
+    log.info("youtube_trends_start", details="YouTube/Shorts search")
     trends = []
-    
-    # 1. YouTube Direct
-    for kw in keywords:
-        if len(kw) < 3:
+    for keyword in keywords[:MAX_KEYWORDS_PER_SOURCE]:
+        if len(keyword) < 3:
             continue
-        query_yt = f"{kw} argentina"
-        videos = get_youtube_videos_direct(query_yt, limit=2)
-        for v in videos:
+        for video in get_youtube_videos_direct(f"{keyword} argentina shorts", limit=1):
             trends.append({
-                "title": f"YouTube Video: {v['title']}",
-                "description": f"Video detectado en YouTube sobre {kw} en Argentina: {v['description']}",
-                "source_url": v["url"],
+                "title": f"YouTube/Shorts: {video['title']}",
+                "description": f"Referencia de video sobre {keyword} en Argentina. Usar como inspiracion editorial, no como fuente de claims: {video['description']}",
+                "source_url": video["url"],
                 "platform": "YOUTUBE",
-                "query_used": kw,
-                "metadata": {}
+                "query_used": keyword,
+                "metadata": {"source": "youtube_html_search", "format_hint": "Short"},
             })
-            
-    # 2. TikTok Fallback usando DuckDuckGo Text search (que tiene menos rate limits que video search)
+    log.info("youtube_trends_done", found=len(trends))
+    return trends
+
+
+def get_tiktok_creative_center_trends(keywords: list[str], limit: int = 6) -> list[dict]:
+    log.info("tiktok_creative_center_start", details="TikTok Creative Center AR")
+    trends = []
+    endpoints = [
+        "https://ads.tiktok.com/creative_radar_api/v1/popular_trend/hashtag/list?period=7&country_code=AR&limit=50",
+        "https://ads.tiktok.com/creative_radar_api/v1/popular_trend/sound/list?period=7&country_code=AR&limit=50",
+    ]
+
+    for endpoint in endpoints:
+        try:
+            response = requests.get(endpoint, headers=DEFAULT_HEADERS, timeout=8)
+            if response.status_code != 200:
+                log.warning("tiktok_creative_center_http", status=response.status_code)
+                continue
+            payload = response.json()
+        except Exception as exc:
+            log.warning("tiktok_creative_center_failed", error=str(exc))
+            continue
+
+        data = payload.get("data") if isinstance(payload, dict) else None
+        rows = []
+        if isinstance(data, dict):
+            rows = data.get("list") or data.get("items") or data.get("records") or []
+        elif isinstance(data, list):
+            rows = data
+
+        for row in rows:
+            if len(trends) >= limit:
+                break
+            if not isinstance(row, dict):
+                continue
+            title = row.get("hashtag_name") or row.get("keyword") or row.get("song_name") or row.get("title") or row.get("name")
+            if not title:
+                continue
+            matched = keyword_match(json.dumps(row, ensure_ascii=False), keywords) or "argentina"
+            trends.append({
+                "title": f"TikTok Creative Center: {title}",
+                "description": "Tendencia detectada en TikTok Creative Center para Argentina. Revisar fuente y adaptar al catalogo antes de publicar.",
+                "source_url": "https://ads.tiktok.com/creative/creativeCenter/trends",
+                "platform": "TIKTOK_CREATIVE_CENTER",
+                "query_used": matched,
+                "metadata": {
+                    "source": "tiktok_creative_center",
+                    "country": "AR",
+                    "raw": row,
+                },
+            })
+    log.info("tiktok_creative_center_done", found=len(trends))
+    return trends[:limit]
+
+
+def search_with_duckduckgo(query: str, max_results: int = 1) -> list[dict]:
     try:
         from duckduckgo_search import DDGS
-        with DDGS() as ddgs:
-            for kw in keywords:
-                if len(kw) < 3:
-                    continue
-                query_tt = f"{kw} argentina site:tiktok.com"
-                try:
-                    tt_results = list(ddgs.text(query_tt, max_results=1))
-                    for r in tt_results:
-                        trends.append({
-                            "title": f"TikTok: {r.get('title', '')}",
-                            "description": f"Contenido reciente en TikTok sobre {kw} en Argentina: {r.get('body', '')}",
-                            "source_url": r.get("href", ""),
-                            "platform": "TIKTOK",
-                            "query_used": kw,
-                            "metadata": {}
-                        })
-                except Exception as e:
-                    # Silenciar errores individuales de DDG
-                    pass
-    except Exception as e:
-        log.warning("ddgs_tiktok_search_failed", error=str(e))
+    except Exception as exc:
+        log.warning("duckduckgo_unavailable", error=str(exc))
+        return []
 
-    log.info("video_trends_done", found=len(trends))
+    try:
+        with DDGS(timeout=8) as ddgs:
+            return list(ddgs.text(query, max_results=max_results))
+    except Exception as exc:
+        log.warning("duckduckgo_search_failed", query=query, error=str(exc))
+        return []
+
+
+def get_tiktok_public_search_trends(keywords: list[str]) -> list[dict]:
+    log.info("tiktok_public_search_start", details="TikTok public search fallback")
+    trends = []
+    for keyword in keywords[:MAX_KEYWORDS_PER_SOURCE]:
+        if len(keyword) < 3:
+            continue
+        for result in search_with_duckduckgo(f"{keyword} argentina site:tiktok.com", max_results=1):
+            trends.append({
+                "title": f"TikTok: {result.get('title', '')}",
+                "description": f"Contenido reciente en TikTok sobre {keyword} en Argentina: {result.get('body', '')}",
+                "source_url": result.get("href", ""),
+                "platform": "TIKTOK",
+                "query_used": keyword,
+                "metadata": {"source": "duckduckgo_site_search"},
+            })
+    log.info("tiktok_public_search_done", found=len(trends))
+    return trends
+
+
+def get_instagram_public_search_trends(keywords: list[str]) -> list[dict]:
+    log.info("instagram_public_search_start", details="Instagram/Reels public fallback")
+    trends = []
+    for keyword in keywords[:MAX_KEYWORDS_PER_SOURCE]:
+        if len(keyword) < 3:
+            continue
+        query = f"{keyword} argentina reels site:instagram.com/reel OR site:instagram.com/p"
+        for result in search_with_duckduckgo(query, max_results=1):
+            trends.append({
+                "title": f"Instagram/Reels: {result.get('title', '')}",
+                "description": f"Referencia publica de Instagram sobre {keyword}. Para captions/comentarios completos usar navegador logueado autorizado: {result.get('body', '')}",
+                "source_url": result.get("href", ""),
+                "platform": "INSTAGRAM",
+                "query_used": keyword,
+                "metadata": {
+                    "source": "duckduckgo_site_search",
+                    "requires_logged_browser_for_deep_scan": True,
+                },
+            })
+    log.info("instagram_public_search_done", found=len(trends))
     return trends
 
 
 def write_jsonl(rows: list[dict]) -> None:
-    """Escribe los resultados en el archivo intake JSONL."""
     INTAKE_PATH.parent.mkdir(parents=True, exist_ok=True)
     with INTAKE_PATH.open("a", encoding="utf-8") as handle:
         for row in rows:
@@ -264,68 +315,73 @@ def write_jsonl(rows: list[dict]) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Radar de tendencias para Los 5 Apóstoles (Argentina)")
-    parser.add_argument("--limit", type=int, default=15, help="Límite de tendencias a procesar")
-    parser.add_argument("--dry-run", action="store_true", help="No guardar en base de datos o archivo JSONL")
+    parser = argparse.ArgumentParser(description="Radar de tendencias editoriales para Los 5 Apostoles")
+    parser.add_argument("--limit", type=int, default=15, help="Limite de tendencias a procesar")
+    parser.add_argument("--dry-run", action="store_true", help="No guardar en JSONL ni importar")
     args = parser.parse_args()
 
     log.info("start", limit=args.limit, dry_run=args.dry_run)
-    
+    started_at = time.monotonic()
+    budget_seconds = 75
+
     try:
         clients = load_client_keywords()
-    except Exception as e:
-        log.error("load_clients_failed", error=str(e))
+    except Exception as exc:
+        log.error("load_clients_failed", error=str(exc))
         sys.exit(1)
-        
-    all_collected_trends = []
-    
-    for client in clients:
-        log.info("process_client", client=client["name"], keywords_count=len(client["keywords"]))
-        kws = client["keywords"]
-        if not kws:
-            log.warn("no_keywords", client=client["name"])
-            continue
-        
-        # 1. Google Trends (AR)
-        g_trends = get_google_trends_ar(kws)
-        for t in g_trends:
-            t["clientId"] = client["id"]
-        all_collected_trends.extend(g_trends)
-        
-        # 2. Twitter Trends (AR)
-        x_trends = get_twitter_trends_ar(kws)
-        for t in x_trends:
-            t["clientId"] = client["id"]
-        all_collected_trends.extend(x_trends)
-        
-        # 3. YouTube & TikTok
-        social_trends = get_youtube_and_tiktok_trends(kws)
-        for t in social_trends:
-            t["clientId"] = client["id"]
-        all_collected_trends.extend(social_trends)
 
-    # Limitar y deduplicar tendencias recolectadas en esta corrida
-    seen_urls = set()
+    all_trends = []
+    for client in clients:
+        keywords = client["keywords"]
+        log.info("process_client", client=client["name"], keywords_count=len(keywords))
+        if not keywords:
+            log.warning("no_keywords", client=client["name"])
+            continue
+
+        collected = []
+        source_runners = [
+            get_google_trends_ar,
+            get_twitter_trends_ar,
+            lambda kws: get_tiktok_creative_center_trends(kws, limit=max(2, min(6, args.limit))),
+            get_tiktok_public_search_trends,
+            get_instagram_public_search_trends,
+            get_youtube_trends,
+        ]
+        for runner in source_runners:
+            if len(all_trends) + len(collected) >= args.limit:
+                break
+            if time.monotonic() - started_at > budget_seconds:
+                log.warning("time_budget_reached", seconds=budget_seconds)
+                break
+            collected.extend(runner(keywords))
+
+        for trend in collected:
+            trend["clientId"] = client["id"]
+        all_trends.extend(collected)
+
+    seen = set()
     unique_trends = []
-    for t in all_collected_trends:
-        url = t["source_url"]
-        if url not in seen_urls:
-            seen_urls.add(url)
-            unique_trends.append(t)
-            
-    unique_trends = unique_trends[:args.limit]
-    
+    for trend in all_trends:
+        dedupe_key = trend.get("source_url") or f"{trend.get('platform')}::{trend.get('title')}"
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        unique_trends.append(trend)
+        if len(unique_trends) >= args.limit:
+            break
+
     if args.dry_run:
         log.info("dry_run_summary", count=len(unique_trends))
-        for t in unique_trends:
-            print(f"[{t['platform']}] {t['title']} (Term: {t['query_used']})")
+        for trend in unique_trends:
+            print(f"[{trend['platform']}] {trend['title']} (Term: {trend['query_used']})")
+        return
+
+    if unique_trends:
+        write_jsonl(unique_trends)
+        log.info("saved_to_intake", count=len(unique_trends), path=str(INTAKE_PATH))
+        print(f"Se guardaron {len(unique_trends)} tendencias en {INTAKE_PATH}")
     else:
-        if unique_trends:
-            write_jsonl(unique_trends)
-            log.info("saved_to_intake", count=len(unique_trends), path=str(INTAKE_PATH))
-            print(f"Se recolectaron y guardaron {len(unique_trends)} tendencias en {INTAKE_PATH}")
-        else:
-            print("No se encontraron tendencias relevantes al catálogo hoy.")
+        print("No se encontraron tendencias relevantes al catalogo hoy.")
 
 
 if __name__ == "__main__":
