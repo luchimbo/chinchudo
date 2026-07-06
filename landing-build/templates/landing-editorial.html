@@ -33,31 +33,60 @@
       --t-h2: clamp(32px, 4.4vw, 64px);
       --t-h3: clamp(20px, 1.7vw, 26px);
     }
-    .tpl-minimalist {
-      --paper: #FFFFFF;
-      --paper-2: #F6F6F2;
-      --paper-3: #ECECE5;
-      --ink: #181816;
-      --ink-2: #262622;
-      --ink-3: #56564E;
-      --ink-mute: #77776D;
-      --rule: rgba(24, 24, 22, .11);
-      --rule-strong: rgba(24, 24, 22, .22);
-      --font-sans: "Aptos", "Segoe UI", Helvetica, Arial, sans-serif;
-      --font-mono: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
-      --container: 1180px;
-      --t-hero: clamp(44px, 7.4vw, 112px);
+    .tpl-editorial {
+      --paper: #FBF2E4;
+      --paper-2: #F2E2CB;
+      --paper-3: #E7CFAD;
+      --ink: #231B14;
+      --ink-2: #36271A;
+      --ink-3: #6A5745;
+      --ink-mute: #8B7560;
+      --rule: rgba(35, 27, 20, 0.16);
+      --rule-strong: rgba(35, 27, 20, 0.30);
+      --accent: var(--brand-orange);
     }
-    .tpl-minimalist .hero { background: var(--paper); color: var(--ink); border-bottom: 1px solid var(--rule); }
-    .tpl-minimalist .hero-bg-grid, .tpl-minimalist .hero-bg-glow { display: none; }
-    .tpl-minimalist .hero-grid { grid-template-columns: minmax(0, 1fr); padding-top: clamp(64px, 9vw, 128px); }
-    .tpl-minimalist .hero-title { color: var(--ink); max-width: 980px; letter-spacing: -0.065em; }
-    .tpl-minimalist .hero-lede { color: var(--ink-3); max-width: 680px; }
-    .tpl-minimalist .hero .mono-label, .tpl-minimalist .hero .mono-label.dim { color: var(--ink-mute); }
-    .tpl-minimalist .cta-ghost-light { color: var(--ink); border-color: var(--rule-strong); }
-    .tpl-minimalist .comp-grid, .tpl-minimalist .faq-grid, .tpl-minimalist .support-panel { gap: 18px; background: transparent; border: 0; }
-    .tpl-minimalist .comp-card, .tpl-minimalist .faq-item, .tpl-minimalist .support-copy, .tpl-minimalist .support-links { border: 1px solid var(--rule); border-radius: 6px; }
-    .tpl-minimalist .section-dark { background: #181816; }
+    .tpl-editorial .hero-title { max-width: 1040px; font-family: Georgia, 'Times New Roman', serif; font-style: italic; }
+    .tpl-editorial .hero-grid { align-items: end; }
+    .tpl-editorial .marquee { border-top: 2px solid var(--ink); border-bottom: 2px solid var(--ink); }
+    .tpl-editorial {
+      --font-sans: Georgia, "Times New Roman", serif;
+      --font-mono: "Lucida Console", Monaco, monospace;
+      --container: 1160px;
+      --t-hero: clamp(52px, 9vw, 138px);
+      --t-h2: clamp(38px, 5.6vw, 76px);
+    }
+    .tpl-editorial .site-header { position: relative; background: var(--paper); backdrop-filter: none; border-bottom: 2px solid var(--ink); }
+    .tpl-editorial .header-grid { grid-template-columns: 1fr; justify-items: start; padding-top: 24px; padding-bottom: 24px; }
+    .tpl-editorial .site-nav { border-top: 1px solid var(--rule-strong); padding-top: 12px; width: 100%; }
+    .tpl-editorial .header-cta { justify-content: flex-start; }
+    .tpl-editorial .hero { background: var(--paper); color: var(--ink); border-bottom: 2px solid var(--ink); }
+    .tpl-editorial .hero-bg-grid, .tpl-editorial .hero-bg-glow { display: none; }
+    .tpl-editorial .hero-grid { grid-template-columns: minmax(0, 1fr); padding-top: clamp(52px, 8vw, 96px); }
+    .tpl-editorial .hero-title { color: var(--ink); letter-spacing: -.075em; line-height: .86; }
+    .tpl-editorial .hero-lede { color: var(--ink-3); font-size: clamp(20px,2.3vw,30px); max-width: 820px; }
+    .tpl-editorial .hero .mono-label, .tpl-editorial .hero .mono-label.dim { color: var(--ink-mute); }
+    .tpl-editorial .cta-ghost-light { color: var(--ink); border-color: var(--ink); }
+    .tpl-editorial .comp-grid, .tpl-editorial .faq-grid { grid-template-columns: 1fr; background: transparent; border: 0; gap: 0; }
+    .tpl-editorial .comp-card, .tpl-editorial .faq-item { border-top: 2px solid var(--ink); min-height: auto; padding-left: 0; padding-right: 0; background: transparent; }
+    .tpl-editorial .section-dark { background: #231B14; }
+    .tpl-editorial main { display: flex; flex-direction: column; }
+    .tpl-editorial #guia { order: 1; }
+    .tpl-editorial #beneficios { order: 2; background: var(--paper); }
+    .tpl-editorial #productos { order: 3; background: var(--paper-2); border-top: 2px solid var(--ink); border-bottom: 2px solid var(--ink); }
+    .tpl-editorial #faq { order: 4; background: var(--paper); }
+    .tpl-editorial .lead-magnet-section { order: 5; }
+    .tpl-editorial .mega { order: 6; }
+    .tpl-editorial #guia > .container { display: grid; grid-template-columns: minmax(280px, .72fr) minmax(420px, 1.05fr); gap: clamp(34px, 6vw, 86px); }
+    .tpl-editorial #guia .section-head { margin: 0; }
+    .tpl-editorial .steps-list { border-top: 2px solid rgba(244,241,234,.75); }
+    .tpl-editorial .step-item { grid-template-columns: 92px 1fr; gap: 1.2rem; padding: 26px 0; }
+    .tpl-editorial .step-num-big { font-family: Georgia, "Times New Roman", serif; font-style: italic; font-weight: 400; }
+    .tpl-editorial .support-panel { grid-template-columns: minmax(0, .82fr) minmax(0, 1.18fr); background: transparent; border: 0; gap: clamp(24px, 4vw, 56px); }
+    .tpl-editorial .support-copy, .tpl-editorial .support-links { background: transparent; border-top: 2px solid var(--ink); padding-left: 0; padding-right: 0; }
+    .tpl-editorial #productos .section-head { max-width: 760px; margin-left: auto; margin-right: auto; text-align: center; }
+    .tpl-editorial .comp-card { display: grid; grid-template-columns: 120px 1fr minmax(140px, auto); gap: 24px; align-items: start; }
+    .tpl-editorial .comp-head { margin: 0; }
+    .tpl-editorial .comp-link { padding-top: 0; border-top: 0; align-self: center; }
     html, body { margin: 0; padding: 0; }
     body {
       background: var(--paper);
@@ -179,6 +208,9 @@
       .tpl-minimalist .hero-grid, .tpl-editorial .hero-grid { padding-top: 52px; padding-bottom: 58px; }
       .tpl-pro-dark .hero-grid, .tpl-store-front .hero-grid { grid-template-columns: 1fr; align-items: start; }
       .tpl-editorial .header-grid { gap: 18px; }
+      .tpl-editorial #guia > .container,
+      .tpl-editorial .support-panel,
+      .tpl-editorial .comp-card { grid-template-columns: 1fr; }
       .tpl-editorial .comp-grid, .tpl-editorial .faq-grid { grid-template-columns: 1fr; }
     }
     @media (max-width: 640px) {

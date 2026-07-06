@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -17,7 +17,7 @@ const TEMPLATES: Template[] = [
   {
     id: "minimalist",
     name: "Minimalista Moderno",
-    desc: "Enfoque limpio con fondo blanco, tipografía elegante y alto contraste. Excelente para productos premium.",
+    desc: "Diseño limpio, claro y de alto contraste para presentar una guia comercial simple.",
     bgColor: "bg-white",
     accentColor: "bg-ink",
     renderMini: () => (
@@ -43,8 +43,8 @@ const TEMPLATES: Template[] = [
   },
   {
     id: "pro-dark",
-    name: "Estudio Profesional (Oscuro)",
-    desc: "Estética oscura inspirada en DAWs y hardware de audio profesional. Ideal para MidiPlus.",
+    name: "Profesional Oscuro",
+    desc: "Interfaz oscura, tecnica y sobria para marcas que necesitan transmitir precision.",
     bgColor: "bg-zinc-900",
     accentColor: "bg-emerald-500",
     renderMini: () => (
@@ -71,7 +71,7 @@ const TEMPLATES: Template[] = [
   {
     id: "store-front",
     name: "Vitrina de Productos",
-    desc: "Diseño optimizado para resaltar múltiples características del producto con cards y specs visuales claras.",
+    desc: "Diseño orientado a catalogo, comparacion de opciones y lectura rapida de beneficios.",
     bgColor: "bg-slate-50",
     accentColor: "bg-blue-600",
     renderMini: () => (
@@ -100,7 +100,7 @@ const TEMPLATES: Template[] = [
   {
     id: "editorial",
     name: "Lanzamiento / Editorial",
-    desc: "Impacto visual fuerte, cabeceras grandes y bloques narrativos para lanzamientos de Kressmer.",
+    desc: "Composicion editorial con titulares grandes para contenidos de mayor impacto visual.",
     bgColor: "bg-amber-50/30",
     accentColor: "bg-amber-700",
     renderMini: () => (
@@ -143,9 +143,16 @@ export function EditorForm({
   const [secondaryColor, setSecondaryColor] = useState(config.landingSecondaryColor || "#F6A00C");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [actionLabel, setActionLabel] = useState<"preview" | "confirm">("preview");
+  const [previewVersion, setPreviewVersion] = useState(0);
+
+  const previewSrc = `/api/landings/preview?client=${encodeURIComponent(config.clientSlug)}&v=${previewVersion}`;
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    const intent = submitter?.value === "confirm" ? "confirm" : "preview";
+    setActionLabel(intent);
     setSaving(true);
     setSaved(false);
 
@@ -159,6 +166,7 @@ export function EditorForm({
     await updateLandingTemplate(fd);
     setSaving(false);
     setSaved(true);
+    setPreviewVersion((version) => version + 1);
     router.refresh();
     setTimeout(() => setSaved(false), 3000);
   }
@@ -170,7 +178,7 @@ export function EditorForm({
         <div className="mb-4">
           <h2 className="font-display text-xl font-bold text-ink">Plantilla de Diseño</h2>
           <p className="text-xs text-slate/75">
-            Seleccioná el estilo visual por defecto que los agentes usarán al armar tus páginas.
+            Selecciona el estilo visual por defecto para las landings de este cliente.
           </p>
         </div>
 
@@ -197,7 +205,7 @@ export function EditorForm({
                     <span className="font-display text-sm font-bold text-ink">{tpl.name}</span>
                     {active ? (
                       <span className="flex h-4.5 w-4.5 items-center justify-center rounded-full bg-ink text-[10px] text-paper">
-                        ✓
+                        OK
                       </span>
                     ) : (
                       <span className="h-4.5 w-4.5 rounded-full border border-ink/25" />
@@ -214,9 +222,9 @@ export function EditorForm({
       {/* 2. COLORES DE LA LANDING */}
       <section className="rounded-2xl border border-ink/10 bg-paper p-6 shadow-sm">
         <div className="mb-4">
-          <h2 className="font-display text-xl font-bold text-ink">Colores de la Landing</h2>
+          <h2 className="font-display text-xl font-bold text-ink">Colores de la landing</h2>
           <p className="text-xs text-slate/75">
-            Personalizá los colores corporativos para los botones, enlaces y acentos visuales de tus páginas.
+            Personaliza los colores principales para botones, enlaces y acentos visuales.
           </p>
         </div>
 
@@ -275,12 +283,12 @@ export function EditorForm({
         </div>
       </section>
 
-      {/* 3. LOGO DE TU TIENDA */}
+      {/* 3. LOGO DE LA MARCA */}
       <section className="rounded-2xl border border-ink/10 bg-paper p-6 shadow-sm">
         <div className="mb-4">
-          <h2 className="font-display text-xl font-bold text-ink">Logo de tu tienda</h2>
+          <h2 className="font-display text-xl font-bold text-ink">Logo de la marca</h2>
           <p className="text-xs text-slate/75">
-            Subí el logo de tu marca para que se estampe en las cabeceras de tus landings.
+            Sube el logo que se usara en las cabeceras y cierres de las landings.
           </p>
         </div>
 
@@ -293,17 +301,50 @@ export function EditorForm({
         </div>
       </section>
 
-      {/* 4. BOTÓN GUARDAR */}
-      <div className="flex items-center gap-4 border-t border-ink/10 pt-6">
+      {/* 4. ACCIONES */}
+      <div className="flex flex-wrap items-center gap-3 border-t border-ink/10 pt-6">
         <button
           type="submit"
+          name="intent"
+          value="preview"
           disabled={saving}
           className="rounded-full bg-ink px-8 py-3 text-sm font-bold text-paper transition hover:bg-slate disabled:opacity-60"
         >
-          {saving ? "Guardando…" : "Aplicar diseño"}
+          {saving && actionLabel === "preview" ? "Previsualizando..." : "Previsualizar diseño"}
         </button>
-        {saved ? <span className="text-xs font-semibold text-emerald-600">✓ Cambios guardados correctamente</span> : null}
+        <button
+          type="submit"
+          name="intent"
+          value="confirm"
+          disabled={saving}
+          className="rounded-full border border-ink/20 bg-paper px-8 py-3 text-sm font-bold text-ink transition hover:border-ink/45 disabled:opacity-60"
+        >
+          {saving && actionLabel === "confirm" ? "Confirmando..." : "Confirmar diseño de landing"}
+        </button>
+        {saved ? <span className="text-xs font-semibold text-emerald-600">Cambios guardados</span> : null}
       </div>
+
+      <section className="overflow-hidden rounded-xl border border-ink/10 bg-[#111315] shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+          <h2 className="font-display text-sm font-bold text-paper">Previsualización</h2>
+          <button
+            type="button"
+            onClick={() => setPreviewVersion((version) => version + 1)}
+            className="rounded-full border border-white/15 px-3 py-1.5 text-xs font-bold text-paper transition hover:border-white/35"
+          >
+            Actualizar
+          </button>
+        </div>
+        <div className="bg-[#202326] p-3">
+          <iframe
+            key={previewSrc}
+            src={previewSrc}
+            title="Previsualización de landing"
+            className="h-[640px] w-full rounded-lg border border-white/10 bg-white"
+          />
+        </div>
+      </section>
     </form>
   );
 }
+

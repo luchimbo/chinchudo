@@ -1,0 +1,25 @@
+{
+  "default": "minimalist",
+  "templates": [
+    {
+      "id": "minimalist",
+      "name": "Minimalista Moderno",
+      "file": "landing-minimalist.html"
+    },
+    {
+      "id": "pro-dark",
+      "name": "Estudio Profesional",
+      "file": "landing-pro-dark.html"
+    },
+    {
+      "id": "store-front",
+      "name": "Vitrina de Productos",
+      "file": "landing-store-front.html"
+    },
+    {
+      "id": "editorial",
+      "name": "Lanzamiento Editorial",
+      "file": "landing-editorial.html"
+    }
+  ]
+}

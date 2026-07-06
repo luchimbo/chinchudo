@@ -16,6 +16,7 @@ import { logger } from "@/lib/logger";
 import { getRelayUrl } from "@/lib/settings";
 import { loadClientContext, resolveOpportunityClient } from "@/lib/client-context";
 import { detectCrossClientTerms, validateClientScopedActors } from "@/lib/guardrails";
+import { triageOpportunity } from "@/lib/opportunity-triage";
 
 const createOpportunitySchema = z.object({
   channelId: z.string().min(1),
@@ -471,6 +472,106 @@ export async function deleteResponse(formData: FormData) {
 
   revalidatePath("/");
   revalidatePath(`/opportunities/${parsed.opportunityId}`);
+}
+
+export async function assignMissingOpportunityClients(formData: FormData) {
+  const clientSlug = (formData.get("client") || "") as string;
+  const limit = Math.min(200, Math.max(1, Number(formData.get("limit") || 100)));
+  const client = clientSlug
+    ? await prisma.client.findUnique({ where: { slug: clientSlug } })
+    : null;
+
+  const opportunities = await prisma.opportunity.findMany({
+    where: {
+      clientId: null,
+      status: { in: [OpportunityStatus.NEW, OpportunityStatus.NEEDS_REVIEW] },
+    },
+    include: {
+      detectedBrand: { include: { client: true } },
+      monitoredSource: { include: { client: true } },
+    },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+  });
+
+  let updated = 0;
+  for (const opportunity of opportunities) {
+    const resolution = client
+      ? { client, confidence: "medium" as const, reason: "manual_active_client_scope" }
+      : await resolveOpportunityClient(prisma, opportunity);
+
+    await prisma.opportunity.update({
+      where: { id: opportunity.id },
+      data: {
+        clientId: resolution.client.id,
+        notes: [
+          opportunity.notes,
+          `Cliente asignado por limpieza masiva: ${resolution.client.slug} (${resolution.confidence}, ${resolution.reason}).`,
+        ].filter(Boolean).join(" "),
+      },
+    });
+    updated += 1;
+  }
+
+  revalidatePath("/");
+  revalidatePath("/oportunidades");
+}
+
+export async function discardNoisyNewOpportunities(formData: FormData) {
+  const clientSlug = (formData.get("client") || "") as string;
+  const limit = Math.min(300, Math.max(1, Number(formData.get("limit") || 150)));
+  const client = clientSlug
+    ? await prisma.client.findUnique({ where: { slug: clientSlug }, select: { id: true } })
+    : null;
+
+  const opportunities = await prisma.opportunity.findMany({
+    where: {
+      status: { in: [OpportunityStatus.NEW, OpportunityStatus.NEEDS_REVIEW] },
+      responses: { none: {} },
+      ...(client ? { clientId: client.id } : {}),
+    },
+    orderBy: [{ priority: "asc" }, { createdAt: "desc" }],
+    take: limit,
+  });
+
+  const updates = opportunities
+    .map((opportunity) => ({ opportunity, decision: triageOpportunity(opportunity) }))
+    .filter((row) => row.decision.action === "discard")
+    .map((row) => prisma.opportunity.update({
+      where: { id: row.opportunity.id },
+      data: {
+        status: OpportunityStatus.DISCARDED,
+        notes: [
+          row.opportunity.notes,
+          `Auto-descartada por limpieza de bandeja: ${row.decision.reason} (score ${row.decision.score}).`,
+        ].filter(Boolean).join(" "),
+      },
+    }));
+
+  if (updates.length > 0) {
+    await prisma.$transaction(updates);
+  }
+
+  revalidatePath("/");
+  revalidatePath("/oportunidades");
+}
+
+export async function generateDailyDraftBatch(formData: FormData) {
+  const clientSlug = (formData.get("client") || "") as string;
+  const limit = Math.min(10, Math.max(1, Number(formData.get("limit") || 5)));
+  const args = ["tsx", "scripts/draft-worker.mts", "--limit", String(limit)];
+  if (clientSlug) args.push("--client", clientSlug);
+
+  try {
+    execFileSync("npx", args, { cwd: process.cwd(), encoding: "utf-8", stdio: "pipe" });
+  } catch (error) {
+    const stdout = (error as { stdout?: string }).stdout ?? "";
+    const stderr = (error as { stderr?: string }).stderr ?? "";
+    throw new Error(`No se pudo generar el lote de borradores. ${stdout || stderr}`);
+  }
+
+  revalidatePath("/");
+  revalidatePath("/oportunidades");
 }
 
 function extractPostKey(channel: string, url: string): string | null {

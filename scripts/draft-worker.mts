@@ -13,6 +13,7 @@ import { loadRelevantKnowledge } from "../src/lib/knowledge";
 import { loadActivePrompt } from "../src/lib/prompts";
 import { loadClientContext, resolveOpportunityClient } from "../src/lib/client-context";
 import { detectCrossClientTerms, validateClientScopedActors } from "../src/lib/guardrails";
+import { triageOpportunity } from "../src/lib/opportunity-triage";
 
 loadEnv();
 
@@ -24,6 +25,7 @@ function parseArgs() {
   return {
     dryRun: process.argv.includes("--dry-run") || process.env.npm_config_dry_run === "true",
     useAi: process.argv.includes("--use-ai") || process.env.npm_config_use_ai === "true",
+    allPersonas: process.argv.includes("--all-personas") || process.env.npm_config_all_personas === "true",
     limit: limitIndex >= 0 ? Number(process.argv[limitIndex + 1] || 5) : Number(process.env.npm_config_limit || 5),
     clientSlug: clientIndex >= 0 ? process.argv[clientIndex + 1] : process.env.npm_config_client || null,
   };
@@ -47,13 +49,14 @@ async function main() {
   const whereClause: any = {
     status: { in: ["NEW", "NEEDS_REVIEW"] },
     responses: { none: {} },
+    priority: { in: ["URGENT", "HIGH", "MEDIUM"] },
   };
 
   if (args.clientSlug) {
     whereClause.client = { slug: args.clientSlug };
   }
 
-  const opportunities = await prisma.opportunity.findMany({
+  const candidates = await prisma.opportunity.findMany({
     where: whereClause,
     include: {
       channel: true,
@@ -61,9 +64,19 @@ async function main() {
       detectedProduct: true,
       monitoredSource: { include: { client: true } },
     },
-    orderBy: { createdAt: "desc" },
-    take: args.limit,
+    orderBy: [
+      { priority: "desc" },
+      { createdAt: "desc" },
+    ],
+    take: args.limit * 4,
   });
+
+  const opportunities = candidates
+    .map((opportunity) => ({ opportunity, triage: triageOpportunity(opportunity) }))
+    .filter((row) => row.triage.action === "keep")
+    .sort((a, b) => b.triage.score - a.triage.score)
+    .slice(0, args.limit)
+    .map((row) => row.opportunity);
 
   let drafted = 0;
   let aiUsed = 0;
@@ -95,7 +108,8 @@ async function main() {
 
     const brand = clientContext.brand;
     const personaByName = new Map(clientContext.personas.map((p) => [p.name, p]));
-    const suggestions = await suggestAllPersonasForClient(prisma, opportunity, resolution.client.id);
+    const suggestions = (await suggestAllPersonasForClient(prisma, opportunity, resolution.client.id))
+      .slice(0, args.allPersonas ? undefined : 1);
 
     let knowledge: Awaited<ReturnType<typeof loadRelevantKnowledge>>["knowledge"];
     let objections: Awaited<ReturnType<typeof loadRelevantKnowledge>>["objections"];
@@ -277,6 +291,7 @@ async function main() {
     drafts_created: drafted,
     ai_used: aiUsed,
     local_used: localUsed,
+    all_personas: args.allPersonas,
     routing,
     errors,
   });

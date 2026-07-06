@@ -13,7 +13,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 
 ROOT = Path(__file__).resolve().parent
@@ -38,7 +38,7 @@ def _get_client() -> dict:
 
 
 def client_name() -> str:
-    return _CLIENT_CONFIG.get("name") or "PC MIDI Center"
+    return _CLIENT_CONFIG.get("name") or _CLIENT_CONFIG.get("labName") or "PC MIDI Center"
 
 
 def client_store_url() -> str:
@@ -59,6 +59,17 @@ def client_logo_url() -> str:
 
 def client_slug_active() -> str:
     return _CLIENT_CONFIG.get("slug") or "pcmidi"
+
+
+def load_client_config_from_env() -> dict:
+    raw = os.environ.get("LANDING_CLIENT_CONFIG_JSON", "")
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
 LANDINGS_PATH = DATA_DIR / "landings_aprobadas.jsonl"
 OPPORTUNITIES_PATH = DATA_DIR / "oportunidades_research.jsonl"
 
@@ -71,8 +82,49 @@ def _opportunities_path() -> Path:
     return OPPORTUNITIES_PATH
 CONTENT_FEEDBACK_PATH = DATA_DIR / "content_feedback.jsonl"
 TEMPLATE_PATH = TEMPLATES_DIR / "landing-static-template.html"
+TEMPLATE_REGISTRY_PATH = TEMPLATES_DIR / "registry.json"
 MAX_GENERATE_PER_RUN = 50
 MAX_GENERATE_PER_DAY = 50
+
+
+def load_template_registry() -> dict:
+    fallback = {
+        "default": "minimalist",
+        "templates": [{"id": "minimalist", "name": "Minimalista Moderno", "file": "landing-minimalist.html"}],
+    }
+    if not TEMPLATE_REGISTRY_PATH.exists():
+        return fallback
+    try:
+        registry = json.loads(TEMPLATE_REGISTRY_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return fallback
+    if not isinstance(registry.get("templates"), list):
+        return fallback
+    return registry
+
+
+def template_ids() -> set[str]:
+    return {str(item.get("id")) for item in load_template_registry().get("templates", []) if item.get("id")}
+
+
+def active_template_id() -> str:
+    registry = load_template_registry()
+    default = str(registry.get("default") or "minimalist")
+    requested = str(_CLIENT_CONFIG.get("landingTemplate") or "").strip()
+    return requested if requested in template_ids() else default
+
+
+def active_template_path() -> Path:
+    registry = load_template_registry()
+    selected = active_template_id()
+    for item in registry.get("templates", []):
+        if item.get("id") == selected:
+            path = TEMPLATES_DIR / str(item.get("file") or "")
+            if path.exists():
+                return path
+    if TEMPLATE_PATH.exists():
+        return TEMPLATE_PATH
+    return TEMPLATES_DIR / "landing-minimalist.html"
 
 FORBIDDEN_CLAIMS = [
     "stock garantizado",
@@ -156,6 +208,15 @@ def _load_catalog_from_db(slug: str) -> tuple[dict, dict]:
     return db_pg.load_landing_catalog(slug)
 
 
+def psycopg_url(raw_url: str) -> str:
+    url = raw_url.replace("postgres://", "postgresql://", 1)
+    if "pgbouncer=" not in url:
+        return url
+    parsed = urlparse(url)
+    query_params = [(key, value) for key, value in parse_qsl(parsed.query) if key != "pgbouncer"]
+    return urlunparse(parsed._replace(query=urlencode(query_params)))
+
+
 def load_lead_magnets() -> dict[str, dict]:
     """Carga lead magnets indexados por slug."""
     magnets = {}
@@ -183,7 +244,7 @@ def _load_landings_from_pg() -> list[dict] | None:
     try:
         import psycopg
         from psycopg.rows import dict_row
-        url = db_url.replace("postgres://", "postgresql://", 1)
+        url = psycopg_url(db_url)
         client_id = _CLIENT_CONFIG.get("id")
         with psycopg.connect(url, row_factory=dict_row) as conn:
             if client_id:
@@ -234,6 +295,114 @@ def load_landings() -> list[dict]:
         except json.JSONDecodeError as exc:
             raise ValueError(f"JSON invalido en {LANDINGS_PATH}:{line_no}: {exc}") from exc
     return landings
+
+
+def normalize_pg_landing(row: dict) -> dict:
+    html_content = row.get("htmlContent") or row.get("html_content") or ""
+    parsed: dict = {}
+    if html_content:
+        try:
+            parsed = json.loads(html_content)
+        except Exception:
+            parsed = {}
+    return {
+        **parsed,
+        "id": row.get("id", parsed.get("id", "")),
+        "slug": row.get("slug") or parsed.get("slug", ""),
+        "keyword": row.get("keyword") or parsed.get("keyword", ""),
+        "intent": row.get("intent", parsed.get("intent", "")),
+        "titulo": row.get("titulo", parsed.get("titulo", "")),
+        "seo_title": row.get("seoTitle") or parsed.get("seo_title", ""),
+        "meta_description": row.get("seoDescription") or parsed.get("meta_description") or parsed.get("seo_description", ""),
+        "seo_description": row.get("seoDescription") or parsed.get("seo_description", ""),
+    }
+
+
+def load_preview_landing(landing_id: str = "") -> dict | None:
+    db_url = os.environ.get("DATABASE_URL", "")
+    if db_url:
+        try:
+            import psycopg
+            from psycopg.rows import dict_row
+            url = psycopg_url(db_url)
+            client_id = _CLIENT_CONFIG.get("id")
+            with psycopg.connect(url, row_factory=dict_row) as conn:
+                if landing_id:
+                    row = conn.execute(
+                        "SELECT id, slug, keyword, intent, titulo, \"htmlContent\", \"seoTitle\", \"seoDescription\" FROM \"Landing\" WHERE id = %s AND (%s = '' OR \"clientId\" = %s)",
+                        (landing_id, client_id or "", client_id or ""),
+                    ).fetchone()
+                elif client_id:
+                    row = conn.execute(
+                        "SELECT id, slug, keyword, intent, titulo, \"htmlContent\", \"seoTitle\", \"seoDescription\" FROM \"Landing\" WHERE \"clientId\" = %s ORDER BY \"updatedAt\" DESC LIMIT 1",
+                        (client_id,),
+                    ).fetchone()
+                else:
+                    row = conn.execute(
+                        "SELECT id, slug, keyword, intent, titulo, \"htmlContent\", \"seoTitle\", \"seoDescription\" FROM \"Landing\" ORDER BY \"updatedAt\" DESC LIMIT 1"
+                    ).fetchone()
+            if row:
+                return normalize_generated_landing(normalize_pg_landing(dict(row)))
+        except Exception as exc:
+            print(f"[build_landings] No se pudo cargar preview desde DB: {exc}", file=sys.stderr)
+
+    landings = load_landings()
+    if landing_id:
+        for landing in landings:
+            if str(landing.get("id", "")) == landing_id:
+                return normalize_generated_landing(landing)
+        return None
+    return normalize_generated_landing(landings[0]) if landings else None
+
+
+def demo_landing(categories: dict[str, dict], products: dict[str, dict]) -> dict:
+    category_keys = [key for key in categories.keys() if key != "home"] or list(categories.keys())
+    primary_key = category_keys[0]
+    secondary = category_keys[1:3]
+    product_ids = [key for key, product in products.items() if product.get("categoria_id") in [primary_key, *secondary]][:3]
+    primary = categories[primary_key]
+    keyword = f"{primary['nombre']} para elegir mejor"
+    return {
+        "slug": "preview-diseno-landing",
+        "keyword": keyword,
+        "intent": "preview",
+        "titulo": f"Preview de landing {client_name()}",
+        "seo_title": f"Preview de landing {client_name()}",
+        "meta_description": f"Vista previa de una landing comercial para {client_name()} con catalogo y branding del cliente.",
+        "h1": f"Elegir {primary['nombre'].lower()} sin perder tiempo.",
+        "hero_lede": f"Una guia de ejemplo para ver como se adapta el diseno de {client_name()} antes de publicar.",
+        "primary_category_id": primary_key,
+        "secondary_category_ids": secondary,
+        "product_ids": product_ids,
+        "components_title": f"Opciones para comparar {primary['nombre'].lower()}",
+        "components_subtitle": "Esta previsualizacion usa categorias reales del cliente cuando estan disponibles.",
+        "components": [
+            {"cat": categories[key]["nombre"], "shortCat": categories[key]["nombre"], "why": categories[key]["descripcion"], "look": "Comparar alternativas segun uso, presupuesto y disponibilidad."}
+            for key in [primary_key, *secondary]
+        ],
+        "steps": [
+            {"n": "01", "t": "Definir el uso", "b": "Ordenar que necesidad concreta tiene la persona antes de mirar modelos."},
+            {"n": "02", "t": "Comparar opciones", "b": "Cruzar categorias, productos y condiciones comerciales reales del cliente."},
+            {"n": "03", "t": "Pasar a la tienda", "b": "Usar el CTA para revisar opciones disponibles y pedir asesoramiento."},
+        ],
+        "faqs": [
+            {"q": "Esta es una landing publicada?", "a": "No. Es una vista previa generada para validar el diseno antes de publicar."},
+            {"q": "Usa datos del cliente?", "a": "Si hay catalogo cargado, toma categorias, productos, logo y colores del cliente activo."},
+            {"q": "El diseño se aplica a futuras landings?", "a": "Si. El template elegido queda guardado a nivel cliente y se usa en el build."},
+        ],
+    }
+
+
+def preview_command(landing_id: str = "", base_url: str = "") -> None:
+    categories = load_categories()
+    products = load_products()
+    if not categories:
+        raise SystemExit("Preview bloqueada: no hay categorias cargadas.")
+    landing = load_preview_landing(landing_id) or demo_landing(categories, products)
+    errors = validate_landings([landing], categories, products)
+    if errors:
+        landing = demo_landing(categories, products)
+    sys.stdout.buffer.write(render_landing(landing, categories, products, base_url, load_lead_magnets()).encode("utf-8"))
 
 
 def load_env() -> None:
@@ -1373,7 +1542,7 @@ def render_landing(landing: dict, categories: dict[str, dict], products: dict[st
             f'<h3 class="comp-name">{esc(component.get("cat", category["nombre"]))}</h3>'
             f'<p class="comp-text"><strong>Para que sirve:</strong> {esc(component.get("why", category["descripcion"]))}</p>'
             f'<p class="comp-text"><strong>Que mirar:</strong> {esc(component.get("look", "Comparar alternativas segun tu caso de uso."))}</p>'
-            f'<a class="comp-link" href="{esc(category["url"])}" target="_blank" rel="noopener"><span>Ver categoria en {esc(client_name())}</span><span>↗</span></a></article>'
+            f'<a class="comp-link" href="{esc(category["url"])}" target="_blank" rel="noopener"><span>Ver categoria en {esc(client_name())}</span><span>&nearr;</span></a></article>'
         )
 
     steps_html = []
@@ -1395,11 +1564,19 @@ def render_landing(landing: dict, categories: dict[str, dict], products: dict[st
     vu_bars = "".join(f'<span style="height:{height}px; --i:{index}"></span>' for index, height in enumerate([42, 70, 94, 132, 156, 120, 86, 58, 144, 168, 124, 92, 64, 112, 150, 78]))
     step_leds = "".join(f'<span style="--i:{index}"></span>' for index in range(16))
     slug = landing.get("slug") or slugify(landing["keyword"])
+    landing_variant = f"motion-{int(hashlib.sha1(slug.encode('utf-8')).hexdigest()[:2], 16) % 3}"
     canonical_url = landing_url(slug, base_url)
+    brand = client_name()
+    store_url = client_store_url().rstrip("/") or "#"
+    blog_url = client_blog_url().rstrip("/")
+    logo_url = client_logo_url()
+    logo_markup = f'<img src="{esc(logo_url)}" alt="{esc(brand)}" class="logo-img">' if logo_url else f'<span class="brand-text">{esc(brand)}</span>'
+    logo_light_markup = f'<img src="{esc(logo_url)}" alt="{esc(brand)}" class="brand-mark-light reveal" style="--delay: 0ms;">' if logo_url else f'<span class="brand-mark-light brand-wordmark reveal" style="--delay: 0ms;">{esc(brand)}</span>'
+    logo_light_plain = f'<img src="{esc(logo_url)}" alt="{esc(brand)}" class="brand-mark-light">' if logo_url else f'<span class="brand-mark-light brand-wordmark">{esc(brand)}</span>'
     components_title = landing.get("components_title") or f"Opciones para resolver: {landing['keyword']}"
     components_subtitle = landing.get("components_subtitle") or (
-        f"Estas categorias ayudan a comparar {primary['nombre'].lower()} y accesorios relacionados segun el uso real: "
-        f"que queres conectar, como vas a producir y que parte del setup necesitas mejorar primero."
+        f"Estas categorias ayudan a comparar {primary['nombre'].lower()} y alternativas relacionadas segun el uso real: "
+        f"que necesita la persona, donde lo va a usar y que prioridad conviene resolver primero."
     )
     product_links_html = ""
     if selected_products:
@@ -1419,8 +1596,8 @@ def render_landing(landing: dict, categories: dict[str, dict], products: dict[st
         "faq_json_ld": esc(faq_json_ld).replace("&quot;", '"'),
         "primary_url": esc(primary["url"]),
         "primary_name": esc(primary["nombre"]),
-        "cta_text": f"Ver opciones en {client_name()}",
-        "code": esc(client_name()[:12].upper() + " · " + slug[:14].upper()),
+        "cta_text": f"Ver opciones en {brand}",
+        "code": esc(brand[:12].upper() + " · " + slug[:14].upper()),
         "eyebrow": esc("Guia tecnica · " + primary["nombre"]),
         "h1": esc(landing["h1"]),
         "lead_magnet_html": lead_magnet_html,
@@ -1438,8 +1615,23 @@ def render_landing(landing: dict, categories: dict[str, dict], products: dict[st
         "index_href": "../index.html",
         "primary_color": _CLIENT_CONFIG.get("landingPrimaryColor") or "#EB6517",
         "secondary_color": _CLIENT_CONFIG.get("landingSecondaryColor") or "#F6A00C",
+        "template_id": esc(active_template_id()),
+        "landing_variant": esc(landing_variant),
+        "brand_name": esc(brand),
+        "brand_name_upper": esc(brand.upper()),
+        "client_slug": esc(client_slug_active()),
+        "store_url": esc(store_url),
+        "blog_url": esc(blog_url),
+        "logo_markup": logo_markup,
+        "logo_light_markup": logo_light_markup,
+        "logo_light_plain": logo_light_plain,
+        "support_intro": esc(f"{brand} organiza su catalogo por categorias utiles para comparar alternativas reales."),
+        "support_goal": esc("La idea de esta guia es ayudarte a llegar a la categoria correcta, no empujarte a un producto unico."),
+        "mega_title": esc(f"Comparar opciones en {brand}."),
+        "mega_copy": esc("Consulta categorias relacionadas y elegi segun tu caso de uso, tu espacio y tus prioridades de compra."),
     }
-    return render_template(TEMPLATE_PATH.read_text(encoding="utf-8"), values)
+    template_text = active_template_path().read_text(encoding="utf-8-sig")
+    return render_template(template_text, values)
 
 
 def landing_url(slug: str, base_url: str = "") -> str:
@@ -1597,7 +1789,7 @@ def render_index(landings: list[dict], categories: dict[str, dict], base_url: st
     </section>
     <section class="section" id="guias"><div class="container"><div class="section-head"><h2>Guias destacadas</h2><p>Entradas orientadas a problemas reales de compra: que conectar, que comparar y que categoria revisar antes de decidir.</p></div><div class="guide-grid">{''.join(featured_html)}</div></div></section>
     <section class="section" id="temas"><div class="container"><div class="section-head"><h2>Temas principales</h2><p>Cada tema enlaza con categorias reales de {esc(brand)} para pasar de la duda tecnica a opciones concretas.</p></div><div class="topic-grid">{''.join(category_html)}</div><div class="cta-band"><h2>Catalogo comercial en {esc(brand)}.</h2><a class="btn btn-primary" href="{esc(store_url)}/" target="_blank" rel="noopener">Ver tienda</a></div></div></section>
-    <section class="section" id="indice"><div class="container"><div class="section-head"><h2>Ultimas guias</h2><p>Indice editorial de busquedas frecuentes sobre produccion musical, audio, streaming y home studio.</p></div><ul class="latest">{''.join(latest_html)}</ul></div></section>
+    <section class="section" id="indice"><div class="container"><div class="section-head"><h2>Ultimas guias</h2><p>Indice editorial de busquedas frecuentes, comparativas y decisiones de compra.</p></div><ul class="latest">{''.join(latest_html)}</ul></div></section>
   </main>
   <footer class="container">{esc(brand)} comercializa productos para sus clientes. Este blog ayuda a comparar alternativas segun uso real y enlaza a categorias disponibles en la tienda.</footer>
 </body>
@@ -1752,6 +1944,20 @@ def selftest() -> None:
     blocked["h1"] = "Con stock garantizado"
     if not validate_landings([blocked], categories, products):
         errors.append("validate_landings no bloquea claims prohibidos")
+    known_templates = template_ids()
+    if "minimalist" not in known_templates or "pro-dark" not in known_templates:
+        errors.append("registry de templates no expone los presets esperados")
+    previous_config = dict(_CLIENT_CONFIG)
+    try:
+        _CLIENT_CONFIG["landingTemplate"] = "template-inexistente"
+        if active_template_id() != "minimalist":
+            errors.append("active_template_id no cae al default con template invalido")
+        _CLIENT_CONFIG["landingTemplate"] = "pro-dark"
+        if active_template_id() != "pro-dark":
+            errors.append("active_template_id no respeta template valido")
+    finally:
+        _CLIENT_CONFIG.clear()
+        _CLIENT_CONFIG.update(previous_config)
     if errors:
         report_path = write_report("selftest-blocked", {"command": "selftest", "status": "blocked", "errors": errors})
         raise SystemExit("Selftest fallido:\n" + "\n".join(f"- {error}" for error in errors) + f"\nReporte: {report_path}")
@@ -1761,11 +1967,15 @@ def selftest() -> None:
 
 def main() -> None:
     load_env()
-    parser = argparse.ArgumentParser(description="Generador estatico de landings PC MIDI Center")
+    parser = argparse.ArgumentParser(description="Generador estatico de landings multi-cliente")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("validate")
     build_parser = sub.add_parser("build")
     build_parser.add_argument("--base-url", default="", help="URL del subdominio para canonical/sitemap")
+    preview_parser = sub.add_parser("preview")
+    preview_parser.add_argument("--base-url", default="", help="URL del subdominio para canonical de preview")
+    preview_parser.add_argument("--landing-id", default="", help="ID de landing real a previsualizar")
+    preview_parser.add_argument("--client-slug", default=argparse.SUPPRESS, help="Cliente a previsualizar")
     research_parser = sub.add_parser("research")
     research_parser.add_argument("--limit", type=int, default=50, help="Cantidad maxima de oportunidades nuevas")
     research_parser.add_argument("--no-web", action="store_true", help="No intenta buscar sugerencias web")
@@ -1799,12 +2009,19 @@ def main() -> None:
             _CLIENT_CONFIG = db_pg.get_client_config(args.client_slug)
             print(f"build-landings: cliente activo → {_CLIENT_CONFIG.get('name')} ({args.client_slug})")
         except Exception as exc:
-            print(f"build-landings: no se pudo cargar la config del cliente ({exc}); modo PC MIDI")
+            env_config = load_client_config_from_env()
+            if env_config:
+                _CLIENT_CONFIG = env_config
+                print(f"build-landings: cliente activo desde entorno -> {_CLIENT_CONFIG.get('name')} ({args.client_slug})")
+            else:
+                print(f"build-landings: no se pudo cargar la config del cliente ({exc}); modo PC MIDI")
     if args.command == "validate":
         validate_command()
     elif args.command == "build":
         build(base_url=args.base_url)
         print(f"Sitio generado en {SITE_DIR}")
+    elif args.command == "preview":
+        preview_command(landing_id=args.landing_id, base_url=args.base_url)
     elif args.command == "research":
         research_opportunities(limit=args.limit, use_web=not args.no_web)
     elif args.command == "discover":

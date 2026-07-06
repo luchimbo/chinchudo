@@ -4,6 +4,12 @@ import { prisma } from "@/lib/db";
 import { FilterBar } from "@/components/filter-bar";
 import { OpportunityList } from "@/components/opportunity-list";
 import { getVisibleClients } from "@/lib/auth";
+import {
+  assignMissingOpportunityClients,
+  discardNoisyNewOpportunities,
+  generateDailyDraftBatch,
+} from "@/app/(app)/opportunities/actions";
+import { opportunityStatuses } from "@/lib/labels";
 
 const PAGE_SIZE = 12;
 
@@ -12,7 +18,7 @@ const PAGE_SIZE = 12;
 const OPEN_STATUSES = ["NEW", "NEEDS_REVIEW", "DRAFTED", "APPROVED", "FOLLOW_UP"] as const;
 
 type PageProps = {
-  searchParams: { channel?: string; q?: string; page?: string; client?: string; sort?: string };
+  searchParams: { channel?: string; q?: string; page?: string; client?: string; sort?: string; status?: string; view?: string };
 };
 
 export default async function OportunidadesPage({ searchParams }: PageProps) {
@@ -26,11 +32,16 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
   const q = (searchParams.q ?? "").trim();
   const page = Math.max(1, Number(searchParams.page) || 1);
   const sort = searchParams.sort === "oldest" ? "oldest" : "newest";
+  const view = searchParams.view === "inbox" ? "inbox" : "ready";
+  const validStatus = opportunityStatuses.includes(searchParams.status as any)
+    ? searchParams.status
+    : "";
 
   const where: Prisma.OpportunityWhereInput = {
     status: { in: [...OPEN_STATUSES] },
-    responses: { some: {} },
+    responses: view === "inbox" ? { none: {} } : { some: {} },
   };
+  if (validStatus) where.status = validStatus as any;
   if (activeClient) {
     where.clientId = activeClient.id;
   }
@@ -42,7 +53,8 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
   const orderBy: Prisma.OpportunityOrderByWithRelationInput =
     sort === "oldest" ? { createdAt: "asc" } : { createdAt: "desc" };
 
-  const [opportunities, matchingCount] = await Promise.all([
+  const scopedClientWhere: Prisma.OpportunityWhereInput = activeClient ? { clientId: activeClient.id } : {};
+  const [opportunities, matchingCount, readyCount, inboxCount, missingClientCount] = await Promise.all([
     prisma.opportunity.findMany({
       where,
       include: {
@@ -56,6 +68,26 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
       take: PAGE_SIZE,
     }),
     prisma.opportunity.count({ where }),
+    prisma.opportunity.count({
+      where: {
+        ...scopedClientWhere,
+        status: { in: [...OPEN_STATUSES] },
+        responses: { some: {} },
+      },
+    }),
+    prisma.opportunity.count({
+      where: {
+        ...scopedClientWhere,
+        status: { in: ["NEW", "NEEDS_REVIEW"] },
+        responses: { none: {} },
+      },
+    }),
+    prisma.opportunity.count({
+      where: {
+        clientId: null,
+        status: { in: ["NEW", "NEEDS_REVIEW"] },
+      },
+    }),
   ]);
 
   const totalPages = Math.max(1, Math.ceil(matchingCount / PAGE_SIZE));
@@ -65,6 +97,8 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
     if (validChannel) params.set("channel", validChannel);
     if (q) params.set("q", q);
     if (sort === "oldest") params.set("sort", "oldest");
+    if (view === "inbox") params.set("view", "inbox");
+    if (validStatus) params.set("status", validStatus);
     if (targetPage > 1) params.set("page", String(targetPage));
     const qs = params.toString();
     return qs ? `/oportunidades?${qs}` : "/oportunidades";
@@ -87,6 +121,54 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
         </Link>
       </header>
 
+      <section className="mb-4 grid gap-3 md:grid-cols-3">
+        <Link
+          href={activeClient ? `/oportunidades?client=${activeClient.slug}` : "/oportunidades"}
+          className={`rounded-lg border px-4 py-3 transition ${view === "ready" ? "border-ink/25 bg-white text-ink shadow-panel" : "border-ink/10 bg-white/55 text-slate hover:bg-white"}`}
+        >
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate/60">Para Fede</p>
+          <p className="mt-1 text-2xl font-bold">{readyCount}</p>
+          <p className="text-xs font-medium text-slate/70">con borrador listo</p>
+        </Link>
+        <Link
+          href={activeClient ? `/oportunidades?client=${activeClient.slug}&view=inbox` : "/oportunidades?view=inbox"}
+          className={`rounded-lg border px-4 py-3 transition ${view === "inbox" ? "border-ink/25 bg-white text-ink shadow-panel" : "border-ink/10 bg-white/55 text-slate hover:bg-white"}`}
+        >
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate/60">Entrada cruda</p>
+          <p className="mt-1 text-2xl font-bold">{inboxCount}</p>
+          <p className="text-xs font-medium text-slate/70">sin borrador todavia</p>
+        </Link>
+        <div className="rounded-lg border border-ink/10 bg-white/55 px-4 py-3">
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate/60">Sin cliente</p>
+          <p className="mt-1 text-2xl font-bold">{missingClientCount}</p>
+          <p className="text-xs font-medium text-slate/70">pendientes de asignar</p>
+        </div>
+      </section>
+
+      <section className="mb-4 flex flex-wrap gap-2 rounded-lg border border-ink/10 bg-white/70 px-4 py-3">
+        <form action={assignMissingOpportunityClients}>
+          <input type="hidden" name="client" value={activeClient?.slug ?? ""} />
+          <input type="hidden" name="limit" value="150" />
+          <button className="h-9 rounded-full border border-ink/15 px-4 text-sm font-bold text-ink transition hover:border-ink/40 hover:bg-white">
+            Asignar cliente
+          </button>
+        </form>
+        <form action={discardNoisyNewOpportunities}>
+          <input type="hidden" name="client" value={activeClient?.slug ?? ""} />
+          <input type="hidden" name="limit" value="200" />
+          <button className="h-9 rounded-full border border-ink/15 px-4 text-sm font-bold text-ink transition hover:border-signal/30 hover:text-signal">
+            Descartar ruido claro
+          </button>
+        </form>
+        <form action={generateDailyDraftBatch}>
+          <input type="hidden" name="client" value={activeClient?.slug ?? ""} />
+          <input type="hidden" name="limit" value="5" />
+          <button className="h-9 rounded-full bg-ink px-4 text-sm font-bold text-paper transition hover:bg-slate">
+            Generar 5 borradores
+          </button>
+        </form>
+      </section>
+
       <div className="overflow-hidden rounded-lg border border-ink/10 bg-white/75 shadow-panel backdrop-blur">
         <div className="border-b border-ink/10 px-5 py-4">
           <p className="text-sm text-slate/75">
@@ -100,7 +182,7 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
         <OpportunityList
           opportunities={opportunities}
           clientSlug={activeClient?.slug}
-          emptyMessage="No hay oportunidades con borrador todavía."
+          emptyMessage={view === "inbox" ? "No hay oportunidades crudas pendientes." : "No hay oportunidades con borrador todavia."}
         />
 
         {totalPages > 1 ? (

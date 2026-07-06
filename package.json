@@ -17,6 +17,7 @@
     "db:studio": "prisma studio",
     "agents:listen": "python agents/orchestrator.py listen",
     "agents:draft": "python agents/orchestrator.py draft",
+    "agents:triage": "npx tsx scripts/triage-opportunities.mts",
     "agents:backfill": "npx tsx scripts/backfill-personas.mts",
     "db:seed-sources": "npx tsx scripts/seed-monitored-sources.mts",
     "agents:export": "python agents/orchestrator.py export",

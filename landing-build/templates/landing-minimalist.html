@@ -58,6 +58,22 @@
     .tpl-minimalist .comp-grid, .tpl-minimalist .faq-grid, .tpl-minimalist .support-panel { gap: 18px; background: transparent; border: 0; }
     .tpl-minimalist .comp-card, .tpl-minimalist .faq-item, .tpl-minimalist .support-copy, .tpl-minimalist .support-links { border: 1px solid var(--rule); border-radius: 6px; }
     .tpl-minimalist .section-dark { background: #181816; }
+    .tpl-minimalist main { display: flex; flex-direction: column; }
+    .tpl-minimalist #beneficios { order: 1; background: var(--paper); padding-bottom: clamp(34px, 5vw, 72px); }
+    .tpl-minimalist #productos { order: 2; background: var(--paper-2); }
+    .tpl-minimalist #guia { order: 3; }
+    .tpl-minimalist #faq { order: 4; background: var(--paper); }
+    .tpl-minimalist .lead-magnet-section { order: 5; }
+    .tpl-minimalist .mega { order: 6; }
+    .tpl-minimalist #beneficios .section-head { max-width: 720px; margin-bottom: 1.6rem; }
+    .tpl-minimalist .support-panel { grid-template-columns: 1fr; max-width: 880px; }
+    .tpl-minimalist .support-copy, .tpl-minimalist .support-links { padding: clamp(22px, 3vw, 34px); }
+    .tpl-minimalist #productos .section-head { display: grid; grid-template-columns: minmax(240px, .7fr) minmax(320px, 1fr); gap: 28px; align-items: end; max-width: none; }
+    .tpl-minimalist .comp-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .tpl-minimalist .comp-card { min-height: 260px; }
+    .tpl-minimalist .comp-card:nth-child(1) { grid-column: 1 / -1; min-height: 220px; }
+    .tpl-minimalist .steps-list { max-width: 860px; margin-left: auto; }
+    .tpl-minimalist .faq-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     html, body { margin: 0; padding: 0; }
     body {
       background: var(--paper);
@@ -178,6 +194,8 @@
     @media (max-width: 980px) {
       .tpl-minimalist .hero-grid, .tpl-editorial .hero-grid { padding-top: 52px; padding-bottom: 58px; }
       .tpl-pro-dark .hero-grid, .tpl-store-front .hero-grid { grid-template-columns: 1fr; align-items: start; }
+      .tpl-minimalist #productos .section-head,
+      .tpl-minimalist .comp-grid { grid-template-columns: 1fr; }
       .tpl-editorial .header-grid { gap: 18px; }
       .tpl-editorial .comp-grid, .tpl-editorial .faq-grid { grid-template-columns: 1fr; }
     }
@@ -190,6 +208,7 @@
       .hero-title, .section-title, .mega h2 { overflow-wrap: anywhere; text-wrap: balance; }
       .hero-tickers, .marquee { display: none; }
       .tpl-minimalist .section { padding: 46px 0; }
+      .tpl-minimalist .faq-grid { grid-template-columns: 1fr; }
       .tpl-store-front .comp-card, .tpl-store-front .product-pill, .tpl-store-front .faq-item { border-radius: 8px; box-shadow: none; }
       .tpl-editorial .hero-title { font-size: clamp(44px, 16vw, 76px); }
       .tpl-editorial .section-title { font-size: clamp(34px, 12vw, 56px); }

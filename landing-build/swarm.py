@@ -66,6 +66,11 @@ def write_heartbeat(state: str, active_step: str = "", last_result: dict | None 
 
 def run_step(step: str, args: list[str], script: Path | None = None, heartbeat: bool = False) -> dict:
     target_script = str(script) if script else str(BUILD_SCRIPT)
+    if Path(target_script) == BUILD_SCRIPT and "--client-slug" in args:
+        index = args.index("--client-slug")
+        if index + 1 < len(args):
+            client_pair = [args[index], args[index + 1]]
+            args = client_pair + args[:index] + args[index + 2:]
     command = [sys.executable, target_script, *args]
     print(f"swarm: running {step}: {' '.join(command)}")
     started = timestamp()
@@ -283,9 +288,11 @@ def soft_ok(step_result: dict, steps: list[dict]) -> bool:
 
 
 def common_build_args(args: argparse.Namespace) -> list[str]:
-    if not args.base_url:
-        return []
-    return ["--base-url", args.base_url]
+    cmd: list[str] = []
+    cmd.extend(_client_slug_args())
+    if args.base_url:
+        cmd.extend(["--base-url", args.base_url])
+    return cmd
 
 
 def generate_args(args: argparse.Namespace) -> list[str]:
@@ -383,7 +390,7 @@ def run_single(args: argparse.Namespace) -> None:
         command_args = auto_listen_args(args)
         step = run_step(args.command, command_args, script=BROWSER_CDP_SCRIPT)
     elif args.command in {"validate", "rollback", "selftest"}:
-        command_args = [args.command]
+        command_args = [*_client_slug_args(), args.command]
         step = run_step(args.command, command_args)
     else:
         raise SystemExit(f"swarm: comando no soportado: {args.command}")
@@ -397,11 +404,11 @@ def run_single(args: argparse.Namespace) -> None:
 def run_weekly(args: argparse.Namespace) -> None:
     steps: list[dict] = []
     workflow = "weekly"
-    require_ok(run_step("validate-before", ["validate"]), steps, workflow)
+    require_ok(run_step("validate-before", [*_client_slug_args(), "validate"]), steps, workflow)
     require_ok(run_step("research", research_args(args)), steps, workflow)
     require_ok(run_step("generate", generate_args(args)), steps, workflow)
     require_ok(run_step("lead-magnets", lead_magnets_args(args), script=LEAD_MAGNET_SCRIPT), steps, workflow)
-    require_ok(run_step("validate-after", ["validate"]), steps, workflow)
+    require_ok(run_step("validate-after", [*_client_slug_args(), "validate"]), steps, workflow)
     require_ok(run_step("build", ["build", *common_build_args(args)]), steps, workflow)
 
     if args.dry_run:
@@ -429,7 +436,7 @@ def run_midday(args: argparse.Namespace) -> None:
     # Genera landings nuevas diariamente hasta el limite configurado y publica solo si pasa la compuerta.
     require_ok(run_step("generate", generate_args(args)), steps, workflow)
     require_ok(run_step("lead-magnets", lead_magnets_args(args), script=LEAD_MAGNET_SCRIPT), steps, workflow)
-    require_ok(run_step("validate-after-generate", ["validate"]), steps, workflow)
+    require_ok(run_step("validate-after-generate", [*_client_slug_args(), "validate"]), steps, workflow)
     require_ok(run_step("build", ["build", *common_build_args(args)]), steps, workflow)
     if args.dry_run:
         steps.append({"step": "deploy", "status": "skipped", "reason": "dry_run"})
@@ -500,7 +507,7 @@ def run_daily(args: argparse.Namespace) -> None:
     # Genera landings nuevas diariamente hasta el limite configurado y publica solo si pasa la compuerta.
     require_ok(run_step("generate", generate_args(args)), steps, workflow)
     require_ok(run_step("lead-magnets", lead_magnets_args(args), script=LEAD_MAGNET_SCRIPT), steps, workflow)
-    require_ok(run_step("validate-after-generate", ["validate"]), steps, workflow)
+    require_ok(run_step("validate-after-generate", [*_client_slug_args(), "validate"]), steps, workflow)
     require_ok(run_step("build", ["build", *common_build_args(args)]), steps, workflow)
     if args.dry_run:
         steps.append({"step": "deploy", "status": "skipped", "reason": "dry_run"})
