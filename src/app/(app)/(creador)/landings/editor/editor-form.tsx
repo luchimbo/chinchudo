@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LogoUpload } from "@/app/(app)/configuracion/logo-upload";
 
@@ -147,6 +147,21 @@ export function EditorForm({
   const [previewVersion, setPreviewVersion] = useState(0);
 
   const previewSrc = `/api/landings/preview?client=${encodeURIComponent(config.clientSlug)}&v=${previewVersion}`;
+
+  useEffect(() => {
+    setSelectedTemplate(config.landingTemplate || "minimalist");
+    setLogoUrl(config.logoUrl);
+    setPrimaryColor(config.landingPrimaryColor || "#EB6517");
+    setSecondaryColor(config.landingSecondaryColor || "#F6A00C");
+    setSaved(false);
+    setPreviewVersion((version) => version + 1);
+  }, [
+    config.id,
+    config.logoUrl,
+    config.landingTemplate,
+    config.landingPrimaryColor,
+    config.landingSecondaryColor,
+  ]);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();

@@ -7,6 +7,12 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { assertClientAccess } from "@/lib/auth";
 
+const hexColorSchema = z
+  .string()
+  .trim()
+  .regex(/^#[0-9a-fA-F]{6}$/, "El color debe estar en formato hexadecimal #RRGGBB")
+  .transform((value) => value.toUpperCase());
+
 async function validTemplateIds() {
   try {
     const registryPath = path.join(process.cwd(), "landing-build", "templates", "registry.json");
@@ -25,8 +31,8 @@ export async function updateLandingTemplate(formData: FormData) {
   const templates = await validTemplateIds();
   const landingTemplate = templates.has(requestedTemplate) ? requestedTemplate : "minimalist";
   const logoUrl = String(formData.get("logoUrl") ?? "").trim();
-  const landingPrimaryColor = String(formData.get("landingPrimaryColor") ?? "").trim();
-  const landingSecondaryColor = String(formData.get("landingSecondaryColor") ?? "").trim();
+  const landingPrimaryColor = hexColorSchema.parse(formData.get("landingPrimaryColor"));
+  const landingSecondaryColor = hexColorSchema.parse(formData.get("landingSecondaryColor"));
 
   await prisma.client.update({
     where: { id },

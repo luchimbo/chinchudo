@@ -4,6 +4,8 @@ import { assertClientAccess } from "@/lib/auth";
 import { updateLandingTemplate } from "./actions";
 import { EditorForm } from "./editor-form";
 
+export const dynamic = "force-dynamic";
+
 export default async function EditorPage({
   searchParams,
 }: {
