@@ -2,13 +2,9 @@ import Link from "next/link";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { FilterBar } from "@/components/filter-bar";
+import { ManualOpportunitySearch } from "@/components/manual-opportunity-search";
 import { OpportunityList } from "@/components/opportunity-list";
 import { getVisibleClients } from "@/lib/auth";
-import {
-  assignMissingOpportunityClients,
-  discardNoisyNewOpportunities,
-  generateDailyDraftBatch,
-} from "@/app/(app)/opportunities/actions";
 import { opportunityStatuses } from "@/lib/labels";
 
 const PAGE_SIZE = 12;
@@ -20,6 +16,15 @@ const OPEN_STATUSES = ["NEW", "NEEDS_REVIEW", "DRAFTED", "APPROVED", "FOLLOW_UP"
 type PageProps = {
   searchParams: { channel?: string; q?: string; page?: string; client?: string; sort?: string; status?: string; view?: string };
 };
+
+function parseKeywords(value: string | null | undefined) {
+  try {
+    const parsed = JSON.parse(value || "[]");
+    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
 
 export default async function OportunidadesPage({ searchParams }: PageProps) {
   const [channelsList, clients] = await Promise.all([
@@ -54,7 +59,7 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
     sort === "oldest" ? { createdAt: "asc" } : { createdAt: "desc" };
 
   const scopedClientWhere: Prisma.OpportunityWhereInput = activeClient ? { clientId: activeClient.id } : {};
-  const [opportunities, matchingCount, readyCount, inboxCount, missingClientCount] = await Promise.all([
+  const [opportunities, matchingCount, readyCount, inboxCount, missingClientCount, products] = await Promise.all([
     prisma.opportunity.findMany({
       where,
       include: {
@@ -88,7 +93,19 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
         status: { in: ["NEW", "NEEDS_REVIEW"] },
       },
     }),
+    activeClient
+      ? prisma.product.findMany({
+          where: { brand: { clientId: activeClient.id } },
+          select: { name: true, category: true, brand: { select: { name: true } } },
+          take: 8,
+        })
+      : Promise.resolve([]),
   ]);
+  const keywordSuggestions = [
+    ...parseKeywords(activeClient?.domainKeywords).slice(0, 6),
+    ...products.map((p) => `${p.brand.name} ${p.name}`),
+  ].filter(Boolean);
+  const initialQuery = keywordSuggestions.slice(0, 3).join(" ") || "MidiPlus controlador MIDI";
 
   const totalPages = Math.max(1, Math.ceil(matchingCount / PAGE_SIZE));
   const buildPageHref = (targetPage: number) => {
@@ -106,19 +123,13 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col px-5 py-8 lg:px-8">
-      <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
+      <header className="mb-6">
         <div>
           <h1 className="font-display text-4xl leading-none text-ink md:text-5xl">Oportunidades</h1>
           <p className="mt-2 text-sm text-slate">
             Conversaciones con borrador listo para revisar, aprobar y publicar.
           </p>
         </div>
-        <Link
-          href={activeClient ? `/opportunities/new?client=${activeClient.slug}` : "/opportunities/new"}
-          className="inline-flex h-10 items-center justify-center rounded-full bg-ink px-5 text-sm font-bold text-paper shadow-sm transition hover:-translate-y-0.5 hover:bg-slate"
-        >
-          Nueva oportunidad
-        </Link>
       </header>
 
       <section className="mb-4 grid gap-3 md:grid-cols-3">
@@ -126,7 +137,7 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
           href={activeClient ? `/oportunidades?client=${activeClient.slug}` : "/oportunidades"}
           className={`rounded-lg border px-4 py-3 transition ${view === "ready" ? "border-ink/25 bg-white text-ink shadow-panel" : "border-ink/10 bg-white/55 text-slate hover:bg-white"}`}
         >
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate/60">Para Fede</p>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate/60">Listas para revisar</p>
           <p className="mt-1 text-2xl font-bold">{readyCount}</p>
           <p className="text-xs font-medium text-slate/70">con borrador listo</p>
         </Link>
@@ -145,29 +156,13 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
         </div>
       </section>
 
-      <section className="mb-4 flex flex-wrap gap-2 rounded-lg border border-ink/10 bg-white/70 px-4 py-3">
-        <form action={assignMissingOpportunityClients}>
-          <input type="hidden" name="client" value={activeClient?.slug ?? ""} />
-          <input type="hidden" name="limit" value="150" />
-          <button className="h-9 rounded-full border border-ink/15 px-4 text-sm font-bold text-ink transition hover:border-ink/40 hover:bg-white">
-            Asignar cliente
-          </button>
-        </form>
-        <form action={discardNoisyNewOpportunities}>
-          <input type="hidden" name="client" value={activeClient?.slug ?? ""} />
-          <input type="hidden" name="limit" value="200" />
-          <button className="h-9 rounded-full border border-ink/15 px-4 text-sm font-bold text-ink transition hover:border-signal/30 hover:text-signal">
-            Descartar ruido claro
-          </button>
-        </form>
-        <form action={generateDailyDraftBatch}>
-          <input type="hidden" name="client" value={activeClient?.slug ?? ""} />
-          <input type="hidden" name="limit" value="5" />
-          <button className="h-9 rounded-full bg-ink px-4 text-sm font-bold text-paper transition hover:bg-slate">
-            Generar 5 borradores
-          </button>
-        </form>
-      </section>
+      {activeClient ? (
+        <ManualOpportunitySearch
+          clientId={activeClient.id}
+          initialQuery={initialQuery}
+          suggestions={keywordSuggestions}
+        />
+      ) : null}
 
       <div className="overflow-hidden rounded-lg border border-ink/10 bg-white/75 shadow-panel backdrop-blur">
         <div className="border-b border-ink/10 px-5 py-4">

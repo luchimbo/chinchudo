@@ -87,6 +87,8 @@ def listen_command(args: argparse.Namespace) -> list[str]:
         "--limit",
         str(args.limit),
     ]
+    if getattr(args, "language", ""):
+        command.extend(["--language", args.language])
     if args.dry_run:
         command.append("--dry-run")
     return command
@@ -116,6 +118,8 @@ def apply_npm_flags(args: argparse.Namespace) -> argparse.Namespace:
         args.query = os.environ["npm_config_query"]
     if os.environ.get("npm_config_account") not in {None, "", "true"} and hasattr(args, "account"):
         args.account = os.environ["npm_config_account"]
+    if os.environ.get("npm_config_language") not in {None, "", "true"} and hasattr(args, "language"):
+        args.language = os.environ["npm_config_language"]
     return args
 
 
@@ -414,6 +418,7 @@ def main() -> None:
     listen.add_argument("--channel", default="youtube")
     listen.add_argument("--query", default="MidiPlus controlador MIDI home studio")
     listen.add_argument("--limit", type=int, default=5)
+    listen.add_argument("--language", default="es", choices=["es", "en", "pt", "any"])
     listen.add_argument("--dry-run", action="store_true")
 
     draft = sub.add_parser("draft")
@@ -428,6 +433,7 @@ def main() -> None:
     daily.add_argument("--channel", default="youtube")
     daily.add_argument("--query", default="MidiPlus controlador MIDI home studio")
     daily.add_argument("--limit", type=int, default=5)
+    daily.add_argument("--language", default="es", choices=["es", "en", "pt", "any"])
     daily.add_argument("--dry-run", action="store_true")
 
     monitor = sub.add_parser("monitor")

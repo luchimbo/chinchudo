@@ -72,6 +72,27 @@ function normalizeAuthorName(author: string): string {
   return author.trim().toLowerCase().replace(/^(@|u\/|r\/)/, "");
 }
 
+function normalizeSourceUrlForDedupe(channel: string, rawUrl: string): string {
+  try {
+    const url = new URL(rawUrl);
+    url.hash = "";
+    for (const key of [...url.searchParams.keys()]) {
+      if (
+        key.toLowerCase().startsWith("utm_") ||
+        ["fbclid", "gclid", "igshid", "si", "feature", "t"].includes(key.toLowerCase())
+      ) {
+        url.searchParams.delete(key);
+      }
+    }
+    url.hostname = url.hostname.replace(/^www\./, "").toLowerCase();
+    url.pathname = url.pathname.replace(/\/+$/, "");
+    const postKey = extractPostKey(channel, rawUrl);
+    return postKey ? `${channel}:${postKey}` : `${url.hostname}${url.pathname}?${url.searchParams.toString()}`;
+  } catch {
+    return rawUrl.trim().toLowerCase();
+  }
+}
+
 async function main() {
   const args = parseArgs();
   const rows = readJsonl(intakePath) as any[];
@@ -136,9 +157,17 @@ async function main() {
     }
 
     const postKey = extractPostKey(row.channel, sourceUrl);
-    const existing = postKey
-      ? await prisma.opportunity.findFirst({ where: { sourceUrl: { contains: postKey } } })
-      : await prisma.opportunity.findFirst({ where: { sourceUrl } });
+    const dedupeKey = normalizeSourceUrlForDedupe(row.channel, sourceUrl);
+    const existingCandidates = await prisma.opportunity.findMany({
+      where: postKey
+        ? { sourceUrl: { contains: postKey } }
+        : { OR: [{ sourceUrl }, { sourceUrl: { contains: sourceUrl.replace(/\/+$/, "") } }] },
+      select: { id: true, sourceUrl: true },
+      take: 25,
+    });
+    const existing = existingCandidates.find((candidate) => (
+      normalizeSourceUrlForDedupe(row.channel, candidate.sourceUrl) === dedupeKey
+    )) ?? existingCandidates[0];
     if (existing) {
       duplicates += 1;
       continue;

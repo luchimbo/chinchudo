@@ -9,11 +9,15 @@ import {
   priorityLabels
 } from "@/lib/labels";
 
+const fieldCls = "min-w-0 w-full rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink";
+const labelCls = "grid min-w-0 gap-2 text-sm font-semibold text-slate";
+const MANUAL_CHANNELS = new Set(["YouTube", "TikTok", "Instagram", "Facebook", "X", "Reddit", "LinkedIn"]);
+
 export default async function NewOpportunityPage({ searchParams }: { searchParams: { client?: string } }) {
   const clients = await getVisibleClients(prisma);
   const activeClient = clients.find((client) => client.slug === searchParams.client) ?? clients[0] ?? null;
   const [channels, brands, products] = await Promise.all([
-    prisma.channel.findMany({ orderBy: { name: "asc" } }),
+    prisma.channel.findMany({ where: { name: { in: [...MANUAL_CHANNELS] } }, orderBy: { name: "asc" } }),
     prisma.brand.findMany({ where: activeClient ? { clientId: activeClient.id } : undefined, orderBy: { name: "asc" } }),
     prisma.product.findMany({
       where: activeClient ? { brand: { clientId: activeClient.id } } : undefined,
@@ -23,17 +27,17 @@ export default async function NewOpportunityPage({ searchParams }: { searchParam
   ]);
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col px-5 py-8">
-      <header className="mb-8 flex items-center justify-between gap-4">
-        <div>
+    <div className="mx-auto flex w-full max-w-5xl flex-col px-4 py-6 sm:px-5 sm:py-8">
+      <header className="mb-8 flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
           <p className="text-xs font-bold uppercase tracking-[0.28em] text-moss">
             Nueva oportunidad
           </p>
-          <h1 className="font-display text-4xl text-ink">Cargar oportunidad</h1>
+          <h1 className="font-display text-4xl leading-tight text-ink sm:text-5xl">Cargar oportunidad</h1>
         </div>
         <Link
           href={activeClient ? `/oportunidades?client=${activeClient.slug}` : "/oportunidades"}
-          className="rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white"
+          className="inline-flex min-h-10 w-full items-center justify-center rounded-full border border-ink/20 bg-white/50 px-4 py-2 text-sm font-semibold text-ink shadow-sm transition hover:border-ink/45 hover:bg-white sm:w-auto"
         >
           ← Oportunidades
         </Link>
@@ -41,12 +45,12 @@ export default async function NewOpportunityPage({ searchParams }: { searchParam
 
       <form
         action={createOpportunity}
-        className="grid gap-5 rounded-lg border border-ink/10 bg-white/70 p-5 shadow-panel backdrop-blur md:grid-cols-2"
+        className="grid min-w-0 gap-5 rounded-lg border border-ink/10 bg-white/70 p-3 shadow-panel backdrop-blur sm:p-5 md:grid-cols-2"
       >
         <input type="hidden" name="client" value={activeClient?.slug ?? ""} />
-        <label className="grid gap-2 text-sm font-semibold text-slate">
+        <label className={labelCls}>
           Red
-          <select name="channelId" required className="rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink">
+          <select name="channelId" required className={fieldCls}>
             {channels.map((channel) => (
               <option key={channel.id} value={channel.id}>
                 {channel.name}
@@ -55,30 +59,30 @@ export default async function NewOpportunityPage({ searchParams }: { searchParam
           </select>
         </label>
 
-        <label className="grid gap-2 text-sm font-semibold text-slate">
+        <label className={labelCls}>
           Autor visible
           <input
             name="sourceAuthor"
             placeholder="usuario, canal o perfil"
             maxLength={120}
-            className="rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink"
+            className={fieldCls}
           />
         </label>
 
-        <label className="grid gap-2 text-sm font-semibold text-slate md:col-span-2">
+        <label className={`${labelCls} md:col-span-2`}>
           URL
           <input
             name="sourceUrl"
             type="url"
             required
             placeholder="https://..."
-            className="rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink"
+            className={fieldCls}
           />
         </label>
 
-        <label className="grid gap-2 text-sm font-semibold text-slate">
+        <label className={labelCls}>
           Marca detectada
-          <select name="detectedBrandId" className="rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink">
+          <select name="detectedBrandId" className={fieldCls}>
             <option value="">Sin definir</option>
             {brands.map((brand) => (
               <option key={brand.id} value={brand.id}>
@@ -88,9 +92,9 @@ export default async function NewOpportunityPage({ searchParams }: { searchParam
           </select>
         </label>
 
-        <label className="grid gap-2 text-sm font-semibold text-slate">
+        <label className={labelCls}>
           Producto detectado
-          <select name="detectedProductId" className="rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink">
+          <select name="detectedProductId" className={fieldCls}>
             <option value="">Sin definir</option>
             {products.map((product) => (
               <option key={product.id} value={product.id}>
@@ -100,9 +104,9 @@ export default async function NewOpportunityPage({ searchParams }: { searchParam
           </select>
         </label>
 
-        <label className="grid gap-2 text-sm font-semibold text-slate">
+        <label className={labelCls}>
           Intencion
-          <select name="detectedIntent" className="rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink">
+          <select name="detectedIntent" className={fieldCls}>
             {opportunityIntents.map((intent) => (
               <option key={intent} value={intent}>
                 {intentLabels[intent]}
@@ -111,9 +115,9 @@ export default async function NewOpportunityPage({ searchParams }: { searchParam
           </select>
         </label>
 
-        <label className="grid gap-2 text-sm font-semibold text-slate">
+        <label className={labelCls}>
           Prioridad
-          <select name="priority" className="rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink">
+          <select name="priority" className={fieldCls}>
             {opportunityPriorities.map((priority) => (
               <option key={priority} value={priority}>
                 {priorityLabels[priority]}
@@ -122,7 +126,7 @@ export default async function NewOpportunityPage({ searchParams }: { searchParam
           </select>
         </label>
 
-        <label className="grid gap-2 text-sm font-semibold text-slate md:col-span-2">
+        <label className={`${labelCls} md:col-span-2`}>
           Comentario original
           <textarea
             name="sourceText"
@@ -131,23 +135,23 @@ export default async function NewOpportunityPage({ searchParams }: { searchParam
             maxLength={4000}
             rows={6}
             placeholder="Estoy buscando controladores MIDI hace tiempo, estoy entre este y el MiniLab 3 que me parece un poco mejor. Que opinion me podrias dar?"
-            className="resize-y rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink"
+            className={`${fieldCls} resize-y`}
           />
         </label>
 
-        <label className="grid gap-2 text-sm font-semibold text-slate md:col-span-2">
+        <label className={`${labelCls} md:col-span-2`}>
           Nota interna
           <textarea
             name="notes"
             maxLength={2000}
             rows={3}
-            placeholder="Contexto para Fede o Lucio."
-            className="resize-y rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink"
+            placeholder="Contexto interno para el equipo."
+            className={`${fieldCls} resize-y`}
           />
         </label>
 
-        <div className="flex justify-end md:col-span-2">
-          <button type="submit" className="rounded-full bg-ink px-6 py-3 text-sm font-bold text-paper shadow-lg transition hover:bg-slate">
+        <div className="flex min-w-0 justify-stretch md:col-span-2 md:justify-end">
+          <button type="submit" className="w-full rounded-full bg-ink px-6 py-3 text-sm font-bold text-paper shadow-lg transition hover:bg-slate sm:w-auto">
             Guardar oportunidad
           </button>
         </div>

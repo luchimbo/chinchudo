@@ -5,8 +5,8 @@ import { prisma } from "@/lib/db";
 import { getVisibleClients } from "@/lib/auth";
 import { createSource, updateSource, deleteSource } from "./actions";
 
-const inputCls = "rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm text-ink";
-const labelCls = "grid gap-1 text-xs font-semibold text-slate";
+const inputCls = "min-w-0 w-full rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm text-ink";
+const labelCls = "grid min-w-0 gap-1 text-xs font-semibold text-slate";
 const CHANNELS = ["youtube", "reddit", "facebook", "instagram", "x", "tiktok", "linkedin"];
 
 async function loadAccounts(): Promise<{ id: string; label: string; clientSlug?: string }[]> {
@@ -43,7 +43,7 @@ export default async function MonitoringPage({ searchParams }: { searchParams: {
   ]);
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col px-5 py-8">
+    <div className="mx-auto flex w-full max-w-4xl flex-col px-4 py-6 sm:px-5 sm:py-8">
       <header className="mb-8">
         <h1 className="font-display text-4xl text-ink">Monitoreo</h1>
         <p className="mt-2 max-w-2xl text-sm text-slate">
@@ -54,7 +54,7 @@ export default async function MonitoringPage({ searchParams }: { searchParams: {
 
       <section className="mb-10">
         <h2 className="font-display text-2xl text-ink">Nueva fuente</h2>
-        <form action={createSource} className="mt-4 grid gap-3 rounded-lg border border-ink/10 bg-white/70 p-4 shadow-panel md:grid-cols-2">
+        <form action={createSource} className="mt-4 grid min-w-0 gap-3 rounded-lg border border-ink/10 bg-white/70 p-3 shadow-panel sm:p-4 md:grid-cols-2">
           <input type="hidden" name="clientId" value={activeClient?.id ?? ""} />
           <label className={`${labelCls} md:col-span-2`}>Etiqueta<input name="label" required placeholder="YouTube - controlador midi" className={inputCls} /></label>
           <label className={labelCls}>
@@ -71,8 +71,8 @@ export default async function MonitoringPage({ searchParams }: { searchParams: {
           <label className={`${labelCls} md:col-span-2`}>Query / búsqueda<input name="query" required className={inputCls} /></label>
           <label className={labelCls}>Límite<input name="limit" type="number" min={1} max={50} defaultValue={5} className={inputCls} /></label>
           <label className="flex items-end gap-2 text-xs font-semibold text-slate"><input name="active" type="checkbox" defaultChecked className="h-4 w-4" /> Activa</label>
-          <div className="flex items-end justify-end md:col-span-2">
-            <button className="rounded-full bg-ink px-5 py-2 text-sm font-bold text-paper transition hover:bg-slate">Agregar fuente</button>
+          <div className="flex min-w-0 items-end justify-stretch md:col-span-2 md:justify-end">
+            <button className="w-full rounded-full bg-ink px-5 py-2 text-sm font-bold text-paper transition hover:bg-slate sm:w-auto">Agregar fuente</button>
           </div>
         </form>
       </section>
@@ -81,7 +81,7 @@ export default async function MonitoringPage({ searchParams }: { searchParams: {
         <h2 className="font-display text-2xl text-ink">Fuentes ({sources.length})</h2>
         <div className="mt-4 grid gap-3">
           {sources.map((s) => (
-            <form key={s.id} action={updateSource} className="grid gap-3 rounded-lg border border-ink/10 bg-paper p-4 md:grid-cols-2">
+            <form key={s.id} action={updateSource} className="grid min-w-0 gap-3 rounded-lg border border-ink/10 bg-paper p-3 sm:p-4 md:grid-cols-2">
               <input type="hidden" name="id" value={s.id} />
               <input type="hidden" name="clientId" value={activeClient?.id ?? ""} />
               <label className={`${labelCls} md:col-span-2`}>Etiqueta<input name="label" defaultValue={s.label} required className={inputCls} /></label>
@@ -99,9 +99,9 @@ export default async function MonitoringPage({ searchParams }: { searchParams: {
               <label className={`${labelCls} md:col-span-2`}>Query<input name="query" defaultValue={s.query} required className={inputCls} /></label>
               <label className={labelCls}>Límite<input name="limit" type="number" min={1} max={50} defaultValue={s.limit} className={inputCls} /></label>
               <label className="flex items-end gap-2 text-xs font-semibold text-slate"><input name="active" type="checkbox" defaultChecked={s.active} className="h-4 w-4" /> Activa</label>
-              <div className="flex items-end justify-between gap-2 md:col-span-2">
+              <div className="flex min-w-0 flex-col gap-3 md:col-span-2 md:flex-row md:items-end md:justify-between">
                 <span className="text-xs text-slate/60">Última corrida: {fmt(s.lastRunAt)} · {s.lastCount} detección(es)</span>
-                <div className="flex gap-2">
+                <div className="grid grid-cols-2 gap-2 sm:flex">
                   <button className="rounded-full border border-ink/20 px-4 py-2 text-sm font-bold text-ink hover:bg-white">Guardar</button>
                   <button formAction={deleteSource} className="rounded-full border border-red-300 px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-50">Eliminar</button>
                 </div>
@@ -116,9 +116,9 @@ export default async function MonitoringPage({ searchParams }: { searchParams: {
         <h2 className="font-display text-2xl text-ink">Detecciones recientes (7 días)</h2>
         <div className="mt-4 grid gap-2">
           {recent.map((o) => (
-            <Link key={o.id} href={`/opportunities/${o.id}`} className="flex items-center justify-between gap-3 rounded-md border border-ink/10 bg-paper p-3 text-sm transition hover:bg-white">
-              <span className="truncate text-ink">{o.sourceText.slice(0, 90)}</span>
-              <span className="shrink-0 text-xs text-slate/70">{o.channel.name} · {o.monitoredSource?.label ?? "—"}</span>
+            <Link key={o.id} href={`/opportunities/${o.id}`} className="flex min-w-0 flex-col gap-2 rounded-md border border-ink/10 bg-paper p-3 text-sm transition hover:bg-white sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+              <span className="min-w-0 truncate text-ink">{o.sourceText.slice(0, 90)}</span>
+              <span className="text-xs text-slate/70 sm:shrink-0">{o.channel.name} · {o.monitoredSource?.label ?? "—"}</span>
             </Link>
           ))}
           {recent.length === 0 ? <p className="rounded-md bg-paper p-4 text-sm text-slate">Sin detecciones de fuentes monitoreadas en los últimos 7 días.</p> : null}

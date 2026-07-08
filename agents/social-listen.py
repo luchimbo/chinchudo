@@ -215,6 +215,9 @@ _SPANISH_CHARS = set("áéíóúñ¿¡ü")
 _WORD_RE = re.compile(r"[a-záéíóúñü]+", re.IGNORECASE)
 
 
+_PORTUGUESE_CHARS = set("ãõçâêôà")
+
+
 def is_spanish(text: str) -> bool:
     """True si el texto parece español (o es ambiguo/corto). False si es claramente inglés."""
     if not text:
@@ -232,6 +235,43 @@ def is_spanish(text: str) -> bool:
     if eng >= 3 and eng > spa:
         return False
     return True
+
+
+def detect_language(text: str) -> str:
+    """Heuristica liviana para busquedas manuales: es/en/pt/other."""
+    if not text:
+        return "other"
+    lower = text.lower()
+    if any(ch in _PORTUGUESE_CHARS for ch in lower):
+        return "pt"
+    if any(ch in _SPANISH_CHARS for ch in lower):
+        return "es"
+    tokens = _WORD_RE.findall(lower)
+    if not tokens:
+        return "other"
+    eng = sum(1 for t in tokens if t in _ENGLISH_STOPWORDS)
+    spa = sum(1 for t in tokens if t in _SPANISH_STOPWORDS)
+    pt_words = {
+        "que", "de", "para", "uma", "com", "nao", "não", "voce", "você",
+        "meu", "minha", "isso", "esse", "essa", "tambem", "também", "onde",
+        "quanto", "funciona", "preciso", "comprar", "tem", "estou", "está",
+    }
+    por = sum(1 for t in tokens if t in pt_words)
+    if por >= 2 and por >= spa and por >= eng:
+        return "pt"
+    if eng >= 3 and eng > spa:
+        return "en"
+    if spa >= 1:
+        return "es"
+    return "other"
+
+
+def language_allowed(text: str, requested_language: str) -> tuple[bool, str]:
+    detected = detect_language(text)
+    requested = (requested_language or "es").lower()
+    if requested == "any":
+        return True, detected
+    return detected == requested, detected
 
 
 def classify_intent(text: str) -> str:
@@ -259,16 +299,33 @@ def classify_priority(intent: str, text: str) -> str:
 
 _COMMENT_TYPES = {"instagram_comment", "facebook_comment", "tiktok_comment"}
 
-def is_actionable(text: str, source_type: str = "") -> tuple[bool, str]:
+def is_actionable(text: str, intent_or_source_type: str = "", source_type: str = "") -> tuple[bool, str]:
+    if source_type:
+        intent = intent_or_source_type
+    else:
+        known_intents = {
+            "TECHNICAL_QUESTION", "PURCHASE_QUESTION", "PRICE_QUESTION",
+            "WARRANTY_QUESTION", "COMPARISON", "GENERAL_DISCUSSION",
+        }
+        if intent_or_source_type in known_intents:
+            intent = intent_or_source_type
+            source_type = ""
+        else:
+            source_type = intent_or_source_type
+            intent = classify_intent(text)
     cleaned = text.strip()
     if len(cleaned) < 8:
-        return False, "texto_demasiado_corto"
+        return False, "comentario_sin_texto_real" if source_type in _COMMENT_TYPES else "elogio_o_texto_corto_sin_pregunta"
     
     # Descartar si es solo etiquetas o menciones (ej: "@usuario @usuario2")
     words = cleaned.split()
     real_words = [w for w in words if not w.startswith("@") and len(w) > 1]
     if len(real_words) < 2:
-        return False, "sin_suficientes_palabras_reales"
+        return False, "comentario_sin_texto_real"
+    if source_type in _COMMENT_TYPES and len(real_words) < 4 and "?" not in cleaned:
+        return False, "comentario_sin_texto_real"
+    if not source_type and len(real_words) < 4 and "?" not in cleaned and intent == "GENERAL_DISCUSSION":
+        return False, "elogio_o_texto_corto_sin_pregunta"
     
     return True, ""
 
@@ -301,7 +358,7 @@ def is_too_old(published_time: str, max_months: int = 6) -> bool:
     return age is not None and age > max_months
 
 
-def normalize_item(channel: str, query: str, item: dict, account: str | None, source_id: str | None = None) -> dict:
+def normalize_item(channel: str, query: str, item: dict, account: str | None, source_id: str | None = None, language: str | None = None) -> dict:
     text = item.get("context") or item.get("title") or ""
     source_type = item.get("sourceType") or f"{channel}_search_result"
     intent = classify_intent(text)
@@ -332,7 +389,7 @@ def normalize_item(channel: str, query: str, item: dict, account: str | None, so
         "priority": classify_priority(intent, text),
         "status": "NEW",
         "notes": notes,
-        "language": "es" if is_spanish(text) else "en",
+        "language": language or detect_language(text),
         "monitoredSourceId": source_id or "",
     }
 
@@ -385,8 +442,8 @@ def load_own_usernames() -> set[str]:
     return own
 
 
-def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str | None, source_id: str | None = None, client_id: str | None = None) -> dict:
-    log.info("listen_start", channel=channel, account=account or "default", query=query[:60], limit=limit, dry_run=dry_run)
+def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str | None, source_id: str | None = None, client_id: str | None = None, language: str = "es") -> dict:
+    log.info("listen_start", channel=channel, account=account or "default", query=query[:60], limit=limit, dry_run=dry_run, language=language)
     
     # Cargar dinámicamente palabras clave y exclusiones del cliente
     keywords, exclusions = load_client_rules(source_id=source_id, client_id=client_id, query=query)
@@ -399,7 +456,7 @@ def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str
         log.error("listen_browser_connect_fail", channel=channel, account=account or "default", error=str(exc))
         return {
             "command": "listen", "channel": channel, "account": account or "default",
-            "query": query, "limit": limit, "dry_run": dry_run,
+            "query": query, "limit": limit, "dry_run": dry_run, "language": language,
             "error": f"No se pudo conectar al browser: {exc}",
             "items_read": 0, "intake_rows": 0, "discarded_count": 0,
             "discard_reasons": {}, "discarded_sample": [], "intake_path": str(INTAKE_PATH), "sample": [],
@@ -434,7 +491,7 @@ def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str
         log.error("listen_cdp_error", channel=channel, account=account or "default", error=str(exc))
         return {
             "command": "listen", "channel": channel, "account": account or "default",
-            "query": query, "limit": limit, "dry_run": dry_run,
+            "query": query, "limit": limit, "dry_run": dry_run, "language": language,
             "error": f"Error CDP durante extracción ({channel}): {exc}",
             "traceback": traceback.format_exc()[-800:],
             "items_read": 0, "intake_rows": 0, "discarded_count": 0,
@@ -457,15 +514,16 @@ def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str
             discarded.append({"reason": "fuera_de_tema", "text": (item.get("context") or item.get("title") or "")[:60]})
             continue
         lang_text = (item.get("context") or item.get("title") or item.get("videoTitle") or "")
-        if not is_spanish(lang_text):
-            discarded.append({"reason": "idioma_no_es", "text": lang_text[:60]})
+        allowed_language, detected_language = language_allowed(lang_text, language)
+        if not allowed_language:
+            discarded.append({"reason": f"idioma_no_{language}", "language": detected_language, "text": lang_text[:60]})
             continue
         published = item.get("publishedTime", "")
         max_age = 18 if channel in ("x", "instagram") else 24
         if is_too_old(published, max_months=max_age):
             discarded.append({"reason": "comentario_viejo", "age": published, "text": (item.get("context") or "")[:60]})
             continue
-        row = normalize_item(channel, query, item, account, source_id)
+        row = normalize_item(channel, query, item, account, source_id, detected_language)
         ok, reason = is_actionable(row["sourceText"], row.get("sourceType", ""))
         if not ok:
             discarded.append({"reason": reason, "text": row["sourceText"][:60]})
@@ -495,6 +553,7 @@ def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str
         "channel": channel,
         "account": account or "default",
         "query": query,
+        "language": language,
         "limit": limit,
         "dry_run": dry_run,
         "items_read": len(items),
@@ -519,11 +578,13 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--source-id", default="")
     parser.add_argument("--client-id", default="")
+    parser.add_argument("--language", default="es", choices=["es", "en", "pt", "any"])
     args = parser.parse_args()
 
     summary = run_listen(
         args.channel, args.query, args.limit, args.dry_run, args.account or None,
-        source_id=args.source_id or None, client_id=args.client_id or None
+        source_id=args.source_id or None, client_id=args.client_id or None,
+        language=args.language
     )
     print(json.dumps(summary, ensure_ascii=True, indent=2))
 
