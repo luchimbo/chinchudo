@@ -246,6 +246,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
                     canPublishViaAgent={canPublishViaAgent}
                     clientParam={searchParams?.client ?? ""}
                     isAlreadyPublished={isAlreadyPublished}
+                    personas={personas}
                   />
                 ))
               )}

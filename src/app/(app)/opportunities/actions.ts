@@ -189,7 +189,8 @@ const approveResponseSchema = z.object({
   responseId: z.string().min(1),
   opportunityId: z.string().min(1),
   editedText: z.string().min(3).max(4000),
-  approvedBy: z.string().min(1).max(80).default("Operador")
+  approvedBy: z.string().min(1).max(80).default("Operador"),
+  personaId: z.string().min(1).optional(),
 });
 
 export async function approveResponse(formData: FormData) {
@@ -197,30 +198,50 @@ export async function approveResponse(formData: FormData) {
     responseId: formData.get("responseId"),
     opportunityId: formData.get("opportunityId"),
     editedText: formData.get("editedText"),
-    approvedBy: formData.get("approvedBy") || "Operador"
+    approvedBy: formData.get("approvedBy") || "Operador",
+    personaId: formData.get("personaId") || undefined,
   });
 
-  const opportunity = await prisma.opportunity.findUniqueOrThrow({
-    where: { id: parsed.opportunityId },
-    select: { status: true }
-  });
+  const [opportunity, response] = await Promise.all([
+    prisma.opportunity.findUniqueOrThrow({
+      where: { id: parsed.opportunityId },
+      select: { status: true, clientId: true },
+    }),
+    prisma.response.findUniqueOrThrow({
+      where: { id: parsed.responseId },
+      include: { persona: true },
+    }),
+  ]);
 
   if (opportunity.status === "PUBLISHED" || opportunity.status === "CONVERTED" || opportunity.status === "FOLLOW_UP") {
     throw new Error("La oportunidad ya está publicada/respondida y no se puede modificar la aprobación.");
   }
 
+  const data: { editedText: string; approvedBy: string; personaId?: string } = {
+    editedText: parsed.editedText,
+    approvedBy: parsed.approvedBy,
+  };
+
+  if (parsed.personaId && parsed.personaId !== response.personaId) {
+    const persona = await prisma.persona.findUniqueOrThrow({
+      where: { id: parsed.personaId },
+      select: { clientId: true },
+    });
+    if (persona.clientId && opportunity.clientId && persona.clientId !== opportunity.clientId) {
+      throw new Error("La persona seleccionada no pertenece al cliente de esta oportunidad.");
+    }
+    data.personaId = parsed.personaId;
+  }
+
   await prisma.$transaction([
     prisma.response.update({
       where: { id: parsed.responseId },
-      data: {
-        editedText: parsed.editedText,
-        approvedBy: parsed.approvedBy
-      }
+      data,
     }),
     prisma.opportunity.update({
       where: { id: parsed.opportunityId },
-      data: { status: OpportunityStatus.APPROVED }
-    })
+      data: { status: OpportunityStatus.APPROVED },
+    }),
   ]);
 
   revalidatePath("/");

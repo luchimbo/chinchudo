@@ -4,9 +4,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { assertClientAccess } from "@/lib/auth";
+import { relayFetch } from "@/lib/relay-client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 const CHANNELS = ["youtube", "reddit", "facebook", "instagram", "x", "tiktok", "linkedin"] as const;
 const LANGUAGES = ["es", "en", "pt", "any"] as const;
@@ -135,6 +137,29 @@ function runProcess(
   });
 }
 
+let executionModeCache: "local" | "relay" | null = null;
+
+async function canRunPython() {
+  const cfg = commandName("python");
+  const result = await runProcess(cfg, ["--version"], () => {}, 5_000);
+  return result.code === 0;
+}
+
+async function shouldUseRelay() {
+  if (executionModeCache) return executionModeCache === "relay";
+  if (process.env.VERCEL) {
+    executionModeCache = "relay";
+    return true;
+  }
+  if (process.env.AGENTS_PYTHON_BIN) {
+    executionModeCache = "local";
+    return false;
+  }
+  const ok = await canRunPython();
+  executionModeCache = ok ? "local" : "relay";
+  return !ok;
+}
+
 async function buildQuery(clientId: string, query: string) {
   const trimmed = query.trim();
   if (trimmed) return { query: trimmed, suggestions: [] as string[] };
@@ -179,6 +204,29 @@ export async function POST(req: NextRequest) {
   }
 
   const { query, suggestions } = await buildQuery(parsed.clientId, parsed.query);
+
+  if (await shouldUseRelay()) {
+    const relayResponse = await relayFetch("/search/run", {
+      method: "POST",
+      body: JSON.stringify({
+        clientId: parsed.clientId,
+        channels: parsed.channels,
+        query,
+        language: parsed.language,
+        limit: parsed.limit,
+      }),
+    });
+    if (!relayResponse.ok || !relayResponse.body) {
+      return NextResponse.json({ error: "Relay no disponible.", status: relayResponse.status }, { status: 502 });
+    }
+    return new Response(relayResponse.body, {
+      headers: {
+        "Content-Type": "application/x-ndjson; charset=utf-8",
+        "Cache-Control": "no-store",
+      },
+    });
+  }
+
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({

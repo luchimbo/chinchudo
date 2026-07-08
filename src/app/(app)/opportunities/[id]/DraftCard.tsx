@@ -13,6 +13,8 @@ type PublishingLogEntry = {
   account: string;
 };
 
+type PersonaOption = { id: string; name: string };
+
 type ResponseEntry = {
   id: string;
   variantType: string;
@@ -20,6 +22,7 @@ type ResponseEntry = {
   editedText: string;
   riskNotes: string;
   approvedBy: string;
+  personaId: string;
   brand: { name: string };
   persona: { name: string };
   publishingLog?: PublishingLogEntry | null;
@@ -48,6 +51,7 @@ type DraftCardProps = {
   canPublishViaAgent?: boolean;
   clientParam?: string;
   isAlreadyPublished?: boolean;
+  personas: PersonaOption[];
 };
 
 function getPersonaDisplayName(name: string, _clientSlug?: string | null) {
@@ -75,6 +79,7 @@ export function DraftCard({
   canPublishViaAgent,
   clientParam,
   isAlreadyPublished = false,
+  personas,
 }: DraftCardProps) {
   const [text, setText] = useState(response.editedText || response.draftText);
   const [isCopied, setIsCopied] = useState(false);
@@ -157,6 +162,23 @@ export function DraftCard({
               placeholder="Escribe la respuesta aquí..."
             />
           </div>
+
+          {!isAlreadyPublished && personas.length > 0 ? (
+            <label className="grid gap-1.5 text-xs font-semibold text-slate">
+              Voz / Persona de publicación
+              <select
+                name="personaId"
+                defaultValue={response.personaId}
+                className="w-full rounded-md border border-ink/15 bg-white px-3 py-2.5 text-sm text-ink"
+              >
+                {personas.map((persona) => (
+                  <option key={persona.id} value={persona.id}>
+                    {getPersonaDisplayName(persona.name, clientSlug)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
 
           {response.riskNotes ? (
             <details className="rounded-md border border-amber-200 bg-amber-50/50 px-3 py-2 text-xs text-amber-800 transition-colors">
