@@ -17,11 +17,11 @@ const clients = [
   },
   {
     id: "prestige",
-    name: "Prestige Running",
+    name: "PRESTIGE MEDIAS",
     slug: "prestige-running",
     description: "",
-    domainKeywords: JSON.stringify(["prestige running", "medias deportivas", "running", "compresion", "trail"]),
-    domainExclusions: JSON.stringify(["media hora", "media cancha", "a medias"]),
+    domainKeywords: JSON.stringify(["prestige", "prestige medias", "medias de running", "medias deportivas", "running", "compresion", "trail"]),
+    domainExclusions: JSON.stringify(["media hora", "media cancha", "medias medicinales", "a medias"]),
     active: true,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -82,7 +82,7 @@ describe("guardrails", () => {
     const result = validateClientScopedActors({
       client: clients[0] as any,
       brand: { id: "b1", name: "MidiPlus", clientId: "pcmidi" } as any,
-      persona: { id: "p1", name: "El Corredor", clientId: "prestige" } as any,
+      persona: { id: "p1", name: "Práctico", clientId: "prestige" } as any,
     });
     expect(result.ok).toBe(false);
   });
@@ -91,10 +91,10 @@ describe("guardrails", () => {
     const hits = await detectCrossClientTerms({
       client: {
         findMany: async () => [
-          { ...clients[1], brands: [{ name: "Prestige Running" }] },
+          { ...clients[1], brands: [{ name: "Prestige" }] },
         ],
       },
-    } as any, "pcmidi", "Recomendaria unas medias deportivas Prestige Running");
+    } as any, "pcmidi", "Recomendaria unas medias deportivas Prestige");
     expect(hits[0]).toContain("prestige-running");
   });
 });
@@ -122,7 +122,7 @@ describe("local fallback drafts by client", () => {
   });
 
   const mockBrand = { id: "b1", name: "MidiPlus", clientId: "pcmidi", strengths: "", tone: "", allowedClaims: "", forbiddenClaims: "", competitorWeaknesses: "", createdAt: new Date(), updatedAt: new Date() };
-  const mockPersona = { id: "p1", clientId: "pcmidi", name: "Técnico / Productor", role: "Técnico", tone: "serio", goals: "ayudar", preferredLength: "SHORT", allowedPhrases: "", forbiddenPhrases: "", goodExamples: "", badExamples: "", angle: "tecnico", avatarUrl: "", voiceId: "es-AR-TomasNeural", createdAt: new Date(), updatedAt: new Date() };
+  const mockPersona = { id: "p1", clientId: "pcmidi", name: "Técnico", role: "Técnico", tone: "serio", goals: "ayudar", preferredLength: "SHORT", allowedPhrases: "", forbiddenPhrases: "", goodExamples: "", badExamples: "", angle: "tecnico", avatarUrl: "", voiceId: "es-AR-TomasNeural", createdAt: new Date(), updatedAt: new Date() };
 
   it("genera fallbacks de pcmidi con referencias tecnicas de audio", () => {
     const drafts = generateLocalDrafts({

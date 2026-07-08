@@ -143,17 +143,21 @@ function buildPrompt(ctx: DraftContext): string {
   }
 
   const isPcmidi = client?.slug === "pcmidi";
-  const isCazador = persona.name === "Cazador de Ofertas";
+  const isCazador = persona.name === "Comercial";
 
   const storeRule = isPcmidi && isCazador
     ? "- DEBÉS mencionar explícitamente a 'PC MIDI Center' como la tienda física/online de confianza donde comprar el producto, consultar stock o conseguir financiación/cuotas (ej: 'en PC MIDI Center tienen cuotas', 'fijate en la web de PC MIDI Center'). Recomendalo desde el punto de vista de un cliente/usuario, NUNCA digas que sos empleado o que trabajás ahí."
     : "- NUNCA menciones nombres de tiendas, locales, comercios ni sitios web específicos (ej: no nombres a PC MIDI Center ni a ningún otro local) para que la respuesta suene como una recomendación de usuario 100% independiente y orgánica.";
+  const prestigeRecommendationRule = client?.slug === "prestige-running"
+    ? "- Para Prestige, NO hagas preguntas ni pidas datos de talle/uso/modelo. Recomenda directo y natural, como usuario: 'che, fijate estas', 'yo vi estas y tienen buena calidad-precio', 'por lo que salen rinden bastante'. Usa CTA suave afirmativo, nunca interrogativo."
+    : "";
 
   const absoluteRules = [
     "- NUNCA mezcles productos, marcas, rubros ni claims de otro cliente.",
     rubroRule,
     exclusionsLine,
     storeRule,
+    prestigeRecommendationRule,
     "- NUNCA digas que sos representante, empleado, ni que trabajás para ninguna marca.",
     '- Hablá siempre como usuario que recomienda por experiencia propia (ej: "yo uso", "tengo", "probé" / "I use", "I have", "I tried" / "eu uso", "tenho", "experimentei")',
     "- SIEMPRE recomendá y mencioná el Producto recomendado principal salvo que una alternativa real permitida encaje claramente mejor.",

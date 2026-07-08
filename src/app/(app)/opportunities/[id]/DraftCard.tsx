@@ -50,15 +50,7 @@ type DraftCardProps = {
   isAlreadyPublished?: boolean;
 };
 
-function getPersonaDisplayName(name: string, clientSlug?: string | null) {
-  if (clientSlug === "prestige-running") {
-    if (name === "Baterista de Departamento") return "El Corredor";
-    if (name === "Técnico / Productor") return "Kinesiólogo";
-    if (name === "Trend-Setter Kressmer") return "Trend Setter";
-    if (name === "Profe / Madre-Padre") return "Escolar / Padres";
-  }
-  if (name === "Trend-Setter Kressmer") return "Trend Setter";
-  if (name === "Profe / Madre-Padre") return "Profe de Música";
+function getPersonaDisplayName(name: string, _clientSlug?: string | null) {
   return name;
 }
 
@@ -147,7 +139,7 @@ export function DraftCard({
         <form action={approveResponseAction} className="flex flex-col justify-between gap-4">
           <input type="hidden" name="responseId" value={response.id} />
           <input type="hidden" name="opportunityId" value={opportunity.id} />
-          <input type="hidden" name="approvedBy" value="Fede" />
+          <input type="hidden" name="approvedBy" value="Operador" />
 
           <div className="flex flex-1 flex-col">
             <label className="mb-1 text-xs font-bold uppercase tracking-wider text-slate/50">

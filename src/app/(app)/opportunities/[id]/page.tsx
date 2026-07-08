@@ -36,15 +36,7 @@ function statusClass(status: string) {
   return "bg-signal text-white";
 }
 
-function getPersonaDisplayName(name: string, clientSlug?: string | null) {
-  if (clientSlug === "prestige-running") {
-    if (name === "Baterista de Departamento") return "El Corredor";
-    if (name === "Técnico / Productor") return "Kinesiólogo";
-    if (name === "Trend-Setter Kressmer") return "Trend Setter";
-    if (name === "Profe / Madre-Padre") return "Escolar / Padres";
-  }
-  if (name === "Trend-Setter Kressmer") return "Trend Setter";
-  if (name === "Profe / Madre-Padre") return "Profe de Música";
+function getPersonaDisplayName(name: string, _clientSlug?: string | null) {
   return name;
 }
 

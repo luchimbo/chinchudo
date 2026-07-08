@@ -156,7 +156,7 @@ export default async function KnowledgePage({ searchParams }: { searchParams: { 
           </label>
           <label className={`${labelCls} md:col-span-2`}>
             Notas de persona (opcional)
-            <input name="personaNotes" placeholder="Ej: útil para Cazador de Ofertas" className={inputCls} />
+            <input name="personaNotes" placeholder="Ej: útil para Comercial" className={inputCls} />
           </label>
           <div className="flex items-end justify-end md:col-span-2">
             <button className="rounded-full bg-ink px-5 py-2 text-sm font-bold text-paper transition hover:bg-slate">Agregar objeción</button>

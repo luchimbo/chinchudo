@@ -132,7 +132,7 @@ Mensajes clave:
 
 Estos perfiles son arquetipos de voz para generar respuestas. Pueden usarse en publicaciones oficiales, embajadores reales, soporte o contenido interno. Los nombres deben coincidir exactamente con `prisma/seed.ts` y `src/lib/persona-router.ts`.
 
-### 1. Técnico / Productor
+### 1. Técnico
 
 Uso:
 
@@ -147,7 +147,7 @@ Estilo:
 - Preciso, practico y explicativo.
 - Enfocado en uso real, sin vender de mas.
 
-### 2. Baterista de Departamento
+### 2. Práctico
 
 Uso:
 
@@ -160,7 +160,7 @@ Estilo:
 - Cercano, cotidiano.
 - Orientado a problemas reales de convivencia y espacio.
 
-### 3. Trend-Setter Kressmer
+### 3. Innovación
 
 Uso:
 
@@ -173,7 +173,7 @@ Estilo:
 - Moderno, curioso, aspiracional.
 - Sin exagerar claims no comprobados.
 
-### 4. Profe / Madre-Padre
+### 4. Educativo
 
 Uso:
 
@@ -186,7 +186,7 @@ Estilo:
 - Didactico, criterioso.
 - Sello de confianza; evita tecnicismos innecesarios.
 
-### 5. Cazador de Ofertas
+### 5. Comercial
 
 Uso:
 

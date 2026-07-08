@@ -4,6 +4,40 @@ const prisma = new PrismaClient();
 
 const json = (items: string[]) => JSON.stringify(items);
 
+const personaNameMigrations = [
+  ["Técnico / Productor", "Técnico"],
+  ["Baterista de Departamento", "Práctico"],
+  ["Trend-Setter Kressmer", "Innovación"],
+  ["Profe / Madre-Padre", "Educativo"],
+  ["Cazador de Ofertas", "Comercial"],
+] as const;
+
+async function migratePersonaNames(clientId: string) {
+  for (const [oldName, newName] of personaNameMigrations) {
+    const legacy = await prisma.persona.findUnique({
+      where: { clientId_name: { clientId, name: oldName } },
+    });
+    if (!legacy) continue;
+
+    const current = await prisma.persona.findUnique({
+      where: { clientId_name: { clientId, name: newName } },
+    });
+
+    if (!current) {
+      await prisma.persona.update({
+        where: { id: legacy.id },
+        data: { name: newName },
+      });
+      continue;
+    }
+
+    await prisma.response.updateMany({ where: { personaId: legacy.id }, data: { personaId: current.id } });
+    await prisma.personaRule.updateMany({ where: { personaId: legacy.id }, data: { personaId: current.id } });
+    await prisma.videoScript.updateMany({ where: { personaId: legacy.id }, data: { personaId: current.id } });
+    await prisma.persona.delete({ where: { id: legacy.id } });
+  }
+}
+
 async function main() {
   const pcmidi = await prisma.client.upsert({
     where: { slug: "pcmidi" },
@@ -53,13 +87,18 @@ async function main() {
   const prestigeClient = await prisma.client.upsert({
     where: { slug: "prestige-running" },
     update: {
-      name: "Prestige Running",
-      description: "Medias deportivas tecnicas para running, trail, compresion, uso diario deportivo y combos.",
+      name: "PRESTIGE MEDIAS",
+      description: "Fabricacion y venta de medias tecnicas para uso deportivo.",
       autoPublish: false,
       autoApprove: false,
       domainKeywords: json([
-        "prestige running",
+        "prestige",
         "prestige medias",
+        "prestige running",
+        "medias de running",
+        "medias de compresion graduada",
+        "running sportwear",
+        "running sportswear",
         "medias deportivas",
         "medias tecnicas",
         "medias",
@@ -87,6 +126,8 @@ async function main() {
         "media cancha",
         "media hora",
         "medias tintas",
+        "medias medicinales",
+        "media medicinal",
         "a medias",
         "media naranja",
         "media jornada",
@@ -102,14 +143,19 @@ async function main() {
       ]),
     },
     create: {
-      name: "Prestige Running",
+      name: "PRESTIGE MEDIAS",
       slug: "prestige-running",
-      description: "Medias deportivas tecnicas para running, trail, compresion, uso diario deportivo y combos.",
+      description: "Fabricacion y venta de medias tecnicas para uso deportivo.",
       autoPublish: false,
       autoApprove: false,
       domainKeywords: json([
-        "prestige running",
+        "prestige",
         "prestige medias",
+        "prestige running",
+        "medias de running",
+        "medias de compresion graduada",
+        "running sportwear",
+        "running sportswear",
         "medias deportivas",
         "medias tecnicas",
         "medias",
@@ -137,6 +183,8 @@ async function main() {
         "media cancha",
         "media hora",
         "medias tintas",
+        "medias medicinales",
+        "media medicinal",
         "a medias",
         "media naranja",
         "media jornada",
@@ -155,18 +203,31 @@ async function main() {
 
   await prisma.brand.updateMany({ where: { name: "MidiPlus", clientId: null }, data: { clientId: pcmidi.id } });
   await prisma.brand.updateMany({ where: { name: "Kressmer", clientId: null }, data: { clientId: pcmidi.id } });
+  const oldPrestigeBrand = await prisma.brand.findUnique({
+    where: { clientId_name: { clientId: prestigeClient.id, name: "Prestige Running" } },
+  });
+  const currentPrestigeBrand = await prisma.brand.findUnique({
+    where: { clientId_name: { clientId: prestigeClient.id, name: "Prestige" } },
+  });
+  if (oldPrestigeBrand && !currentPrestigeBrand) {
+    await prisma.brand.update({ where: { id: oldPrestigeBrand.id }, data: { name: "Prestige" } });
+  } else if (oldPrestigeBrand && currentPrestigeBrand) {
+    await prisma.product.updateMany({ where: { brandId: oldPrestigeBrand.id }, data: { brandId: currentPrestigeBrand.id } });
+    await prisma.response.updateMany({ where: { brandId: oldPrestigeBrand.id }, data: { brandId: currentPrestigeBrand.id } });
+    await prisma.opportunity.updateMany({ where: { detectedBrandId: oldPrestigeBrand.id }, data: { detectedBrandId: currentPrestigeBrand.id } });
+    await prisma.knowledgeBase.updateMany({ where: { brandId: oldPrestigeBrand.id }, data: { brandId: currentPrestigeBrand.id } });
+    await prisma.objection.updateMany({ where: { brandId: oldPrestigeBrand.id }, data: { brandId: currentPrestigeBrand.id } });
+    await prisma.videoScript.updateMany({ where: { brandId: oldPrestigeBrand.id }, data: { brandId: currentPrestigeBrand.id } });
+    await prisma.brand.delete({ where: { id: oldPrestigeBrand.id } });
+  }
 
-  const legacyPcmidiPersonaNames = [
-    "Técnico / Productor",
-    "Baterista de Departamento",
-    "Trend-Setter Kressmer",
-    "Profe / Madre-Padre",
-    "Cazador de Ofertas",
-  ];
+  const legacyPcmidiPersonaNames = personaNameMigrations.flatMap(([oldName, newName]) => [oldName, newName]);
   await prisma.persona.updateMany({
     where: { name: { in: legacyPcmidiPersonaNames }, clientId: null },
     data: { clientId: pcmidi.id },
   });
+  await migratePersonaNames(pcmidi.id);
+  await migratePersonaNames(prestigeClient.id);
 
   const midiplus = await prisma.brand.upsert({
     where: { clientId_name: { clientId: pcmidi.id, name: "MidiPlus" } },
@@ -211,29 +272,29 @@ async function main() {
   });
 
   const prestige = await prisma.brand.upsert({
-    where: { clientId_name: { clientId: prestigeClient.id, name: "Prestige Running" } },
+    where: { clientId_name: { clientId: prestigeClient.id, name: "Prestige" } },
     update: {
       clientId: prestigeClient.id,
-      strengths: "Medias deportivas tecnicas para running, trail, compresion y entrenamiento, con foco en comodidad, diseno y compra online simple.",
-      tone: "Deportivo, practico, cercano y tecnico solo cuando aporta.",
-      allowedClaims: "Medias tecnicas; opciones para running and trail; compresion graduada cuando el producto lo indique; envios a todo el pais; cuotas disponibles segun tienda.",
-      forbiddenClaims: "Curar lesiones; evitar lesiones garantizado; mejorar rendimiento garantizado; recomendacion medica sin respaldo; stock/precio fijo sin verificar.",
-      competitorWeaknesses: "Medias de algodón convencionales acumulan sudor, causan ampollas y no ofrecen ajuste ergonómico ni compresión graduada.",
+      strengths: "Mejor relacion precio/calidad del mercado en medias deportivas tecnicas.",
+      tone: "Cercana y tecnica.",
+      allowedClaims: "Mejor precio y calidad en medias deportivas para uso profesional y entrenamiento de amateurs.",
+      forbiddenClaims: "Hablar mal de competidores directos; curar lesiones; evitar lesiones garantizado; mejorar rendimiento garantizado; recomendacion medica sin respaldo; stock/precio fijo sin verificar.",
+      competitorWeaknesses: "Los competidores suelen ser muy caros con una calidad comparable. Usar este dato sin nombrarlos ni hablar mal de marcas puntuales.",
     },
     create: {
       clientId: prestigeClient.id,
-      name: "Prestige Running",
-      strengths: "Medias deportivas tecnicas para running, trail, compresion y entrenamiento, con foco en comodidad, diseno y compra online simple.",
-      tone: "Deportivo, practico, cercano y tecnico solo cuando aporta.",
-      allowedClaims: "Medias tecnicas; opciones para running and trail; compresion graduada cuando el producto lo indique; envios a todo el pais; cuotas disponibles segun tienda.",
-      forbiddenClaims: "Curar lesiones; evitar lesiones garantizado; mejorar rendimiento garantizado; recomendacion medica sin respaldo; stock/precio fijo sin verificar.",
-      competitorWeaknesses: "Medias de algodón convencionales acumulan sudor, causan ampollas y no ofrecen ajuste ergonómico ni compresión graduada.",
+      name: "Prestige",
+      strengths: "Mejor relacion precio/calidad del mercado en medias deportivas tecnicas.",
+      tone: "Cercana y tecnica.",
+      allowedClaims: "Mejor precio y calidad en medias deportivas para uso profesional y entrenamiento de amateurs.",
+      forbiddenClaims: "Hablar mal de competidores directos; curar lesiones; evitar lesiones garantizado; mejorar rendimiento garantizado; recomendacion medica sin respaldo; stock/precio fijo sin verificar.",
+      competitorWeaknesses: "Los competidores suelen ser muy caros con una calidad comparable. Usar este dato sin nombrarlos ni hablar mal de marcas puntuales.",
     },
   });
 
   const pcmidiPersonas = [
     {
-      name: "Técnico / Productor",
+      name: "Técnico",
       role: "Valida la marca por componentes, drivers, compatibilidad MIDI/DAW y uso en home studio.",
       tone: "Preciso, practico y sin vender de mas.",
       goals: "Traducir especificaciones a beneficios reales y aclarar limites tecnicos.",
@@ -241,7 +302,7 @@ async function main() {
       angle: "Setup, compatibilidad, DAW, drivers y uso real.",
     },
     {
-      name: "Baterista de Departamento",
+      name: "Práctico",
       role: "Resuelve ruido, espacio, parches de malla y practica diaria en departamento.",
       tone: "Cotidiano, cercano y concreto.",
       goals: "Ayudar a elegir pensando en vecinos, silencio y rebote.",
@@ -249,7 +310,7 @@ async function main() {
       angle: "Ruido, auriculares, espacio reducido y practica diaria.",
     },
     {
-      name: "Trend-Setter Kressmer",
+      name: "Innovación",
       role: "Posiciona Kressmer como novedad desde diseno, estetica y primeras impresiones.",
       tone: "Moderno, curioso y aspiracional, sin exagerar datos.",
       goals: "Mostrar Kressmer como opcion distinta y deseable.",
@@ -257,7 +318,7 @@ async function main() {
       angle: "Diseno, novedad y propuesta diferenciada.",
     },
     {
-      name: "Profe / Madre-Padre",
+      name: "Educativo",
       role: "Recomienda desde aprendizaje, durabilidad, garantia oficial y confianza.",
       tone: "Didactico, criterioso y simple.",
       goals: "Orientar a alumnos, padres y escuelas hacia compras seguras.",
@@ -265,7 +326,7 @@ async function main() {
       angle: "Aprendizaje, compra segura y uso para principiantes.",
     },
     {
-      name: "Cazador de Ofertas",
+      name: "Comercial",
       role: "Aporta precio, cuotas, financiacion y disponibilidad en el local.",
       tone: "Directo, entusiasta y practico.",
       goals: "Destacar conveniencia y facilidad de compra sin claims falsos.",
@@ -291,7 +352,7 @@ async function main() {
 
   const prestigePersonas = [
     {
-      name: "Técnico / Productor",
+      name: "Técnico",
       role: "Aporta mirada tecnica sobre compresion, recuperacion, soporte y cuidado del pie sin prometer resultados medicos.",
       tone: "Criterioso, claro y responsable.",
       goals: "Explicar beneficios posibles y limites de las medias de compresion, evitando diagnosticos medicos.",
@@ -299,7 +360,7 @@ async function main() {
       angle: "Compresion graduada, soporte, recuperacion y cuidado de la pisada sin claims medicos.",
     },
     {
-      name: "Baterista de Departamento",
+      name: "Práctico",
       role: "Responde desde la experiencia de running, entrenamientos de calle, distancias y rozamiento diario.",
       tone: "Cercano, activo, cotidiano y con lenguaje de corredor urbano.",
       goals: "Ayudar a elegir medias segun distancia, comodidad, rebote/impacto y ampollas.",
@@ -307,7 +368,7 @@ async function main() {
       angle: "Running urbano, trail, comodidad, rozamiento, ajuste y uso en entrenamiento diario.",
     },
     {
-      name: "Trend-Setter Kressmer",
+      name: "Innovación",
       role: "Posiciona las medias desde el diseño, estetica cuidada, ergonomia y primeras impresiones.",
       tone: "Moderno, curioso y estético, sin exagerar datos.",
       goals: "Mostrar las medias ergonómicas como opcion premium y de diseño de vanguardia.",
@@ -315,7 +376,7 @@ async function main() {
       angle: "Diseño ergonómico, costuras planas, estética premium y tendencia.",
     },
     {
-      name: "Profe / Madre-Padre",
+      name: "Educativo",
       role: "Recomienda desde el aprendizaje, durabilidad, lavado frecuente y compra inteligente.",
       tone: "Didactico, criterioso y simple.",
       goals: "Orientar a estudiantes, padres y colegios hacia medias resistentes para deporte escolar.",
@@ -323,7 +384,7 @@ async function main() {
       angle: "Durabilidad, lavado frecuente, deporte escolar y compra segura.",
     },
     {
-      name: "Cazador de Ofertas",
+      name: "Comercial",
       role: "Resuelve precio, combos, tripacks, bipacks, cuotas, envios y disponibilidad.",
       tone: "Directo, practico y entusiasta.",
       goals: "Llevar al usuario a una compra inteligente y económica destacando envíos y promos.",
@@ -524,6 +585,38 @@ async function main() {
         source: "seed",
         confidence: "high",
       },
+      {
+        clientId: prestigeClient.id,
+        brandId: prestige.id,
+        topic: "Ficha catalogo Prestige: invisibles, cortas y quarters",
+        content: "Invisibles, cortas y quarters: tecnologia de compresion para contribuir a la recirculacion del sistema sanguineo y contencion de musculos del pie. Secado rapido con materiales transpirables, zonas de ventilacion y tejido Fast Dry. Zonas antifriccion con tejido sin costura en la punta para evitar lastimaduras, ampollas y fricciones. Refuerzos antideslizamiento para evitar que la media se deslice durante el uso. Talles M/L/XL.",
+        source: "seed",
+        confidence: "high",
+      },
+      {
+        clientId: prestigeClient.id,
+        brandId: prestige.id,
+        topic: "Ficha catalogo Prestige: media quarter, media cana y medias largas",
+        content: "Media quarter, media cana y medias largas: medias de compresion graduada para rendimiento de alta performance. Composicion: 65% poliamida, 20% elastano, 15% lycra. Compresion: 15-20 mm/Hg. Segun catalogo, buscan mejorar la resistencia de los musculos, reducir calambres y dolores, y mejorar oxigenacion, rendimiento y resistencia muscular. Tejido con elasticos especiales para performance del musculo y circulacion del deportista. Zonas antifriccion sin costura en punta, tejido Fast Dry de secado rapido y refuerzos antideslizamiento. Talles M/L/XL.",
+        source: "seed",
+        confidence: "high",
+      },
+      {
+        clientId: prestigeClient.id,
+        brandId: prestige.id,
+        topic: "Ficha catalogo Prestige: pantorrilleras",
+        content: "Pantorrilleras: composicion 65% poliamida, 20% elastano, 15% lycra. Compresion 15-20 mm/Hg. El catalogo indica que la compresion mejora la circulacion del flujo sanguineo y da soporte a la pantorrilla, con compresion para alto rendimiento de carrera. Tambien menciona ayuda a prevenir lesiones, mejorar calentamiento y recuperacion muscular, entrenar con mayor frecuencia, ayudar al flujo de oxigeno, reducir fatiga muscular, retrasar calambres y dificultar varices e hinchazon. Usar estos claims con cuidado: no prometer prevencion, cura ni resultados garantizados; formular como informacion de catalogo o beneficio posible.",
+        source: "seed",
+        confidence: "high",
+      },
+      {
+        clientId: prestigeClient.id,
+        brandId: prestige.id,
+        topic: "Ficha catalogo Prestige: medias termicas",
+        content: "El catalogo incluye una seccion de medias termicas, pero en la imagen recibida solo se ve el titulo. Hasta tener la ficha completa, no inventar composicion, beneficios ni temperaturas de uso. Se puede mencionar solo que existe una linea termica y pedir modelo o uso previsto para orientar mejor.",
+        source: "seed",
+        confidence: "medium",
+      },
     ],
   });
 
@@ -542,42 +635,42 @@ async function main() {
         brandId: null,
         objection: "Es muy barato, debe ser malo",
         recommendedAnswer: "El precio de entrada no define la calidad: muchos modelos rinden muy bien para arrancar y vienen con garantia. Depende del uso que le vayas a dar.",
-        personaNotes: "Util para Cazador de Ofertas y Profe.",
+        personaNotes: "Util para Comercial y Educativo.",
       },
       {
         clientId: pcmidi.id,
         brandId: midiplus.id,
         objection: "Necesita drivers complicados",
         recommendedAnswer: "La mayoria es plug-and-play por USB; si hay dudas conviene confirmar el modelo exacto y el sistema operativo antes de instalar nada.",
-        personaNotes: "Tecnico / Productor.",
+        personaNotes: "Técnico.",
       },
       {
         clientId: pcmidi.id,
         brandId: midiplus.id,
         objection: "Me preocupa el ruido para los vecinos",
         recommendedAnswer: "Con parches de malla y auriculares el ruido baja muchisimo; es una opcion comoda para departamento.",
-        personaNotes: "Baterista de Departamento.",
+        personaNotes: "Práctico.",
       },
       {
         clientId: prestigeClient.id,
         brandId: prestige.id,
         objection: "Me salen ampollas cuando corro",
         recommendedAnswer: "Conviene mirar ajuste, costuras, material y altura de la media segun distancia y calzado. Para running/trail, una media tecnica bien ajustada suele ayudar a reducir roce, pero no conviene prometer que elimina ampollas.",
-        personaNotes: "El Corredor.",
+        personaNotes: "Práctico.",
       },
       {
         clientId: prestigeClient.id,
         brandId: prestige.id,
         objection: "No se si elegir media corta, media caña o larga",
         recommendedAnswer: "Depende del uso: soquete corto para algo mas liviano, media caña para running/trail con mas cobertura, y largas o pantorrilleras si buscas mayor cobertura en pierna. Lo ideal es cruzarlo con talle, calzado y terreno.",
-        personaNotes: "El Corredor / El Futbolista.",
+        personaNotes: "Práctico.",
       },
       {
         clientId: prestigeClient.id,
         brandId: prestige.id,
         objection: "La compresion sirve para lesiones",
         recommendedAnswer: "La compresion puede aportar sensacion de soporte y ajuste, pero no reemplaza una indicacion medica. Si hay dolor, lesion o una condicion previa, mejor consultarlo con un profesional.",
-        personaNotes: "El Kinesiologo.",
+        personaNotes: "Técnico.",
       },
     ],
   });
@@ -600,11 +693,11 @@ async function main() {
   }
 
   const prestigePersonaRules = [
-    { personaName: "Técnico / Productor", weight: 5, trigger: "keyword", pattern: "compresion|recuperacion|circulacion|lesion|dolor|tendon|gemelo|pantorrilla|15-20|kinesiologia|kinesio", reason: "consulta de compresion o cuidado fisico" },
-    { personaName: "Baterista de Departamento", weight: 5, trigger: "keyword", pattern: "running|correr|runner|maraton|10k|21k|trail|ampolla|rozadura|entrenamiento", reason: "uso real de running/trail" },
-    { personaName: "Trend-Setter Kressmer", weight: 5, trigger: "keyword", pattern: "ergonomico|diseño|estetica|premium|novedad|nuevo modelo", reason: "diseño o estetica premium" },
-    { personaName: "Profe / Madre-Padre", weight: 5, trigger: "keyword", pattern: "colegio|escuela|hijo|hija|principiante|aprender|gimnasio", reason: "deporte escolar o aprendizaje" },
-    { personaName: "Cazador de Ofertas", weight: 5, trigger: "keyword", pattern: "precio|cuanto|cuotas|promo|descuento|combo|pack|tripack|bipack|envio|stock", reason: "precio, combos, cuotas o envio" },
+    { personaName: "Técnico", weight: 5, trigger: "keyword", pattern: "compresion|recuperacion|circulacion|lesion|dolor|tendon|gemelo|pantorrilla|15-20|kinesiologia|kinesio", reason: "consulta de compresion o cuidado fisico" },
+    { personaName: "Práctico", weight: 5, trigger: "keyword", pattern: "running|correr|runner|maraton|10k|21k|trail|ampolla|rozadura|entrenamiento", reason: "uso real de running/trail" },
+    { personaName: "Innovación", weight: 5, trigger: "keyword", pattern: "ergonomico|diseño|estetica|premium|novedad|nuevo modelo", reason: "diseño o estetica premium" },
+    { personaName: "Educativo", weight: 5, trigger: "keyword", pattern: "colegio|escuela|hijo|hija|principiante|aprender|gimnasio", reason: "deporte escolar o aprendizaje" },
+    { personaName: "Comercial", weight: 5, trigger: "keyword", pattern: "precio|cuanto|cuotas|promo|descuento|combo|pack|tripack|bipack|envio|stock", reason: "precio, combos, cuotas o envio" },
   ];
 
   for (const rule of prestigePersonaRules) {

@@ -140,7 +140,7 @@ story.append(Paragraph("Lo que ata todo", styles["H2b"]))
 ata = [
     "<b>Supabase es la única fuente de verdad</b> — tanto Vercel (Prisma/TS) como los agentes (Python y scripts Node) leen y escriben las mismas tablas.",
     "<b>El relay + cloudflared es el puente</b> que permite que un dashboard en la nube dispare acciones de navegador en tu máquina.",
-    "<b>NSTBrowser da las 5 identidades</b> (una persona por perfil): Profe, Productor, Baterista, Kressmer y Cazador. Eso hace que las respuestas parezcan de usuarios reales distintos.",
+    "<b>NSTBrowser da las 5 identidades</b> (una persona por perfil): Educativo, Técnico, Práctico, Innovación y Comercial. Eso hace que las respuestas parezcan de usuarios reales distintos.",
     "Cada corrida deja un <b>reporte JSON</b> en reports/ y los errores de IA / rate-limit van a la tabla SystemLog.",
 ]
 story.append(ListFlowable(

@@ -38,20 +38,11 @@ function fmt(d: Date | string | null) {
 function getPersonaLabel(accountKeyOrName: string, clientSlug?: string | null) {
   const normalized = (accountKeyOrName || "").toLowerCase().trim();
   
-  if (clientSlug === "prestige-running") {
-    if (normalized.includes("baterista") || normalized.includes("corredor")) return "El Corredor";
-    if (normalized.includes("productor") || normalized.includes("tecnico") || normalized.includes("kinesiologo")) return "Kinesiólogo";
-    if (normalized.includes("kressmer") || normalized.includes("setter") || normalized.includes("early")) return "Trend Setter";
-    if (normalized.includes("profe") || normalized.includes("padre") || normalized.includes("escolar")) return "Escolar / Padres";
-    if (normalized.includes("ofertas") || normalized.includes("cazador")) return "Cazador de Ofertas";
-  }
-  
-  // Default (PC MIDI)
-  if (normalized.includes("baterista")) return "Baterista de Departamento";
-  if (normalized.includes("productor") || normalized.includes("tecnico")) return "Técnico / Productor";
-  if (normalized.includes("kressmer") || normalized.includes("setter") || normalized.includes("early")) return "Trend Setter";
-  if (normalized.includes("profe")) return "Profe de Música";
-  if (normalized.includes("ofertas") || normalized.includes("cazador")) return "Cazador de Ofertas";
+  if (normalized.includes("practico") || normalized.includes("práctico") || normalized.includes("baterista") || normalized.includes("corredor")) return "Práctico";
+  if (normalized.includes("tecnico") || normalized.includes("técnico") || normalized.includes("productor") || normalized.includes("kinesiologo")) return "Técnico";
+  if (normalized.includes("innovacion") || normalized.includes("innovación") || normalized.includes("kressmer") || normalized.includes("setter") || normalized.includes("early")) return "Innovación";
+  if (normalized.includes("educativo") || normalized.includes("profe") || normalized.includes("padre") || normalized.includes("escolar")) return "Educativo";
+  if (normalized.includes("comercial") || normalized.includes("ofertas") || normalized.includes("cazador")) return "Comercial";
   
   return accountKeyOrName;
 }

@@ -8,37 +8,37 @@ function opp(sourceText: string, detectedIntent: OpportunityIntent = "GENERAL_DI
 }
 
 describe("suggestPersona — un caso representativo por persona del quinteto", () => {
-  it("precio/cuotas → Cazador de Ofertas", () => {
+  it("precio/cuotas → Comercial", () => {
     const s = suggestPersona(opp("¿Hacen cuotas sin interés? ¿Cuánto sale?"));
     expect(s.personaName).toBe(PERSONA_NAMES.CAZADOR);
   });
 
-  it("DAW/MIDI → Técnico / Productor", () => {
+  it("DAW/MIDI → Técnico", () => {
     const s = suggestPersona(opp("¿Anda con Ableton para producción en home studio?", "TECHNICAL_QUESTION"));
     expect(s.personaName).toBe(PERSONA_NAMES.TECNICO);
   });
 
-  it("garantía → Técnico / Productor", () => {
+  it("garantía → Técnico", () => {
     const s = suggestPersona(opp("¿Tiene garantía oficial?", "WARRANTY_QUESTION"));
     expect(s.personaName).toBe(PERSONA_NAMES.TECNICO);
   });
 
-  it("ruido/depto → Baterista de Departamento", () => {
+  it("ruido/depto → Práctico", () => {
     const s = suggestPersona(opp("Quiero una batería electrónica pero me molesta el ruido para los vecinos del departamento"));
     expect(s.personaName).toBe(PERSONA_NAMES.BATERISTA);
   });
 
-  it("lanzamiento/Kressmer → Trend-Setter Kressmer", () => {
+  it("lanzamiento/Kressmer → Innovación", () => {
     const s = suggestPersona(opp("Vi la nueva Kressmer, ¡qué diseño!"));
     expect(s.personaName).toBe(PERSONA_NAMES.TRENDSETTER);
   });
 
-  it("alumnos/clases → Profe / Madre-Padre", () => {
+  it("alumnos/clases → Educativo", () => {
     const s = suggestPersona(opp("Soy profe y busco algo simple para mis alumnos principiantes"));
     expect(s.personaName).toBe(PERSONA_NAMES.PROFE);
   });
 
-  it("sin señales → default Técnico / Productor", () => {
+  it("sin señales → default Técnico", () => {
     const s = suggestPersona(opp("Hola, buenas"));
     expect(s.personaName).toBe(PERSONA_NAMES.TECNICO);
   });
@@ -51,7 +51,7 @@ describe("suggestAllPersonasForClient — reglas dinamicas Prestige", () => {
         {
           id: "corredor",
           clientId: "prestige",
-          name: "El Corredor",
+          name: "Práctico",
           role: "Runner",
           tone: "Cercano",
           goals: "Running",
@@ -68,7 +68,7 @@ describe("suggestAllPersonasForClient — reglas dinamicas Prestige", () => {
         {
           id: "kinesio",
           clientId: "prestige",
-          name: "El Kinesiólogo",
+          name: "Técnico",
           role: "Kinesio",
           tone: "Responsable",
           goals: "Compresion",
@@ -87,14 +87,14 @@ describe("suggestAllPersonasForClient — reglas dinamicas Prestige", () => {
     catalogRule: { findMany: async () => [] },
   } as any;
 
-  it("sugiere El Corredor para running", async () => {
+  it("sugiere Práctico para running", async () => {
     const suggestions = await suggestAllPersonasForClient(prisma, opp("Para correr 10K con trail"), "prestige");
-    expect(suggestions[0].personaName).toBe("El Corredor");
+    expect(suggestions[0].personaName).toBe("Práctico");
   });
 
-  it("sugiere El Kinesiólogo para compresion/lesion", async () => {
+  it("sugiere Técnico para compresion/lesion", async () => {
     const suggestions = await suggestAllPersonasForClient(prisma, opp("La compresion sirve si tengo dolor?"), "prestige");
-    expect(suggestions[0].personaName).toBe("El Kinesiólogo");
+    expect(suggestions[0].personaName).toBe("Técnico");
   });
 });
 

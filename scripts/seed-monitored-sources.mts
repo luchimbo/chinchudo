@@ -9,7 +9,7 @@ loadEnv();
 const prisma = new PrismaClient();
 
 const NEW_SOURCES = [
-  // ── Profe / Madre-Padre ──────────────────────────────────────────────────
+  // ── Educativo ────────────────────────────────────────────────────────────
   { label: "YouTube - aprender piano adulto",          channel: "youtube",   query: "aprender piano adulto desde cero",           limit: 5 },
   { label: "YouTube - teclado para niños clases",      channel: "youtube",   query: "teclado musical para niños clases",          limit: 5 },
   { label: "YouTube - primer teclado recomendacion",   channel: "youtube",   query: "primer teclado musical recomendacion",       limit: 5 },
@@ -19,7 +19,7 @@ const NEW_SOURCES = [
   { label: "Facebook - teclado para aprender musica",  channel: "facebook",  query: "teclado para aprender musica hijo clases",  limit: 5 },
   { label: "TikTok - aprender piano desde cero",       channel: "tiktok",    query: "aprender piano desde cero teclado",         limit: 5 },
 
-  // ── Cazador de Ofertas ──────────────────────────────────────────────────
+  // ── Comercial ────────────────────────────────────────────────────────────
   { label: "YouTube - teclado midi barato bueno",      channel: "youtube",   query: "teclado midi economico bueno calidad precio", limit: 5 },
   { label: "YouTube - controlador midi precio",        channel: "youtube",   query: "controlador midi precio cuotas oferta",     limit: 5 },
   { label: "Reddit - teclado midi precio cuotas",      channel: "reddit",    query: "teclado midi precio cuotas financiacion",   limit: 5 },
@@ -28,7 +28,7 @@ const NEW_SOURCES = [
   { label: "TikTok - teclado midi cuotas",             channel: "tiktok",    query: "teclado midi cuotas precio economico",      limit: 5 },
   { label: "Instagram - teclado precio oferta",        channel: "instagram", query: "teclado musical precio oferta cuotas",      limit: 5 },
 
-  // ── Baterista de Departamento ───────────────────────────────────────────
+  // ── Práctico ─────────────────────────────────────────────────────────────
   { label: "YouTube - bateria electronica vecinos",    channel: "youtube",   query: "bateria electronica silenciosa vecinos departamento", limit: 5 },
   { label: "YouTube - drum pad silencioso",            channel: "youtube",   query: "drum pad silencioso departamento auriculares", limit: 5 },
   { label: "Reddit - bateria electronica silenciosa",  channel: "reddit",    query: "bateria electronica silenciosa depto edificio", limit: 5 },
@@ -37,7 +37,7 @@ const NEW_SOURCES = [
   { label: "TikTok - bateria electronica silencio",    channel: "tiktok",    query: "bateria electronica silenciosa departamento", limit: 5 },
   { label: "Instagram - drum pad silencioso",          channel: "instagram", query: "drum pad silencioso depto auriculares",      limit: 5 },
 
-  // ── Trend-Setter Kressmer ───────────────────────────────────────────────
+  // ── Innovación ───────────────────────────────────────────────────────────
   { label: "YouTube - kressmer piano",                 channel: "youtube",   query: "kressmer piano teclado",                    limit: 5 },
   { label: "YouTube - teclado disenio premium",        channel: "youtube",   query: "teclado musical diseño premium novedad",    limit: 5 },
   { label: "Instagram - kressmer",                     channel: "instagram", query: "kressmer teclado piano",                    limit: 5 },

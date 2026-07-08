@@ -4,11 +4,11 @@ import { catalogRuleMatches, normalizeForMatch } from "./client-context";
 
 // Nombres exactos del quinteto en la base (deben coincidir con prisma/seed.ts).
 export const PERSONA_NAMES = {
-  TECNICO: "Técnico / Productor",
-  BATERISTA: "Baterista de Departamento",
-  TRENDSETTER: "Trend-Setter Kressmer",
-  PROFE: "Profe / Madre-Padre",
-  CAZADOR: "Cazador de Ofertas",
+  TECNICO: "Técnico",
+  BATERISTA: "Práctico",
+  TRENDSETTER: "Innovación",
+  PROFE: "Educativo",
+  CAZADOR: "Comercial",
 } as const;
 
 // Set canonico para validar que el router nunca sugiera una persona inexistente.
@@ -34,7 +34,7 @@ type Signals = {
 };
 
 const RULES: Rule[] = [
-  // --- Cazador de Ofertas: precio, cuotas, financiación, disponibilidad ---
+  // --- Comercial: precio, cuotas, financiación, disponibilidad ---
   {
     persona: PERSONA_NAMES.CAZADOR,
     weight: 5,
@@ -42,7 +42,7 @@ const RULES: Rule[] = [
     reason: "consulta de precio/cuotas/oferta/disponibilidad",
   },
 
-  // --- Técnico / Productor: garantía, soporte, MIDI/DAW, home studio, producción ---
+  // --- Técnico: garantía, soporte, MIDI/DAW, home studio, producción ---
   {
     persona: PERSONA_NAMES.TECNICO,
     weight: 5,
@@ -77,7 +77,7 @@ const RULES: Rule[] = [
     reason: "pregunta técnica de configuración",
   },
 
-  // --- Baterista de Departamento: ruido, vecinos, espacio, parches, feeling ---
+  // --- Práctico: ruido, vecinos, espacio, parches, feeling ---
   {
     persona: PERSONA_NAMES.BATERISTA,
     weight: 5,
@@ -98,7 +98,7 @@ const RULES: Rule[] = [
     reason: "menciona ruido/vecinos/espacio reducido",
   },
 
-  // --- Trend-Setter Kressmer: novedad, lanzamiento, diseño, marca Kressmer ---
+  // --- Innovación: novedad, lanzamiento, diseño, marca Kressmer ---
   {
     persona: PERSONA_NAMES.TRENDSETTER,
     weight: 5,
@@ -112,7 +112,7 @@ const RULES: Rule[] = [
     reason: "novedad/lanzamiento/diseño",
   },
 
-  // --- Profe / Madre-Padre: aprendizaje, alumnos, principiantes, durabilidad ---
+  // --- Educativo: aprendizaje, alumnos, principiantes, durabilidad ---
   {
     persona: PERSONA_NAMES.PROFE,
     weight: 4,
@@ -132,8 +132,8 @@ const RULES: Rule[] = [
 const PERSONA_ANGLES: Record<string, string> = {
   [PERSONA_NAMES.TECNICO]:    "responde desde la experiencia técnica (setup, drivers, DAW, compatibilidad)",
   [PERSONA_NAMES.CAZADOR]:    "aporta info de precio, cuotas, disponibilidad y relación precio-calidad",
-  [PERSONA_NAMES.BATERISTA]:  "comenta desde el uso en departamento (ruido, auriculares, espacio reducido)",
-  [PERSONA_NAMES.TRENDSETTER]:"presenta el ángulo de diseño, novedad y marca Kressmer",
+  [PERSONA_NAMES.BATERISTA]:  "comenta desde el uso práctico cotidiano (ruido, auriculares, espacio reducido)",
+  [PERSONA_NAMES.TRENDSETTER]:"presenta el ángulo de diseño, novedad e innovación",
   [PERSONA_NAMES.PROFE]:      "habla desde la enseñanza y la experiencia con alumnos principiantes",
 };
 

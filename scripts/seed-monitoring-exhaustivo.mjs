@@ -8,11 +8,11 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 const P = {
-  tecnico:   "Técnico / Productor",
-  baterista: "Baterista de Departamento",
-  kressmer:  "Trend-Setter Kressmer",
-  profe:     "Profe / Madre-Padre",
-  cazador:   "Cazador de Ofertas",
+  tecnico:   "Técnico",
+  baterista: "Práctico",
+  kressmer:  "Innovación",
+  profe:     "Educativo",
+  cazador:   "Comercial",
 };
 
 const NUEVAS = [

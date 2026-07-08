@@ -2,12 +2,12 @@
   "_instructions": "clientSlug matches slug in Client DB. Persona names in defaultPersona map to persona names in Prisma.",
   "cazador-ofertas": {
     "clientSlug": "pcmidi",
-    "label": "Cazador de Ofertas",
+    "label": "Comercial",
     "browserProvider": "nstbrowser",
     "nstbrowserProfileId": "f76d8bb7-ecfc-4bc9-91d7-557977b7ed1e",
     "cdpPort": 9222,
     "allowedChannels": ["youtube", "twitter", "reddit", "tiktok", "instagram", "facebook"],
-    "defaultPersona": "Cazador de Ofertas",
+    "defaultPersona": "Comercial",
     "platformAccounts": {
       "google": "diegosalvatore890@gmail.com",
       "twitter": "diegosalva890",
@@ -20,12 +20,12 @@
   },
   "trend-setter-kressmer": {
     "clientSlug": "pcmidi",
-    "label": "Early Kressmer",
+    "label": "Innovación",
     "browserProvider": "nstbrowser",
     "nstbrowserProfileId": "888a9e41-e355-4a26-8e00-f690336fb822",
     "cdpPort": 9223,
     "allowedChannels": ["youtube", "twitter", "reddit", "tiktok", "instagram", "facebook"],
-    "defaultPersona": "Early Kressmer",
+    "defaultPersona": "Innovación",
     "platformAccounts": {
       "google": "sol.i.barra912@gmail.com",
       "twitter": "solibarra881",
@@ -38,12 +38,12 @@
   },
   "baterista-dpto": {
     "clientSlug": "pcmidi",
-    "label": "Baterista",
+    "label": "Práctico",
     "browserProvider": "nstbrowser",
     "nstbrowserProfileId": "57c8d5f5-fd2d-4eb4-ac03-3e25016e3eb1",
     "cdpPort": 9224,
     "allowedChannels": ["youtube", "twitter", "reddit", "tiktok", "instagram", "facebook"],
-    "defaultPersona": "Baterista",
+    "defaultPersona": "Práctico",
     "platformAccounts": {
       "google": "nico.ferrante94@gmail.com",
       "twitter": "nicoferrante90",
@@ -56,12 +56,12 @@
   },
   "tecnico-productor": {
     "clientSlug": "pcmidi",
-    "label": "Técnico Productor",
+    "label": "Técnico",
     "browserProvider": "nstbrowser",
     "nstbrowserProfileId": "30f55136-4953-42fe-8b4e-b240fb5fe073",
     "cdpPort": 9225,
     "allowedChannels": ["youtube", "twitter", "reddit", "tiktok", "instagram", "facebook", "linkedin"],
-    "defaultPersona": "Técnico Productor",
+    "defaultPersona": "Técnico",
     "platformAccounts": {
       "google": "tomasalba922@gmail.com",
       "twitter": "tomasalba221",
@@ -75,12 +75,12 @@
   },
   "profe-musica": {
     "clientSlug": "pcmidi",
-    "label": "Profe de Música",
+    "label": "Educativo",
     "browserProvider": "nstbrowser",
     "nstbrowserProfileId": "c3b6cb2b-e31f-451e-aed7-4c8bd4002cc6",
     "cdpPort": 9226,
     "allowedChannels": ["youtube", "twitter", "reddit", "tiktok", "instagram", "facebook"],
-    "defaultPersona": "Profe de Música",
+    "defaultPersona": "Educativo",
     "platformAccounts": {
       "google": "claudia.ramos.mtza@gmail.com",
       "twitter": "claudiaramos002",
@@ -93,12 +93,12 @@
   },
   "prestige-corredor": {
     "clientSlug": "prestige-running",
-    "label": "El Corredor (Prestige)",
+    "label": "Práctico (Prestige)",
     "browserProvider": "nstbrowser",
     "nstbrowserProfileId": "REEMPLAZAR-perfil-nstbrowser-corredor",
     "cdpPort": 9227,
     "allowedChannels": ["instagram", "tiktok", "youtube", "reddit", "facebook"],
-    "defaultPersona": "Baterista de Departamento",
+    "defaultPersona": "Práctico",
     "platformAccounts": {
       "google": "cuenta-corredor@gmail.com"
     },
@@ -109,12 +109,12 @@
   },
   "prestige-tecnico": {
     "clientSlug": "prestige-running",
-    "label": "Técnico Running (Prestige)",
+    "label": "Técnico (Prestige)",
     "browserProvider": "nstbrowser",
     "nstbrowserProfileId": "REEMPLAZAR-perfil-nstbrowser-tecnico-running",
     "cdpPort": 9228,
     "allowedChannels": ["instagram", "tiktok", "youtube", "reddit", "facebook", "linkedin"],
-    "defaultPersona": "Técnico / Productor",
+    "defaultPersona": "Técnico",
     "platformAccounts": {
       "google": "cuenta-tecnico-running@gmail.com"
     },
