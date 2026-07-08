@@ -388,13 +388,13 @@ export default function VideosClient({
       {showManualModal && (
         <Modal title="Cargar tendencia" onClose={() => setShowManualModal(false)}>
           <form onSubmit={handleCreateManualTrend} className="grid gap-4">
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid min-w-0 grid-cols-3 gap-2">
               {(["TREND", "VIRAL", "ARTICLE"] as const).map((mode) => (
                 <button
                   key={mode}
                   type="button"
                   onClick={() => setManualMode(mode)}
-                  className={`rounded-md border px-3 py-2 text-xs font-black ${
+                  className={`min-w-0 rounded-md border px-3 py-2 text-xs font-black ${
                     manualMode === mode ? "border-ink bg-ink text-paper" : "border-ink/15 text-ink"
                   }`}
                 >
@@ -403,12 +403,12 @@ export default function VideosClient({
               ))}
             </div>
             {manualMode === "TREND" && (
-              <label className="grid gap-1 text-xs font-bold text-slate">
+              <label className="grid min-w-0 gap-1 text-xs font-bold text-slate">
                 Fuente
                 <select
                   value={manualPlatform}
                   onChange={(e) => setManualPlatform(e.target.value)}
-                  className="h-10 rounded-md border border-ink/15 bg-white px-3 text-sm text-ink"
+                  className="h-10 w-full min-w-0 rounded-md border border-ink/15 bg-white px-3 text-sm text-ink"
                 >
                   <option value="TIKTOK">TikTok</option>
                   <option value="INSTAGRAM">Instagram</option>
@@ -418,31 +418,31 @@ export default function VideosClient({
                 </select>
               </label>
             )}
-            <label className="grid gap-1 text-xs font-bold text-slate">
+            <label className="grid min-w-0 gap-1 text-xs font-bold text-slate">
               Titulo
               <input
                 required
                 value={manualTitle}
                 onChange={(e) => setManualTitle(e.target.value)}
-                className="h-10 rounded-md border border-ink/15 px-3 text-sm text-ink"
+                className="h-10 w-full min-w-0 rounded-md border border-ink/15 px-3 text-sm text-ink"
                 placeholder="Ej: Audio viral para mostrar setups chicos"
               />
             </label>
-            <label className="grid gap-1 text-xs font-bold text-slate">
+            <label className="grid min-w-0 gap-1 text-xs font-bold text-slate">
               Descripcion o dinamica
               <textarea
                 value={manualDesc}
                 onChange={(e) => setManualDesc(e.target.value)}
-                className="min-h-28 rounded-md border border-ink/15 px-3 py-2 text-sm text-ink"
+                className="min-h-28 w-full min-w-0 rounded-md border border-ink/15 px-3 py-2 text-sm text-ink"
                 placeholder="Que pasa en el video, que formato usa, por que puede servir..."
               />
             </label>
-            <label className="grid gap-1 text-xs font-bold text-slate">
+            <label className="grid min-w-0 gap-1 text-xs font-bold text-slate">
               URL fuente
               <input
                 value={manualUrl}
                 onChange={(e) => setManualUrl(e.target.value)}
-                className="h-10 rounded-md border border-ink/15 px-3 text-sm text-ink"
+                className="h-10 w-full min-w-0 rounded-md border border-ink/15 px-3 text-sm text-ink"
                 placeholder="https://..."
               />
             </label>
@@ -461,26 +461,26 @@ export default function VideosClient({
       {showGenerateModal && selectedTrend && (
         <Modal title="Crear guion desde tendencia" onClose={() => setShowGenerateModal(false)}>
           <form onSubmit={handleGenerateScript} className="grid gap-4">
-            <div className="rounded-md bg-ink/[0.03] p-3">
+            <div className="min-w-0 rounded-md bg-ink/[0.03] p-3">
               <p className="text-xs font-black uppercase text-brass">Tendencia base</p>
-              <p className="mt-1 text-sm font-bold text-ink">{selectedTrend.title}</p>
+              <p className="mt-1 break-words text-sm font-bold text-ink">{selectedTrend.title}</p>
             </div>
-            <label className="grid gap-1 text-xs font-bold text-slate">
+            <label className="grid min-w-0 gap-1 text-xs font-bold text-slate">
               Buscar producto
               <input
                 value={productSearch}
                 onChange={(e) => setProductSearch(e.target.value)}
-                className="h-10 rounded-md border border-ink/15 px-3 text-sm text-ink"
+                className="h-10 w-full min-w-0 rounded-md border border-ink/15 px-3 text-sm text-ink"
                 placeholder="Nombre, marca o categoria"
               />
             </label>
-            <label className="grid gap-1 text-xs font-bold text-slate">
+            <label className="grid min-w-0 gap-1 text-xs font-bold text-slate">
               Producto
               <select
                 required
                 value={selectedProduct}
                 onChange={(e) => setSelectedProduct(e.target.value)}
-                className="h-10 rounded-md border border-ink/15 bg-white px-3 text-sm text-ink"
+                className="h-10 w-full min-w-0 rounded-md border border-ink/15 bg-white px-3 text-sm text-ink"
               >
                 {filteredProducts.map((product) => (
                   <option key={product.id} value={product.id}>
@@ -489,13 +489,13 @@ export default function VideosClient({
                 ))}
               </select>
             </label>
-            <label className="grid gap-1 text-xs font-bold text-slate">
+            <label className="grid min-w-0 gap-1 text-xs font-bold text-slate">
               Persona
               <select
                 required
                 value={selectedPersona}
                 onChange={(e) => setSelectedPersona(e.target.value)}
-                className="h-10 rounded-md border border-ink/15 bg-white px-3 text-sm text-ink"
+                className="h-10 w-full min-w-0 rounded-md border border-ink/15 bg-white px-3 text-sm text-ink"
               >
                 {personas.map((persona) => (
                   <option key={persona.id} value={persona.id}>
@@ -597,14 +597,14 @@ function Modal({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/70 p-4">
-      <div className={`max-h-[92vh] w-full overflow-auto rounded-md bg-paper shadow-2xl ${wide ? "max-w-3xl" : "max-w-xl"}`}>
-        <div className="flex items-center justify-between border-b border-ink/10 p-5">
-          <h2 className="text-lg font-black text-ink">{title}</h2>
-          <button onClick={onClose} className="h-8 w-8 rounded-md border border-ink/15 text-sm font-black text-ink">
+      <div className={`max-h-[92vh] w-full overflow-hidden rounded-md bg-paper shadow-2xl flex flex-col ${wide ? "max-w-3xl" : "max-w-2xl"}`}>
+        <div className="flex shrink-0 items-center justify-between border-b border-ink/10 p-5">
+          <h2 className="min-w-0 pr-3 text-lg font-black text-ink">{title}</h2>
+          <button onClick={onClose} className="h-8 w-8 shrink-0 rounded-md border border-ink/15 text-sm font-black text-ink">
             x
           </button>
         </div>
-        <div className="p-5">{children}</div>
+        <div className="min-w-0 flex-1 overflow-y-auto p-5">{children}</div>
       </div>
     </div>
   );
