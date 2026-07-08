@@ -86,6 +86,11 @@ function now() {
 }
 
 function commandName(name: "python" | "npx"): CommandConfig {
+  if (name === "python") {
+    // Preferir la ruta específica para agents (AGENTS_PYTHON_BIN), luego el bin genérico (PYTHON_BIN)
+    const pythonBin = process.env.AGENTS_PYTHON_BIN || process.env.PYTHON_BIN;
+    if (pythonBin) return { command: pythonBin, argsPrefix: [] };
+  }
   if (process.platform !== "win32") return { command: name, argsPrefix: [] };
   const executable = name === "npx" ? "npx.cmd" : "python.exe";
   return { command: "cmd.exe", argsPrefix: ["/d", "/s", "/c", executable] };

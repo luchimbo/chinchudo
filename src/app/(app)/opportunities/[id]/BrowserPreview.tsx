@@ -104,7 +104,7 @@ export function BrowserPreview({
                     <span className="text-xs font-bold">@{sourceAuthor || "usuario"}</span>
                     <span className="text-[10px] text-zinc-500">hace 1 día</span>
                   </div>
-                  <p className="mt-1 text-xs text-zinc-800 whitespace-pre-wrap">{sourceText}</p>
+                  <p className="mt-1 text-xs text-zinc-800 whitespace-pre-wrap break-words">{sourceText}</p>
                   <div className="mt-1.5 flex items-center gap-3 text-zinc-400">
                     <span className="text-[10px]">👍 12</span>
                     <span className="text-[10px]">👎</span>
@@ -121,7 +121,7 @@ export function BrowserPreview({
                           <CheckIcon />
                           <span className="text-[10px] text-zinc-500">hace unos segundos</span>
                         </div>
-                        <p className="mt-1 text-xs text-zinc-800 whitespace-pre-wrap leading-relaxed">{replyText}</p>
+                        <p className="mt-1 text-xs text-zinc-800 whitespace-pre-wrap break-words leading-relaxed">{replyText}</p>
                       </div>
                     </div>
                   ) : null}
@@ -142,7 +142,7 @@ export function BrowserPreview({
                   <span className="text-xs font-bold text-zinc-900">{sourceAuthor || "Usuario"}</span>
                   <span className="text-[10px] text-zinc-500">@{sourceAuthor?.toLowerCase() || "usuario"} · 2h</span>
                 </div>
-                <p className="mt-0.5 text-xs text-zinc-800 whitespace-pre-wrap">{sourceText}</p>
+                <p className="mt-0.5 text-xs text-zinc-800 whitespace-pre-wrap break-words">{sourceText}</p>
               </div>
             </div>
             {replyText ? (
@@ -158,7 +158,7 @@ export function BrowserPreview({
                       <CheckIcon />
                       <span className="text-[10px] text-zinc-500">· 1s</span>
                     </div>
-                    <p className="mt-0.5 text-xs text-zinc-800 whitespace-pre-wrap leading-relaxed">{replyText}</p>
+                    <p className="mt-0.5 text-xs text-zinc-800 whitespace-pre-wrap break-words leading-relaxed">{replyText}</p>
                   </div>
                 </div>
               </div>
@@ -167,7 +167,7 @@ export function BrowserPreview({
         )}
 
         {channelLower === "instagram" && (
-          <div className="border border-zinc-200 rounded-md overflow-hidden bg-white shadow-sm max-w-sm mx-auto">
+          <div className="w-full max-w-sm border border-zinc-200 rounded-md overflow-hidden bg-white shadow-sm mx-auto">
             <div className="flex items-center justify-between p-2.5 border-b border-zinc-100">
               <div className="flex items-center gap-2">
                 <span className="h-6 w-6 rounded-full bg-gradient-to-tr from-yellow-500 via-red-500 to-purple-600 p-[1.5px] flex shrink-0">
@@ -184,7 +184,7 @@ export function BrowserPreview({
                 <span className="h-5 w-5 rounded-full bg-zinc-200 text-[8px] font-bold flex items-center justify-center shrink-0">
                   {userInitials[0]}
                 </span>
-                <p className="text-xs text-zinc-800 leading-normal">
+                <p className="text-xs text-zinc-800 break-words leading-normal">
                   <span className="font-bold mr-1.5">@{sourceAuthor || "usuario"}</span>
                   {sourceText}
                 </p>
@@ -194,7 +194,7 @@ export function BrowserPreview({
                   <span className={`h-5 w-5 rounded-full text-[8px] font-bold flex items-center justify-center shrink-0 ${brandBg} ${brandText}`}>
                     {brandLabel[0]}
                   </span>
-                  <p className="text-xs text-zinc-800 leading-normal">
+                  <p className="text-xs text-zinc-800 break-words leading-normal">
                     <span className="font-bold mr-1.5">@{brandLabel.toLowerCase()}</span>
                     {replyText}
                   </p>
@@ -213,7 +213,7 @@ export function BrowserPreview({
               <div>
                 <div className="rounded-2xl bg-zinc-100 px-3.5 py-2 text-xs">
                   <span className="block font-bold text-zinc-950">@{sourceAuthor || "usuario"}</span>
-                  <p className="mt-0.5 text-zinc-800 whitespace-pre-wrap">{sourceText}</p>
+                  <p className="mt-0.5 text-zinc-800 whitespace-pre-wrap break-words">{sourceText}</p>
                 </div>
               </div>
             </div>
@@ -227,7 +227,7 @@ export function BrowserPreview({
                     <span className="font-bold text-zinc-950">{brandName}</span>
                     <CheckIcon />
                   </div>
-                  <p className="mt-0.5 text-zinc-800 whitespace-pre-wrap leading-relaxed">{replyText}</p>
+                  <p className="mt-0.5 text-zinc-800 whitespace-pre-wrap break-words leading-relaxed">{replyText}</p>
                 </div>
               </div>
             ) : null}
@@ -247,7 +247,7 @@ export function BrowserPreview({
                   <span className="font-bold text-zinc-700">u/{sourceAuthor || "usuario"}</span>
                   <span>· hace 12h</span>
                 </div>
-                <p className="mt-1 text-xs text-zinc-800 whitespace-pre-wrap">{sourceText}</p>
+                <p className="mt-1 text-xs text-zinc-800 whitespace-pre-wrap break-words">{sourceText}</p>
                 {replyText ? (
                   <div className="mt-4 flex gap-2 border-l border-dashed border-zinc-200 pl-3">
                     <div className="flex flex-col items-center text-zinc-400 text-xs gap-0.5 shrink-0 mt-0.5">
@@ -263,7 +263,7 @@ export function BrowserPreview({
                         <span className="font-bold text-zinc-700">u/{brandLabel.toLowerCase()}_bot</span>
                         <span>· 1s</span>
                       </div>
-                      <p className="mt-1 text-xs text-zinc-800 whitespace-pre-wrap leading-relaxed">{replyText}</p>
+                      <p className="mt-1 text-xs text-zinc-800 whitespace-pre-wrap break-words leading-relaxed">{replyText}</p>
                     </div>
                   </div>
                 ) : null}
@@ -277,7 +277,7 @@ export function BrowserPreview({
             <div className="rounded border border-zinc-100 bg-zinc-50 p-2.5">
               <span className="text-[10px] font-bold text-zinc-400 uppercase">Mensaje original ({channelName})</span>
               <p className="text-xs font-bold text-zinc-700">@{sourceAuthor}</p>
-              <p className="mt-1 text-xs text-zinc-800 whitespace-pre-wrap">{sourceText}</p>
+              <p className="mt-1 text-xs text-zinc-800 whitespace-pre-wrap break-words">{sourceText}</p>
             </div>
             {replyText ? (
               <div className="rounded border border-zinc-200 bg-white p-3 shadow-sm border-l-4 border-l-zinc-700">
@@ -287,7 +287,7 @@ export function BrowserPreview({
                   </span>
                   <span className="text-xs font-bold">{brandName}</span>
                 </div>
-                <p className="mt-2 text-xs leading-relaxed text-zinc-800 whitespace-pre-wrap">{replyText}</p>
+                <p className="mt-2 text-xs leading-relaxed text-zinc-800 whitespace-pre-wrap break-words">{replyText}</p>
               </div>
             ) : null}
           </div>

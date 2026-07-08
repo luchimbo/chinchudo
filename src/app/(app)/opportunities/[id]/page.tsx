@@ -173,7 +173,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
           <p className="text-xs font-bold uppercase tracking-[0.28em] text-moss">
             Revision de oportunidad
           </p>
-          <h1 className="mt-2 font-display text-4xl text-ink md:text-5xl">
+          <h1 className="mt-2 font-display text-4xl text-ink md:text-5xl break-words">
             {opportunity.channel.name} / {opportunity.sourceAuthor || "autor sin cargar"}
           </h1>
           <div className="mt-4 flex flex-wrap gap-2">
@@ -213,7 +213,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
                 Abrir fuente
               </a>
             </div>
-            <p className="mt-4 whitespace-pre-wrap text-base leading-7 text-ink">
+            <p className="mt-4 whitespace-pre-wrap text-base leading-7 text-ink break-words">
               {opportunity.sourceText}
             </p>
             {opportunity.notes ? (
@@ -320,7 +320,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
                 <input type="hidden" name="opportunityId" value={opportunity.id} />
                 <label className="mt-4 grid gap-2 text-sm font-semibold text-paper/80">
                   Marca
-                  <select name="brandId" defaultValue={selectedBrandId} className="rounded-md border border-white/15 bg-paper px-3 py-3 text-ink">
+                  <select name="brandId" defaultValue={selectedBrandId} className="w-full rounded-md border border-white/15 bg-paper px-3 py-3 text-ink">
                     {brands.map((brand) => (
                       <option key={brand.id} value={brand.id}>{brand.name}</option>
                     ))}
@@ -328,7 +328,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
                 </label>
                 <label className="mt-4 grid gap-2 text-sm font-semibold text-paper/80">
                   Producto
-                  <select name="productId" defaultValue={suggestedProductId} className="rounded-md border border-white/15 bg-paper px-3 py-3 text-ink">
+                  <select name="productId" defaultValue={suggestedProductId} className="w-full rounded-md border border-white/15 bg-paper px-3 py-3 text-ink">
                     {productOptions.map((product) => (
                       <option key={product.id} value={product.id}>
                         {product.nombre}{product.id === recommendedProducts[0]?.id ? " (mejor match)" : recommendedIds.has(product.id) ? " (alternativa)" : ""}
@@ -344,7 +344,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
                 ) : null}
                 <label className="mt-4 grid gap-2 text-sm font-semibold text-paper/80">
                   Voz
-                  <select name="personaId" defaultValue={suggestedPersonaId} className="rounded-md border border-white/15 bg-paper px-3 py-3 text-ink">
+                  <select name="personaId" defaultValue={suggestedPersonaId} className="w-full rounded-md border border-white/15 bg-paper px-3 py-3 text-ink">
                     {personas.map((persona) => (
                       <option key={persona.id} value={persona.id}>
                         {getPersonaDisplayName(persona.name, resolution.client.slug)}{persona.id === suggestedPersonaId ? " (sugerida)" : ""}
@@ -373,11 +373,11 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
                   <input type="hidden" name="responseId" value={approvedResponse.id} />
                   <label className="mt-4 grid gap-2 text-sm font-semibold text-slate">
                     URL publicada
-                    <input name="publishedUrl" type="url" placeholder="https://..." className="rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink" />
+                    <input name="publishedUrl" type="url" placeholder="https://..." className="w-full rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink" />
                   </label>
                   <label className="mt-4 grid gap-2 text-sm font-semibold text-slate">
                     Resultado
-                    <select name="result" className="rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink">
+                    <select name="result" className="w-full rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink">
                       <option value="published">Publicado</option>
                       <option value="reply_received">Respondio usuario</option>
                       <option value="whatsapp">Derivo a WhatsApp</option>

@@ -168,21 +168,21 @@ export function DraftCard({
           ) : null}
 
           {!isAlreadyPublished ? (
-            <div className="flex items-center justify-between pt-2 border-t border-ink/5">
-              <div>
+            <div className="flex flex-col gap-3 pt-2 border-t border-ink/5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="w-full sm:w-auto">
                 <button
                   type="button"
                   onClick={handleDelete}
                   disabled={isDeleting}
-                  className="rounded-full border border-signal/20 text-signal hover:bg-signal/5 px-4 py-2.5 text-sm font-bold transition disabled:opacity-50"
+                  className="w-full rounded-full border border-signal/20 text-signal hover:bg-signal/5 px-4 py-2.5 text-sm font-bold transition disabled:opacity-50"
                 >
                   {isDeleting ? "Eliminando…" : "Eliminar"}
                 </button>
               </div>
-              <div>
+              <div className="w-full sm:w-auto">
                 <SubmitButton
                   loadingText={response.approvedBy ? "Actualizando…" : "Aprobando…"}
-                  className="rounded-full bg-ink px-5 py-2.5 text-sm font-bold text-paper transition hover:bg-slate-850 disabled:opacity-50"
+                  className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-bold text-paper transition hover:bg-slate-850 disabled:opacity-50"
                 >
                   {response.approvedBy ? "Actualizar texto aprobado" : "Aprobar texto"}
                 </SubmitButton>
@@ -202,7 +202,7 @@ export function DraftCard({
               <select
                 name="account"
                 defaultValue={suggestedAccount ?? ""}
-                className="rounded-md border border-ink/15 bg-white px-3 py-2.5 text-sm text-ink"
+                className="w-full rounded-md border border-ink/15 bg-white px-3 py-2.5 text-sm text-ink"
               >
                 <option value="">— Navegador personal (sin cuenta automatizada) —</option>
                 {agentAccounts.map(({ name, label }) => (
@@ -241,13 +241,13 @@ export function DraftCard({
                 name="publishedUrl"
                 type="url"
                 placeholder="https://..."
-                className="rounded-md border border-ink/15 bg-white px-3 py-2.5 text-sm text-ink"
+                className="w-full rounded-md border border-ink/15 bg-white px-3 py-2.5 text-sm text-ink"
               />
             </label>
             <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
               <label className="grid gap-1.5 text-xs font-semibold text-slate">
                 Resultado
-                <select name="result" className="rounded-md border border-ink/15 bg-white px-3 py-2.5 text-sm text-ink">
+                <select name="result" className="w-full rounded-md border border-ink/15 bg-white px-3 py-2.5 text-sm text-ink">
                   <option value="published">Publicado</option>
                   <option value="reply_received">Respondio usuario</option>
                   <option value="whatsapp">Derivo a WhatsApp</option>
