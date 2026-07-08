@@ -11,7 +11,7 @@ const prisma = new PrismaClient();
 async function main() {
   const client = await prisma.client.findUniqueOrThrow({ where: { slug: "prestige-running" } });
   const brand = await prisma.brand.findFirstOrThrow({
-    where: { clientId: client.id, name: "Prestige Running" },
+    where: { clientId: client.id, name: "Prestige" },
   });
   const channel = await prisma.channel.upsert({
     where: { name: "Instagram" },

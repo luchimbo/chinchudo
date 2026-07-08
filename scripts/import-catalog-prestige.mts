@@ -227,8 +227,8 @@ async function main() {
   for (const p of PRODUCTS) {
     await prisma.landingProduct.upsert({
       where: { clientId_externalId: { clientId: client.id, externalId: p.externalId } },
-      update: { name: p.name, brand: "Prestige Running", categoryKey: p.categoryKey, url: p.url, useText: p.useText },
-      create: { clientId: client.id, externalId: p.externalId, name: p.name, brand: "Prestige Running", categoryKey: p.categoryKey, url: p.url, useText: p.useText },
+      update: { name: p.name, brand: "Prestige", categoryKey: p.categoryKey, url: p.url, useText: p.useText },
+      create: { clientId: client.id, externalId: p.externalId, name: p.name, brand: "Prestige", categoryKey: p.categoryKey, url: p.url, useText: p.useText },
     });
     prodOk++;
   }

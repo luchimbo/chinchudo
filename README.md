@@ -96,6 +96,25 @@ Argumentos: /c cd /d D:\10Apostoles && npm run agents:monitor
 
 Cada corrida deja un reporte JSON en `reports/`.
 
+## Radar de tendencias 2 veces al día
+
+El radar de tendencias busca señales nuevas en Google Trends, X/Twitter, TikTok, Instagram/Reels y YouTube/Shorts, deduplica por URL e importa los hallazgos a la tabla `Trend`. También suma ideas virales generales de marketing para adaptar a guiones.
+
+```bash
+npm run agents:trend-listen -- --dry-run  # revisar sin importar
+npm run agents:trend-listen -- --limit 10 # importa 10 de rubro + 10 virales por cliente activo
+```
+
+Para dejarlo automático en Windows, ejecutar PowerShell como Administrador:
+
+```powershell
+npm run agents:trends:install
+```
+
+Esto registra la tarea `Los5Apostoles-Tendencias` todos los días a las 10:00 y 16:00. Los logs quedan en `logs/trends-scheduled-*.log` y `logs/trend-listen-*.log`.
+
+Opcional: `TRENDS_RUN_LIMIT` cambia el objetivo de tendencias de rubro y virales por cliente activo; `TRENDS_TIME_BUDGET_SECONDS` cambia el tiempo máximo del radar.
+
 ## Backup de base de datos
 
 ```bash

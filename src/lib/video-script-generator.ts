@@ -161,10 +161,10 @@ ${contextDetail}
 }
 
 function buildTrendContext(trend: NonNullable<Awaited<ReturnType<typeof prisma.trend.findUnique>>>) {
-  if (trend.platform === "VIRAL_CLONE") {
+  if (trend.platform === "VIRAL_CLONE" || trend.platform === "VIRAL_MARKETING") {
     return {
       taskInstruction:
-        "Escribe un guion clonando la estructura, el ritmo y el tipo de gancho de un video viral, adaptandolo al producto y a la persona elegida.",
+        "Escribe un guion clonando la estructura, el ritmo y el tipo de gancho de una referencia viral de marketing, adaptandolo al producto y a la persona elegida.",
       contextDetail: `1. Estructura viral:
 - Titulo/concepto: ${trend.title}
 - Enlace: ${trend.sourceUrl || "N/A"}

@@ -5,13 +5,15 @@ import { promisify } from "node:util";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { assertClientAccess } from "@/lib/auth";
+import { getRelayUrl } from "@/lib/settings";
 
 export const runtime = "nodejs";
 
 const execFileAsync = promisify(execFile);
 
 function pythonCommand() {
-  if (process.env.PYTHON) return { command: process.env.PYTHON, argsPrefix: [] };
+  const envPython = process.env.PYTHON || process.env.PYTHON_BIN;
+  if (envPython) return { command: envPython, argsPrefix: [] };
 
   const localPython =
     process.platform === "win32"
@@ -58,6 +60,48 @@ export async function GET(request: Request) {
     return new NextResponse("Sin acceso al cliente.", { status: 403 });
   }
 
+  const relayUrl = await getRelayUrl();
+  const relayToken = process.env.AGENT_RELAY_TOKEN;
+
+  const runOnRelay = async () => {
+    if (!relayUrl || !relayToken) {
+      throw new Error("Relay local no configurado y no se puede ejecutar Python en este servidor.");
+    }
+    const resp = await fetch(`${relayUrl.trim()}/landings/preview`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${relayToken.trim()}`,
+      },
+      body: JSON.stringify({
+        clientSlug,
+        landingId,
+        blogBaseUrl: client.blogBaseUrl || process.env.LANDING_BASE_URL || "",
+        clientConfig: client,
+      }),
+    });
+    if (!resp.ok) {
+      const errText = await resp.text();
+      throw new Error(`Relay respondio con error: ${errText}`);
+    }
+    return await resp.text();
+  };
+
+  // Si estamos en Vercel, delegamos directamente al relay para evitar spawn/timeout local
+  if (process.env.VERCEL === "1") {
+    try {
+      const html = await runOnRelay();
+      return new NextResponse(html, {
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-store",
+        },
+      });
+    } catch (err: any) {
+      return new NextResponse(`No se pudo generar la preview via relay.\n${err.message}`, { status: 500 });
+    }
+  }
+
   const scriptPath = path.join(process.cwd(), "landing-build", "build_landings.py");
   const args = [
     scriptPath,
@@ -90,7 +134,21 @@ export async function GET(request: Request) {
         "Cache-Control": "no-store",
       },
     });
-  } catch (error) {
+  } catch (error: any) {
+    // Si la ejecucion local fallo porque no se encontro Python (ENOENT), intentamos via relay
+    if (error?.code === "ENOENT" && relayUrl && relayToken) {
+      try {
+        const html = await runOnRelay();
+        return new NextResponse(html, {
+          headers: {
+            "Content-Type": "text/html; charset=utf-8",
+            "Cache-Control": "no-store",
+          },
+        });
+      } catch (relayErr: any) {
+        return new NextResponse(`No se pudo generar la preview localmente ni via relay.\n${relayErr.message}`, { status: 500 });
+      }
+    }
     const message = error instanceof Error ? error.message : "Error desconocido";
     return new NextResponse(`No se pudo generar la preview.\n${message}`, { status: 500 });
   }

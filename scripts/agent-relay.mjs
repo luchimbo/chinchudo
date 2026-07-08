@@ -54,6 +54,20 @@ function readBody(req) {
   });
 }
 
+function getPythonCommand() {
+  if (process.env.PYTHON_BIN) return { command: process.env.PYTHON_BIN, argsPrefix: [] };
+  if (process.env.PYTHON) return { command: process.env.PYTHON, argsPrefix: [] };
+
+  const localPython =
+    process.platform === "win32"
+      ? join(ROOT, ".venv", "Scripts", "python.exe")
+      : join(ROOT, ".venv", "bin", "python");
+
+  if (existsSync(localPython)) return { command: localPython, argsPrefix: [] };
+  if (process.platform === "win32") return { command: "py.exe", argsPrefix: ["-3"] };
+  return { command: "python", argsPrefix: [] };
+}
+
 // Guarda el resultado de una publicacion en data/publish-results.json
 function saveResult(opportunityId, result) {
   try {
@@ -240,6 +254,56 @@ const server = http.createServer(async (req, res) => {
       }
     );
     return; // ya respondimos 202
+  }
+
+  // POST /landings/preview — ejecuta build_landings.py localmente y devuelve el HTML
+  if (method === "POST" && url === "/landings/preview") {
+    let body;
+    try { body = await readBody(req); }
+    catch { return json(res, 400, { error: "invalid_json" }); }
+
+    const { clientSlug, landingId, blogBaseUrl, clientConfig } = body;
+    if (!clientSlug) {
+      return json(res, 400, { error: "missing_client_slug" });
+    }
+
+    const scriptPath = join(ROOT, "landing-build", "build_landings.py");
+    const args = [
+      scriptPath,
+      "--client-slug", clientSlug,
+      "preview",
+      "--base-url", blogBaseUrl || "",
+    ];
+    if (landingId) args.push("--landing-id", landingId);
+
+    const py = getPythonCommand();
+
+    execFile(py.command, [...py.argsPrefix, ...args], {
+      cwd: ROOT,
+      maxBuffer: 1024 * 1024 * 8,
+      timeout: 30000,
+      env: {
+        ...process.env,
+        LANDING_CLIENT_CONFIG_JSON: JSON.stringify(clientConfig || {}),
+      },
+    }, (err, stdout, stderr) => {
+      if (err) {
+        console.error("[agent-relay] landings/preview fallo:", err.message);
+        res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end(`No se pudo generar la preview localmente en el relay.\n${err.message}\n${stderr}`);
+        return;
+      }
+
+      const htmlStart = stdout.indexOf("<!DOCTYPE html>");
+      const html = htmlStart >= 0 ? stdout.slice(htmlStart) : stdout;
+
+      res.writeHead(200, {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+      });
+      res.end(html);
+    });
+    return;
   }
 
   json(res, 404, { error: "not_found" });

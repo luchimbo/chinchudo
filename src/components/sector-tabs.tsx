@@ -23,14 +23,14 @@ export function SectorTabs({ tabs }: { tabs: TabItem[] }) {
     .sort((a, b) => b.href.length - a.href.length)[0]?.href;
 
   return (
-    <div className="flex gap-0 border-b border-ink/10 bg-paper/80 backdrop-blur">
+    <div className="flex min-w-0 overflow-x-auto border-b border-ink/10 bg-paper/80 backdrop-blur">
       {tabs.map((tab) => {
         const active = tab.href === activeHref;
         return (
           <Link
             key={tab.href}
             href={`${tab.href}${q}`}
-            className={`-mb-px border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
+            className={`-mb-px shrink-0 border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
               active
                 ? "border-ink font-semibold text-ink"
                 : "border-transparent text-slate/55 hover:text-ink"

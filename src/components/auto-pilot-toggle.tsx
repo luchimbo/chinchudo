@@ -91,7 +91,7 @@ export function AutoPilotToggle({
         ) : autoApprove ? (
           <span className="text-moss font-semibold">● Genera borradores aprobados listos para publicar</span>
         ) : (
-          <span>Modo manual: Fede revisa, aprueba y publica</span>
+          <span>Modo manual: el operador revisa, aprueba y publica</span>
         )}
       </div>
     </div>

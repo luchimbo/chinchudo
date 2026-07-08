@@ -7,6 +7,7 @@ ni interactua con redes.
 """
 import argparse
 import json
+import os
 import re
 import sys
 import time
@@ -35,7 +36,25 @@ DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept-Language": "es-419,es;q=0.9,en;q=0.8",
 }
-MAX_KEYWORDS_PER_SOURCE = 4
+MAX_KEYWORDS_PER_SOURCE = int(os.environ.get("TRENDS_KEYWORDS_PER_SOURCE", "8"))
+VIRAL_MARKETING_QUERIES = [
+    {"query": "hook viral marketing tiktok argentina", "format": "hook"},
+    {"query": "formato ugc viral producto tiktok", "format": "ugc"},
+    {"query": "before after marketing reel viral", "format": "before_after"},
+    {"query": "storytelling marca producto tiktok viral", "format": "storytelling"},
+    {"query": "oferta limitada reel viral argentina", "format": "oferta"},
+    {"query": "comparativa producto tiktok viral", "format": "comparativa"},
+    {"query": "errores comunes reel viral marketing", "format": "errores_comunes"},
+    {"query": "pov cliente tiktok marketing viral", "format": "pov"},
+    {"query": "unboxing producto tiktok viral argentina", "format": "unboxing"},
+    {"query": "demo producto shorts viral", "format": "demo"},
+    {"query": "3 cosas que reel viral marketing", "format": "lista"},
+    {"query": "mitos producto tiktok viral", "format": "mitos"},
+    {"query": "review honesta producto tiktok viral", "format": "review"},
+    {"query": "problema solucion reel viral marketing", "format": "problema_solucion"},
+    {"query": "plantilla anuncio tiktok viral ecommerce", "format": "anuncio"},
+    {"query": "tendencias marketing contenido corto 2026", "format": "tendencia_marketing"},
+]
 
 
 def load_client_keywords() -> list[dict]:
@@ -71,6 +90,28 @@ def keyword_match(text: str, keywords: list[str]) -> str:
         if len(keyword) > 4 and keyword in lowered:
             return keyword
     return ""
+
+
+def trend_key(trend: dict) -> str:
+    source_url = (trend.get("source_url") or "").strip()
+    client_id = trend.get("clientId") or ""
+    if source_url:
+        return f"{client_id}::url::{source_url}"
+    return f"{client_id}::fallback::{trend.get('platform', '')}::{trend.get('title', '')}"
+
+
+def load_existing_trend_keys() -> set[str]:
+    keys = set()
+    with connect() as conn:
+        rows = conn.execute('SELECT "clientId", "sourceUrl", platform, title FROM "Trend"').fetchall()
+        for row in rows:
+            client_id = row["clientId"] or ""
+            source_url = (row["sourceUrl"] or "").strip()
+            if source_url:
+                keys.add(f"{client_id}::url::{source_url}")
+            else:
+                keys.add(f"{client_id}::fallback::{row['platform'] or ''}::{row['title'] or ''}")
+    return keys
 
 
 def get_google_trends_ar(keywords: list[str]) -> list[dict]:
@@ -202,60 +243,85 @@ def get_youtube_trends(keywords: list[str]) -> list[dict]:
 def get_tiktok_creative_center_trends(keywords: list[str], limit: int = 6) -> list[dict]:
     log.info("tiktok_creative_center_start", details="TikTok Creative Center AR")
     trends = []
-    endpoints = [
-        "https://ads.tiktok.com/creative_radar_api/v1/popular_trend/hashtag/list?period=7&country_code=AR&limit=50",
-        "https://ads.tiktok.com/creative_radar_api/v1/popular_trend/sound/list?period=7&country_code=AR&limit=50",
-    ]
+    endpoint = "https://ads.tiktok.com/creative_radar_api/v1/popular_trend/hashtag/list"
+    params = {
+        "page": 1,
+        "limit": min(50, max(limit, 10)),
+        "period": 7,
+        "country_code": "AR",
+        "industry_id": "",
+        "filter_by": "",
+        "keyword": "",
+        "sort_by": "popular",
+    }
+    headers = {
+        **DEFAULT_HEADERS,
+        "Accept": "application/json, text/plain, */*",
+        "Referer": "https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en",
+        "Origin": "https://ads.tiktok.com",
+    }
 
-    for endpoint in endpoints:
-        try:
-            response = requests.get(endpoint, headers=DEFAULT_HEADERS, timeout=8)
-            if response.status_code != 200:
-                log.warning("tiktok_creative_center_http", status=response.status_code)
-                continue
-            payload = response.json()
-        except Exception as exc:
-            log.warning("tiktok_creative_center_failed", error=str(exc))
+    try:
+        response = requests.get(endpoint, params=params, headers=headers, timeout=10)
+        if response.status_code != 200:
+            log.warning("tiktok_creative_center_http", status=response.status_code)
+            return []
+        payload = response.json()
+    except Exception as exc:
+        log.warning("tiktok_creative_center_failed", error=str(exc))
+        return []
+
+    code = payload.get("code") if isinstance(payload, dict) else None
+    if code not in {0, "0", None}:
+        log.info(
+            "tiktok_creative_center_unavailable",
+            code=code,
+            reason=payload.get("msg", "") if isinstance(payload, dict) else "",
+            fallback="duckduckgo_site_search",
+        )
+        return []
+
+    data = payload.get("data") if isinstance(payload, dict) else None
+    rows = []
+    if isinstance(data, dict):
+        rows = data.get("list") or data.get("items") or data.get("records") or []
+    elif isinstance(data, list):
+        rows = data
+
+    for row in rows:
+        if len(trends) >= limit:
+            break
+        if not isinstance(row, dict):
             continue
-
-        data = payload.get("data") if isinstance(payload, dict) else None
-        rows = []
-        if isinstance(data, dict):
-            rows = data.get("list") or data.get("items") or data.get("records") or []
-        elif isinstance(data, list):
-            rows = data
-
-        for row in rows:
-            if len(trends) >= limit:
-                break
-            if not isinstance(row, dict):
-                continue
-            title = row.get("hashtag_name") or row.get("keyword") or row.get("song_name") or row.get("title") or row.get("name")
-            if not title:
-                continue
-            matched = keyword_match(json.dumps(row, ensure_ascii=False), keywords) or "argentina"
-            trends.append({
-                "title": f"TikTok Creative Center: {title}",
-                "description": "Tendencia detectada en TikTok Creative Center para Argentina. Revisar fuente y adaptar al catalogo antes de publicar.",
-                "source_url": "https://ads.tiktok.com/creative/creativeCenter/trends",
-                "platform": "TIKTOK_CREATIVE_CENTER",
-                "query_used": matched,
-                "metadata": {
-                    "source": "tiktok_creative_center",
-                    "country": "AR",
-                    "raw": row,
-                },
-            })
+        title = row.get("hashtag_name") or row.get("keyword") or row.get("title") or row.get("name")
+        if not title:
+            continue
+        matched = keyword_match(json.dumps(row, ensure_ascii=False), keywords) or "argentina"
+        trends.append({
+            "title": f"TikTok Creative Center: #{str(title).lstrip('#')}",
+            "description": "Hashtag detectado en TikTok Creative Center para Argentina. Revisar fuente y adaptar al catalogo antes de publicar.",
+            "source_url": f"https://www.tiktok.com/tag/{urllib.parse.quote(str(title).lstrip('#'))}",
+            "platform": "TIKTOK_CREATIVE_CENTER",
+            "query_used": matched,
+            "metadata": {
+                "source": "tiktok_creative_center_hashtag_api",
+                "country": "AR",
+                "raw": row,
+            },
+        })
     log.info("tiktok_creative_center_done", found=len(trends))
     return trends[:limit]
 
 
 def search_with_duckduckgo(query: str, max_results: int = 1) -> list[dict]:
     try:
-        from duckduckgo_search import DDGS
-    except Exception as exc:
-        log.warning("duckduckgo_unavailable", error=str(exc))
-        return []
+        from ddgs import DDGS
+    except Exception:
+        try:
+            from duckduckgo_search import DDGS
+        except Exception as exc:
+            log.warning("duckduckgo_unavailable", error=str(exc))
+            return []
 
     try:
         with DDGS(timeout=8) as ddgs:
@@ -271,15 +337,43 @@ def get_tiktok_public_search_trends(keywords: list[str]) -> list[dict]:
     for keyword in keywords[:MAX_KEYWORDS_PER_SOURCE]:
         if len(keyword) < 3:
             continue
-        for result in search_with_duckduckgo(f"{keyword} argentina site:tiktok.com", max_results=1):
-            trends.append({
-                "title": f"TikTok: {result.get('title', '')}",
-                "description": f"Contenido reciente en TikTok sobre {keyword} en Argentina: {result.get('body', '')}",
-                "source_url": result.get("href", ""),
-                "platform": "TIKTOK",
-                "query_used": keyword,
-                "metadata": {"source": "duckduckgo_site_search"},
-            })
+        queries = [
+            f'{keyword} argentina site:tiktok.com/@ "TikTok"',
+            f'{keyword} argentina site:tiktok.com/tag',
+        ]
+        for query in queries:
+            for result in search_with_duckduckgo(query, max_results=3):
+                href = result.get("href", "")
+                if not href or "tiktok.com" not in href:
+                    continue
+                if any(item.get("source_url") == href for item in trends):
+                    continue
+                title = result.get("title", "").strip()
+                body = result.get("body", "").strip()
+                if not title:
+                    continue
+                if title.lower() in {"tiktok", "tiktok - make your day"}:
+                    continue
+                haystack = f"{title} {body} {href}".lower()
+                keyword_tokens = [token for token in re.split(r"\W+", keyword.lower()) if len(token) >= 3]
+                if keyword_tokens and not any(token in haystack for token in keyword_tokens):
+                    continue
+                source = "duckduckgo_tiktok_tag_search" if "/tag/" in href else "duckduckgo_tiktok_public_search"
+                platform = "TIKTOK_HASHTAG" if "/tag/" in href else "TIKTOK"
+                description = f"Referencia publica de TikTok sobre {keyword} en Argentina: {body}"
+                if "/tag/" in href:
+                    description = f"Hashtag publico de TikTok relacionado con {keyword}. Revisar volumen y contexto antes de usarlo."
+                trends.append({
+                    "title": f"TikTok: {title}",
+                    "description": description,
+                    "source_url": href,
+                    "platform": platform,
+                    "query_used": keyword,
+                    "metadata": {"source": source, "search_query": query},
+                })
+                break
+            if any(item.get("query_used") == keyword for item in trends):
+                break
     log.info("tiktok_public_search_done", found=len(trends))
     return trends
 
@@ -307,6 +401,65 @@ def get_instagram_public_search_trends(keywords: list[str]) -> list[dict]:
     return trends
 
 
+def make_viral_marketing_trend(result: dict, query: str, format_name: str, source: str) -> dict | None:
+    href = (result.get("href") or "").strip()
+    title = (result.get("title") or "").strip()
+    body = (result.get("body") or "").strip()
+    if not title:
+        return None
+    if title.lower() in {"instagram", "tiktok", "tiktok - make your day"}:
+        return None
+    if not href:
+        href = f"viral-marketing://{urllib.parse.quote(query)}::{urllib.parse.quote(title)}"
+    return {
+        "title": f"Idea viral ({format_name.replace('_', ' ')}): {title}",
+        "description": (
+            f"Inspiracion general de marketing para adaptar a cualquier cliente. "
+            f"Formato sugerido: {format_name.replace('_', ' ')}. Referencia: {body}"
+        ),
+        "source_url": href,
+        "platform": "VIRAL_MARKETING",
+        "query_used": query,
+        "metadata": {
+            "source": source,
+            "intent": "viral_marketing_inspiration",
+            "format": format_name,
+            "adaptableToClient": True,
+            "search_query": query,
+        },
+    }
+
+
+def get_viral_marketing_trends(query_specs: list[dict]) -> list[dict]:
+    log.info("viral_marketing_start", queries=len(query_specs))
+    trends = []
+    for spec in query_specs:
+        query = spec["query"]
+        format_name = spec["format"]
+
+        youtube_results = get_youtube_videos_direct(f"{query} shorts", limit=1)
+        for video in youtube_results:
+            trend = make_viral_marketing_trend(
+                {"title": video["title"], "body": video.get("description", ""), "href": video["url"]},
+                query,
+                format_name,
+                "youtube_html_search",
+            )
+            if trend:
+                trends.append(trend)
+
+        for result in search_with_duckduckgo(f"{query} site:tiktok.com OR site:instagram.com/reel", max_results=2):
+            href = result.get("href", "")
+            if "tiktok.com" not in href and "instagram.com" not in href:
+                continue
+            trend = make_viral_marketing_trend(result, query, format_name, "duckduckgo_viral_social_search")
+            if trend:
+                trends.append(trend)
+                break
+    log.info("viral_marketing_done", found=len(trends))
+    return trends
+
+
 def write_jsonl(rows: list[dict]) -> None:
     INTAKE_PATH.parent.mkdir(parents=True, exist_ok=True)
     with INTAKE_PATH.open("a", encoding="utf-8") as handle:
@@ -314,74 +467,105 @@ def write_jsonl(rows: list[dict]) -> None:
             handle.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
 
 
+def add_unique_trends(collected: list[dict], client_id: str, seen: set[str], target: int, bucket: list[dict], all_trends: list[dict]) -> None:
+    for trend in collected:
+        trend["clientId"] = client_id
+        key = trend_key(trend)
+        if key in seen:
+            continue
+        seen.add(key)
+        bucket.append(trend)
+        all_trends.append(trend)
+        if len(bucket) >= target:
+            break
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Radar de tendencias editoriales para Los 5 Apostoles")
-    parser.add_argument("--limit", type=int, default=15, help="Limite de tendencias a procesar")
+    parser.add_argument("--limit", type=int, default=10, help="Cantidad de tendencias nuevas a guardar")
     parser.add_argument("--dry-run", action="store_true", help="No guardar en JSONL ni importar")
     args = parser.parse_args()
 
     log.info("start", limit=args.limit, dry_run=args.dry_run)
     started_at = time.monotonic()
-    budget_seconds = 75
+    budget_seconds = int(os.environ.get("TRENDS_TIME_BUDGET_SECONDS", "600"))
 
     try:
         clients = load_client_keywords()
+        existing_keys = set() if args.dry_run else load_existing_trend_keys()
     except Exception as exc:
         log.error("load_clients_failed", error=str(exc))
         sys.exit(1)
 
     all_trends = []
+    seen = set(existing_keys)
     for client in clients:
+        client_trends = []
+        client_viral_trends = []
         keywords = client["keywords"]
         log.info("process_client", client=client["name"], keywords_count=len(keywords))
         if not keywords:
             log.warning("no_keywords", client=client["name"])
-            continue
+            keywords = []
 
-        collected = []
-        source_runners = [
-            get_google_trends_ar,
-            get_twitter_trends_ar,
-            lambda kws: get_tiktok_creative_center_trends(kws, limit=max(2, min(6, args.limit))),
-            get_tiktok_public_search_trends,
-            get_instagram_public_search_trends,
-            get_youtube_trends,
-        ]
-        for runner in source_runners:
-            if len(all_trends) + len(collected) >= args.limit:
-                break
+        for offset in range(0, len(keywords), MAX_KEYWORDS_PER_SOURCE):
             if time.monotonic() - started_at > budget_seconds:
                 log.warning("time_budget_reached", seconds=budget_seconds)
                 break
-            collected.extend(runner(keywords))
+            if len(client_trends) >= args.limit:
+                break
 
-        for trend in collected:
-            trend["clientId"] = client["id"]
-        all_trends.extend(collected)
+            keyword_batch = keywords[offset:offset + MAX_KEYWORDS_PER_SOURCE]
+            collected = []
+            source_runners = [
+                get_google_trends_ar,
+                get_twitter_trends_ar,
+                lambda kws: get_tiktok_creative_center_trends(kws, limit=max(2, min(6, args.limit))),
+                get_tiktok_public_search_trends,
+                get_instagram_public_search_trends,
+                get_youtube_trends,
+            ]
+            log.info("keyword_batch_start", client=client["name"], offset=offset, batch_size=len(keyword_batch), new_count=len(client_trends))
+            for runner in source_runners:
+                if time.monotonic() - started_at > budget_seconds:
+                    log.warning("time_budget_reached", seconds=budget_seconds)
+                    break
+                collected.extend(runner(keyword_batch))
 
-    seen = set()
-    unique_trends = []
-    for trend in all_trends:
-        dedupe_key = trend.get("source_url") or f"{trend.get('platform')}::{trend.get('title')}"
-        if dedupe_key in seen:
-            continue
-        seen.add(dedupe_key)
-        unique_trends.append(trend)
-        if len(unique_trends) >= args.limit:
-            break
+            add_unique_trends(collected, client["id"], seen, args.limit, client_trends, all_trends)
+
+        for offset in range(0, len(VIRAL_MARKETING_QUERIES), MAX_KEYWORDS_PER_SOURCE):
+            if time.monotonic() - started_at > budget_seconds:
+                log.warning("time_budget_reached", seconds=budget_seconds)
+                break
+            if len(client_viral_trends) >= args.limit:
+                break
+
+            query_batch = VIRAL_MARKETING_QUERIES[offset:offset + MAX_KEYWORDS_PER_SOURCE]
+            log.info("viral_marketing_batch_start", client=client["name"], offset=offset, batch_size=len(query_batch), new_count=len(client_viral_trends))
+            collected = get_viral_marketing_trends(query_batch)
+            add_unique_trends(collected, client["id"], seen, args.limit, client_viral_trends, all_trends)
+
+        log.info(
+            "client_done",
+            client=client["name"],
+            domain_new_count=len(client_trends),
+            viral_new_count=len(client_viral_trends),
+            target=args.limit,
+        )
 
     if args.dry_run:
-        log.info("dry_run_summary", count=len(unique_trends))
-        for trend in unique_trends:
+        log.info("dry_run_summary", count=len(all_trends), target_per_client=args.limit, viral_target_per_client=args.limit, clients=len(clients))
+        for trend in all_trends:
             print(f"[{trend['platform']}] {trend['title']} (Term: {trend['query_used']})")
         return
 
-    if unique_trends:
-        write_jsonl(unique_trends)
-        log.info("saved_to_intake", count=len(unique_trends), path=str(INTAKE_PATH))
-        print(f"Se guardaron {len(unique_trends)} tendencias en {INTAKE_PATH}")
+    if all_trends:
+        write_jsonl(all_trends)
+        log.info("saved_to_intake", count=len(all_trends), target_per_client=args.limit, viral_target_per_client=args.limit, clients=len(clients), path=str(INTAKE_PATH))
+        print(f"Se guardaron {len(all_trends)} tendencias nuevas en {INTAKE_PATH} ({args.limit} de rubro + {args.limit} virales por cliente activo)")
     else:
-        print("No se encontraron tendencias relevantes al catalogo hoy.")
+        print("No se encontraron tendencias nuevas relevantes al catalogo hoy.")
 
 
 if __name__ == "__main__":

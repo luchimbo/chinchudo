@@ -189,7 +189,7 @@ const approveResponseSchema = z.object({
   responseId: z.string().min(1),
   opportunityId: z.string().min(1),
   editedText: z.string().min(3).max(4000),
-  approvedBy: z.string().min(1).max(80).default("Fede")
+  approvedBy: z.string().min(1).max(80).default("Operador")
 });
 
 export async function approveResponse(formData: FormData) {
@@ -197,7 +197,7 @@ export async function approveResponse(formData: FormData) {
     responseId: formData.get("responseId"),
     opportunityId: formData.get("opportunityId"),
     editedText: formData.get("editedText"),
-    approvedBy: formData.get("approvedBy") || "Fede"
+    approvedBy: formData.get("approvedBy") || "Operador"
   });
 
   const opportunity = await prisma.opportunity.findUniqueOrThrow({

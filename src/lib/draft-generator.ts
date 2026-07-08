@@ -143,34 +143,33 @@ function makePrestigeDrafts(original: string, riskNotes: string): DraftVariant[]
   const mentionsLongRun = /\b(10k|21k|maraton|trail|correr|running|entren)/i.test(original);
   const mentionsRub = /rozadura|ampolla|roce|lastima|molesta/i.test(original);
   const heightHint = norm.includes("media cana") || norm.includes("media caña") || norm.includes("trail")
-    ? "iria por media caña"
+    ? "las de media cana van muy bien"
     : norm.includes("soquete") || norm.includes("corto")
-      ? "miraria soquete corto si queres algo mas liviano, o media caña si buscas mas cobertura"
-      : "elegiria la altura segun el calzado y la distancia";
+      ? "los soquetes cortos son buena opcion si queres algo liviano, y la media cana suma mas cobertura"
+      : "hay modelos cortos, quarter y media cana que cubren bien distintos usos";
   const useHint = mentionsLongRun ? "para correr" : "para entrenar";
   const rubHint = mentionsRub
-    ? "buscando buen ajuste y costuras comodas para bajar el roce"
-    : "priorizando ajuste, comodidad y que no se mueva dentro del calzado";
+    ? "tienen costuras mas comodas y buen ajuste, eso ayuda bastante con el roce"
+    : "tienen buen ajuste, secan rapido y no se mueven tanto dentro del calzado";
 
   return [
     {
       variantType: "SHORT",
-      draftText: `Para ese uso miraria medias de Prestige: ${heightHint}, ${rubHint}.`,
+      draftText: `Che, fijate las medias de Prestige. La verdad tienen muy buena calidad-precio y ${heightHint}; ${rubHint}.`,
       riskNotes,
     },
     {
       variantType: "TECHNICAL",
-      draftText: `Si es ${useHint}, unas medias tecnicas de Prestige tienen mas sentido que un soquete comun. La clave es que ajusten bien, no hagan pliegues y tengan la altura que mejor combine con tu calzado.`,
+      draftText: `Yo miraria las tecnicas de Prestige ${useHint}: tienen tejido Fast Dry, zonas antifriccion y refuerzos para que no se deslicen tanto. Por precio-calidad estan bastante bien paradas.`,
       riskNotes,
     },
     {
       variantType: "CONVERSATIONAL",
-      draftText: `A mi para ese caso me cierran mas las medias de Prestige que las medias comunes. No prometen magia, pero si elegis bien el talle y la altura suelen sentirse mucho mas comodas en tiradas largas.`,
+      draftText: `Mira, yo iria por Prestige en ese caso. No son puro marketing: tienen buena construccion, calce comodo y por lo que salen rinden bastante.`,
       riskNotes,
     },
   ];
 }
-
 function makePcmidiDrafts(
   intent: string,
   original: string,

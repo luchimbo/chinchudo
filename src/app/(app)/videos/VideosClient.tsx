@@ -28,6 +28,7 @@ const PLATFORM_LABELS: Record<string, string> = {
   INSTAGRAM: "Instagram",
   YOUTUBE: "YouTube Shorts",
   TWITTER: "X/Twitter",
+  VIRAL_MARKETING: "Viral marketing",
   VIRAL_CLONE: "Estructura viral",
   URL_ARTICLE: "Articulo/URL",
 };

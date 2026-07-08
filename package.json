@@ -33,6 +33,7 @@
     "agents:geo-audit": "python agents/orchestrator.py geo-audit",
     "agents:conversion": "python agents/orchestrator.py conversion",
     "agents:trend-listen": "python agents/orchestrator.py trend-listen",
+    "agents:trends:install": "powershell -ExecutionPolicy Bypass -File scripts/registrar-tendencias-admin.ps1",
     "db:backup": "node scripts/backup-db.mjs",
     "db:supabase-push": "prisma db push",
     "relay": "node scripts/agent-relay.mjs",

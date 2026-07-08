@@ -34,8 +34,8 @@ export function ClientSwitcher({ clients }: { clients: ClientOption[] }) {
   };
 
   return (
-    <div className="flex items-center gap-1">
-      <div className="flex items-center gap-2 rounded-full border border-ink/15 bg-paper px-3 py-1.5 shadow-sm">
+    <div className="flex min-w-0 items-center gap-1">
+      <div className="flex min-w-0 items-center gap-2 rounded-full border border-ink/15 bg-paper px-3 py-1.5 shadow-sm">
         <span
           aria-hidden
           className="h-2.5 w-2.5 rounded-full"
@@ -45,7 +45,7 @@ export function ClientSwitcher({ clients }: { clients: ClientOption[] }) {
         <select
           value={active.slug}
           onChange={(e) => switchClient(e.target.value)}
-          className="bg-transparent text-sm font-bold text-ink outline-none"
+          className="min-w-0 max-w-[42vw] bg-transparent text-sm font-bold text-ink outline-none sm:max-w-none"
         >
           {clients.map((c) => (
             <option key={c.slug} value={c.slug}>{c.name}</option>
