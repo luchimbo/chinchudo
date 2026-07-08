@@ -1,5 +1,6 @@
 "use server";
 
+import { checkPublishRateLimits, closeSiblingOpportunities, runPublisher } from "@/lib/publish-agent";
 import { execFileSync } from "child_process";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -246,6 +247,131 @@ export async function approveResponse(formData: FormData) {
 
   revalidatePath("/");
   revalidatePath(`/opportunities/${parsed.opportunityId}`);
+}
+
+const approveAndPublishResponseSchema = z.object({
+  responseId: z.string().min(1),
+  opportunityId: z.string().min(1),
+  editedText: z.string().min(3).max(4000),
+  approvedBy: z.string().min(1).max(80).default("Operador"),
+  personaId: z.string().min(1).optional(),
+  account: z.string().min(1),
+  client: z.string().optional(),
+});
+
+export async function approveAndPublishResponse(formData: FormData) {
+  const parsed = approveAndPublishResponseSchema.parse({
+    responseId: formData.get("responseId"),
+    opportunityId: formData.get("opportunityId"),
+    editedText: formData.get("editedText"),
+    approvedBy: formData.get("approvedBy") || "Operador",
+    personaId: formData.get("personaId") || undefined,
+    account: formData.get("account") || "",
+    client: formData.get("client") || "",
+  });
+
+  const relayUrl = await getRelayUrl();
+  if (relayUrl && process.env.AGENT_RELAY_TOKEN) {
+    throw new Error("El flujo 'Publicar comentario' no está disponible en modo relay. Usá el flujo manual.");
+  }
+
+  const [opportunity, response] = await Promise.all([
+    prisma.opportunity.findUniqueOrThrow({
+      where: { id: parsed.opportunityId },
+      include: { channel: true },
+    }),
+    prisma.response.findUniqueOrThrow({
+      where: { id: parsed.responseId },
+      include: { persona: true },
+    }),
+  ]);
+
+  if (opportunity.status === "PUBLISHED" || opportunity.status === "CONVERTED" || opportunity.status === "FOLLOW_UP") {
+    throw new Error("La oportunidad ya está publicada/respondida.");
+  }
+
+  const channelLower = opportunity.channel.name.toLowerCase();
+  const supportedChannels = ["youtube", "reddit", "x", "facebook", "instagram"];
+  if (!supportedChannels.includes(channelLower)) {
+    throw new Error(`El canal ${opportunity.channel.name} no soporta publicación automática.`);
+  }
+
+  const data: { editedText: string; approvedBy: string; personaId?: string } = {
+    editedText: parsed.editedText,
+    approvedBy: parsed.approvedBy,
+  };
+
+  if (parsed.personaId && parsed.personaId !== response.personaId) {
+    const persona = await prisma.persona.findUniqueOrThrow({
+      where: { id: parsed.personaId },
+      select: { clientId: true },
+    });
+    if (persona.clientId && opportunity.clientId && persona.clientId !== opportunity.clientId) {
+      throw new Error("La persona seleccionada no pertenece al cliente de esta oportunidad.");
+    }
+    data.personaId = parsed.personaId;
+  }
+
+  const rateLimit = await checkPublishRateLimits(prisma, parsed.account);
+  if (!rateLimit.ok) {
+    const msg = rateLimit.error === "rate_limited_daily"
+      ? "Límite diario alcanzado para esta cuenta."
+      : `Esperá ${rateLimit.retryAfterSec ? Math.ceil(rateLimit.retryAfterSec / 60) : "unos minutos"} antes de publicar.`;
+    throw new Error(msg);
+  }
+
+  const publishResult = runPublisher({
+    channel: channelLower,
+    sourceUrl: opportunity.sourceUrl,
+    text: parsed.editedText,
+    account: parsed.account,
+  });
+
+  if (!publishResult.success) {
+    throw new Error(`No se pudo publicar: ${publishResult.error}`);
+  }
+
+  await prisma.$transaction([
+    prisma.response.update({
+      where: { id: parsed.responseId },
+      data,
+    }),
+    prisma.publishingLog.upsert({
+      where: { responseId: parsed.responseId },
+      update: {
+        account: parsed.account,
+        publishedUrl: publishResult.url,
+        result: "published_via_agent",
+        followUpNeeded: false,
+      },
+      create: {
+        opportunityId: parsed.opportunityId,
+        responseId: parsed.responseId,
+        account: parsed.account,
+        publishedUrl: publishResult.url,
+        result: "published_via_agent",
+        followUpNeeded: false,
+      },
+    }),
+    prisma.opportunity.update({
+      where: { id: parsed.opportunityId },
+      data: { status: OpportunityStatus.PUBLISHED },
+    }),
+  ]);
+
+  await closeSiblingOpportunities(
+    prisma,
+    parsed.opportunityId,
+    opportunity.channelId,
+    opportunity.sourceUrl,
+    channelLower
+  );
+
+  const client = parsed.client;
+  const clientQuery = client ? `&client=${encodeURIComponent(client)}` : "";
+  revalidatePath("/");
+  revalidatePath(`/opportunities/${parsed.opportunityId}`);
+  redirect(`/opportunities/${parsed.opportunityId}?agentOk=1${clientQuery}`);
 }
 
 const publishSchema = z.object({

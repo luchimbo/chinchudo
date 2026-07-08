@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { SubmitButton } from "./SubmitButton";
 
 type PublishingLogEntry = {
@@ -36,19 +36,21 @@ type OpportunityEntry = {
   channel: { name: string };
 };
 
-type AgentAccount = { name: string; label: string };
+type AgentAccount = { name: string; label: string; defaultPersona?: string };
 
 type DraftCardProps = {
   response: ResponseEntry;
   opportunity: OpportunityEntry;
   clientSlug?: string | null;
   approveResponseAction: (formData: FormData) => Promise<void>;
+  approveAndPublishResponseAction?: (formData: FormData) => Promise<void>;
   deleteResponseAction: (formData: FormData) => Promise<void>;
   markAsPublishedAction: (formData: FormData) => Promise<void>;
   publishViaAgentAction?: (formData: FormData) => Promise<void>;
   agentAccounts?: AgentAccount[];
   suggestedAccount?: string | null;
   canPublishViaAgent?: boolean;
+  canPublishInOneStep?: boolean;
   clientParam?: string;
   isAlreadyPublished?: boolean;
   personas: PersonaOption[];
@@ -71,12 +73,14 @@ export function DraftCard({
   opportunity,
   clientSlug,
   approveResponseAction,
+  approveAndPublishResponseAction,
   deleteResponseAction,
   markAsPublishedAction,
   publishViaAgentAction,
   agentAccounts = [],
   suggestedAccount,
   canPublishViaAgent,
+  canPublishInOneStep,
   clientParam,
   isAlreadyPublished = false,
   personas,
@@ -84,6 +88,30 @@ export function DraftCard({
   const [text, setText] = useState(response.editedText || response.draftText);
   const [isCopied, setIsCopied] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [selectedPersonaId, setSelectedPersonaId] = useState(response.personaId);
+
+  const personaAccountMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const acc of agentAccounts) {
+      if (acc.defaultPersona) map.set(acc.defaultPersona, acc.name);
+    }
+    return map;
+  }, [agentAccounts]);
+
+  const initialAccountForPersona = useMemo(() => {
+    const persona = personas.find((p) => p.id === response.personaId);
+    return persona ? personaAccountMap.get(persona.name) : undefined;
+  }, [personas, response.personaId, personaAccountMap]);
+
+  const [selectedAccount, setSelectedAccount] = useState(initialAccountForPersona ?? suggestedAccount ?? "");
+
+  useEffect(() => {
+    const persona = personas.find((p) => p.id === selectedPersonaId);
+    if (persona) {
+      const account = personaAccountMap.get(persona.name);
+      if (account) setSelectedAccount(account);
+    }
+  }, [selectedPersonaId, personas, personaAccountMap]);
 
   const handleDelete = async () => {
     if (confirm("¿Estás seguro de que querés eliminar esta respuesta/variante generada? Esta acción no se puede deshacer.")) {
@@ -108,6 +136,9 @@ export function DraftCard({
     setIsCopied(true);
     setTimeout(() => setIsCopied(false), 2000);
   };
+
+  const isOneStep = canPublishInOneStep && approveAndPublishResponseAction;
+  const publishAction = isOneStep ? approveAndPublishResponseAction : approveResponseAction;
 
   return (
     <article className="rounded-lg border border-ink/10 bg-white/75 p-5 shadow-panel backdrop-blur transition-all duration-300 hover:shadow-md">
@@ -141,10 +172,11 @@ export function DraftCard({
       </div>
 
       <div className="mt-4">
-        <form action={approveResponseAction} className="flex flex-col justify-between gap-4">
+        <form action={publishAction} className="flex flex-col justify-between gap-4">
           <input type="hidden" name="responseId" value={response.id} />
           <input type="hidden" name="opportunityId" value={opportunity.id} />
           <input type="hidden" name="approvedBy" value="Operador" />
+          {clientParam ? <input type="hidden" name="client" value={clientParam} /> : null}
 
           <div className="flex flex-1 flex-col">
             <label className="mb-1 text-xs font-bold uppercase tracking-wider text-slate/50">
@@ -168,7 +200,8 @@ export function DraftCard({
               Voz / Persona de publicación
               <select
                 name="personaId"
-                defaultValue={response.personaId}
+                value={selectedPersonaId}
+                onChange={(e) => setSelectedPersonaId(e.target.value)}
                 className="w-full rounded-md border border-ink/15 bg-white px-3 py-2.5 text-sm text-ink"
               >
                 {personas.map((persona) => (
@@ -178,6 +211,31 @@ export function DraftCard({
                 ))}
               </select>
             </label>
+          ) : null}
+
+          {isOneStep && !isAlreadyPublished ? (
+            <label className="grid gap-1.5 text-xs font-semibold text-slate">
+              Cuenta / Voz de publicación
+              <select
+                name="account"
+                value={selectedAccount}
+                onChange={(e) => setSelectedAccount(e.target.value)}
+                className="w-full rounded-md border border-ink/15 bg-white px-3 py-2.5 text-sm text-ink"
+              >
+                <option value="">— Elegir cuenta —</option>
+                {agentAccounts.map(({ name, label }) => (
+                  <option key={name} value={name}>
+                    {label}{name === suggestedAccount ? " (sugerida)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+
+          {isOneStep ? (
+            <p className="rounded-md border border-signal/20 bg-signal/5 px-3 py-2 text-xs font-semibold text-signal">
+              Atención: este botón publica el comentario directamente en {opportunity.channel.name}. Si falla, no se aprueba ni se guarda.
+            </p>
           ) : null}
 
           {response.riskNotes ? (
@@ -203,17 +261,21 @@ export function DraftCard({
               </div>
               <div className="w-full sm:w-auto">
                 <SubmitButton
-                  loadingText={response.approvedBy ? "Actualizando…" : "Aprobando…"}
-                  className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-bold text-paper transition hover:bg-slate-850 disabled:opacity-50"
+                  loadingText={isOneStep ? "Publicando…" : response.approvedBy ? "Actualizando…" : "Aprobando…"}
+                  className={`w-full rounded-full px-5 py-2.5 text-sm font-bold transition disabled:opacity-50 ${
+                    isOneStep
+                      ? "bg-brass text-white hover:bg-ink"
+                      : "bg-ink text-paper hover:bg-slate-850"
+                  }`}
                 >
-                  {response.approvedBy ? "Actualizar texto aprobado" : "Aprobar texto"}
+                  {isOneStep ? "Publicar comentario" : response.approvedBy ? "Actualizar texto aprobado" : "Aprobar texto"}
                 </SubmitButton>
               </div>
             </div>
           ) : null}
         </form>
 
-        {response.approvedBy && canPublishViaAgent && publishViaAgentAction && !isAlreadyPublished ? (
+        {response.approvedBy && canPublishViaAgent && !isOneStep && publishViaAgentAction && !isAlreadyPublished ? (
           <form action={publishViaAgentAction} className="mt-4 rounded-md border border-brass/30 bg-brass/5 p-4">
             <p className="text-xs font-bold uppercase tracking-wider text-brass/80 mb-3">Publicar vía agente</p>
             <input type="hidden" name="opportunityId" value={opportunity.id} />
@@ -243,7 +305,7 @@ export function DraftCard({
           </form>
         ) : null}
 
-        {response.approvedBy && !isAlreadyPublished ? (
+        {response.approvedBy && !isOneStep && !isAlreadyPublished ? (
           <form action={markAsPublishedAction} className="mt-4 rounded-md border border-moss/25 bg-moss/5 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs font-bold uppercase tracking-wider text-moss">Publicacion manual</p>

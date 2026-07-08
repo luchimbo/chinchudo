@@ -1,20 +1,9 @@
-import { execFileSync } from "node:child_process";
 import { PrismaClient } from "@prisma/client";
 import { loadEnv, writeReport, extractPostKey } from "./agent-utils.mjs";
+import { checkPublishRateLimits, runPublisher } from "./publish-utils.mjs";
 
 loadEnv();
 const prisma = new PrismaClient();
-
-// Lee un valor de configuración de AppSetting (la misma tabla que usa el dashboard),
-// con fallback al default si no existe.
-async function getSettingValue(key, fallback) {
-  try {
-    const row = await prisma.appSetting.findUnique({ where: { key } });
-    return row?.value ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -54,55 +43,20 @@ async function main() {
 
   // --- Anti-spam: cap diario por cuenta + separación mínima entre comentarios ---
   if (account && !dryRun) {
-    const dailyCap = parseInt(await getSettingValue("PUBLISH_DAILY_PER_ACCOUNT", "8"), 10);
-    const spacingMin = parseInt(await getSettingValue("PUBLISH_MIN_SPACING_MIN", "10"), 10);
-
-    const since = new Date(Date.now() - 24 * 3600 * 1000);
-    const dayCount = await prisma.publishingLog.count({
-      where: { account, publishedAt: { gte: since } },
-    });
-    if (Number.isFinite(dailyCap) && dayCount >= dailyCap) {
+    const rateLimit = await checkPublishRateLimits(prisma, account);
+    if (!rateLimit.ok) {
       process.stdout.write(JSON.stringify({
-        success: false, error: "rate_limited_daily",
-        detail: `cuenta ${account}: ${dayCount}/${dailyCap} en 24h`,
+        success: false, error: rateLimit.error,
+        ...(rateLimit.retryAfterSec ? { retryAfterSec: rateLimit.retryAfterSec } : {}),
       }) + "\n");
       await prisma.$disconnect();
       process.exit(1);
     }
-
-    const last = await prisma.publishingLog.findFirst({
-      where: { account },
-      orderBy: { publishedAt: "desc" },
-    });
-    if (last && Number.isFinite(spacingMin)) {
-      const elapsedMin = (Date.now() - new Date(last.publishedAt).getTime()) / 60000;
-      if (elapsedMin < spacingMin) {
-        process.stdout.write(JSON.stringify({
-          success: false, error: "rate_limited_spacing",
-          retryAfterSec: Math.ceil((spacingMin - elapsedMin) * 60),
-          detail: `cuenta ${account}: ultimo hace ${elapsedMin.toFixed(1)}min (min ${spacingMin})`,
-        }) + "\n");
-        await prisma.$disconnect();
-        process.exit(1);
-      }
-    }
   }
 
-  const pyArgs = [
-    "agents/publisher.py",
-    "--channel", channel,
-    "--source-url", sourceUrl,
-    "--text", text,
-  ];
-  if (account) pyArgs.push("--account", account);
-  if (dryRun) pyArgs.push("--dry-run");
-
-  let result;
-  try {
-    const output = execFileSync("python", pyArgs, { encoding: "utf-8", cwd: process.cwd() });
-    result = JSON.parse(output.trim());
-  } catch (err) {
-    result = { success: false, error: String(err.message || err) };
+  let result = runPublisher({ channel, sourceUrl, text, account });
+  if (dryRun) {
+    result = { ...result, dry_run: true };
   }
 
   if (result.success && !dryRun) {
