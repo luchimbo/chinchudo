@@ -295,12 +295,6 @@ export default function VideosClient({
 
         {activeTab === "trends" ? (
           <section className="grid gap-3">
-            <div className="rounded-md border border-ink/10 bg-white p-4">
-              <p className="text-sm font-bold text-ink">Radar automatico</p>
-              <p className="mt-1 text-xs text-slate">
-                Ejecutar: <span className="font-mono">npm run agents:trend-listen -- --dry-run</span> para revisar, o sin dry-run para importar.
-              </p>
-            </div>
             {localTrends.length === 0 ? (
               <EmptyState title="Sin tendencias todavia" body="Carga una idea manual o corre el radar para alimentar la guionera." />
             ) : (

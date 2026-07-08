@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { NextResponse } from "next/server";
@@ -8,6 +9,19 @@ import { assertClientAccess } from "@/lib/auth";
 export const runtime = "nodejs";
 
 const execFileAsync = promisify(execFile);
+
+function pythonCommand() {
+  if (process.env.PYTHON) return { command: process.env.PYTHON, argsPrefix: [] };
+
+  const localPython =
+    process.platform === "win32"
+      ? path.join(process.cwd(), ".venv", "Scripts", "python.exe")
+      : path.join(process.cwd(), ".venv", "bin", "python");
+
+  if (existsSync(localPython)) return { command: localPython, argsPrefix: [] };
+  if (process.platform === "win32") return { command: "py.exe", argsPrefix: ["-3"] };
+  return { command: "python3", argsPrefix: [] };
+}
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -56,7 +70,8 @@ export async function GET(request: Request) {
   if (landingId) args.push("--landing-id", landingId);
 
   try {
-    const { stdout } = await execFileAsync(process.env.PYTHON || "python", args, {
+    const python = pythonCommand();
+    const { stdout } = await execFileAsync(python.command, [...python.argsPrefix, ...args], {
       cwd: process.cwd(),
       maxBuffer: 1024 * 1024 * 8,
       timeout: 30000,
