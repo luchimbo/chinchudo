@@ -68,7 +68,7 @@ export function LandingsForm({
         <label className={labelCls}>
           URL del blog
           <span className={hintCls}>Donde se publican los artículos generados.</span>
-          <input name="blogBaseUrl" defaultValue={config.blogBaseUrl} placeholder="https://blog.pcmidicenter.com" className={inputCls} />
+          <input name="blogBaseUrl" defaultValue={config.blogBaseUrl} placeholder="https://prestige-landings.vercel.app" className={inputCls} />
         </label>
       </div>
 

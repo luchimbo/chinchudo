@@ -92,9 +92,11 @@ model Client {
   nurtureSteps        NurtureStep[]
   distributionPieces  DistributionPiece[]
   geoAudits           GeoAudit[]
+  aiPresenceResults   AIPresenceResult[]
   trackingEvents      TrackingEvent[]
   users               User[]
   opportunities       Opportunity[]
+  observedProfiles    ObservedProfile[]
   trends              Trend[]
   videoScripts        VideoScript[]
 }
@@ -220,17 +222,22 @@ model Opportunity {
   sourceAuthor      String              @default("")
   sourceText        String
   clientId          String?
+  observedProfileId String?
   detectedBrandId   String?
   detectedProductId String?
   detectedIntent    OpportunityIntent   @default(GENERAL_DISCUSSION)
   priority          OpportunityPriority @default(MEDIUM)
   status            OpportunityStatus   @default(NEW)
+  detectedTopics    Json                @default("[]")
+  detectedTone      String              @default("")
+  detectedToneConfidence String         @default("low")
   notes             String              @default("")
   monitoredSourceId String?
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
   channel           Channel             @relation(fields: [channelId], references: [id])
   client            Client?             @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  observedProfile   ObservedProfile?    @relation(fields: [observedProfileId], references: [id])
   detectedBrand     Brand?              @relation(fields: [detectedBrandId], references: [id])
   detectedProduct   Product?            @relation(fields: [detectedProductId], references: [id])
   monitoredSource   MonitoredSource?    @relation(fields: [monitoredSourceId], references: [id])
@@ -238,15 +245,87 @@ model Opportunity {
   responses         Response[]
   landings          Landing[]
   distribution      DistributionPiece[]
+  observedEvent     ObservedEvent?
 
   @@index([status])
   @@index([priority])
   @@index([createdAt])
   @@index([channelId])
   @@index([clientId])
+  @@index([observedProfileId])
   @@index([detectedBrandId])
   @@index([detectedProductId])
   @@index([monitoredSourceId])
+}
+
+model ObservedProfile {
+  id                 String             @id @default(cuid())
+  clientId           String
+  platform           String
+  externalHandle     String
+  displayName        String             @default("")
+  profileUrl         String             @default("")
+  toneSummary        String             @default("")
+  toneConfidence     String             @default("low")
+  profileStatus      String             @default("active")
+  primaryTopics      Json               @default("[]")
+  secondaryTopics    Json               @default("[]")
+  engagementPattern  Json               @default("{}")
+  commercialReadiness Float             @default(0)
+  firstSeenAt        DateTime           @default(now())
+  lastSeenAt         DateTime           @default(now())
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  client             Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  interests          ObservedInterest[]
+  events             ObservedEvent[]
+  opportunities      Opportunity[]
+
+  @@unique([clientId, platform, externalHandle])
+  @@index([clientId])
+  @@index([platform])
+  @@index([lastSeenAt])
+}
+
+model ObservedInterest {
+  id                String          @id @default(cuid())
+  observedProfileId String
+  topicKey          String
+  weight            Float           @default(0)
+  confidence        String          @default("low")
+  firstSeenAt       DateTime        @default(now())
+  lastSeenAt        DateTime        @default(now())
+  evidenceCount     Int             @default(0)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  observedProfile   ObservedProfile @relation(fields: [observedProfileId], references: [id], onDelete: Cascade)
+
+  @@unique([observedProfileId, topicKey])
+  @@index([observedProfileId])
+  @@index([topicKey])
+}
+
+model ObservedEvent {
+  id                    String          @id @default(cuid())
+  observedProfileId     String
+  opportunityId         String          @unique
+  sourceTextSnapshot    String
+  primaryTopicKey       String          @default("general")
+  secondaryTopicKeys    Json            @default("[]")
+  topicConfidence       String          @default("low")
+  toneSummary           String          @default("")
+  toneConfidence        String          @default("low")
+  detectedIntent        OpportunityIntent @default(GENERAL_DISCUSSION)
+  detectedPriority      OpportunityPriority @default(MEDIUM)
+  signalSummary         String          @default("")
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+  observedProfile       ObservedProfile @relation(fields: [observedProfileId], references: [id], onDelete: Cascade)
+  opportunity           Opportunity     @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@index([observedProfileId])
+  @@index([primaryTopicKey])
+  @@index([createdAt])
 }
 
 model Response {
@@ -255,6 +334,8 @@ model Response {
   personaId     String
   brandId       String
   variantType   ResponseVariantType
+  voiceVariant  String              @default("")
+  voiceVariantReason String         @default("")
   draftText     String
   editedText    String              @default("")
   riskNotes     String              @default("")
@@ -367,6 +448,7 @@ model SystemLog {
 enum LandingStatus {
   DRAFT
   APPROVED
+  PREVIEW_ONLINE
   PUBLISHED
   ARCHIVED
 }
@@ -432,6 +514,8 @@ model Landing {
   seoTitle       String        @default("")
   seoDescription String        @default("")
   status         LandingStatus @default(DRAFT)
+  publicPreviewUrl String      @default("")
+  previewPublishedAt DateTime?
   publishedAt    DateTime?
   opportunityId  String?
   leadMagnetId   String?
@@ -513,6 +597,55 @@ model DistributionPiece {
   @@index([status])
   @@index([canal])
   @@index([scheduledAt])
+}
+
+enum AIPresenceSourceType {
+  DIRECT_AI_QUERY
+  SOCIAL_COMMENT
+  SOCIAL_VIDEO
+  SOCIAL_POST
+}
+
+enum AIPresenceIntent {
+  PURCHASE_QUESTION
+  TECHNICAL_QUESTION
+  PRICE_QUESTION
+  WARRANTY_QUESTION
+  COMPARISON
+  COMPETITOR_MENTION
+  BRAND_MENTION
+  RECOMMENDATION
+  GENERAL_DISCUSSION
+}
+
+model AIPresenceResult {
+  id              String               @id @default(cuid())
+  clientId        String?
+  sourceType      AIPresenceSourceType
+  channel         String               @default("")
+  query           String               @default("")
+  sourceUrl       String               @default("")
+  videoUrl        String               @default("")
+  videoTitle      String               @default("")
+  author          String               @default("")
+  context         String               @default("")
+  aiResponse      String               @default("")
+  relevanceScore  Float                @default(0)
+  brandDetected   String               @default("")
+  intent          AIPresenceIntent     @default(GENERAL_DISCUSSION)
+  priority        String               @default("MEDIUM")
+  aiReasoning     String               @default("")
+  modelUsed       String               @default("")
+  metadata        Json                 @default("{}")
+  createdAt       DateTime             @default(now())
+  client          Client?              @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([createdAt])
+  @@index([relevanceScore])
+  @@index([sourceType])
+  @@index([channel])
+  @@index([intent])
 }
 
 model GeoAudit {

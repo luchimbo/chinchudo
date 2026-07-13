@@ -12,13 +12,15 @@ function str(fd: FormData, key: string) {
 export async function updateLandingsConfig(formData: FormData) {
   const id = z.string().min(1).parse(formData.get("id"));
   await assertClientAccess(prisma, id);
+  const blogBaseUrl = str(formData, "blogBaseUrl");
+  const storeUrl = str(formData, "storeUrl");
 
   await prisma.client.update({
     where: { id },
     data: {
       logoUrl: str(formData, "logoUrl"),
-      storeUrl: str(formData, "storeUrl"),
-      blogBaseUrl: str(formData, "blogBaseUrl"),
+      storeUrl,
+      blogBaseUrl,
       autoApprove: formData.get("autoApprove") === "on",
       autoPublish: formData.get("autoPublish") === "on",
     },

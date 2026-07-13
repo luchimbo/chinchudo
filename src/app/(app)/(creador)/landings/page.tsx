@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { getVisibleClients } from "@/lib/auth";
-import { updateLandingStatus } from "./actions";
+import { publishLandingPreview, updateLandingStatus } from "./actions";
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: "Borrador",
   APPROVED: "Lista para publicar",
+  PREVIEW_ONLINE: "Preview online",
   PUBLISHED: "Publicada",
   ARCHIVED: "Archivada",
 };
@@ -13,6 +14,7 @@ const STATUS_LABELS: Record<string, string> = {
 const STATUS_CLASS: Record<string, string> = {
   DRAFT: "bg-signal/10 text-signal border-signal/30",
   APPROVED: "bg-brass/10 text-brass border-brass/40",
+  PREVIEW_ONLINE: "bg-sky-500/10 text-sky-700 border-sky-300/50",
   PUBLISHED: "bg-moss/10 text-moss border-moss/30",
   ARCHIVED: "bg-ink/5 text-ink/55 border-ink/10",
 };
@@ -52,6 +54,7 @@ export default async function LandingsPage({
   const tabs = [
     { status: "DRAFT", label: "Borradores" },
     { status: "APPROVED", label: "Listas para publicar" },
+    { status: "PREVIEW_ONLINE", label: "Preview online" },
     { status: "PUBLISHED", label: "En vivo" },
     { status: "ARCHIVED", label: "Archivadas" },
   ];
@@ -109,6 +112,14 @@ export default async function LandingsPage({
                   </div>
                   <h2 className="mt-1 font-semibold text-ink">{landing.titulo || landing.slug}</h2>
                   <p className="mt-0.5 text-xs text-slate">{landing.keyword}</p>
+                  {landing.publicPreviewUrl ? (
+                    <p className="mt-1 break-all text-[11px] text-slate">
+                      Link online:{" "}
+                      <a href={landing.publicPreviewUrl} target="_blank" rel="noreferrer" className="text-sky-700 underline underline-offset-2">
+                        {landing.publicPreviewUrl}
+                      </a>
+                    </p>
+                  ) : null}
                   <div className="mt-2 flex gap-4 text-xs text-slate">
                     <span>👁 {landing._count.trackingEvents} visitas</span>
                     <span>📧 {landing._count.leads} contactos capturados</span>
@@ -136,6 +147,12 @@ export default async function LandingsPage({
                   )}
                   {landing.status === "APPROVED" && (
                     <>
+                      <form action={publishLandingPreview}>
+                        <input type="hidden" name="id" value={landing.id} />
+                        <button type="submit" className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 transition hover:bg-sky-100">
+                          Generar link online
+                        </button>
+                      </form>
                       <form action={updateLandingStatus}>
                         <input type="hidden" name="id" value={landing.id} />
                         <input type="hidden" name="status" value="PUBLISHED" />
@@ -152,10 +169,36 @@ export default async function LandingsPage({
                       </form>
                     </>
                   )}
+                  {landing.status === "PREVIEW_ONLINE" && (
+                    <>
+                      <a
+                        href={landing.publicPreviewUrl || `${blogBase.replace(/\/$/, "")}/${landing.slug}/`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-lg border border-sky-300 px-3 py-1.5 text-xs font-semibold text-sky-700 transition hover:border-sky-500"
+                      >
+                        Ver preview online
+                      </a>
+                      <form action={updateLandingStatus}>
+                        <input type="hidden" name="id" value={landing.id} />
+                        <input type="hidden" name="status" value="PUBLISHED" />
+                        <button type="submit" className="rounded-lg border border-moss/40 bg-moss/10 px-3 py-1.5 text-xs font-semibold text-moss transition hover:bg-moss/20">
+                          Marcar como publicada
+                        </button>
+                      </form>
+                      <form action={updateLandingStatus}>
+                        <input type="hidden" name="id" value={landing.id} />
+                        <input type="hidden" name="status" value="ARCHIVED" />
+                        <button type="submit" className="rounded-lg border border-signal/40 bg-signal/5 px-3 py-1.5 text-xs font-semibold text-signal transition hover:bg-signal/15">
+                          Archivar
+                        </button>
+                      </form>
+                    </>
+                  )}
                   {landing.status === "PUBLISHED" && (
                     <>
                       <a
-                        href={`${blogBase.replace(/\/$/, "")}/${landing.slug}/`}
+                        href={landing.publicPreviewUrl || `${blogBase.replace(/\/$/, "")}/${landing.slug}/`}
                         target="_blank"
                         rel="noreferrer"
                         className="rounded-lg border border-ink/15 px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-ink/40"

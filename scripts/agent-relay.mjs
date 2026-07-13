@@ -56,8 +56,15 @@ function readBody(req) {
 
 function getPythonCommand() {
   if (process.env.AGENTS_PYTHON_BIN) return { command: process.env.AGENTS_PYTHON_BIN, argsPrefix: [] };
-  if (process.env.PYTHON_BIN) return { command: process.env.PYTHON_BIN, argsPrefix: [] };
-  if (process.env.PYTHON) return { command: process.env.PYTHON, argsPrefix: [] };
+
+  if (process.platform !== "win32") {
+    if (process.env.PYTHON_BIN) return { command: process.env.PYTHON_BIN, argsPrefix: [] };
+    if (process.env.PYTHON) return { command: process.env.PYTHON, argsPrefix: [] };
+  }
+
+  // On Windows, prefer the system `python` available in PATH before the repo venv.
+  // The relay needs the interpreter that already has the DB/preview deps installed.
+  if (process.platform === "win32") return { command: "python", argsPrefix: [] };
 
   const localPython =
     process.platform === "win32"
@@ -65,7 +72,6 @@ function getPythonCommand() {
       : join(ROOT, ".venv", "bin", "python");
 
   if (existsSync(localPython)) return { command: localPython, argsPrefix: [] };
-  if (process.platform === "win32") return { command: "py.exe", argsPrefix: ["-3"] };
   return { command: "python", argsPrefix: [] };
 }
 
@@ -352,6 +358,13 @@ const server = http.createServer(async (req, res) => {
     catch { return json(res, 400, { error: "invalid_json" }); }
 
     const { clientSlug, landingId, blogBaseUrl, clientConfig } = body;
+    console.log("[agent-relay] landings/preview", {
+      clientSlug,
+      landingId,
+      blogBaseUrl,
+      clientConfigSlug: clientConfig?.slug,
+      clientConfigId: clientConfig?.id,
+    });
     if (!clientSlug) {
       return json(res, 400, { error: "missing_client_slug" });
     }
@@ -365,7 +378,10 @@ const server = http.createServer(async (req, res) => {
     ];
     if (landingId) args.push("--landing-id", landingId);
 
-    const py = getPythonCommand();
+    const py =
+      process.platform === "win32"
+        ? { command: "python", argsPrefix: [] }
+        : getPythonCommand();
 
     execFile(py.command, [...py.argsPrefix, ...args], {
       cwd: ROOT,
@@ -376,6 +392,13 @@ const server = http.createServer(async (req, res) => {
         LANDING_CLIENT_CONFIG_JSON: JSON.stringify(clientConfig || {}),
       },
     }, (err, stdout, stderr) => {
+      console.log("[agent-relay] landings/preview result", {
+        python: py.command,
+        args: [...py.argsPrefix, ...args],
+        hasKeyword: stdout.includes("medias de compresion para running"),
+        hasPreviewTitle: stdout.includes("Preview de landing"),
+        stderr: stderr.slice(0, 500),
+      });
       if (err) {
         console.error("[agent-relay] landings/preview fallo:", err.message);
         res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
