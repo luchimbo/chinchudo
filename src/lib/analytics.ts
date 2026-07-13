@@ -10,6 +10,8 @@ export interface BrandCount   { brand: string;   count: number }
 export interface IntentCount  { intent: string;  label: string; count: number }
 export interface ProductCount { product: string; count: number }
 export interface PersonaCount { persona: string; count: number }
+export interface VoiceVariantCount { voiceVariant: string; count: number }
+export interface VoiceVariantFunnel { voiceVariant: string; suggested: number; approved: number; published: number }
 export interface ResultCount  { result: string;  label: string; count: number }
 export interface WeekPoint    { week: string; total: number; publicadas: number }
 
@@ -24,6 +26,8 @@ export interface AnalyticsData {
   intentCounts:   IntentCount[];
   productCounts:  ProductCount[];
   personaCounts:  PersonaCount[];
+  voiceVariantCounts: VoiceVariantCount[];
+  voiceVariantFunnel: VoiceVariantFunnel[];
   resultCounts:   ResultCount[];
   weeklyTrend:    WeekPoint[];
 }
@@ -96,6 +100,8 @@ export async function getAnalyticsData(clientId?: string): Promise<AnalyticsData
     intentGroups,
     productGroups,
     personaGroups,
+    voiceVariantGroups,
+    responseRows,
     resultGroups,
     recentOpps,
     channels,
@@ -125,6 +131,20 @@ export async function getAnalyticsData(clientId?: string): Promise<AnalyticsData
       where: clientId ? { opportunity: oppWhere } : {},
       _count: { personaId: true },
       orderBy: { _count: { personaId: "desc" } },
+    }),
+    prisma.response.groupBy({
+      by: ["voiceVariant"],
+      where: clientId ? { opportunity: oppWhere } : {},
+      _count: { voiceVariant: true },
+      orderBy: { _count: { voiceVariant: "desc" } },
+    }),
+    prisma.response.findMany({
+      where: clientId ? { opportunity: oppWhere } : {},
+      select: {
+        voiceVariant: true,
+        approvedBy: true,
+        publishingLog: { select: { id: true } },
+      },
     }),
     prisma.publishingLog.groupBy({ by: ["result"], _count: { result: true } }),
     prisma.opportunity.findMany({
@@ -185,6 +205,27 @@ export async function getAnalyticsData(clientId?: string): Promise<AnalyticsData
     .filter(p => p.personaId)
     .map(p => ({ persona: personaMap.get(p.personaId) ?? p.personaId, count: p._count.personaId }));
 
+  const voiceVariantCounts: VoiceVariantCount[] = voiceVariantGroups
+    .filter((v) => v.voiceVariant)
+    .map((v) => ({ voiceVariant: v.voiceVariant, count: v._count.voiceVariant }))
+    .sort((a, b) => b.count - a.count);
+
+  const funnelMap = new Map<string, VoiceVariantFunnel>();
+  for (const row of responseRows) {
+    if (!row.voiceVariant) continue;
+    const current = funnelMap.get(row.voiceVariant) ?? {
+      voiceVariant: row.voiceVariant,
+      suggested: 0,
+      approved: 0,
+      published: 0,
+    };
+    current.suggested += 1;
+    if (row.approvedBy) current.approved += 1;
+    if (row.publishingLog) current.published += 1;
+    funnelMap.set(row.voiceVariant, current);
+  }
+  const voiceVariantFunnel = [...funnelMap.values()].sort((a, b) => b.published - a.published || b.approved - a.approved || b.suggested - a.suggested).slice(0, 8);
+
   const resultCounts: ResultCount[] = resultGroups.map(r => ({
     result: r.result,
     label:  RESULT_LABELS[r.result] ?? r.result,
@@ -204,6 +245,8 @@ export async function getAnalyticsData(clientId?: string): Promise<AnalyticsData
     intentCounts,
     productCounts,
     personaCounts,
+    voiceVariantCounts,
+    voiceVariantFunnel,
     resultCounts,
     weeklyTrend,
   };

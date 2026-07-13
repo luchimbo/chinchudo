@@ -562,6 +562,7 @@ def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str
         "discard_reasons": discard_summary,
         "discarded_sample": discarded[:5],
         "intake_path": str(INTAKE_PATH),
+        "rows": rows,
         "sample": rows[:3],
     }
     report = write_report("run", summary)
@@ -579,6 +580,7 @@ def main() -> None:
     parser.add_argument("--source-id", default="")
     parser.add_argument("--client-id", default="")
     parser.add_argument("--language", default="es", choices=["es", "en", "pt", "any"])
+    parser.add_argument("--output-json", action="store_true", help="Devolver TODOS los rows en JSON por stdout (modo machine-readable)")
     args = parser.parse_args()
 
     summary = run_listen(
@@ -586,7 +588,11 @@ def main() -> None:
         source_id=args.source_id or None, client_id=args.client_id or None,
         language=args.language
     )
-    print(json.dumps(summary, ensure_ascii=True, indent=2))
+    if args.output_json:
+        # El orquestador/ai-presence-radar necesita la lista completa de rows, no solo el sample.
+        print(json.dumps({"rows": summary.get("rows", []), "summary": summary}, ensure_ascii=False, indent=2))
+    else:
+        print(json.dumps(summary, ensure_ascii=True, indent=2))
 
 
 if __name__ == "__main__":

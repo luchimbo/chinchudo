@@ -1,6 +1,7 @@
 import type { Brand, CatalogRule, Channel, Client, Opportunity, Persona, Product } from "@prisma/client";
 import { selectRelevantProducts, type ScopedProduct } from "./catalog";
 import type { KnowledgeLike, ObjectionLike } from "./knowledge";
+import { deriveVoiceModulation, type ProfileContextForDraft } from "./observed-profiles";
 import { logger } from "./logger";
 
 type DraftContext = {
@@ -17,6 +18,7 @@ type DraftContext = {
   knowledge?: KnowledgeLike[];
   objections?: ObjectionLike[];
   activeSystemPrompt?: string | null;
+  observedProfile?: ProfileContextForDraft | null;
 };
 
 type DraftVariant = {
@@ -114,12 +116,17 @@ function buildPrompt(ctx: DraftContext): string {
 
   const knowledge = ctx.knowledge ?? [];
   const objections = ctx.objections ?? [];
+  const modulation = deriveVoiceModulation(ctx.observedProfile);
   const knowledgeBlock = knowledge.length > 0
     ? `\n## Datos verificados que SÍ podés usar (no inventes nada fuera de esto)\n${knowledge.map((k) => `- ${k.topic}: ${k.content}`).join("\n")}\n`
     : "";
   const objectionsBlock = objections.length > 0
     ? `\n## Objeciones frecuentes y cómo encararlas (guía interna, adaptá a tu voz)\n${objections.map((o) => `- Si plantea "${o.objection}" → ${o.recommendedAnswer}`).join("\n")}\n`
     : "";
+  const observedProfileBlock = ctx.observedProfile
+    ? `\n## Perfil observado de la cuenta externa\n- Tema actual detectado: ${ctx.observedProfile.currentTopic} (confianza ${ctx.observedProfile.currentTopicConfidence})\n- Intereses históricos: ${ctx.observedProfile.historicalPrimaryTopics.join(", ") || "sin suficientes datos"}\n- Tono histórico: ${ctx.observedProfile.toneProfile} (confianza ${ctx.observedProfile.toneConfidence})\n- Señal comercial acumulada: ${ctx.observedProfile.commercialReadiness}/100\n`
+    : "";
+  const voiceModulationBlock = `\n## Modulación de voz para esta respuesta\n- Estilo aplicado: ${modulation.styleLabel}\n- Entrada: ${modulation.introStyle}\n- Fraseo: ${modulation.phrasingStyle}\n- Cierre: ${modulation.ctaStyle}\n- Guardrail: ${modulation.guardrail}\n`;
 
   // Carga de exclusiones y reglas específicas de rubro
   let exclusions: string[] = [];
@@ -154,6 +161,7 @@ function buildPrompt(ctx: DraftContext): string {
 
   const absoluteRules = [
     "- NUNCA mezcles productos, marcas, rubros ni claims de otro cliente.",
+    "- El tema principal de la respuesta lo decide el comentario actual, no el historial viejo.",
     rubroRule,
     exclusionsLine,
     storeRule,
@@ -193,7 +201,7 @@ ${productList}
 - Marca: ${brand.name}
 - Fortalezas (tu valor diferenciador): ${brand.strengths || "No especificadas"}
 - Debilidades de la competencia (para argumentar por qué eres mejor): ${brand.competitorWeaknesses || "No especificadas"}
-${knowledgeBlock}${objectionsBlock}
+${knowledgeBlock}${objectionsBlock}${observedProfileBlock}${voiceModulationBlock}
 ## Comentario al que vas a responder
 Canal: ${opportunity.channel.name}
 Intención: ${intent}

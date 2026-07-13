@@ -18,6 +18,8 @@ type PersonaOption = { id: string; name: string };
 type ResponseEntry = {
   id: string;
   variantType: string;
+  voiceVariant?: string;
+  voiceVariantReason?: string;
   draftText: string;
   editedText: string;
   riskNotes: string;
@@ -40,6 +42,8 @@ type AgentAccount = { name: string; label: string; defaultPersona?: string };
 
 type DraftCardProps = {
   response: ResponseEntry;
+  isTopRecommendation?: boolean;
+  recommendationReason?: string | null;
   opportunity: OpportunityEntry;
   clientSlug?: string | null;
   approveResponseAction: (formData: FormData) => Promise<void>;
@@ -70,6 +74,8 @@ function getBrandAvatarStyles(brandName: string) {
 
 export function DraftCard({
   response,
+  isTopRecommendation = false,
+  recommendationReason,
   opportunity,
   clientSlug,
   approveResponseAction,
@@ -141,13 +147,26 @@ export function DraftCard({
   const publishAction = isOneStep ? approveAndPublishResponseAction : approveResponseAction;
 
   return (
-    <article className="rounded-lg border border-ink/10 bg-white/75 p-5 shadow-panel backdrop-blur transition-all duration-300 hover:shadow-md">
+    <article className={`rounded-lg border bg-white/75 p-5 shadow-panel backdrop-blur transition-all duration-300 hover:shadow-md ${isTopRecommendation ? "border-moss/35 ring-1 ring-moss/20" : "border-ink/10"}`}>
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-ink/5 pb-4">
         <div>
+          {isTopRecommendation ? (
+            <p className="mb-2 inline-flex rounded-full bg-moss px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-white">
+              Recomendado primero
+            </p>
+          ) : null}
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate/60">
             {response.variantType} / {getPersonaDisplayName(response.persona.name, clientSlug)}
           </p>
+          {response.voiceVariant ? (
+            <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate/45">
+              {response.voiceVariant}
+            </p>
+          ) : null}
+          {isTopRecommendation && recommendationReason ? (
+            <p className="mt-2 text-xs text-slate/70">{recommendationReason}</p>
+          ) : null}
           <div className="mt-1 flex items-center gap-2">
             <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${brandStyle.bg} ${brandStyle.text}`}>
               {brandStyle.label[0]}
@@ -243,6 +262,11 @@ export function DraftCard({
               <summary className="cursor-pointer font-bold text-amber-700 hover:text-amber-900 focus:outline-none">
                 Ver advertencias y notas internas
               </summary>
+              {response.voiceVariantReason ? (
+                <p className="mt-2 leading-relaxed">
+                  <span className="font-bold">Variante de voz:</span> {response.voiceVariantReason}
+                </p>
+              ) : null}
               <p className="mt-2 leading-relaxed">{response.riskNotes}</p>
             </details>
           ) : null}

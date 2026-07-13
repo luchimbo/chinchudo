@@ -11,6 +11,7 @@ import {
   resolveOpportunityClient
 } from "../src/lib/client-context";
 import { classifyOpportunity } from "../src/lib/ai-opportunity-classifier";
+import { recordObservedProfileEvent } from "../src/lib/observed-profiles";
 
 loadEnv();
 
@@ -254,7 +255,7 @@ async function main() {
         ? `${buildNotes(row)} ${discardNotes} Cliente: ${resolution.client.slug}.`
         : `${buildNotes(row)} Cliente: ${resolution.client.slug} (${resolution.confidence}, ${resolution.reason}). Razón IA: ${aiResult.actionableReason}`;
 
-      await prisma.opportunity.create({
+      const createdOpportunity = await prisma.opportunity.create({
         data: {
           channelId: channel.id,
           sourceUrl,
@@ -269,6 +270,17 @@ async function main() {
           notes,
           monitoredSourceId,
         },
+      });
+      await recordObservedProfileEvent(prisma, {
+        opportunityId: createdOpportunity.id,
+        clientId: resolution.client.id,
+        platform: row.channel,
+        sourceAuthor: row.sourceAuthor || "",
+        sourceText,
+        sourceUrl,
+        detectedIntent: aiResult.detectedIntent,
+        priority: aiResult.priority,
+        createdAt: createdOpportunity.createdAt,
       });
       created += 1;
       if (monitoredSourceId) sourceCounts.set(monitoredSourceId, (sourceCounts.get(monitoredSourceId) ?? 0) + 1);

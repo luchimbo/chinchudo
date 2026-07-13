@@ -1,6 +1,7 @@
 import type { Brand, CatalogRule, Channel, Client, Opportunity, Persona, Product } from "@prisma/client";
 import { selectRelevantProducts, type ProductEntry, type ScopedProduct } from "./catalog";
 import type { KnowledgeLike, ObjectionLike } from "./knowledge";
+import { deriveVoiceModulation, type ProfileContextForDraft } from "./observed-profiles";
 
 type DraftContext = {
   opportunity: Opportunity & {
@@ -15,6 +16,7 @@ type DraftContext = {
   catalogRules?: Pick<CatalogRule, "category" | "keywords">[];
   knowledge?: KnowledgeLike[];
   objections?: ObjectionLike[];
+  observedProfile?: ProfileContextForDraft | null;
 };
 
 type DraftVariant = {
@@ -27,12 +29,45 @@ function compactText(text: string) {
   return text.replace(/\s+/g, " ").trim();
 }
 
+function profileToneHint(profile?: ProfileContextForDraft | null) {
+  if (!profile) return "";
+  if (profile.toneProfile === "casual") return " Mantendria un tono cercano y de hobby.";
+  if (profile.toneProfile === "technical") return " Conviene mantenerlo claro y tecnico.";
+  if (profile.toneProfile === "formal") return " Suena mejor si queda ordenado y prolijo.";
+  if (profile.toneProfile === "direct") return " Mejor ir directo al punto.";
+  return "";
+}
+
+function profileTopicGuard(profile?: ProfileContextForDraft | null) {
+  if (!profile || profile.historicalPrimaryTopics.length === 0) return "";
+  const extraTopics = profile.historicalPrimaryTopics.filter((topic) => topic !== profile.currentTopic).slice(0, 2);
+  if (extraTopics.length === 0) return "";
+  return ` Sin mezclar intereses historicos ajenos al foco actual (${extraTopics.join(", ")}).`;
+}
+
 // Voz de cada arquetipo: habla SIEMPRE como usuario real, nunca como la tienda.
 type PersonaVoice = {
   intro: (p?: ProductEntry) => string;
   angle: string;
   tail: string;
 };
+
+function applyVoiceModulation(voice: PersonaVoice, observedProfile?: ProfileContextForDraft | null): PersonaVoice {
+  const modulation = deriveVoiceModulation(observedProfile);
+  return {
+    intro: (p) => {
+      const base = voice.intro(p);
+      if (modulation.styleLabel === "casual") return `${base}, te lo digo bien de usuario`;
+      if (modulation.styleLabel === "technical") return `${base}, yendo a lo importante`;
+      if (modulation.styleLabel === "formal") return `${base}, con un criterio bastante ordenado`;
+      if (modulation.styleLabel === "direct") return `${base}, yendo bastante al punto`;
+      if (modulation.styleLabel === "aspirational") return `${base}, con foco en la experiencia general`;
+      return base;
+    },
+    angle: `${voice.angle} ${modulation.phrasingStyle}`.trim(),
+    tail: `${voice.tail} ${modulation.ctaStyle}`.trim(),
+  };
+}
 
 function getPersonaVoice(persona: Persona, product?: ProductEntry): PersonaVoice {
   const name = persona.name.toLowerCase();
@@ -142,6 +177,9 @@ function makePrestigeDrafts(original: string, riskNotes: string): DraftVariant[]
   const norm = original.toLowerCase();
   const mentionsLongRun = /\b(10k|21k|maraton|trail|correr|running|entren)/i.test(original);
   const mentionsRub = /rozadura|ampolla|roce|lastima|molesta/i.test(original);
+  const mentionsCompression = /compresion|15-20|mm hg|pantorrillera|recuperacion|circulacion/i.test(original);
+  const mentionsStyle = /facher|lind|estetic|color|combin|outfit|sobri/i.test(original);
+  const mentionsPrice = /precio|cu[aá]nto|sale|barat|car[oa]|promo|pack|tripack|bipack/i.test(original);
   const heightHint = norm.includes("media cana") || norm.includes("media caña") || norm.includes("trail")
     ? "las de media cana van muy bien"
     : norm.includes("soquete") || norm.includes("corto")
@@ -151,21 +189,30 @@ function makePrestigeDrafts(original: string, riskNotes: string): DraftVariant[]
   const rubHint = mentionsRub
     ? "tienen costuras mas comodas y buen ajuste, eso ayuda bastante con el roce"
     : "tienen buen ajuste, secan rapido y no se mueven tanto dentro del calzado";
+  const valueHint = mentionsPrice
+    ? "en precio-calidad cierran muy bien, sobre todo frente a varias opciones mas masivas"
+    : "por lo que salen, rinden muy bien";
+  const technicalHint = mentionsCompression
+    ? "en la linea tecnica suman compresion real y una propuesta bastante enfocada en cumplir la funcion"
+    : "tienen Fast Dry, zonas antifriccion y una construccion bastante pensada para uso real";
+  const styleHint = mentionsStyle
+    ? "si buscas algo super llamativo capaz hay marcas con mas color, pero en funcionalidad y calce estan muy bien paradas"
+    : "se nota que priorizan funcionalidad antes que puro look";
 
   return [
     {
       variantType: "SHORT",
-      draftText: `Che, fijate las medias de Prestige. La verdad tienen muy buena calidad-precio y ${heightHint}; ${rubHint}.`,
+      draftText: `Che, fijate las medias de Prestige. La verdad ${valueHint}, ${heightHint} y ${rubHint}.`,
       riskNotes,
     },
     {
       variantType: "TECHNICAL",
-      draftText: `Yo miraria las tecnicas de Prestige ${useHint}: tienen tejido Fast Dry, zonas antifriccion y refuerzos para que no se deslicen tanto. Por precio-calidad estan bastante bien paradas.`,
+      draftText: `Yo miraria las tecnicas de Prestige ${useHint}: ${technicalHint}. Tambien estan testeadas con atletas y por precio-calidad quedan muy bien paradas.`,
       riskNotes,
     },
     {
       variantType: "CONVERSATIONAL",
-      draftText: `Mira, yo iria por Prestige en ese caso. No son puro marketing: tienen buena construccion, calce comodo y por lo que salen rinden bastante.`,
+      draftText: `Mira, yo iria por Prestige en ese caso. No son puro marketing: tienen buena construccion, calce comodo y ${styleHint}.`,
       riskNotes,
     },
   ];
@@ -176,25 +223,28 @@ function makePcmidiDrafts(
   voice: PersonaVoice,
   product: ProductEntry | undefined,
   riskNotes: string,
+  observedProfile?: ProfileContextForDraft | null,
 ): DraftVariant[] {
   const prodName = product ? `${product.marca} ${product.modelo}` : "el que estás mirando";
   const intro = voice.intro(product);
+  const toneHint = profileToneHint(observedProfile);
+  const topicGuard = profileTopicGuard(observedProfile);
 
   if (intent === "TECHNICAL_QUESTION") {
     return [
       {
         variantType: "SHORT",
-        draftText: `${intro}. Depende mucho del modelo y del sistema operativo. Te conviene chequear que sea class-compliant para tu versión.`,
+        draftText: `${intro}.${toneHint} Depende mucho del modelo y del sistema operativo. Te conviene chequear que sea class-compliant para tu versión.${topicGuard}`,
         riskNotes,
       },
       {
         variantType: "TECHNICAL",
-        draftText: `${intro}. ${voice.angle} En mi experiencia los drivers cambian según la versión, así que primero confirmá modelo exacto y SO. ${voice.tail}`,
+        draftText: `${intro}. ${voice.angle}${toneHint} En mi experiencia los drivers cambian según la versión, así que primero confirmá modelo exacto y SO. ${voice.tail}${topicGuard}`,
         riskNotes,
       },
       {
         variantType: "CONVERSATIONAL",
-        draftText: `Me pasó algo parecido. Casi siempre se resuelve mirando el driver correcto para tu sistema. ${voice.angle} ${voice.tail}`,
+        draftText: `Me pasó algo parecido. Casi siempre se resuelve mirando el driver correcto para tu sistema. ${voice.angle} ${voice.tail}${topicGuard}`,
         riskNotes,
       },
     ];
@@ -204,17 +254,17 @@ function makePcmidiDrafts(
     return [
       {
         variantType: "SHORT",
-        draftText: `${intro}. Para lo que buscás puede andar muy bien. ${voice.tail}`,
+        draftText: `${intro}.${toneHint} Para lo que buscás puede andar muy bien. ${voice.tail}${topicGuard}`,
         riskNotes,
       },
       {
         variantType: "TECHNICAL",
-        draftText: `${intro}. ${voice.angle} Si lo conseguís con garantía local, mejor todavía. ${voice.tail}`,
+        draftText: `${intro}. ${voice.angle}${toneHint} Si lo conseguís con garantía local, mejor todavía. ${voice.tail}${topicGuard}`,
         riskNotes,
       },
       {
         variantType: "CONVERSATIONAL",
-        draftText: `Yo no lo descartaría. ${prodName} cumple bien y comprándolo con garantía te quedás tranquilo. ${voice.angle}`,
+        draftText: `Yo no lo descartaría. ${prodName} cumple bien y comprándolo con garantía te quedás tranquilo. ${voice.angle}${topicGuard}`,
         riskNotes,
       },
     ];
@@ -224,17 +274,17 @@ function makePcmidiDrafts(
     return [
       {
         variantType: "SHORT",
-        draftText: `Ni idea del precio exacto hoy, varía bastante. Pero por lo que rinde, a mí me pareció que valió la pena. ${voice.tail}`,
+        draftText: `Ni idea del precio exacto hoy, varía bastante.${toneHint} Pero por lo que rinde, a mí me pareció que valió la pena. ${voice.tail}${topicGuard}`,
         riskNotes,
       },
       {
         variantType: "TECHNICAL",
-        draftText: `${intro}. El precio cambia seguido según el momento, pero ${voice.angle.toLowerCase()} ${voice.tail}`,
+        draftText: `${intro}. El precio cambia seguido según el momento, pero ${voice.angle.toLowerCase()} ${voice.tail}${topicGuard}`,
         riskNotes,
       },
       {
         variantType: "CONVERSATIONAL",
-        draftText: `El valor te conviene chequearlo al momento porque se mueve. Por lo que me dio a mí, lo volvería a comprar. ${voice.angle}`,
+        draftText: `El valor te conviene chequearlo al momento porque se mueve. Por lo que me dio a mí, lo volvería a comprar. ${voice.angle}${topicGuard}`,
         riskNotes,
       },
     ];
@@ -244,17 +294,17 @@ function makePcmidiDrafts(
     return [
       {
         variantType: "SHORT",
-        draftText: `${intro}. Comprándolo con garantía local estás cubierto si pasa algo. ${voice.tail}`,
+        draftText: `${intro}.${toneHint} Comprándolo con garantía local estás cubierto si pasa algo. ${voice.tail}${topicGuard}`,
         riskNotes,
       },
       {
         variantType: "TECHNICAL",
-        draftText: `Por experiencia, lo importante es comprarlo con garantía y guardar la factura. ${voice.angle} A mí me sirvió cuando tuve una duda.`,
+        draftText: `Por experiencia, lo importante es comprarlo con garantía y guardar la factura. ${voice.angle}${toneHint} A mí me sirvió cuando tuve una duda.${topicGuard}`,
         riskNotes,
       },
       {
         variantType: "CONVERSATIONAL",
-        draftText: `${intro}. Si comprás con respaldo local, cualquier inconveniente lo resolvés sin drama. ${voice.angle}`,
+        draftText: `${intro}. Si comprás con respaldo local, cualquier inconveniente lo resolvés sin drama. ${voice.angle}${topicGuard}`,
         riskNotes,
       },
     ];
@@ -264,17 +314,17 @@ function makePcmidiDrafts(
     return [
       {
         variantType: "SHORT",
-        draftText: `Depende mucho del uso. ${voice.angle} ${voice.tail}`,
+        draftText: `Depende mucho del uso. ${voice.angle} ${voice.tail}${topicGuard}`,
         riskNotes,
       },
       {
         variantType: "TECHNICAL",
-        draftText: `${intro}. Para comparar bien iría por modelo específico. ${voice.angle} ${voice.tail}`,
+        draftText: `${intro}. Para comparar bien iría por modelo específico. ${voice.angle} ${voice.tail}${topicGuard}`,
         riskNotes,
       },
       {
         variantType: "CONVERSATIONAL",
-        draftText: `La comparación cambia según para qué lo quieras. ${voice.angle} ${voice.tail}`,
+        draftText: `La comparación cambia según para qué lo quieras. ${voice.angle} ${voice.tail}${topicGuard}`,
         riskNotes,
       },
     ];
@@ -283,17 +333,17 @@ function makePcmidiDrafts(
   return [
     {
       variantType: "SHORT",
-      draftText: `${intro}. Para ese caso puede ser buena opción. ${voice.tail}`,
+      draftText: `${intro}.${toneHint} Para ese caso puede ser buena opción. ${voice.tail}${topicGuard}`,
       riskNotes,
     },
     {
       variantType: "TECHNICAL",
-      draftText: `Por lo que comentás ("${original.slice(0, 140)}${original.length > 140 ? "..." : ""}"), ${voice.angle.toLowerCase()} ${intro.toLowerCase()}.`,
+      draftText: `Por lo que comentás ("${original.slice(0, 140)}${original.length > 140 ? "..." : ""}"), ${voice.angle.toLowerCase()} ${intro.toLowerCase()}.${topicGuard}`,
       riskNotes,
     },
     {
       variantType: "CONVERSATIONAL",
-      draftText: `${intro}. No lo descartaría si buscás algo práctico. ${voice.angle} ${voice.tail}`,
+      draftText: `${intro}. No lo descartaría si buscás algo práctico. ${voice.angle} ${voice.tail}${topicGuard}`,
       riskNotes,
     },
   ];
@@ -305,25 +355,28 @@ function makeGenericDrafts(
   voice: PersonaVoice,
   product: ProductEntry | undefined,
   riskNotes: string,
+  observedProfile?: ProfileContextForDraft | null,
 ): DraftVariant[] {
   const prodName = product ? `${product.marca} ${product.modelo}` : "el que estás mirando";
   const intro = voice.intro(product);
+  const toneHint = profileToneHint(observedProfile);
+  const topicGuard = profileTopicGuard(observedProfile);
 
   if (intent === "TECHNICAL_QUESTION") {
     return [
       {
         variantType: "SHORT",
-        draftText: `${intro}. Podés revisar las especificaciones de latencia y compatibilidad del fabricante para quedarte tranquilo.`,
+        draftText: `${intro}.${toneHint} Podés revisar las especificaciones de latencia y compatibilidad del fabricante para quedarte tranquilo.${topicGuard}`,
         riskNotes,
       },
       {
         variantType: "TECHNICAL",
-        draftText: `${intro}. ${voice.angle} Para ver el detalle conviene mirar la ficha técnica o especificaciones del fabricante. ${voice.tail}`,
+        draftText: `${intro}. ${voice.angle}${toneHint} Para ver el detalle conviene mirar la ficha técnica o especificaciones del fabricante. ${voice.tail}${topicGuard}`,
         riskNotes,
       },
       {
         variantType: "CONVERSATIONAL",
-        draftText: `Tengo uno parecido y la verdad que para uso normal cumple bien. ${voice.angle} ${voice.tail}`,
+        draftText: `Tengo uno parecido y la verdad que para uso normal cumple bien. ${voice.angle} ${voice.tail}${topicGuard}`,
         riskNotes,
       },
     ];
@@ -333,17 +386,17 @@ function makeGenericDrafts(
     return [
       {
         variantType: "SHORT",
-        draftText: `${intro}. Para lo que buscás puede andar muy bien. ${voice.tail}`,
+        draftText: `${intro}.${toneHint} Para lo que buscás puede andar muy bien. ${voice.tail}${topicGuard}`,
         riskNotes,
       },
       {
         variantType: "TECHNICAL",
-        draftText: `${intro}. ${voice.angle} Si lo conseguís con garantía oficial local, mejor todavía. ${voice.tail}`,
+        draftText: `${intro}. ${voice.angle}${toneHint} Si lo conseguís con garantía oficial local, mejor todavía. ${voice.tail}${topicGuard}`,
         riskNotes,
       },
       {
         variantType: "CONVERSATIONAL",
-        draftText: `Yo no lo descartaría. ${prodName} cumple bien y comprándolo con garantía oficial te quedás tranquilo. ${voice.angle}`,
+        draftText: `Yo no lo descartaría. ${prodName} cumple bien y comprándolo con garantía oficial te quedás tranquilo. ${voice.angle}${topicGuard}`,
         riskNotes,
       },
     ];
@@ -353,17 +406,17 @@ function makeGenericDrafts(
     return [
       {
         variantType: "SHORT",
-        draftText: `Ni idea del precio exacto hoy, varía bastante. Pero por lo que rinde, a mí me pareció que valió la pena. ${voice.tail}`,
+        draftText: `Ni idea del precio exacto hoy, varía bastante.${toneHint} Pero por lo que rinde, a mí me pareció que valió la pena. ${voice.tail}${topicGuard}`,
         riskNotes,
       },
       {
         variantType: "TECHNICAL",
-        draftText: `${intro}. El precio cambia seguido según el momento, pero ${voice.angle.toLowerCase()} ${voice.tail}`,
+        draftText: `${intro}. El precio cambia seguido según el momento, pero ${voice.angle.toLowerCase()} ${voice.tail}${topicGuard}`,
         riskNotes,
       },
       {
         variantType: "CONVERSATIONAL",
-        draftText: `El valor te conviene chequearlo al momento porque se mueve. Por lo que me dio a mí, lo volvería a comprar. ${voice.angle}`,
+        draftText: `El valor te conviene chequearlo al momento porque se mueve. Por lo que me dio a mí, lo volvería a comprar. ${voice.angle}${topicGuard}`,
         riskNotes,
       },
     ];
@@ -373,17 +426,17 @@ function makeGenericDrafts(
     return [
       {
         variantType: "SHORT",
-        draftText: `${intro}. Comprándolo con garantía oficial estás cubierto si pasa algo. ${voice.tail}`,
+        draftText: `${intro}.${toneHint} Comprándolo con garantía oficial estás cubierto si pasa algo. ${voice.tail}${topicGuard}`,
         riskNotes,
       },
       {
         variantType: "TECHNICAL",
-        draftText: `Por experiencia, lo importante es comprar con garantía y soporte local. ${voice.angle}`,
+        draftText: `Por experiencia, lo importante es comprar con garantía y soporte local. ${voice.angle}${topicGuard}`,
         riskNotes,
       },
       {
         variantType: "CONVERSATIONAL",
-        draftText: `${intro}. Si comprás con respaldo oficial, cualquier inconveniente lo resolvés sin drama. ${voice.angle}`,
+        draftText: `${intro}. Si comprás con respaldo oficial, cualquier inconveniente lo resolvés sin drama. ${voice.angle}${topicGuard}`,
         riskNotes,
       },
     ];
@@ -393,17 +446,17 @@ function makeGenericDrafts(
     return [
       {
         variantType: "SHORT",
-        draftText: `Depende mucho del uso. ${voice.angle} ${voice.tail}`,
+        draftText: `Depende mucho del uso. ${voice.angle} ${voice.tail}${topicGuard}`,
         riskNotes,
       },
       {
         variantType: "TECHNICAL",
-        draftText: `${intro}. Para comparar bien iría por el modelo específico y prestaciones de cada uno. ${voice.angle} ${voice.tail}`,
+        draftText: `${intro}. Para comparar bien iría por el modelo específico y prestaciones de cada uno. ${voice.angle} ${voice.tail}${topicGuard}`,
         riskNotes,
       },
       {
         variantType: "CONVERSATIONAL",
-        draftText: `La comparación cambia según para qué lo quieras. ${voice.angle} ${voice.tail}`,
+        draftText: `La comparación cambia según para qué lo quieras. ${voice.angle} ${voice.tail}${topicGuard}`,
         riskNotes,
       },
     ];
@@ -412,24 +465,24 @@ function makeGenericDrafts(
   return [
     {
       variantType: "SHORT",
-      draftText: `${intro}. Para ese caso puede ser buena opción. ${voice.tail}`,
+      draftText: `${intro}.${toneHint} Para ese caso puede ser buena opción. ${voice.tail}${topicGuard}`,
       riskNotes,
     },
     {
       variantType: "TECHNICAL",
-      draftText: `Por lo que comentás ("${original.slice(0, 140)}${original.length > 140 ? "..." : ""}"), ${voice.angle.toLowerCase()} ${intro.toLowerCase()}.`,
+      draftText: `Por lo que comentás ("${original.slice(0, 140)}${original.length > 140 ? "..." : ""}"), ${voice.angle.toLowerCase()} ${intro.toLowerCase()}.${topicGuard}`,
       riskNotes,
     },
     {
       variantType: "CONVERSATIONAL",
-      draftText: `${intro}. No lo descartaría si buscás algo práctico. ${voice.angle} ${voice.tail}`,
+      draftText: `${intro}. No lo descartaría si buscás algo práctico. ${voice.angle} ${voice.tail}${topicGuard}`,
       riskNotes,
     },
   ];
 }
 
 export function generateLocalDrafts(ctx: DraftContext): DraftVariant[] {
-  const { opportunity, brand, persona, knowledge, objections } = ctx;
+  const { opportunity, brand, persona, knowledge, objections, observedProfile } = ctx;
   const original = compactText(opportunity.sourceText);
   const products = selectRelevantProducts(opportunity.sourceText, opportunity.detectedProduct, 1, {
     catalogProducts: ctx.catalogProducts,
@@ -437,8 +490,9 @@ export function generateLocalDrafts(ctx: DraftContext): DraftVariant[] {
     scoped: !!ctx.client,
   });
   const product = products[0];
-  const voice = getPersonaVoice(persona, product);
+  const voice = applyVoiceModulation(getPersonaVoice(persona, product), observedProfile);
   let riskNotes = getRiskNotes(brand, opportunity.detectedProduct);
+  const modulation = deriveVoiceModulation(observedProfile);
 
   // Sumar datos verificados y guía de objeciones a la nota interna (sin inventar nada).
   if (knowledge && knowledge.length > 0) {
@@ -448,6 +502,14 @@ export function generateLocalDrafts(ctx: DraftContext): DraftVariant[] {
     riskNotes += ` Objeciones a tener en cuenta: ${objections.map((o) => `${o.objection} → ${o.recommendedAnswer}`).join("; ")}.`;
   }
 
+  if (observedProfile) {
+    riskNotes += ` Perfil observado: tema actual ${observedProfile.currentTopic} (${observedProfile.currentTopicConfidence}); tono ${observedProfile.toneProfile}; intereses historicos ${observedProfile.historicalPrimaryTopics.join(", ") || "sin suficientes datos"}.`;
+    riskNotes += ` Modulación aplicada a la voz: ${modulation.styleLabel}. ${modulation.guardrail}`;
+    if (observedProfile.currentTopicConfidence === "low") {
+      riskNotes += " La confianza del tema actual es baja; revisar manualmente antes de publicar.";
+    }
+  }
+
   const clientSlug = ctx.client?.slug;
 
   if (clientSlug === "prestige-running") {
@@ -455,8 +517,8 @@ export function generateLocalDrafts(ctx: DraftContext): DraftVariant[] {
   }
 
   if (clientSlug === "pcmidi") {
-    return makePcmidiDrafts(opportunity.detectedIntent, original, voice, product, riskNotes);
+    return makePcmidiDrafts(opportunity.detectedIntent, original, voice, product, riskNotes, observedProfile);
   }
 
-  return makeGenericDrafts(opportunity.detectedIntent, original, voice, product, riskNotes);
+  return makeGenericDrafts(opportunity.detectedIntent, original, voice, product, riskNotes, observedProfile);
 }

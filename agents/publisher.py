@@ -424,16 +424,14 @@ def post_reddit_reply(client, comment_url: str, text: str, dry_run: bool) -> dic
     old_url = comment_url.replace("www.reddit.com", "old.reddit.com").replace("://reddit.com/", "://old.reddit.com/")
     if "old.reddit.com" not in old_url:
         old_url = old_url.replace("reddit.com/r/", "old.reddit.com/r/")
-    # Strip fragment so we land on the right thread
     thread_url = old_url.split("#")[0]
 
     client.send("Page.navigate", {"url": thread_url})
-    time.sleep(3)
+    time.sleep(5)
 
     if dry_run:
         return {"success": True, "dry_run": True, "url": thread_url}
 
-    # Verify login — mirrors the check in _login.py (LOGIN_CHECKS["reddit"]), con reintentos
     auth = _poll_login(client, """
     (() => {
       const u = document.querySelector('.user a.reddit-user-link') ||
@@ -447,12 +445,25 @@ def post_reddit_reply(client, comment_url: str, text: str, dry_run: bool) -> dic
     if not auth or not auth.get("loggedIn"):
         return {"success": False, "error": "not_logged_in", "user": (auth or {}).get("user", "")}
 
-    # Extract comment ID from URL fragment or last path segment
+    archived = browser_cdp.evaluate(client, """
+    (() => {
+      const text = (document.body.innerText || '').toLowerCase();
+      return {
+        archived:
+          text.includes('post archived') ||
+          text.includes('archived post') ||
+          text.includes('comments are closed') ||
+          text.includes('no se pueden publicar nuevos comentarios')
+      };
+    })()
+    """) or {}
+    if archived.get("archived"):
+        return {"success": False, "error": "thread_archived"}
+
     fragment = comment_url.split("#")[-1] if "#" in comment_url else ""
     path_parts = [p for p in old_url.split("?")[0].split("/") if p]
     comment_id = fragment or (path_parts[-1] if len(path_parts) > 4 else "")
 
-    # Find the reply button for the specific comment, fallback to OP reply
     result = browser_cdp.evaluate(client, f"""
     (() => {{
       const commentId = {json.dumps(comment_id)};
@@ -464,11 +475,21 @@ def post_reddit_reply(client, comment_url: str, text: str, dry_run: bool) -> dic
       }}
       if (!replyBtn) {{
         replyBtn = document.querySelector('.thing.link ~ .commentarea .reply-button a') ||
-                   document.querySelector('.commentarea .reply-button a');
+                   document.querySelector('.commentarea .reply-button a') ||
+                   Array.from(document.querySelectorAll('button, a, [role="button"]')).find(el => {{
+                     const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+                     return txt === 'reply' || txt === 'responder';
+                   }});
       }}
+      const topLevelTextarea =
+        document.querySelector('.commentarea .usertext-edit textarea') ||
+        document.querySelector('textarea[name="text"]') ||
+        document.querySelector('textarea:not(.g-recaptcha-response)') ||
+        document.querySelector('[role="textbox"]');
+      if (!replyBtn && topLevelTextarea) return {{ok: true, mode: 'top_level'}};
       if (!replyBtn) return {{error: 'no_reply_button'}};
       replyBtn.click();
-      return {{ok: true, id: commentId}};
+      return {{ok: true, mode: 'reply'}};
     }})()
     """)
     if result and result.get("error"):
@@ -478,11 +499,21 @@ def post_reddit_reply(client, comment_url: str, text: str, dry_run: bool) -> dic
 
     result = browser_cdp.evaluate(client, f"""
     (() => {{
-      const textarea = document.querySelector('.usertext-edit textarea, .commentreply textarea');
+      const textarea =
+        document.querySelector('.commentreply .usertext-edit textarea') ||
+        document.querySelector('.usertext-edit textarea') ||
+        document.querySelector('textarea[name="text"]') ||
+        document.querySelector('textarea:not(.g-recaptcha-response)') ||
+        document.querySelector('[role="textbox"]');
       if (!textarea) return {{error: 'no_textarea'}};
       textarea.focus();
-      textarea.value = {json.dumps(text)};
+      if ('value' in textarea) {{
+        textarea.value = {json.dumps(text)};
+      }} else {{
+        textarea.textContent = {json.dumps(text)};
+      }}
       textarea.dispatchEvent(new Event('input', {{bubbles: true}}));
+      textarea.dispatchEvent(new Event('change', {{bubbles: true}}));
       return {{ok: true}};
     }})()
     """)
@@ -494,8 +525,13 @@ def post_reddit_reply(client, comment_url: str, text: str, dry_run: bool) -> dic
     result = browser_cdp.evaluate(client, """
     (() => {
       const btn = document.querySelector(
-        '.usertext-edit button[type="submit"], .commentreply button[type="submit"]'
-      );
+        '.commentreply .usertext-edit button[type="submit"], ' +
+        '.usertext-edit button[type="submit"], ' +
+        'button[type="submit"]'
+      ) || Array.from(document.querySelectorAll('button')).find(el => {
+        const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+        return txt === 'save' || txt === 'comment' || txt === 'reply' || txt === 'comentar' || txt === 'responder';
+      });
       if (!btn) return {error: 'no_submit_button'};
       btn.click();
       return {ok: true};
@@ -510,12 +546,11 @@ def post_reddit_reply(client, comment_url: str, text: str, dry_run: bool) -> dic
 
 def post_x_reply(client, tweet_url: str, text: str, dry_run: bool) -> dict:
     client.send("Page.navigate", {"url": tweet_url})
-    time.sleep(4)
+    time.sleep(5)
 
     if dry_run:
         return {"success": True, "dry_run": True, "url": tweet_url}
 
-    # Verificar login — señal positiva (sidebar de perfil) + negativa (URL de login), con reintentos
     auth = _poll_login(client, """
     (() => {
       const onLoginPage = location.href.includes('/i/flow/login') || location.href.includes('/login');
@@ -524,59 +559,127 @@ def post_x_reply(client, tweet_url: str, text: str, dry_run: bool) -> dict:
         document.querySelector('[data-testid="AppTabBar_Profile_Link"]') ||
         document.querySelector('[data-testid="primaryColumn"]')
       );
-      return {loggedIn: !onLoginPage && profileBtn};
+      return {loggedIn: !onLoginPage && profileBtn, url: location.href, title: document.title};
     })()
     """)
     if not auth or not auth.get("loggedIn"):
-        return {"success": False, "error": "not_logged_in"}
+        return {"success": False, "error": "not_logged_in", "details": auth or {}}
 
-    # Click reply button
-    result = browser_cdp.evaluate(client, """
-    (() => {
-      const btn = document.querySelector('[data-testid="reply"]');
-      if (!btn) return {error: 'no_reply_button'};
-      btn.click();
-      return {ok: true};
-    })()
-    """)
-    if result and result.get("error"):
-        return {"success": False, "error": result["error"]}
+    composer_ready = None
+    for _ in range(6):
+        composer_ready = browser_cdp.evaluate(client, """
+        (() => {
+          const composer = Array.from(document.querySelectorAll('[data-testid="tweetTextarea_0"], div[role="textbox"][contenteditable="true"], div[role="textbox"]')).find(el => {
+            const rect = el.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+          });
+          if (composer) {
+            return {ok: true, path: 'existing_composer'};
+          }
+          const btn = document.querySelector('[data-testid="reply"]') ||
+            Array.from(document.querySelectorAll('button, div[role="button"]')).find(el => {
+              const dt = (el.getAttribute('data-testid') || '').toLowerCase();
+              const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+              const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+              return dt.includes('reply') || aria.includes('reply') || txt === 'reply' || txt === 'responder';
+            });
+          if (!btn) return {error: 'no_reply_button'};
+          btn.click();
+          return {ok: true, path: 'clicked_reply'};
+        })()
+        """)
+        if composer_ready and composer_ready.get("ok"):
+            time.sleep(1.0)
+            probe = browser_cdp.evaluate(client, """
+            (() => {
+              const composer = Array.from(document.querySelectorAll('[data-testid="tweetTextarea_0"], div[role="textbox"][contenteditable="true"], div[role="textbox"]')).find(el => {
+                const rect = el.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0;
+              });
+              return composer ? {ok: true} : {error: 'no_textarea'};
+            })()
+            """)
+            if probe and probe.get("ok"):
+                break
+        time.sleep(1.5)
+    if not composer_ready or composer_ready.get("error"):
+        return {"success": False, "error": (composer_ready or {}).get("error", "no_reply_button")}
 
-    time.sleep(1.5)
-
-    # Escribir el texto en el compose box
     result = browser_cdp.evaluate(client, f"""
     (() => {{
-      const textarea = document.querySelector('[data-testid="tweetTextarea_0"]');
+      const textarea = Array.from(document.querySelectorAll('[data-testid="tweetTextarea_0"], div[role="textbox"][contenteditable="true"], div[role="textbox"]')).find(el => {{
+        const rect = el.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      }});
       if (!textarea) return {{error: 'no_textarea'}};
       textarea.focus();
-      document.execCommand('insertText', false, {json.dumps(text)});
-      return {{ok: true, chars: textarea.innerText?.length || 0}};
+      const sel = window.getSelection && window.getSelection();
+      if (sel && document.createRange) {{
+        const range = document.createRange();
+        range.selectNodeContents(textarea);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }}
+      document.execCommand('selectAll', false);
+      document.execCommand('delete', false);
+      if (!document.execCommand('insertText', false, {json.dumps(text)})) {{
+        textarea.textContent = {json.dumps(text)};
+      }}
+      textarea.dispatchEvent(new InputEvent('input', {{bubbles: true, data: {json.dumps(text)}, inputType: 'insertText'}}));
+      textarea.dispatchEvent(new Event('change', {{bubbles: true}}));
+      return {{ok: true, chars: (textarea.innerText || textarea.textContent || '').trim().length}};
     }})()
     """)
     if result and result.get("error"):
         return {"success": False, "error": result["error"]}
+    if not result or not result.get("chars"):
+        return {"success": False, "error": "text_not_inserted", "details": result or {}}
 
-    time.sleep(0.5)
+    time.sleep(1.0)
 
-    # Submit
     result = browser_cdp.evaluate(client, """
     (() => {
-      const btn = document.querySelector(
-        '[data-testid="tweetButtonInline"]:not([disabled]) div[role="button"], ' +
-        '[data-testid="tweetButtonInline"]:not([disabled]), ' +
-        '[data-testid="tweetButton"]:not([disabled])'
-      );
+      const btn = Array.from(document.querySelectorAll('[data-testid="tweetButtonInline"], [data-testid="tweetButton"], button, div[role="button"]')).find(el => {
+        const rect = el.getBoundingClientRect();
+        const txt = (el.innerText || el.textContent || '').trim().toLowerCase();
+        const testid = (el.getAttribute('data-testid') || '').toLowerCase();
+        const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+        const disabled = el.disabled || el.getAttribute('aria-disabled') === 'true';
+        return rect.width > 0 && rect.height > 0 && !disabled && (
+          testid === 'tweetbuttoninline' || testid === 'tweetbutton' ||
+          txt === 'reply' || txt === 'responder' || txt === 'post' ||
+          aria.includes('reply') || aria.includes('post')
+        );
+      });
       if (!btn) return {error: 'no_submit_button'};
       btn.click();
-      return {ok: true};
+      return {ok: true, buttonText: (btn.innerText || btn.textContent || '').trim(), buttonTestId: btn.getAttribute('data-testid') || ''};
     })()
     """)
     if result and result.get("error"):
         return {"success": False, "error": result["error"]}
 
-    time.sleep(2)
-    return {"success": True, "url": tweet_url}
+    time.sleep(3)
+
+    verify = browser_cdp.evaluate(client, f"""
+    (() => {{
+      const body = (document.body.innerText || '');
+      const snippet = {json.dumps(text[:80])};
+      const composer = Array.from(document.querySelectorAll('[data-testid="tweetTextarea_0"], div[role="textbox"][contenteditable="true"], div[role="textbox"]')).find(el => {{
+        const rect = el.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      }});
+      return {{
+        posted: body.includes(snippet),
+        composerHasText: !!composer && ((composer.innerText || composer.textContent || '').trim().length > 0),
+        url: location.href
+      }};
+    }})()
+    """) or {}
+    if verify.get("composerHasText") and not verify.get("posted"):
+        return {"success": False, "error": "submit_unconfirmed", "details": verify}
+
+    return {"success": True, "url": tweet_url, "details": verify}
 
 
 def post_facebook_comment(client, post_url: str, text: str, dry_run: bool) -> dict:
@@ -683,7 +786,6 @@ def post_instagram_comment(client, post_url: str, text: str, dry_run: bool) -> d
     if dry_run:
         return {"success": True, "dry_run": True, "url": post_url}
 
-    # Verificar login — señal positiva (nav de usuario) + negativa (form login), con reintentos
     auth = _poll_login(client, """
     (() => {
       const onLoginPage = location.href.includes('/accounts/login');
@@ -702,14 +804,13 @@ def post_instagram_comment(client, post_url: str, text: str, dry_run: bool) -> d
     if not auth or not auth.get("loggedIn"):
         return {"success": False, "error": "not_logged_in"}
 
-    # Click en el área de comentario
     result = browser_cdp.evaluate(client, """
     (() => {
-      const textarea = document.querySelector(
-        'textarea[aria-label*="comment" i], ' +
-        'textarea[placeholder*="comment" i], ' +
-        'textarea[placeholder*="comentario" i]'
-      );
+      const textarea = Array.from(document.querySelectorAll('form textarea, textarea'))
+        .find(el => {
+          const style = window.getComputedStyle(el);
+          return style.display !== 'none' && style.visibility !== 'hidden' && !el.disabled;
+        });
       if (!textarea) return {error: 'no_comment_textarea'};
       textarea.click();
       textarea.focus();
@@ -721,18 +822,19 @@ def post_instagram_comment(client, post_url: str, text: str, dry_run: bool) -> d
 
     time.sleep(1)
 
-    # Escribir el texto
     result = browser_cdp.evaluate(client, f"""
     (() => {{
-      const textarea = document.querySelector(
-        'textarea[aria-label*="comment" i], ' +
-        'textarea[placeholder*="comment" i], ' +
-        'textarea[placeholder*="comentario" i]'
-      );
+      const textarea = Array.from(document.querySelectorAll('form textarea, textarea'))
+        .find(el => {{
+          const style = window.getComputedStyle(el);
+          return style.display !== 'none' && style.visibility !== 'hidden' && !el.disabled;
+        }});
       if (!textarea) return {{error: 'no_textarea_after_click'}};
       textarea.focus();
-      document.execCommand('insertText', false, {json.dumps(text)});
+      textarea.value = '';
+      textarea.value = {json.dumps(text)};
       textarea.dispatchEvent(new Event('input', {{bubbles: true}}));
+      textarea.dispatchEvent(new Event('change', {{bubbles: true}}));
       return {{ok: true, chars: textarea.value?.length || 0}};
     }})()
     """)
@@ -741,22 +843,35 @@ def post_instagram_comment(client, post_url: str, text: str, dry_run: bool) -> d
 
     time.sleep(0.5)
 
-    # Submit: botón "Post" / "Publicar"
     result = browser_cdp.evaluate(client, """
     (() => {
       const btn = document.querySelector(
-        'button[type="submit"]:not([disabled]), ' +
-        'div[role="button"][tabindex="0"]:not([disabled])'
+        'form button[type="submit"]:not([disabled]), ' +
+        'button[type="submit"]:not([disabled])'
       );
-      // Buscar específicamente el botón de publicar comentario
-      const allBtns = Array.from(document.querySelectorAll('button, div[role="button"]'));
+      const allBtns = Array.from(document.querySelectorAll('form button, button, div[role="button"]'));
       const postBtn = allBtns.find(b => {
-        const t = b.innerText?.toLowerCase() || b.getAttribute('aria-label')?.toLowerCase() || '';
-        return (t.includes('post') || t.includes('publicar')) && !b.disabled;
+        const t = (b.innerText || b.textContent || '').trim().toLowerCase();
+        const aria = (b.getAttribute('aria-label') || '').toLowerCase();
+        return !b.disabled && (
+          t === 'post' || t === 'publish' || t === 'publicar' || t === 'comment' || t === 'comentar' ||
+          t === 'commenter' || t === 'kommentieren' || t === 'reply' || t === 'posten' ||
+          aria.includes('post') || aria.includes('publicar') || aria.includes('comment') || aria.includes('komment')
+        );
       }) || btn;
-      if (!postBtn) return {error: 'no_submit_button'};
-      postBtn.click();
-      return {ok: true};
+      if (postBtn) {
+        postBtn.click();
+        return {ok: true, via: 'button'};
+      }
+      const textarea = Array.from(document.querySelectorAll('form textarea, textarea')).find(el => {
+        const style = window.getComputedStyle(el);
+        return style.display !== 'none' && style.visibility !== 'hidden' && !el.disabled;
+      });
+      if (!textarea) return {error: 'no_submit_button'};
+      textarea.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true}));
+      textarea.dispatchEvent(new KeyboardEvent('keypress', {key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true}));
+      textarea.dispatchEvent(new KeyboardEvent('keyup', {key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true}));
+      return {ok: true, via: 'enter'};
     })()
     """)
     if result and result.get("error"):

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { OpportunityIntent } from "@prisma/client";
-import { suggestPersona, suggestAllPersonasForClient, PERSONA_NAMES, PERSONA_NAME_SET } from "../persona-router";
+import { suggestPersona, suggestAllPersonasForClient, selectVoiceVariant, PERSONA_NAMES, PERSONA_NAME_SET } from "../persona-router";
 
 // Helper para armar una oportunidad mínima como la espera suggestPersona.
 function opp(sourceText: string, detectedIntent: OpportunityIntent = "GENERAL_DISCUSSION") {
@@ -41,6 +41,23 @@ describe("suggestPersona — un caso representativo por persona del quinteto", (
   it("sin señales → default Técnico", () => {
     const s = suggestPersona(opp("Hola, buenas"));
     expect(s.personaName).toBe(PERSONA_NAMES.TECNICO);
+  });
+});
+describe("voice variants", () => {
+  it("derives a casual variant for tecnico when observed profile is casual", () => {
+    const variant = selectVoiceVariant("TÃ©cnico", {
+      currentTopic: "pianos",
+      currentTopicConfidence: "high",
+      historicalPrimaryTopics: ["pianos", "running"],
+      historicalSecondaryTopics: [],
+      toneProfile: "casual",
+      toneConfidence: "medium",
+      commercialReadiness: 50,
+      signalSummary: "tema actual: pianos",
+    });
+
+    expect(variant.voiceVariant).toContain("casual");
+    expect(variant.voiceVariantReason.toLowerCase()).toContain("cercano");
   });
 });
 

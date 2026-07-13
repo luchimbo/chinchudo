@@ -6,6 +6,7 @@ import { ManualOpportunitySearch } from "@/components/manual-opportunity-search"
 import { OpportunityList } from "@/components/opportunity-list";
 import { getVisibleClients } from "@/lib/auth";
 import { opportunityStatuses } from "@/lib/labels";
+import { suggestAllPersonasForClient } from "@/lib/persona-router";
 
 const PAGE_SIZE = 12;
 
@@ -66,6 +67,15 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
         channel: true,
         detectedBrand: true,
         detectedProduct: true,
+        observedProfile: true,
+        observedEvent: true,
+        responses: {
+          select: {
+            id: true,
+            voiceVariant: true,
+            persona: { select: { name: true } },
+          },
+        },
         _count: { select: { responses: true } },
       },
       orderBy,
@@ -106,6 +116,47 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
     ...products.map((p) => `${p.brand.name} ${p.name}`),
   ].filter(Boolean);
   const initialQuery = keywordSuggestions.slice(0, 3).join(" ") || "MidiPlus controlador MIDI";
+  const recommendationEntries = await Promise.all(opportunities.map(async (opportunity) => {
+    const clientId = activeClient?.id ?? opportunity.clientId;
+    if (!clientId) return [opportunity.id, undefined] as const;
+    const observedProfileContext = opportunity.observedProfile && opportunity.observedEvent
+      ? {
+          currentTopic: opportunity.observedEvent.primaryTopicKey,
+          currentTopicConfidence: opportunity.observedEvent.topicConfidence as "high" | "medium" | "low",
+          historicalPrimaryTopics: Array.isArray(opportunity.observedProfile.primaryTopics) ? opportunity.observedProfile.primaryTopics as string[] : [],
+          historicalSecondaryTopics: Array.isArray(opportunity.observedProfile.secondaryTopics) ? opportunity.observedProfile.secondaryTopics as string[] : [],
+          toneProfile: (opportunity.observedProfile.toneSummary || "mixed") as "casual" | "technical" | "formal" | "aspirational" | "direct" | "mixed",
+          toneConfidence: (opportunity.observedProfile.toneConfidence || "low") as "high" | "medium" | "low",
+          commercialReadiness: opportunity.observedProfile.commercialReadiness,
+          signalSummary: opportunity.observedEvent.signalSummary,
+        }
+      : null;
+    const suggestions = await suggestAllPersonasForClient(prisma, opportunity, clientId, observedProfileContext);
+    const suggestion = suggestions[0];
+    const hasAlignedDraft = !!opportunity.responses.find((response) => response.voiceVariant && response.voiceVariant === suggestion?.voiceVariant);
+    const clarity: "high" | "medium" | "low" = suggestion?.score && suggestion.score >= 8
+      ? "high"
+      : suggestion?.score && suggestion.score >= 4
+        ? "medium"
+        : "low";
+    return [opportunity.id, suggestion ? {
+      personaName: suggestion.personaName,
+      voiceVariant: suggestion.voiceVariant,
+      clarity,
+      reason: suggestion.voiceVariantReason || suggestion.reason,
+      hasAlignedDraft,
+    } : undefined] as const;
+  }));
+  const recommendationMetaById: Record<string, {
+    personaName: string;
+    voiceVariant?: string;
+    clarity: "high" | "medium" | "low";
+    reason: string;
+    hasAlignedDraft?: boolean;
+  }> = {};
+  for (const [opportunityId, recommendation] of recommendationEntries) {
+    if (recommendation) recommendationMetaById[opportunityId] = recommendation;
+  }
 
   const totalPages = Math.max(1, Math.ceil(matchingCount / PAGE_SIZE));
   const buildPageHref = (targetPage: number) => {
@@ -176,6 +227,7 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
 
         <OpportunityList
           opportunities={opportunities}
+          recommendationMetaById={recommendationMetaById}
           clientSlug={activeClient?.slug}
           emptyMessage={view === "inbox" ? "No hay oportunidades crudas pendientes." : "No hay oportunidades con borrador todavia."}
         />

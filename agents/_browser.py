@@ -482,6 +482,13 @@ def close_tab(account: str | None, tab_id: str) -> None:
         )
         if ctrl_ws:
             with CDPClient(ctrl_ws, timeout=8.0) as ctrl:
-                ctrl.send("Target.closeTarget", {"targetId": tab_id})
+                try:
+                    ctrl.send("Target.closeTarget", {"targetId": tab_id})
+                except Exception as exc:
+                    message = str(exc)
+                    if "No target with given id found" in message:
+                        _log.debug("close_tab target ya cerrado", tab_id=tab_id)
+                        return
+                    raise
     except Exception as exc:
         _log.warning("close_tab error (no crítico)", tab_id=tab_id, error=str(exc))

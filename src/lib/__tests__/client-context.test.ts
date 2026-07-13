@@ -107,11 +107,15 @@ describe("local fallback drafts by client", () => {
     sourceAuthor: "user1",
     sourceText: text,
     clientId: "pcmidi",
+    observedProfileId: null,
     detectedBrandId: "b1",
     detectedProductId: null,
     detectedIntent: intent,
     priority: "MEDIUM" as const,
     status: "NEW" as const,
+    detectedTopics: [],
+    detectedTone: "",
+    detectedToneConfidence: "low",
     notes: "",
     monitoredSourceId: null,
     createdAt: new Date(),
@@ -144,5 +148,28 @@ describe("local fallback drafts by client", () => {
     expect(drafts[0].draftText).not.toContain("sistema operativo");
     expect(drafts[0].draftText).not.toContain("placa/SO");
     expect(drafts[0].draftText).toContain("especificaciones");
+  });
+
+  it("genera fallbacks de Prestige con foco tecnico o de estilo segun la consulta", () => {
+    const prestigeBrand = { ...mockBrand, clientId: "prestige", name: "Prestige" };
+    const prestigePersona = { ...mockPersona, clientId: "prestige", name: "PrÃ¡ctico" };
+    const prestigeClient = { id: "prestige", name: "Prestige", slug: "prestige-running", description: "", domainKeywords: "", domainExclusions: "", autoPublish: false, autoApprove: false, active: true, openrouterApiKey: "", openrouterModel: "", storeUrl: "", blogBaseUrl: "", labName: "", logoUrl: "", landingTemplate: "", landingPrimaryColor: "", landingSecondaryColor: "", fromName: "", fromEmail: "", smtpHost: "", smtpPort: 465, smtpUser: "", smtpPass: "", unsubscribeBaseUrl: "", trackBaseUrl: "", geoBrandPatterns: [], createdAt: new Date(), updatedAt: new Date() };
+
+    const technicalDrafts = generateLocalDrafts({
+      opportunity: mockOpp("TECHNICAL_QUESTION", "Busco medias de compresion para correr 10k"),
+      brand: prestigeBrand,
+      persona: prestigePersona,
+      client: prestigeClient,
+    });
+    const styleDrafts = generateLocalDrafts({
+      opportunity: mockOpp("PURCHASE_QUESTION", "Quiero algo mas fachero y con color para running"),
+      brand: prestigeBrand,
+      persona: prestigePersona,
+      client: prestigeClient,
+    });
+
+    expect(technicalDrafts[1].draftText).toContain("compresion real");
+    expect(technicalDrafts[1].draftText).toContain("testeadas con atletas");
+    expect(styleDrafts[2].draftText).toContain("mas color");
   });
 });

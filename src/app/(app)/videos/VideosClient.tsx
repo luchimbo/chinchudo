@@ -28,6 +28,7 @@ const PLATFORM_LABELS: Record<string, string> = {
   INSTAGRAM: "Instagram",
   YOUTUBE: "YouTube Shorts",
   TWITTER: "X/Twitter",
+  REDDIT: "Reddit",
   VIRAL_MARKETING: "Viral marketing",
   VIRAL_CLONE: "Estructura viral",
   URL_ARTICLE: "Articulo/URL",
@@ -415,6 +416,7 @@ export default function VideosClient({
                   <option value="YOUTUBE">YouTube Shorts</option>
                   <option value="GOOGLE_TRENDS">Google Trends</option>
                   <option value="TWITTER">X/Twitter</option>
+                  <option value="REDDIT">Reddit</option>
                 </select>
               </label>
             )}

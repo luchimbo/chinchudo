@@ -1,6 +1,7 @@
 import type { Opportunity, Persona, PersonaRule, PrismaClient, Product } from "@prisma/client";
 import { matchCategories } from "./catalog";
 import { catalogRuleMatches, normalizeForMatch } from "./client-context";
+import { deriveVoiceModulation, type ProfileContextForDraft } from "./observed-profiles";
 
 // Nombres exactos del quinteto en la base (deben coincidir con prisma/seed.ts).
 export const PERSONA_NAMES = {
@@ -18,6 +19,8 @@ export type PersonaSuggestion = {
   personaName: string;
   score: number;
   reason: string;
+  voiceVariant?: string;
+  voiceVariantReason?: string;
 };
 
 type Rule = {
@@ -143,6 +146,18 @@ export function suggestPersona(
   return suggestAllPersonas(opportunity)[0];
 }
 
+export function selectVoiceVariant(
+  personaName: string,
+  observedProfile?: ProfileContextForDraft | null,
+): { voiceVariant: string; voiceVariantReason: string } {
+  const modulation = deriveVoiceModulation(observedProfile);
+  const prefix = personaName.toLowerCase().replace(/\s+/g, "-");
+  return {
+    voiceVariant: `${prefix}:${modulation.styleLabel}`,
+    voiceVariantReason: `${modulation.styleLabel} | ${modulation.introStyle} ${modulation.guardrail}`.trim(),
+  };
+}
+
 /**
  * Devuelve las 5 personas con su ángulo propio.
  * La primera es la mejor coincidencia según reglas; el resto sigue en orden de score.
@@ -199,6 +214,7 @@ export async function suggestAllPersonasForClient(
   prisma: PrismaClient,
   opportunity: Pick<Opportunity, "sourceText" | "detectedIntent"> & { detectedProduct?: Product | null },
   clientId: string,
+  observedProfile?: ProfileContextForDraft | null,
 ): Promise<PersonaSuggestion[]> {
   const [personas, catalogRules] = await Promise.all([
     prisma.persona.findMany({
@@ -221,10 +237,13 @@ export async function suggestAllPersonasForClient(
     const score = matched.reduce((sum, rule) => sum + rule.weight, 0);
     const contextReason = matched.map((rule) => rule.reason || `${rule.trigger}:${rule.pattern}`).filter(Boolean).join("; ");
     const angle = persona.angle || persona.goals || persona.role;
+    const variant = selectVoiceVariant(persona.name, observedProfile);
     return {
       personaName: persona.name,
       score,
       reason: contextReason ? `${contextReason} | ${angle}` : angle,
+      voiceVariant: variant.voiceVariant,
+      voiceVariantReason: variant.voiceVariantReason,
     };
   }).sort((a, b) => b.score - a.score);
 }

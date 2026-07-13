@@ -35,6 +35,7 @@ REPORTS_DIR = ROOT / "reports"
 
 GEO_PROMPTS_FILE = DATA_DIR / "geo_prompts.csv"
 GEO_AUDITS_FILE = DATA_DIR / "geo_audits.jsonl"
+AI_PRESENCE_DIRECT_FILE = DATA_DIR / "ai-presence-direct.jsonl"
 CONTENT_FEEDBACK_FILE = DATA_DIR / "content_feedback.jsonl"
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
@@ -216,6 +217,54 @@ def build_content_suggestion(prompt_row: dict, score: int, competitors: list[str
     return f"Reforzar presencia para '{prompt}' — score {score}/5, potencial de mejora"
 
 
+def to_ai_presence_direct_entry(entry: dict, client_id: str = "") -> dict:
+    """Convierte una entrada de geo-audit al formato unificado AIPresenceResult."""
+    score = entry["score"]
+    relevance = score * 20.0  # 0-5 a 0-100
+    if entry["pcmidi_mentioned"]:
+        brand = _client_name()
+        intent = "RECOMMENDATION"
+    elif entry["competitors"]:
+        brand = "Competidor"
+        intent = "COMPETITOR_MENTION"
+    else:
+        brand = "Ninguna"
+        intent = "GENERAL_DISCUSSION"
+
+    priority = "LOW"
+    if score >= 4:
+        priority = "HIGH"
+    elif score >= 2:
+        priority = "MEDIUM"
+
+    return {
+        "timestamp_utc": entry["timestamp_utc"],
+        "clientId": client_id,
+        "sourceType": "DIRECT_AI_QUERY",
+        "channel": entry.get("provider", "openrouter"),
+        "query": entry["prompt"],
+        "sourceUrl": "",
+        "videoUrl": "",
+        "videoTitle": "",
+        "author": "",
+        "context": entry["prompt"],
+        "aiResponse": entry["response_text"],
+        "relevanceScore": relevance,
+        "brandDetected": brand,
+        "intent": intent,
+        "priority": priority,
+        "aiReasoning": f"Score {score}/5. Mencionada: {entry['pcmidi_mentioned']}. Competidores: {entry['competitors']}. URLs citadas: {entry['urls_cited']}",
+        "modelUsed": entry["model"],
+        "metadata": {
+            "competitors": entry.get("competitors", []),
+            "urls_cited": entry.get("urls_cited", []),
+            "content_gap": entry.get("content_gap", False),
+            "category": entry.get("category", ""),
+            "priority": entry.get("priority", ""),
+        },
+    }
+
+
 def run_audit(args: argparse.Namespace) -> None:
     api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
     if not api_key:
@@ -314,6 +363,14 @@ def run_audit(args: argparse.Namespace) -> None:
             for entry in audit_results:
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
         print(f"geo-audit: {len(audit_results)} entradas guardadas en {GEO_AUDITS_FILE}")
+
+        # Append a ai-presence-direct.jsonl (formato unificado AIPresenceResult)
+        client_id = _CLIENT_CONFIG.get("id", "")
+        direct_entries = [to_ai_presence_direct_entry(e, client_id) for e in audit_results]
+        with open(AI_PRESENCE_DIRECT_FILE, "a", encoding="utf-8") as f:
+            for entry in direct_entries:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        print(f"geo-audit: {len(direct_entries)} entradas unificadas guardadas en {AI_PRESENCE_DIRECT_FILE}")
 
         # Append a content_feedback.jsonl
         if feedback_entries:

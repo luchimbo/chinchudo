@@ -15,9 +15,26 @@ export type OpportunityRow = Prisma.OpportunityGetPayload<{
     channel: true;
     detectedBrand: true;
     detectedProduct: true;
+    observedProfile: true;
+    observedEvent: true;
+    responses: {
+      select: {
+        id: true;
+        voiceVariant: true;
+        persona: { select: { name: true } };
+      };
+    };
     _count: { select: { responses: true } };
   };
 }>;
+
+type RecommendationMeta = {
+  personaName: string;
+  voiceVariant?: string;
+  clarity: "high" | "medium" | "low";
+  reason: string;
+  hasAlignedDraft?: boolean;
+};
 
 function getPriorityClass(priority: string) {
   if (priority === "URGENT") return "bg-signal text-white";
@@ -50,10 +67,12 @@ function SourceLink({ href, compact = false }: { href: string; compact?: boolean
 
 export function OpportunityList({
   opportunities,
+  recommendationMetaById = {},
   clientSlug,
   emptyMessage = "No hay oportunidades que coincidan con el filtro.",
 }: {
   opportunities: OpportunityRow[];
+  recommendationMetaById?: Record<string, RecommendationMeta>;
   clientSlug?: string;
   emptyMessage?: string;
 }) {
@@ -66,6 +85,7 @@ export function OpportunityList({
   return (
     <div className="divide-y divide-ink/10">
       {opportunities.map((opportunity) => {
+        const recommendation = recommendationMetaById[opportunity.id];
         const missing = [
           !opportunity.detectedBrand ? "marca" : "",
           !opportunity.detectedProduct ? "producto" : "",
@@ -102,6 +122,17 @@ export function OpportunityList({
                     {opportunity._count.responses} borradores
                   </span>
                 ) : null}
+                {recommendation ? (
+                  <span className={`rounded-full border px-3 py-1 text-xs font-bold ${
+                    recommendation.clarity === "high"
+                      ? "border-moss/25 bg-moss/10 text-moss"
+                      : recommendation.clarity === "medium"
+                        ? "border-brass/25 bg-brass/10 text-brass"
+                        : "border-signal/25 bg-signal/10 text-signal"
+                  }`}>
+                    {recommendation.hasAlignedDraft ? "Alineado" : "Sugerida"} · {recommendation.personaName}
+                  </span>
+                ) : null}
                 {missing.length > 0 ? (
                   <span className="rounded-full border border-brass/25 bg-brass/10 px-3 py-1 text-xs font-bold text-brass">
                     Falta {missing.join(" / ")}
@@ -113,6 +144,20 @@ export function OpportunityList({
                 {opportunity.detectedBrand?.name ?? "Marca sin definir"}
                 {opportunity.detectedProduct ? ` / ${opportunity.detectedProduct.name}` : ""}
               </p>
+              {opportunity.observedProfile ? (
+                <p className="mt-1 text-xs text-slate/65">
+                  Perfil: {opportunity.observedProfile.externalHandle}
+                  {Array.isArray(opportunity.observedProfile.primaryTopics) && opportunity.observedProfile.primaryTopics.length > 0
+                    ? ` · ${opportunity.observedProfile.primaryTopics.slice(0, 2).join(", ")}`
+                    : ""}
+                </p>
+              ) : null}
+              {recommendation ? (
+                <p className="mt-1 text-xs text-slate/60">
+                  {recommendation.voiceVariant ? `${recommendation.voiceVariant} · ` : ""}
+                  {recommendation.reason}
+                </p>
+              ) : null}
             </div>
 
             <div className="flex flex-wrap items-center justify-start gap-2 md:justify-end">

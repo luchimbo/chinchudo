@@ -401,6 +401,50 @@ def get_instagram_public_search_trends(keywords: list[str]) -> list[dict]:
     return trends
 
 
+def get_reddit_trends(keywords: list[str]) -> list[dict]:
+    log.info("reddit_trends_start", details="Reddit public search")
+    trends = []
+    for keyword in keywords[:MAX_KEYWORDS_PER_SOURCE]:
+        if len(keyword) < 3:
+            continue
+        query = f"{keyword} site:reddit.com"
+        for result in search_with_duckduckgo(query, max_results=2):
+            href = result.get("href", "")
+            if not href or "reddit.com" not in href:
+                continue
+            if any(item.get("source_url") == href for item in trends):
+                continue
+            title = result.get("title", "").strip()
+            body = result.get("body", "").strip()
+
+            # Beautify title from URL slug if it is placeholder or missing
+            if not title or title.lower() == "link to reddit.com" or "reddit" in title.lower():
+                match = re.search(r"/comments/[^/]+/([^/]+)", href)
+                if match:
+                    slug = match.group(1)
+                    title = slug.replace("_", " ").replace("-", " ").capitalize()
+                else:
+                    title = f"Post sobre {keyword}"
+
+            if body == "The site owner hides the web page description.":
+                body = f"Discusion y opiniones de la comunidad de Reddit sobre '{keyword}'."
+
+            trends.append({
+                "title": f"Reddit: {title}",
+                "description": f"Post y debate en Reddit relacionado con {keyword}: {body}",
+                "source_url": href,
+                "platform": "REDDIT",
+                "query_used": keyword,
+                "metadata": {
+                    "source": "duckduckgo_reddit_search",
+                    "search_query": query,
+                },
+            })
+            break
+    log.info("reddit_trends_done", found=len(trends))
+    return trends
+
+
 def make_viral_marketing_trend(result: dict, query: str, format_name: str, source: str) -> dict | None:
     href = (result.get("href") or "").strip()
     title = (result.get("title") or "").strip()
@@ -524,6 +568,7 @@ def main() -> None:
                 get_tiktok_public_search_trends,
                 get_instagram_public_search_trends,
                 get_youtube_trends,
+                get_reddit_trends,
             ]
             log.info("keyword_batch_start", client=client["name"], offset=offset, batch_size=len(keyword_batch), new_count=len(client_trends))
             for runner in source_runners:

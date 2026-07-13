@@ -18,6 +18,8 @@ import { getRelayUrl } from "@/lib/settings";
 import { loadClientContext, resolveOpportunityClient } from "@/lib/client-context";
 import { detectCrossClientTerms, validateClientScopedActors } from "@/lib/guardrails";
 import { triageOpportunity } from "@/lib/opportunity-triage";
+import { loadObservedProfileContext, overrideObservedProfileSignals, recordObservedProfileEvent } from "@/lib/observed-profiles";
+import { selectVoiceVariant } from "@/lib/persona-router";
 
 const createOpportunitySchema = z.object({
   channelId: z.string().min(1),
@@ -58,6 +60,19 @@ export async function createOpportunity(formData: FormData) {
       detectedProductId: parsed.detectedProductId || null,
       status: OpportunityStatus.NEW
     }
+  }).then(async (opportunity) => {
+    if (!clientObj) return;
+    await recordObservedProfileEvent(prisma, {
+      opportunityId: opportunity.id,
+      clientId: clientObj.id,
+      platform: "manual",
+      sourceAuthor: parsed.sourceAuthor || "",
+      sourceText: parsed.sourceText,
+      sourceUrl: parsed.sourceUrl,
+      detectedIntent: parsed.detectedIntent,
+      priority: parsed.priority,
+      createdAt: opportunity.createdAt,
+    });
   });
 
   revalidatePath("/oportunidades");
@@ -128,6 +143,7 @@ export async function generateResponseDrafts(formData: FormData) {
     }),
     loadActivePrompt(prisma)
   ]);
+  const observedProfile = await loadObservedProfileContext(prisma, opportunity.id);
 
   const ctx = {
     opportunity: opportunityForDraft,
@@ -139,7 +155,9 @@ export async function generateResponseDrafts(formData: FormData) {
     knowledge,
     objections,
     activeSystemPrompt,
+    observedProfile,
   };
+  const voiceVariant = selectVoiceVariant(persona.name, observedProfile);
   const drafts = (await generateAIDrafts(ctx)) ?? generateLocalDrafts(ctx);
   const draftsWithRisks = await Promise.all(drafts.map(async (draft) => {
     const crossClientHits = await detectCrossClientTerms(prisma, resolution.client.id, draft.draftText);
@@ -168,6 +186,8 @@ export async function generateResponseDrafts(formData: FormData) {
         personaId,
         brandId,
         variantType: draft.variantType,
+        voiceVariant: voiceVariant.voiceVariant,
+        voiceVariantReason: voiceVariant.voiceVariantReason,
         draftText: draft.draftText,
         riskNotes: draft.riskNotes
       }))
@@ -718,6 +738,38 @@ export async function generateDailyDraftBatch(formData: FormData) {
   }
 
   revalidatePath("/");
+  revalidatePath("/oportunidades");
+}
+
+const updateObservedSignalsSchema = z.object({
+  opportunityId: z.string().min(1),
+  primaryTopic: z.string().min(1),
+  secondaryTopics: z.string().optional(),
+  topicConfidence: z.enum(["high", "medium", "low"]),
+  tone: z.enum(["casual", "technical", "formal", "aspirational", "direct", "mixed"]),
+  toneConfidence: z.enum(["high", "medium", "low"]),
+});
+
+export async function updateObservedSignals(formData: FormData) {
+  const parsed = updateObservedSignalsSchema.parse({
+    opportunityId: formData.get("opportunityId"),
+    primaryTopic: formData.get("primaryTopic"),
+    secondaryTopics: formData.get("secondaryTopics") || "",
+    topicConfidence: formData.get("topicConfidence"),
+    tone: formData.get("tone"),
+    toneConfidence: formData.get("toneConfidence"),
+  });
+
+  await overrideObservedProfileSignals(prisma, {
+    opportunityId: parsed.opportunityId,
+    primaryTopic: parsed.primaryTopic,
+    secondaryTopics: (parsed.secondaryTopics ?? "").split(",").map((item) => item.trim()).filter(Boolean),
+    topicConfidence: parsed.topicConfidence,
+    tone: parsed.tone,
+    toneConfidence: parsed.toneConfidence,
+  });
+
+  revalidatePath(`/opportunities/${parsed.opportunityId}`);
   revalidatePath("/oportunidades");
 }
 

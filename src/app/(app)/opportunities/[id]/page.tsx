@@ -9,7 +9,8 @@ import {
   markAsPublished,
   publishViaAgent,
   updateOpportunityStatus,
-  deleteResponse
+  deleteResponse,
+  updateObservedSignals
 } from "../actions";
 import { prisma } from "@/lib/db";
 import { StatusBanner } from "./StatusBanner";
@@ -25,11 +26,49 @@ import { CopyButton } from "./CopyButton";
 import { SubmitButton } from "./SubmitButton";
 import { DraftCard } from "./DraftCard";
 import { BrowserPreview } from "./BrowserPreview";
+import { OBSERVED_TOPIC_KEYS, deriveVoiceModulation, jsonArray, loadObservedProfileContext, loadObservedProfileSummary } from "@/lib/observed-profiles";
 
 type PageProps = {
   params: { id: string };
   searchParams?: { agentError?: string; agentOk?: string; agentPending?: string; client?: string };
 };
+
+function scoreResponseAlignment(
+  response: {
+    variantType: string;
+    persona: { name: string };
+    voiceVariant?: string | null;
+  },
+  suggestion?: { personaName?: string; voiceVariant?: string },
+  observedProfileContext?: { currentTopicConfidence?: string; toneProfile?: string } | null,
+) {
+  let score = 0;
+  const reasons: string[] = [];
+  if (suggestion?.voiceVariant && response.voiceVariant === suggestion.voiceVariant) {
+    score += 10;
+    reasons.push("coincide con la variante de voz sugerida");
+  }
+  if (suggestion?.personaName && response.persona.name === suggestion.personaName) {
+    score += 6;
+    reasons.push("coincide con la persona sugerida");
+  }
+  if (response.variantType === "CONVERSATIONAL" && observedProfileContext?.toneProfile === "casual") {
+    score += 3;
+    reasons.push("calza mejor con tono casual");
+  }
+  if (response.variantType === "TECHNICAL" && observedProfileContext?.toneProfile === "technical") {
+    score += 3;
+    reasons.push("calza mejor con tono tecnico");
+  }
+  if (response.variantType === "TECHNICAL" && observedProfileContext?.currentTopicConfidence === "high") {
+    score += 1;
+  }
+  if (response.variantType === "SHORT" && observedProfileContext?.toneProfile === "direct") {
+    score += 2;
+    reasons.push("sirve mejor para tono directo");
+  }
+  return { score, reason: reasons.join("; ") || "alineacion base por variante y persona" };
+}
 
 function statusClass(status: string) {
   if (status === "PUBLISHED" || status === "CONVERTED") return "bg-moss text-white";
@@ -67,6 +106,8 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
       detectedBrand: { include: { client: true } },
       detectedProduct: true,
       monitoredSource: { include: { client: true } },
+      observedProfile: true,
+      observedEvent: true,
       responses: {
         include: {
           persona: true,
@@ -83,14 +124,16 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
   }
 
   const resolution = await resolveOpportunityClient(prisma, opportunity);
-  const [personas, brands, products] = await Promise.all([
+  const [personas, brands, products, observedProfileContext, observedProfileSummary] = await Promise.all([
     prisma.persona.findMany({ where: { clientId: resolution.client.id }, orderBy: { name: "asc" } }),
     prisma.brand.findMany({ where: { clientId: resolution.client.id }, orderBy: { name: "asc" } }),
     prisma.product.findMany({
       where: { brand: { clientId: resolution.client.id } },
       include: { brand: true },
       orderBy: [{ brand: { name: "asc" } }, { name: "asc" }]
-    })
+    }),
+    loadObservedProfileContext(prisma, opportunity.id),
+    opportunity.observedProfileId ? loadObservedProfileSummary(prisma, opportunity.observedProfileId) : Promise.resolve(null),
   ]);
 
   const selectedBrandId = opportunity.detectedBrandId ?? brands[0]?.id ?? "";
@@ -122,10 +165,17 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
     opportunity.status === "CONVERTED" ||
     opportunity.status === "FOLLOW_UP" ||
     opportunity.responses.some((r) => !!r.publishingLog);
-  const suggestions = await suggestAllPersonasForClient(prisma, opportunity, resolution.client.id);
+  const suggestions = await suggestAllPersonasForClient(prisma, opportunity, resolution.client.id, observedProfileContext);
   const suggestion = suggestions[0];
   const suggestedPersona = personas.find((p) => p.name === suggestion?.personaName);
   const suggestedPersonaId = suggestedPersona?.id ?? personas[0]?.id ?? "";
+  const voiceModulation = deriveVoiceModulation(observedProfileContext);
+  const sortedResponses = [...opportunity.responses]
+    .map((response) => ({
+      response,
+      alignment: scoreResponseAlignment(response, suggestion, observedProfileContext),
+    }))
+    .sort((a, b) => b.alignment.score - a.alignment.score || +new Date(b.response.createdAt) - +new Date(a.response.createdAt));
   const channelLower = opportunity.channel.name.toLowerCase();
   type AccountEntry = { label: string; allowedChannels: string[]; defaultPersona?: string; clientSlug?: string };
   let agentAccounts: { name: string; label: string; defaultPersona: string }[] = [];
@@ -228,6 +278,99 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
           </article>
 
           <section className="rounded-lg border border-ink/10 bg-white/75 p-5 shadow-panel backdrop-blur">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="font-display text-2xl">Perfil observado</h2>
+              {observedProfileSummary ? (
+                <span className="rounded-full bg-ink/5 px-3 py-1 text-xs font-bold text-slate">
+                  {observedProfileSummary.platform} / {observedProfileSummary.externalHandle}
+                </span>
+              ) : null}
+            </div>
+            {observedProfileContext ? (
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <div className="rounded-md bg-paper p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate/60">Tema actual</p>
+                  <p className="mt-2 text-lg font-bold text-ink">{observedProfileContext.currentTopic}</p>
+                  <p className="text-sm text-slate">Confianza: {observedProfileContext.currentTopicConfidence}</p>
+                  <p className="mt-3 text-sm text-slate">Tono inferido: {observedProfileContext.toneProfile} ({observedProfileContext.toneConfidence})</p>
+                  <p className="mt-3 text-sm text-slate">Señal comercial: {observedProfileContext.commercialReadiness}/100</p>
+                </div>
+                <div className="rounded-md bg-paper p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate/60">Intereses históricos</p>
+                  <p className="mt-2 text-sm text-ink">{observedProfileContext.historicalPrimaryTopics.join(", ") || "Sin suficientes señales"}</p>
+                  <p className="mt-3 text-xs font-bold uppercase tracking-[0.16em] text-slate/60">Secundarios</p>
+                  <p className="mt-2 text-sm text-ink">{observedProfileContext.historicalSecondaryTopics.join(", ") || "Sin suficientes señales"}</p>
+                  <p className="mt-3 text-xs text-slate">{observedProfileContext.signalSummary}</p>
+                </div>
+                <div className="rounded-md bg-paper p-4 md:col-span-2">
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate/60">Cómo modula la voz</p>
+                  <p className="mt-2 text-sm font-bold text-ink">{voiceModulation.styleLabel}</p>
+                  <p className="mt-2 text-sm text-slate">{voiceModulation.introStyle}</p>
+                  <p className="mt-1 text-sm text-slate">{voiceModulation.phrasingStyle}</p>
+                  <p className="mt-1 text-sm text-slate">{voiceModulation.ctaStyle}</p>
+                  <p className="mt-2 text-xs text-slate/80">{voiceModulation.guardrail}</p>
+                </div>
+              </div>
+            ) : (
+              <p className="mt-4 rounded-md bg-paper p-4 text-sm text-slate">
+                Todavía no hay memoria acumulada suficiente para esta cuenta observada.
+              </p>
+            )}
+
+            {observedProfileSummary ? (
+              <form action={updateObservedSignals} className="mt-5 grid gap-3 rounded-md border border-ink/10 bg-paper/80 p-4 md:grid-cols-2">
+                <input type="hidden" name="opportunityId" value={opportunity.id} />
+                <label className="grid gap-2 text-sm font-semibold text-slate">
+                  Tema actual
+                  <select name="primaryTopic" defaultValue={observedProfileContext?.currentTopic ?? jsonArray<string>(opportunity.detectedTopics)[0] ?? "general"} className="rounded-md border border-ink/15 bg-white px-3 py-3 text-ink">
+                    {OBSERVED_TOPIC_KEYS.map((topicKey) => (
+                      <option key={topicKey} value={topicKey}>{topicKey}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="grid gap-2 text-sm font-semibold text-slate">
+                  Topics secundarios
+                  <input
+                    name="secondaryTopics"
+                    defaultValue={(observedProfileContext?.historicalSecondaryTopics ?? jsonArray<string>(opportunity.detectedTopics).slice(1)).join(", ")}
+                    className="rounded-md border border-ink/15 bg-white px-3 py-3 text-ink"
+                    placeholder="running, pianos"
+                  />
+                </label>
+                <label className="grid gap-2 text-sm font-semibold text-slate">
+                  Confianza del topic
+                  <select name="topicConfidence" defaultValue={observedProfileContext?.currentTopicConfidence ?? "low"} className="rounded-md border border-ink/15 bg-white px-3 py-3 text-ink">
+                    <option value="high">high</option>
+                    <option value="medium">medium</option>
+                    <option value="low">low</option>
+                  </select>
+                </label>
+                <label className="grid gap-2 text-sm font-semibold text-slate">
+                  Tono
+                  <select name="tone" defaultValue={observedProfileContext?.toneProfile ?? "mixed"} className="rounded-md border border-ink/15 bg-white px-3 py-3 text-ink">
+                    {["casual", "technical", "formal", "aspirational", "direct", "mixed"].map((tone) => (
+                      <option key={tone} value={tone}>{tone}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="grid gap-2 text-sm font-semibold text-slate">
+                  Confianza del tono
+                  <select name="toneConfidence" defaultValue={observedProfileContext?.toneConfidence ?? "low"} className="rounded-md border border-ink/15 bg-white px-3 py-3 text-ink">
+                    <option value="high">high</option>
+                    <option value="medium">medium</option>
+                    <option value="low">low</option>
+                  </select>
+                </label>
+                <div className="flex items-end">
+                  <SubmitButton loadingText="Guardando..." className="w-full rounded-full bg-ink px-5 py-3 text-sm font-bold text-paper transition hover:bg-slate disabled:opacity-50">
+                    Guardar corrección de perfil
+                  </SubmitButton>
+                </div>
+              </form>
+            ) : null}
+          </section>
+
+          <section className="rounded-lg border border-ink/10 bg-white/75 p-5 shadow-panel backdrop-blur">
             <h2 className="font-display text-2xl">Borradores</h2>
             <div className="mt-4 grid gap-5">
               {opportunity.responses.length === 0 ? (
@@ -235,10 +378,12 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
                   Todavia no hay respuestas generadas para esta oportunidad.
                 </p>
               ) : (
-                opportunity.responses.map((response) => (
+                sortedResponses.map(({ response, alignment }, index) => (
                   <DraftCard
                     key={response.id}
                     response={response}
+                    isTopRecommendation={index === 0}
+                    recommendationReason={index === 0 ? alignment.reason : null}
                     opportunity={opportunity}
                     clientSlug={resolution.client.slug}
                     approveResponseAction={approveResponse}
@@ -363,6 +508,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
                   <p className="mt-2 rounded-md bg-white/10 px-3 py-2 text-xs leading-5 text-paper/70">
                     <span className="font-bold text-paper">Sugerencia automática:</span> {getPersonaDisplayName(suggestion.personaName, resolution.client.slug)}
                     {suggestion.reason ? <span className="text-paper/55"> — {suggestion.reason}</span> : null}
+                    {suggestion.voiceVariant ? <span className="block pt-1 text-paper/55">Variante sugerida: {suggestion.voiceVariant}{suggestion.voiceVariantReason ? ` · ${suggestion.voiceVariantReason}` : ""}</span> : null}
                   </p>
                 ) : null}
                 <SubmitButton

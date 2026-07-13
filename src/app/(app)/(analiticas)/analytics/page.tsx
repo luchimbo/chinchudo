@@ -87,6 +87,38 @@ function Chip({ label, value }: { label: string; value: number }) {
   );
 }
 
+function FunnelRow({
+  label,
+  suggested,
+  approved,
+  published,
+}: {
+  label: string;
+  suggested: number;
+  approved: number;
+  published: number;
+}) {
+  return (
+    <div className="rounded-lg border border-ink/5 bg-paper px-4 py-3">
+      <p className="truncate text-xs font-bold text-ink">{label}</p>
+      <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+        <div>
+          <p className="text-[10px] text-slate">Sugerida</p>
+          <p className="text-sm font-bold text-ink tabular-nums">{suggested}</p>
+        </div>
+        <div>
+          <p className="text-[10px] text-slate">Aprobada</p>
+          <p className="text-sm font-bold text-brass tabular-nums">{approved}</p>
+        </div>
+        <div>
+          <p className="text-[10px] text-slate">Publicada</p>
+          <p className="text-sm font-bold text-moss tabular-nums">{published}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Helpers y Mapeos ────────────────────────────────────────────────────────
 
 const CANAL_LABEL: Record<string, string> = {
@@ -425,6 +457,44 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
               <EmptyChart />
             )}
           </ChartCard>
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-2">
+          <div className="rounded-xl border border-ink/10 bg-white/70 p-5 shadow-panel backdrop-blur">
+            <h2 className="mb-4 text-xs font-bold uppercase tracking-[0.18em] text-slate/70">
+              Variantes de voz más usadas
+            </h2>
+            {data.voiceVariantCounts.length > 0 ? (
+              <div className="flex flex-col gap-2">
+                {data.voiceVariantCounts.slice(0, 8).map((row) => (
+                  <Bar key={row.voiceVariant} label={row.voiceVariant} value={row.count} max={data.voiceVariantCounts[0].count} unit="respuestas" />
+                ))}
+              </div>
+            ) : (
+              <EmptyChart label="Sin variantes de voz registradas aún" />
+            )}
+          </div>
+
+          <div className="rounded-xl border border-ink/10 bg-white/70 p-5 shadow-panel backdrop-blur">
+            <h2 className="mb-4 text-xs font-bold uppercase tracking-[0.18em] text-slate/70">
+              Funnel por variante de voz
+            </h2>
+            {data.voiceVariantFunnel.length > 0 ? (
+              <div className="grid gap-3">
+                {data.voiceVariantFunnel.map((row) => (
+                  <FunnelRow
+                    key={row.voiceVariant}
+                    label={row.voiceVariant}
+                    suggested={row.suggested}
+                    approved={row.approved}
+                    published={row.published}
+                  />
+                ))}
+              </div>
+            ) : (
+              <EmptyChart label="Sin funnel de variantes todavía" />
+            )}
+          </div>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-2">

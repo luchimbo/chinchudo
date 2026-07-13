@@ -47,6 +47,15 @@ export default async function HistorialPage({ searchParams }: PageProps) {
         channel: true,
         detectedBrand: true,
         detectedProduct: true,
+        observedProfile: true,
+        observedEvent: true,
+        responses: {
+          select: {
+            id: true,
+            voiceVariant: true,
+            persona: { select: { name: true } },
+          },
+        },
         _count: { select: { responses: true } },
       },
       orderBy,

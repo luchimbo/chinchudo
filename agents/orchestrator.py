@@ -481,6 +481,11 @@ def main() -> None:
     trend_cmd.add_argument("--limit", type=int, default=15)
     trend_cmd.add_argument("--dry-run", action="store_true")
 
+    ai_presence_cmd = sub.add_parser("ai-presence", help="Auditoria de presencia en IAs: consulta directa + radar de redes sociales")
+    ai_presence_cmd.add_argument("--limit", type=int, default=0)
+    ai_presence_cmd.add_argument("--dry-run", action="store_true")
+    ai_presence_cmd.add_argument("--client-slug", default="", help="Cliente a auditar (default: pcmidi)")
+
     parsed, unknown = parser.parse_known_args()
     args = apply_positional_fallback(apply_npm_flags(parsed), unknown)
 

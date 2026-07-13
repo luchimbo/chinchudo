@@ -14,6 +14,7 @@ import { loadActivePrompt } from "../src/lib/prompts";
 import { loadClientContext, resolveOpportunityClient } from "../src/lib/client-context";
 import { detectCrossClientTerms, validateClientScopedActors } from "../src/lib/guardrails";
 import { triageOpportunity } from "../src/lib/opportunity-triage";
+import { loadObservedProfileContext, recordObservedProfileEvent } from "../src/lib/observed-profiles";
 
 loadEnv();
 
@@ -101,6 +102,17 @@ async function main() {
     try {
       resolution = await resolveOpportunityClient(prisma, opportunity);
       clientContext = await loadClientContext(prisma, resolution.client.id, opportunity);
+      await recordObservedProfileEvent(prisma, {
+        opportunityId: opportunity.id,
+        clientId: resolution.client.id,
+        platform: opportunity.channel.name,
+        sourceAuthor: opportunity.sourceAuthor,
+        sourceText: opportunity.sourceText,
+        sourceUrl: opportunity.sourceUrl,
+        detectedIntent: opportunity.detectedIntent,
+        priority: opportunity.priority,
+        createdAt: opportunity.createdAt,
+      });
     } catch (error) {
       errors.push({ opportunityId: opportunity.id, error: `cliente/contexto: ${(error as Error).message}` });
       continue;
@@ -108,14 +120,12 @@ async function main() {
 
     const brand = clientContext.brand;
     const personaByName = new Map(clientContext.personas.map((p) => [p.name, p]));
-    const suggestions = (await suggestAllPersonasForClient(prisma, opportunity, resolution.client.id))
-      .slice(0, args.allPersonas ? undefined : 1);
-
     let knowledge: Awaited<ReturnType<typeof loadRelevantKnowledge>>["knowledge"];
     let objections: Awaited<ReturnType<typeof loadRelevantKnowledge>>["objections"];
     let activeSystemPrompt: Awaited<ReturnType<typeof loadActivePrompt>>;
+    let observedProfile;
     try {
-      const [knowledgeResult, promptResult] = await Promise.all([
+      const [knowledgeResult, promptResult, observedProfileResult] = await Promise.all([
         loadRelevantKnowledge(prisma, {
           sourceText: opportunity.sourceText,
           clientId: resolution.client.id,
@@ -123,14 +133,19 @@ async function main() {
           productId: opportunity.detectedProductId,
         }),
         loadActivePrompt(prisma),
+        loadObservedProfileContext(prisma, opportunity.id),
       ]);
       knowledge = knowledgeResult.knowledge;
       objections = knowledgeResult.objections;
       activeSystemPrompt = promptResult;
+      observedProfile = observedProfileResult;
     } catch (error) {
       errors.push({ opportunityId: opportunity.id, error: `carga de contexto: ${(error as Error).message}` });
       continue;
     }
+
+    const suggestions = (await suggestAllPersonasForClient(prisma, opportunity, resolution.client.id, observedProfile))
+      .slice(0, args.allPersonas ? undefined : 1);
 
     const allRows: {
       id: string;
@@ -138,6 +153,8 @@ async function main() {
       brandId: string;
       personaId: string;
       variantType: "SHORT" | "TECHNICAL" | "CONVERSATIONAL";
+      voiceVariant: string;
+      voiceVariantReason: string;
       draftText: string;
       riskNotes: string;
       approvedBy?: string;
@@ -173,6 +190,7 @@ async function main() {
           knowledge,
           objections,
           activeSystemPrompt,
+          observedProfile,
         };
         let source = "local";
         let variants = allowAi ? await generateAIDrafts(ctx) : null;
@@ -189,6 +207,8 @@ async function main() {
           clientReason: resolution.reason,
           persona: persona.name,
           reason: suggestion.reason,
+          voiceVariant: suggestion.voiceVariant ?? "",
+          voiceVariantReason: suggestion.voiceVariantReason ?? "",
           source,
         });
 
@@ -207,6 +227,8 @@ async function main() {
             brandId: brand.id,
             personaId: persona.id,
             variantType: v.variantType as any,
+            voiceVariant: suggestion.voiceVariant ?? "",
+            voiceVariantReason: suggestion.voiceVariantReason ?? "",
             draftText: v.draftText,
             riskNotes,
           });
