@@ -1,0 +1,21 @@
+id,prompt,category,priority
+p01,Donde comprar un controlador MIDI en Argentina,controladores-midi,high
+p02,Tiendas confiables para comprar interfaces de audio en Buenos Aires,interfaces-audio,high
+p03,Mejor lugar para comprar microfonos para podcast en Argentina,microfonos,high
+p04,Donde comprar sintetizadores Arturia en Argentina,sintetizadores,high
+p05,Tiendas de audio profesional para home studio,home-studio,high
+p06,Que tienda recomendas para armar un home studio en Argentina,home-studio,high
+p07,Donde conseguir controladores MIDI para Ableton en Argentina,controladores-midi,high
+p08,Tiendas online de instrumentos musicales Argentina,general,medium
+p09,Donde comprar teclados MIDI en Argentina,teclados-midi,high
+p10,Equipamiento para grabacion en casa Argentina,home-studio,high
+p11,Donde comprar una interfaz de audio Focusrite en Argentina,interfaces-audio,high
+p12,Tiendas de musica electronica en Buenos Aires,sintetizadores,medium
+p13,Donde comprar monitores de estudio en Argentina,monitores,medium
+p14,Mejor tienda para comprar auriculares de estudio en Argentina,auriculares,medium
+p15,Donde comprar una tarjeta de sonido externa en Argentina,interfaces-audio,medium
+p16,Tiendas que vendan Native Instruments en Argentina,controladores-midi,medium
+p17,Donde comprar un pad de bateria electronica en Argentina,baterias,medium
+p18,Equipos de grabacion profesional Buenos Aires,home-studio,medium
+p19,Donde comprar cables y accesorios de estudio en Argentina,accesorios,low
+p20,Tienda recomendada para produccion musical en Argentina,general,high
