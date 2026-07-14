@@ -15,6 +15,7 @@ import { loadClientContext, resolveOpportunityClient } from "../src/lib/client-c
 import { detectCrossClientTerms, validateClientScopedActors } from "../src/lib/guardrails";
 import { triageOpportunity } from "../src/lib/opportunity-triage";
 import { loadObservedProfileContext, recordObservedProfileEvent } from "../src/lib/observed-profiles";
+import { classifyJurispediaSafety, isJurispediaAutoPublishAllowed } from "../src/lib/jurispedia-policy";
 
 loadEnv();
 
@@ -118,6 +119,20 @@ async function main() {
       continue;
     }
 
+    if (resolution.client.slug === "jurispedia") {
+      const legalSafety = classifyJurispediaSafety(opportunity.sourceText);
+      if (!legalSafety.allowed) {
+        if (!args.dryRun) {
+          await prisma.opportunity.update({
+            where: { id: opportunity.id },
+            data: { status: "DISCARDED", notes: [opportunity.notes, `Jurispedia: ${legalSafety.reason}`].filter(Boolean).join(" ") },
+          });
+        }
+        routing.push({ opportunityId: opportunity.id, clientId: resolution.client.id, clientSlug: resolution.client.slug, confidence: resolution.confidence, clientReason: resolution.reason, persona: "", reason: legalSafety.reason, source: "jurispedia-policy" });
+        continue;
+      }
+    }
+
     const brand = clientContext.brand;
     const personaByName = new Map(clientContext.personas.map((p) => [p.name, p]));
     let knowledge: Awaited<ReturnType<typeof loadRelevantKnowledge>>["knowledge"];
@@ -193,7 +208,9 @@ async function main() {
           observedProfile,
         };
         let source = "local";
-        let variants = allowAi ? await generateAIDrafts(ctx) : null;
+        // Para Jurispedia el contenido público se genera con la plantilla auditada;
+        // no se usa IA generativa para evitar asesoramiento o citas inventadas.
+        let variants = resolution.client.slug === "jurispedia" ? null : (allowAi ? await generateAIDrafts(ctx) : null);
         if (variants && variants.length > 0) source = "ai";
         else variants = generateLocalDrafts(ctx);
         if (source === "ai") aiUsed++;
@@ -248,8 +265,17 @@ async function main() {
 
     let approvedResponseId: string | null = null;
     let approvedAccount: string | null = null;
-    const autoApprove = resolution.client.autoApprove && !opportunityHadError && resolution.confidence === "high";
-    const autoPublish = resolution.client.autoPublish && !opportunityHadError && resolution.confidence === "high";
+    const channelSetting = resolution.client.slug === "jurispedia"
+      ? await prisma.appSetting.findUnique({ where: { key: `jurispedia.autopublish.${opportunity.channel.name.toLowerCase()}` } })
+      : null;
+    const legalPublish = isJurispediaAutoPublishAllowed({
+      clientSlug: resolution.client.slug,
+      opportunity,
+      channel: opportunity.channel,
+      channelEnabled: channelSetting?.value === "true",
+    });
+    const autoApprove = resolution.client.autoApprove && !opportunityHadError && resolution.confidence === "high" && legalPublish.allowed;
+    const autoPublish = resolution.client.autoPublish && !opportunityHadError && resolution.confidence === "high" && legalPublish.allowed;
 
     if (autoApprove || autoPublish) {
       const bestPersonaName = suggestions[0]?.personaName;
@@ -271,7 +297,7 @@ async function main() {
     try {
       const opportunityStatus = autoPublish || autoApprove
         ? "APPROVED"
-        : (opportunityHadError || resolution.confidence === "low" ? "NEEDS_REVIEW" : "DRAFTED");
+        : (opportunityHadError || resolution.confidence === "low" || !legalPublish.allowed ? "NEEDS_REVIEW" : "DRAFTED");
 
       await prisma.$transaction([
         prisma.response.createMany({ data: allRows }),
@@ -280,6 +306,7 @@ async function main() {
           data: {
             detectedBrandId: brand.id,
             status: opportunityStatus,
+            notes: !legalPublish.allowed ? [opportunity.notes, `Publicación automática bloqueada: ${legalPublish.reason}`].filter(Boolean).join(" ") : undefined,
           },
         }),
       ]);

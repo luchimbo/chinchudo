@@ -3,9 +3,10 @@ import { prisma } from "@/lib/db";
 import { z } from "zod";
 
 const EventSchema = z.object({
-  event_type: z.string().min(1),
-  slug: z.string().optional(),
-  referrer: z.string().default(""),
+  event_type: z.string().min(1).max(80),
+  slug: z.string().max(160).optional(),
+  client_slug: z.string().max(80).optional(),
+  referrer: z.string().max(500).default(""),
   meta: z.record(z.unknown()).default({}),
 });
 
@@ -17,6 +18,9 @@ export async function POST(req: NextRequest) {
     const landing = data.slug
       ? await prisma.landing.findUnique({ where: { slug: data.slug } })
       : null;
+    const client = data.client_slug
+      ? await prisma.client.findUnique({ where: { slug: data.client_slug }, select: { id: true } })
+      : null;
 
     await prisma.trackingEvent.create({
       data: {
@@ -25,6 +29,7 @@ export async function POST(req: NextRequest) {
         referrer: data.referrer,
         meta: data.meta as object,
         landingId: landing?.id,
+        clientId: client?.id ?? landing?.clientId,
       },
     });
 

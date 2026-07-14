@@ -84,7 +84,7 @@ async function main() {
     });
 
     for (const opportunity of rows) {
-      const decision = triageOpportunity(opportunity);
+      const decision = triageOpportunity({ ...opportunity, clientSlug: client?.slug });
       decisions.push({
         opportunityId: opportunity.id,
         action: decision.action,

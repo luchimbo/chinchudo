@@ -1,4 +1,5 @@
 import type { OpportunityIntent, OpportunityPriority } from "@prisma/client";
+import { classifyJurispediaSafety } from "./jurispedia-policy";
 
 type TriageInput = {
   sourceText: string;
@@ -6,6 +7,7 @@ type TriageInput = {
   detectedIntent?: OpportunityIntent | string | null;
   priority?: OpportunityPriority | string | null;
   sourceUrl?: string | null;
+  clientSlug?: string | null;
 };
 
 export type TriageDecision = {
@@ -78,6 +80,10 @@ function hasAny(haystack: string, terms: string[]) {
 }
 
 export function triageOpportunity(input: TriageInput): TriageDecision {
+  if (input.clientSlug === "jurispedia") {
+    const decision = classifyJurispediaSafety(input.sourceText);
+    return { action: decision.allowed ? "keep" : "discard", score: decision.allowed ? 8 : -10, reason: decision.reason };
+  }
   const text = normalize(`${input.sourceText} ${input.sourceAuthor ?? ""}`);
   const words = text.split(/\s+/).filter(Boolean);
   let score = 0;

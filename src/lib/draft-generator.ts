@@ -2,6 +2,7 @@ import type { Brand, CatalogRule, Channel, Client, Opportunity, Persona, Product
 import { selectRelevantProducts, type ProductEntry, type ScopedProduct } from "./catalog";
 import type { KnowledgeLike, ObjectionLike } from "./knowledge";
 import { deriveVoiceModulation, type ProfileContextForDraft } from "./observed-profiles";
+import { makeJurispediaDrafts } from "./jurispedia-policy";
 
 type DraftContext = {
   opportunity: Opportunity & {
@@ -482,6 +483,13 @@ function makeGenericDrafts(
 }
 
 export function generateLocalDrafts(ctx: DraftContext): DraftVariant[] {
+  if (ctx.client?.slug === "jurispedia") {
+    return makeJurispediaDrafts({
+      text: ctx.opportunity.sourceText,
+      channel: ctx.opportunity.channel.name,
+      opportunityId: ctx.opportunity.id,
+    });
+  }
   const { opportunity, brand, persona, knowledge, objections, observedProfile } = ctx;
   const original = compactText(opportunity.sourceText);
   const products = selectRelevantProducts(opportunity.sourceText, opportunity.detectedProduct, 1, {
