@@ -99,6 +99,26 @@ model Client {
   observedProfiles    ObservedProfile[]
   trends              Trend[]
   videoScripts        VideoScript[]
+  brandSnapshots      BrandSnapshot[]
+}
+
+model BrandSnapshot {
+  id           String   @id @default(cuid())
+  clientId     String
+  milestone    String
+  baselineAt   DateTime
+  scheduledFor DateTime
+  capturedAt   DateTime @default(now())
+  metrics      Json     @default("{}")
+  deltas       Json     @default("{}")
+  csvPath      String   @default("")
+  pdfPath      String   @default("")
+  createdAt    DateTime @default(now())
+  client       Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, milestone])
+  @@index([clientId, scheduledFor])
+  @@index([capturedAt])
 }
 
 model User {

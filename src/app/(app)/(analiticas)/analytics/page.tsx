@@ -13,6 +13,7 @@ import {
   WeeklyTrendChart,
 } from "@/components/analytics/charts";
 import { WeeklySummary } from "@/components/analytics/weekly-summary";
+import { BrandSnapshotComparison } from "@/components/analytics/brand-snapshot-comparison";
 
 // ─── Componentes de Presentación ─────────────────────────────────────────────
 
@@ -155,6 +156,11 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
   const activeClient = clients.find((c) => c.slug === clientSlug) ?? clients[0] ?? null;
 
   const data = await getAnalyticsData(activeClient?.id);
+  const brandSnapshots = await prisma.brandSnapshot.findMany({
+    where: { client: { slug: { in: ["jurispedia", "prestige-running"] } } },
+    include: { client: { select: { name: true, slug: true } } },
+    orderBy: { capturedAt: "asc" },
+  });
 
   const responseRate =
     data.totalOpportunities > 0
@@ -399,6 +405,8 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
           )}
         </section>
       )}
+
+      <BrandSnapshotComparison snapshots={brandSnapshots} />
 
       {/* ── SECCIÓN 1: OPORTUNIDADES Y RESPUESTAS EN REDES ── */}
       <section className="flex flex-col gap-6">

@@ -117,6 +117,20 @@ Opcional: `TRENDS_RUN_LIMIT` cambia el objetivo de tendencias de rubro y virales
 
 ## Backup de base de datos
 
+## Fotos de marca: Jurispedia y Prestige
+
+La línea base y los hitos D+30/60/90/180/365 se guardan como snapshots inmutables de datos internos, con PDF y CSV. Para crear la base inmediatamente:
+
+```bash
+npm run brand:snapshots -- --bootstrap
+```
+
+Para registrar el corte diario automático a las 12:00 de Argentina, ejecutar PowerShell como administrador:
+
+```powershell
+npm run brand:snapshots:install
+```
+
 ```bash
 node scripts/backup-db.mjs
 ```

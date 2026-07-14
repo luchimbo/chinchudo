@@ -15,6 +15,8 @@
     "db:push": "node scripts/db-apply-diff.mjs",
     "db:seed": "tsx prisma/seed.ts",
     "db:seed-jurispedia": "tsx scripts/seed-jurispedia.mts",
+    "brand:snapshots": "tsx scripts/capture-brand-snapshots.mts",
+    "brand:snapshots:install": "powershell -ExecutionPolicy Bypass -File scripts/registrar-brand-snapshots-admin.ps1",
     "agents:jurispedia:publish": "tsx scripts/configure-jurispedia-autopublish.mts",
     "agents:jurispedia:calibrate": "tsx scripts/seed-jurispedia-calibration.mts && tsx scripts/draft-worker.mts --client jurispedia --limit 4",
     "db:studio": "prisma studio",
