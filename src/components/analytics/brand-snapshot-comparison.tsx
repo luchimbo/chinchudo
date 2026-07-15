@@ -1,17 +1,26 @@
 import type { BrandSnapshot } from "@prisma/client";
-import { asSnapshotMetrics, type SnapshotMetrics } from "@/lib/brand-snapshots";
+import { asSnapshotMetrics, scheduleForMilestone, type SnapshotMetrics } from "@/lib/brand-snapshots";
 
-const label: Record<string, string> = { D0: "Día 0", D30: "Día 30", D60: "Día 60", D90: "Día 90", D180: "Día 180", D365: "Día 365" };
+const milestones = ["D0", "D30", "D60", "D90", "D180", "D365"] as const;
+const label: Record<(typeof milestones)[number], string> = { D0: "Día 0", D30: "Día 30", D60: "Día 60", D90: "Día 90", D180: "Día 180", D365: "Día 365" };
 const metricRows: Array<[keyof SnapshotMetrics, string, string]> = [["configuration", "activeSources", "Fuentes activas"], ["configuration", "products", "Productos"], ["funnel", "opportunities", "Oportunidades"], ["funnel", "responses", "Borradores"], ["funnel", "approvedResponses", "Aprobadas"], ["funnel", "published", "Publicadas"], ["funnel", "converted", "Convertidas"], ["landings", "total", "Landings"], ["landings", "leads", "Leads"], ["tracking", "total", "Eventos internos"]];
+const formatDate = (date: Date) => new Intl.DateTimeFormat("es-AR", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "America/Argentina/Buenos_Aires" }).format(date);
 
-function value(snapshot: BrandSnapshot | undefined, section: keyof SnapshotMetrics, key: string) {
-  if (!snapshot) return "-";
-  return asSnapshotMetrics(snapshot.metrics)[section][key] ?? 0;
-}
+export function BrandSnapshotComparison({ snapshots, clientName }: { snapshots: BrandSnapshot[]; clientName: string }) {
+  const baseline = snapshots.find((snapshot) => snapshot.milestone === "D0");
+  if (!baseline) return null;
+  const completed = new Set(snapshots.map((snapshot) => snapshot.milestone));
+  const nextMilestone = milestones.find((milestone) => !completed.has(milestone));
+  const nextDate = nextMilestone ? scheduleForMilestone(baseline.baselineAt, nextMilestone) : null;
+  const latest = [...snapshots].sort((a, b) => a.scheduledFor.getTime() - b.scheduledFor.getTime()).at(-1)!;
+  const metrics = asSnapshotMetrics(latest.metrics);
 
-export function BrandSnapshotComparison({ snapshots }: { snapshots: Array<BrandSnapshot & { client: { name: string; slug: string } }> }) {
-  const milestones = ["D0", "D30", "D60", "D90", "D180", "D365"];
-  const latest = milestones.map((milestone) => ({ milestone, prestige: snapshots.find((s) => s.milestone === milestone && s.client.slug === "prestige-running"), jurispedia: snapshots.find((s) => s.milestone === milestone && s.client.slug === "jurispedia") })).filter((row) => row.prestige || row.jurispedia).at(-1);
-  if (!latest) return <section className="rounded-xl border border-dashed border-ink/15 bg-white/50 p-5"><h2 className="text-xs font-bold uppercase tracking-[0.18em] text-slate/70">Foto de marca</h2><p className="mt-3 text-sm text-slate">La línea base se generará automáticamente a las 12:00 de Argentina.</p></section>;
-  return <section className="rounded-xl border border-ink/10 bg-white/70 p-5 shadow-panel"><div><h2 className="text-xs font-bold uppercase tracking-[0.18em] text-slate/70">Foto de marca comparativa</h2><p className="mt-1 text-sm text-slate">{label[latest.milestone]} - datos internos inmutables</p></div><div className="mt-4 overflow-x-auto"><table className="w-full min-w-[520px] text-sm"><thead><tr className="border-b border-ink/10 text-left text-xs uppercase tracking-wide text-slate"><th className="py-2">Métrica</th><th className="py-2 text-right">Prestige</th><th className="py-2 text-right">Jurispedia</th></tr></thead><tbody>{metricRows.map(([section, key, title]) => <tr key={key} className="border-b border-ink/5"><td className="py-2.5">{title}</td><td className="py-2.5 text-right tabular-nums">{value(latest.prestige, section, key)}</td><td className="py-2.5 text-right tabular-nums">{value(latest.jurispedia, section, key)}</td></tr>)}</tbody></table></div></section>;
+  return <section className="rounded-2xl border border-moss/20 bg-gradient-to-br from-moss/10 via-white to-white p-6 shadow-panel">
+    <div className="flex flex-wrap items-start justify-between gap-5">
+      <div><p className="text-[10px] font-bold uppercase tracking-[0.22em] text-moss">Seguimiento programado</p><h2 className="mt-1 font-display text-3xl text-ink">Foto de marca: {clientName}</h2><p className="mt-1 text-sm text-slate">Día 0 guardado el {formatDate(baseline.baselineAt)}. Solo datos internos de este cliente.</p></div>
+      <div className="rounded-xl border border-moss/20 bg-white px-4 py-3 shadow-sm"><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-moss">Próximo corte</p><p className="mt-1 text-lg font-bold text-ink">{nextMilestone && nextDate ? `${label[nextMilestone]} · ${formatDate(nextDate)}` : "Seguimiento completo"}</p><p className="mt-1 text-xs text-slate">Programado para las 12:00 ART.</p></div>
+    </div>
+    <div className="mt-5 grid gap-2 sm:grid-cols-3 lg:grid-cols-6">{milestones.map((milestone) => { const done = completed.has(milestone); const date = scheduleForMilestone(baseline.baselineAt, milestone); return <div key={milestone} className={`rounded-lg border px-3 py-2 ${done ? "border-moss/20 bg-moss/10" : "border-ink/10 bg-white/70"}`}><p className={`text-xs font-bold ${done ? "text-moss" : "text-slate"}`}>{done ? "✓ " : "○ "}{label[milestone]}</p><p className="mt-1 text-[11px] text-slate">{formatDate(date)}</p></div>; })}</div>
+    <div className="mt-6 overflow-x-auto"><table className="w-full min-w-[360px] text-sm"><thead><tr className="border-b border-ink/10 text-left text-xs uppercase tracking-wide text-slate"><th className="py-2">Métrica ({label[latest.milestone as keyof typeof label]})</th><th className="py-2 text-right">Valor</th></tr></thead><tbody>{metricRows.map(([section, key, title]) => <tr key={key} className="border-b border-ink/5"><td className="py-2.5">{title}</td><td className="py-2.5 text-right tabular-nums">{metrics[section][key] ?? 0}</td></tr>)}</tbody></table></div>
+  </section>;
 }

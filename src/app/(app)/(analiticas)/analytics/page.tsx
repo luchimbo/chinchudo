@@ -157,8 +157,7 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
 
   const data = await getAnalyticsData(activeClient?.id);
   const brandSnapshots = await prisma.brandSnapshot.findMany({
-    where: { client: { slug: { in: ["jurispedia", "prestige-running"] } } },
-    include: { client: { select: { name: true, slug: true } } },
+    where: activeClient ? { clientId: activeClient.id } : { id: "__no_client__" },
     orderBy: { capturedAt: "asc" },
   });
 
@@ -406,7 +405,7 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
         </section>
       )}
 
-      <BrandSnapshotComparison snapshots={brandSnapshots} />
+      <BrandSnapshotComparison snapshots={brandSnapshots} clientName={activeClient?.name ?? "Cliente"} />
 
       {/* ── SECCIÓN 1: OPORTUNIDADES Y RESPUESTAS EN REDES ── */}
       <section className="flex flex-col gap-6">
