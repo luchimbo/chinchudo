@@ -27,6 +27,8 @@
     "db:seed-sources": "npx tsx scripts/seed-monitored-sources.mts",
     "agents:export": "python agents/orchestrator.py export",
     "agents:daily": "python agents/orchestrator.py daily",
+    "agents:daily-quota": "npx tsx scripts/daily-opportunity-quota.mts",
+    "agents:seed-prestige-radar": "npx tsx scripts/seed-prestige-radar.mts",
     "agents:monitor": "python agents/orchestrator.py monitor",
     "agents:healthcheck": "python agents/orchestrator.py healthcheck",
     "agents:publish": "node scripts/publish-response.mjs",

@@ -12,8 +12,13 @@ import {
 } from "../src/lib/client-context";
 import { classifyOpportunity } from "../src/lib/ai-opportunity-classifier";
 import { recordObservedProfileEvent } from "../src/lib/observed-profiles";
+// @ts-ignore -- shared ESM helper used by operational scripts.
+import { isPrestigeRadarCandidate, normalizedRadarText } from "./prestige-radar.mjs";
 
 loadEnv();
+// El worker local necesita una conexión estable durante las rondas largas;
+// prioriza la URL directa si está configurada, sin exponerla al cliente web.
+if (process.env.DIRECT_URL) process.env.DATABASE_URL = process.env.DIRECT_URL;
 
 const prisma = new PrismaClient();
 const intakePath = join(dataDir, "social-listen-intake.jsonl");
@@ -92,6 +97,19 @@ function normalizeSourceUrlForDedupe(channel: string, rawUrl: string): string {
   } catch {
     return rawUrl.trim().toLowerCase();
   }
+}
+
+function isNearDuplicate(sourceText: string, author: string, candidates: Array<{ sourceText: string; sourceAuthor: string }>) {
+  const normalized = normalizedRadarText(sourceText);
+  const words = new Set(normalized.split(" ").filter((word: string) => word.length > 3));
+  if (normalized.length < 30) return false;
+  return candidates.some((candidate) => {
+    const existing = normalizedRadarText(candidate.sourceText);
+    if (existing === normalized && normalizeAuthorName(candidate.sourceAuthor) === normalizeAuthorName(author)) return true;
+    const existingWords = new Set(existing.split(" ").filter((word: string) => word.length > 3));
+    const overlap = [...words].filter((word) => existingWords.has(word)).length;
+    return overlap >= 6 && overlap / Math.max(words.size, existingWords.size, 1) >= 0.92;
+  });
 }
 
 async function main() {
@@ -174,6 +192,17 @@ async function main() {
       continue;
     }
 
+    const textCandidates = await prisma.opportunity.findMany({
+      where: { createdAt: { gte: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) } },
+      select: { sourceText: true, sourceAuthor: true },
+      orderBy: { createdAt: "desc" },
+      take: 300,
+    });
+    if (isNearDuplicate(sourceText, author, textCandidates)) {
+      duplicates += 1;
+      continue;
+    }
+
     const relevanceText = `${sourceText} ${row.sourceTitle || ""} ${row.videoTitle || ""}`;
     const monitoredSourceId = String(row.monitoredSourceId || "").trim() || null;
     const monitoredSource = monitoredSourceId
@@ -185,6 +214,11 @@ async function main() {
       monitoredSourceId,
       monitoredSource,
     });
+
+    if (resolution.client.slug === "prestige-running" && !isPrestigeRadarCandidate(sourceText, `${row.sourceTitle || ""} ${row.videoTitle || ""}`)) {
+      skipped += 1;
+      continue;
+    }
 
     routing.push({
       sourceUrl,

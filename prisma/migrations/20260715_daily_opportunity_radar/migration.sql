@@ -1,0 +1,3 @@
+ALTER TABLE "Client"
+  ADD COLUMN IF NOT EXISTS "dailyOpportunityTarget" INTEGER NOT NULL DEFAULT 15,
+  ADD COLUMN IF NOT EXISTS "opportunitySearchState" JSONB NOT NULL DEFAULT '{}';

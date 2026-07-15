@@ -53,6 +53,8 @@ model Client {
   description         String            @default("")
   domainKeywords      String            @default("[]")
   domainExclusions    String            @default("[]")
+  dailyOpportunityTarget Int             @default(15)
+  opportunitySearchState Json            @default("{}")
   autoPublish         Boolean           @default(false)
   autoApprove         Boolean           @default(false)
   active              Boolean           @default(true)

@@ -25,9 +25,11 @@ function fmt(d: Date | null) {
 
 export default async function MonitoringPage({ searchParams }: { searchParams: { client?: string } }) {
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const argentinaNow = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  const todayArgentina = new Date(Date.UTC(argentinaNow.getUTCFullYear(), argentinaNow.getUTCMonth(), argentinaNow.getUTCDate(), 3));
   const clients = await getVisibleClients(prisma);
   const activeClient = clients.find((client) => client.slug === searchParams.client) ?? clients[0] ?? null;
-  const [sources, recent, accounts] = await Promise.all([
+  const [sources, recent, accounts, todayCount] = await Promise.all([
     prisma.monitoredSource.findMany({ where: activeClient ? { clientId: activeClient.id } : undefined, orderBy: { label: "asc" } }),
     prisma.opportunity.findMany({
       where: {
@@ -40,6 +42,7 @@ export default async function MonitoringPage({ searchParams }: { searchParams: {
       take: 30
     }),
     loadAccounts(),
+    activeClient ? prisma.opportunity.count({ where: { clientId: activeClient.id, createdAt: { gte: todayArgentina }, status: { not: "DISCARDED" } } }) : 0,
   ]);
 
   return (
@@ -51,6 +54,12 @@ export default async function MonitoringPage({ searchParams }: { searchParams: {
           revisión humana; nada se publica solo.
         </p>
       </header>
+
+      {activeClient ? <section className="mb-8 rounded-xl border border-ink/10 bg-white/70 p-4 shadow-panel">
+        <p className="text-xs font-bold uppercase tracking-wide text-slate">Cuota diaria · Argentina</p>
+        <p className="mt-1 font-display text-3xl text-ink">{todayCount}/{activeClient.dailyOpportunityTarget} nuevas</p>
+        <p className="mt-1 text-sm text-slate">El radar rota fuentes hasta completar oportunidades calificadas. No publica respuestas automáticamente.</p>
+      </section> : null}
 
       <section className="mb-10">
         <h2 className="font-display text-2xl text-ink">Nueva fuente</h2>
