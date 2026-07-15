@@ -17,8 +17,10 @@ function argentinaDayStart(now = new Date()) {
 
 function run(command: string, args: string[], timeoutMs = 90_000) {
   return new Promise<{ code: number | null; output: string }>((resolve) => {
-    const executable = process.platform === "win32" && command === "npx" ? "npx.cmd" : command;
-    const child = spawn(executable, args, { cwd: process.cwd(), env: process.env, shell: false, windowsHide: true });
+    const windowsNpx = process.platform === "win32" && command === "npx";
+    const executable = windowsNpx ? "cmd.exe" : command;
+    const commandArgs = windowsNpx ? ["/d", "/s", "/c", "npx.cmd", ...args] : args;
+    const child = spawn(executable, commandArgs, { cwd: process.cwd(), env: process.env, shell: false, windowsHide: true });
     let output = "";
     let settled = false;
     const finish = (code: number | null, suffix = "") => {
