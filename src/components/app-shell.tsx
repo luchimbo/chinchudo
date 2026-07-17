@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { IconRail } from "./icon-rail";
 import { ClientSwitcher } from "./client-switcher";
+import { IssueReportButton } from "./issue-report-button";
 
 type ClientOption = { slug: string; name: string };
 
@@ -38,10 +39,12 @@ const MOBILE_SECTORS = [
 export function AppShell({
   clients,
   userLabel,
+  canReportIssues,
   children,
 }: {
   clients: ClientOption[];
   userLabel: string | null;
+  canReportIssues: boolean;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -162,6 +165,7 @@ export function AppShell({
         </header>
         <main className="min-w-0 flex-1 pt-14 lg:pt-0">{children}</main>
       </div>
+      {canReportIssues ? <IssueReportButton /> : null}
     </div>
   );
 }

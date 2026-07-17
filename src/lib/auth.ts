@@ -94,6 +94,16 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   }
 }
 
+/** Usuario compartido de desarrollo autorizado a crear y gestionar reportes internos. */
+export async function isDefaultIssueReporter(): Promise<boolean> {
+  const user = await getCurrentUser();
+  return isDefaultIssueReporterUser(user);
+}
+
+export function isDefaultIssueReporterUser(user: Pick<AuthUser, "username"> | null): boolean {
+  return user?.username === "default";
+}
+
 export async function getVisibleClients(prisma: PrismaClient): Promise<Client[]> {
   const user = await getCurrentUser();
   const where = user && user.role !== "admin" && user.clientSlugs.length > 0

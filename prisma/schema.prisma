@@ -44,6 +44,11 @@ enum ResponseVariantType {
   CONVERSATIONAL
 }
 
+enum IssueReportStatus {
+  OPEN
+  RESOLVED
+}
+
 // ─── Multi-Cliente ─────────────────────────────────────────────────────────────
 
 model Client {
@@ -473,6 +478,22 @@ enum LandingStatus {
   PREVIEW_ONLINE
   PUBLISHED
   ARCHIVED
+}
+
+model IssueReport {
+  id          String            @id @default(cuid())
+  sector      String
+  originPath  String
+  description String
+  imageUrl    String            @default("")
+  reportedBy  String            @default("default")
+  status      IssueReportStatus @default(OPEN)
+  resolvedAt  DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
 }
 
 enum LeadMagnetType {
