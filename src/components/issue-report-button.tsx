@@ -45,6 +45,15 @@ export function IssueReportButton() {
     finally { setUploading(false); }
   }
 
+  function pasteImage(event: React.ClipboardEvent<HTMLFormElement>) {
+    const image = Array.from(event.clipboardData.items)
+      .find((item) => item.kind === "file" && item.type.startsWith("image/"))
+      ?.getAsFile();
+    if (!image) return;
+    event.preventDefault();
+    void upload(image);
+  }
+
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault(); setError("");
     if (!description.trim()) { setError("Contá qué problema encontraste."); return; }
@@ -74,10 +83,10 @@ export function IssueReportButton() {
           <button type="button" onClick={close} className="rounded-full px-2 py-1 text-slate transition hover:bg-ink/5" aria-label="Cerrar">×</button>
         </div>
         {success ? <div className="px-6 py-10 text-center"><p className="font-display text-2xl text-moss">Reporte guardado</p><p className="mt-2 text-sm text-slate">Ya quedó registrado para el equipo de desarrollo.</p><div className="mt-6 flex justify-center gap-3"><Link href="/reportes" onClick={close} className="rounded-full bg-ink px-4 py-2 text-sm font-bold text-paper">Ver reportes</Link><button type="button" onClick={close} className="rounded-full border border-ink/20 px-4 py-2 text-sm font-bold text-ink">Cerrar</button></div></div> :
-          <form onSubmit={submit} className="grid gap-5 px-6 py-5">
+          <form onSubmit={submit} onPaste={pasteImage} className="grid gap-5 px-6 py-5">
             <div className="rounded-lg border border-brass/25 bg-brass/10 px-3 py-2 text-xs text-slate">Pantalla reportada: <strong className="text-ink">{originPath}</strong></div>
             <label className="grid gap-2 text-sm font-bold text-ink">¿Qué está pasando?<textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength={4000} rows={5} autoFocus placeholder="Contá qué esperabas que ocurra y qué sucedió en cambio." className="resize-y rounded-lg border border-ink/20 bg-white/60 px-3 py-2 text-sm font-normal text-ink placeholder:text-slate/55" /></label>
-            <div className="grid gap-2"><span className="text-sm font-bold text-ink">Imagen de referencia <em className="font-normal text-slate">(opcional)</em></span>{previewUrl ? <div className="relative overflow-hidden rounded-lg border border-ink/15 bg-white/50">{/* La previsualización usa una URL blob local, incompatible con next/image. */}{/* eslint-disable-next-line @next/next/no-img-element */}<img src={previewUrl} alt="Vista previa de evidencia" className="max-h-52 w-full object-contain" /><button type="button" onClick={() => { if (previewUrl) URL.revokeObjectURL(previewUrl); setPreviewUrl(""); setImageUrl(""); if (inputRef.current) inputRef.current.value = ""; }} className="absolute right-2 top-2 rounded-full bg-paper px-3 py-1 text-xs font-bold text-ink shadow">Quitar</button></div> : <button type="button" onClick={() => inputRef.current?.click()} className="flex min-h-28 flex-col items-center justify-center rounded-lg border border-dashed border-ink/25 bg-white/35 text-sm text-slate transition hover:border-brass hover:bg-brass/5">{uploading ? "Subiendo evidencia…" : "Elegir imagen (PNG, JPG o WEBP · hasta 5 MB)"}</button>}<input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); }} /></div>
+            <div className="grid gap-2"><span className="text-sm font-bold text-ink">Imagen de referencia <em className="font-normal text-slate">(opcional)</em></span>{previewUrl ? <div className="relative overflow-hidden rounded-lg border border-ink/15 bg-white/50">{/* La previsualización usa una URL blob local, incompatible con next/image. */}{/* eslint-disable-next-line @next/next/no-img-element */}<img src={previewUrl} alt="Vista previa de evidencia" className="max-h-52 w-full object-contain" /><button type="button" onClick={() => { if (previewUrl) URL.revokeObjectURL(previewUrl); setPreviewUrl(""); setImageUrl(""); if (inputRef.current) inputRef.current.value = ""; }} className="absolute right-2 top-2 rounded-full bg-paper px-3 py-1 text-xs font-bold text-ink shadow">Quitar</button></div> : <button type="button" onClick={() => inputRef.current?.click()} className="flex min-h-28 flex-col items-center justify-center rounded-lg border border-dashed border-ink/25 bg-white/35 text-sm text-slate transition hover:border-brass hover:bg-brass/5">{uploading ? "Subiendo evidencia…" : "Elegir imagen o pegá una captura con Ctrl + V"}<span className="mt-1 text-xs text-slate/70">PNG, JPG o WEBP · hasta 5 MB</span></button>}<input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); }} /></div>
             {error ? <p className="rounded-lg bg-signal/10 px-3 py-2 text-sm text-signal">{error}</p> : null}
             <div className="flex justify-end gap-3"><button type="button" onClick={close} className="rounded-full px-4 py-2 text-sm font-bold text-slate">Cancelar</button><button type="submit" disabled={submitting || uploading} className="rounded-full bg-ink px-5 py-2 text-sm font-bold text-paper transition hover:bg-slate disabled:opacity-50">{submitting ? "Guardando…" : "Guardar reporte"}</button></div>
           </form>}
