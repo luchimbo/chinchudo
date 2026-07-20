@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Usá una imagen PNG, JPG o WEBP." }, { status: 400 });
   }
   if (file.size > ISSUE_IMAGE_MAX_SIZE) {
-    return NextResponse.json({ error: "La imagen supera el límite de 5 MB." }, { status: 400 });
+    return NextResponse.json({ error: "La imagen supera el límite de 4 MB." }, { status: 400 });
   }
 
   const path = `issue-reports/${new Date().toISOString().slice(0, 10)}/${randomUUID()}.${extensions[file.type]}`;

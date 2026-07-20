@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-export const ISSUE_IMAGE_MAX_SIZE = 5 * 1024 * 1024;
+// Vercel Functions limita el cuerpo de la petición a 4,5 MB; dejamos margen para multipart.
+export const ISSUE_IMAGE_MAX_SIZE = 4 * 1024 * 1024;
 export const ISSUE_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
 
 export function getIssueSector(originPath: string): string {

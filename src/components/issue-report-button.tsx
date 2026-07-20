@@ -5,7 +5,8 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 
-const MAX_SIZE = 5 * 1024 * 1024;
+// Margen bajo el límite de 4,5 MB que Vercel acepta en formularios multipart.
+const MAX_SIZE = 4 * 1024 * 1024;
 
 export function IssueReportButton() {
   const pathname = usePathname();
@@ -32,14 +33,17 @@ export function IssueReportButton() {
 
   async function upload(file: File) {
     if (!file.type.match(/^image\/(png|jpeg|webp)$/)) { setError("Usá una imagen PNG, JPG o WEBP."); return; }
-    if (file.size > MAX_SIZE) { setError("La imagen supera el límite de 5 MB."); return; }
+    if (file.size > MAX_SIZE) { setError("La captura supera el límite de 4 MB. Probá recortarla o pegar una versión más chica."); return; }
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(URL.createObjectURL(file)); setError(""); setUploading(true);
     const form = new FormData(); form.append("file", file);
     try {
       const response = await fetch("/api/issue-reports/upload", { method: "POST", body: form });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "No se pudo subir la imagen.");
+      if (response.status === 413) throw new Error("La captura es demasiado grande para subirla. Probá con una de hasta 4 MB.");
+      const contentType = response.headers.get("content-type") ?? "";
+      const data = contentType.includes("application/json") ? await response.json() : null;
+      if (!response.ok) throw new Error(data?.error || "No se pudo subir la imagen. Probá nuevamente.");
+      if (!data?.url) throw new Error("La carga no devolvió una imagen válida. Probá nuevamente.");
       setImageUrl(data.url);
     } catch (reason) { setPreviewUrl(""); setError(reason instanceof Error ? reason.message : "No se pudo subir la imagen."); }
     finally { setUploading(false); }
@@ -86,7 +90,7 @@ export function IssueReportButton() {
           <form onSubmit={submit} onPaste={pasteImage} className="grid gap-5 px-6 py-5">
             <div className="rounded-lg border border-brass/25 bg-brass/10 px-3 py-2 text-xs text-slate">Pantalla reportada: <strong className="text-ink">{originPath}</strong></div>
             <label className="grid gap-2 text-sm font-bold text-ink">¿Qué está pasando?<textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength={4000} rows={5} autoFocus placeholder="Contá qué esperabas que ocurra y qué sucedió en cambio." className="resize-y rounded-lg border border-ink/20 bg-white/60 px-3 py-2 text-sm font-normal text-ink placeholder:text-slate/55" /></label>
-            <div className="grid gap-2"><span className="text-sm font-bold text-ink">Imagen de referencia <em className="font-normal text-slate">(opcional)</em></span>{previewUrl ? <div className="relative overflow-hidden rounded-lg border border-ink/15 bg-white/50">{/* La previsualización usa una URL blob local, incompatible con next/image. */}{/* eslint-disable-next-line @next/next/no-img-element */}<img src={previewUrl} alt="Vista previa de evidencia" className="max-h-52 w-full object-contain" /><button type="button" onClick={() => { if (previewUrl) URL.revokeObjectURL(previewUrl); setPreviewUrl(""); setImageUrl(""); if (inputRef.current) inputRef.current.value = ""; }} className="absolute right-2 top-2 rounded-full bg-paper px-3 py-1 text-xs font-bold text-ink shadow">Quitar</button></div> : <button type="button" onClick={() => inputRef.current?.click()} className="flex min-h-28 flex-col items-center justify-center rounded-lg border border-dashed border-ink/25 bg-white/35 text-sm text-slate transition hover:border-brass hover:bg-brass/5">{uploading ? "Subiendo evidencia…" : "Elegir imagen o pegá una captura con Ctrl + V"}<span className="mt-1 text-xs text-slate/70">PNG, JPG o WEBP · hasta 5 MB</span></button>}<input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); }} /></div>
+            <div className="grid gap-2"><span className="text-sm font-bold text-ink">Imagen de referencia <em className="font-normal text-slate">(opcional)</em></span>{previewUrl ? <div className="relative overflow-hidden rounded-lg border border-ink/15 bg-white/50">{/* La previsualización usa una URL blob local, incompatible con next/image. */}{/* eslint-disable-next-line @next/next/no-img-element */}<img src={previewUrl} alt="Vista previa de evidencia" className="max-h-52 w-full object-contain" /><button type="button" onClick={() => { if (previewUrl) URL.revokeObjectURL(previewUrl); setPreviewUrl(""); setImageUrl(""); if (inputRef.current) inputRef.current.value = ""; }} className="absolute right-2 top-2 rounded-full bg-paper px-3 py-1 text-xs font-bold text-ink shadow">Quitar</button></div> : <button type="button" onClick={() => inputRef.current?.click()} className="flex min-h-28 flex-col items-center justify-center rounded-lg border border-dashed border-ink/25 bg-white/35 text-sm text-slate transition hover:border-brass hover:bg-brass/5">{uploading ? "Subiendo evidencia…" : "Elegir imagen o pegá una captura con Ctrl + V"}<span className="mt-1 text-xs text-slate/70">PNG, JPG o WEBP · hasta 4 MB</span></button>}<input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void upload(file); }} /></div>
             {error ? <p className="rounded-lg bg-signal/10 px-3 py-2 text-sm text-signal">{error}</p> : null}
             <div className="flex justify-end gap-3"><button type="button" onClick={close} className="rounded-full px-4 py-2 text-sm font-bold text-slate">Cancelar</button><button type="submit" disabled={submitting || uploading} className="rounded-full bg-ink px-5 py-2 text-sm font-bold text-paper transition hover:bg-slate disabled:opacity-50">{submitting ? "Guardando…" : "Guardar reporte"}</button></div>
           </form>}

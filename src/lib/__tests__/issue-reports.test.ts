@@ -22,6 +22,6 @@ describe("reportes internos", () => {
     const result = createIssueReportSchema.safeParse({ originPath: "/videos", description: "El guardado no responde", imageUrl: "https://example.com/evidencia.png" });
     expect(result.success).toBe(true);
     expect(ISSUE_IMAGE_TYPES).toContain("image/png");
-    expect(ISSUE_IMAGE_MAX_SIZE).toBe(5 * 1024 * 1024);
+    expect(ISSUE_IMAGE_MAX_SIZE).toBe(4 * 1024 * 1024);
   });
 });
