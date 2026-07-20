@@ -1,5 +1,7 @@
 import type { OpportunityIntent, OpportunityPriority } from "@prisma/client";
 import { classifyJurispediaSafety } from "./jurispedia-policy";
+// @ts-ignore -- operational radar rules are shared with the draft worker.
+import { isPrestigeRadarCandidate, isPrestigeUnsafeContent } from "../../scripts/prestige-radar.mjs";
 
 type TriageInput = {
   sourceText: string;
@@ -83,6 +85,18 @@ export function triageOpportunity(input: TriageInput): TriageDecision {
   if (input.clientSlug === "jurispedia") {
     const decision = classifyJurispediaSafety(input.sourceText);
     return { action: decision.allowed ? "keep" : "discard", score: decision.allowed ? 8 : -10, reason: decision.reason };
+  }
+  if (input.clientSlug === "prestige-running") {
+    if (isPrestigeUnsafeContent(input.sourceText)) {
+      return { action: "discard", score: -10, reason: "consulta medica o promocion comercial: requiere no intervenir" };
+    }
+    if (isPrestigeRadarCandidate(input.sourceText)) {
+      return {
+        action: "keep",
+        score: input.priority === "LOW" ? 3 : 6,
+        reason: "consulta de running relevante para aportar valor, sin requerir intencion de compra explicita",
+      };
+    }
   }
   const text = normalize(`${input.sourceText} ${input.sourceAuthor ?? ""}`);
   const words = text.split(/\s+/).filter(Boolean);

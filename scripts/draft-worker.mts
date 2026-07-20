@@ -51,7 +51,14 @@ async function main() {
   const whereClause: any = {
     status: { in: ["NEW", "NEEDS_REVIEW"] },
     responses: { none: {} },
-    priority: { in: ["URGENT", "HIGH", "MEDIUM"] },
+    OR: [
+      { priority: { in: ["URGENT", "HIGH", "MEDIUM"] } },
+      {
+        client: { slug: "prestige-running" },
+        priority: "LOW",
+        signalType: { in: ["actionable_question", "contextual_presence"] },
+      },
+    ],
   };
 
   if (args.clientSlug) {
@@ -66,6 +73,7 @@ async function main() {
       detectedProduct: true,
       monitoredSource: { include: { client: true } },
     },
+      client: { select: { slug: true } },
     orderBy: [
       { priority: "desc" },
       { createdAt: "desc" },
@@ -74,7 +82,7 @@ async function main() {
   });
 
   const opportunities = candidates
-    .map((opportunity) => ({ opportunity, triage: triageOpportunity(opportunity) }))
+    .map((opportunity) => ({ opportunity, triage: triageOpportunity({ ...opportunity, clientSlug: opportunity.client?.slug }) }))
     .filter((row) => row.triage.action === "keep")
     .sort((a, b) => b.triage.score - a.triage.score)
     .slice(0, args.limit)

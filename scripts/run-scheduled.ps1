@@ -51,13 +51,13 @@ if ($LASTEXITCODE -ne 0) {
 }
 Log "agents:monitor OK"
 
-Log "Corriendo agents:draft..."
+Log "Corriendo cuota diaria de borradores (5 oportunidades por cliente)..."
 $draftOut = Join-Path $LOG_DIR "draft-$STAMP.log"
-cmd /c "cd /d `"$ROOT`" && npm run agents:draft >> `"$draftOut`" 2>&1"
+cmd /c "cd /d `"$ROOT`" && npm run agents:draft-daily-quota >> `"$draftOut`" 2>&1"
 if ($LASTEXITCODE -ne 0) {
-    Log "WARN: agents:draft fallo (exit $LASTEXITCODE). Ver $draftOut"
+    Log "WARN: cuota diaria de borradores fallo (exit $LASTEXITCODE). Ver $draftOut"
 } else {
-    Log "agents:draft OK"
+    Log "cuota diaria de borradores OK"
 }
 
 Log "=== scheduled-monitor fin ==="

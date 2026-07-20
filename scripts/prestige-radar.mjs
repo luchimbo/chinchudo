@@ -23,9 +23,14 @@ const MEDICAL_PATTERNS = /\b(diagnostico|diagnóstico|recet[a-z]*|medicacion|med
 const SALES_PATTERNS = /\b(vendo|liquido|mayorista|distribuidor|env[ií]os? a todo|oferta imperdible|sorteo|giveaway)\b/i;
 const RUNNING_PATTERNS = /\b(runn?ing|correr|corredor(?:a)?|trail|marat[oó]n|entrenamiento|zapatillas|calzado|medias?|soquetes?|ampollas?|roce|sudoraci[oó]n|indumentaria|calzas?|remera deportiva|rendimiento)\b/i;
 
+export function isPrestigeUnsafeContent(text, context = "") {
+  const value = `${text} ${context}`.replace(/\s+/g, " ").trim();
+  return MEDICAL_PATTERNS.test(value) || SALES_PATTERNS.test(value);
+}
+
 export function isPrestigeRadarCandidate(text, context = "") {
   const value = `${text} ${context}`.replace(/\s+/g, " ").trim();
-  if (value.length < 30 || MEDICAL_PATTERNS.test(value) || SALES_PATTERNS.test(value)) return false;
+  if (value.length < 30 || isPrestigeUnsafeContent(value)) return false;
   return RUNNING_PATTERNS.test(value);
 }
 

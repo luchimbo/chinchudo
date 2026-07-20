@@ -22,6 +22,7 @@
     "db:studio": "prisma studio",
     "agents:listen": "python agents/orchestrator.py listen",
     "agents:draft": "python agents/orchestrator.py draft",
+    "agents:draft-daily-quota": "node node_modules/tsx/dist/cli.mjs scripts/daily-draft-quota.mts",
     "agents:triage": "npx tsx scripts/triage-opportunities.mts",
     "agents:backfill": "npx tsx scripts/backfill-personas.mts",
     "db:seed-sources": "npx tsx scripts/seed-monitored-sources.mts",
