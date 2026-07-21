@@ -373,6 +373,51 @@ def _poll_login(client, js: str, retries: int = 4, interval: float = 2.0) -> dic
     return result
 
 
+def _reddit_login_status(client) -> dict:
+    """Detecta la sesion de Reddit sin depender de un unico selector de old.reddit.
+
+    Reddit puede omitir el nombre de usuario del header aunque la sesion siga activa.
+    En ese caso las cookies HttpOnly siguen siendo la senal mas confiable disponible
+    via CDP. Una pagina de login explicita siempre gana sobre las senales positivas.
+    """
+    dom = _poll_login(client, r"""
+    (() => {
+      const href = location.href;
+      const onLoginPage = /\/login(?:\/|\?|$)|\/account\/login/i.test(location.pathname);
+      const userNode = document.querySelector(
+        '.user a.reddit-user-link, #header-bottom-right .user a, ' +
+        'a[href^="/user/"][data-click-id="user"], shreddit-app [slot="profile"]'
+      );
+      const logout = document.querySelector(
+        'form[action*="logout"] button, a[href*="logout"], ' +
+        'button[name="logout"], faceplate-tracker[noun="logout"]'
+      );
+      const user = (userNode?.innerText || userNode?.textContent || '').trim();
+      return {
+        loggedIn: !onLoginPage && (!!logout || (!!user && !/login|register|conect/i.test(user))),
+        user,
+        url: href,
+        onLoginPage,
+        domSignal: !!logout ? 'logout_control' : (user ? 'user_link' : '')
+      };
+    })()
+    """) or {}
+    if dom.get("loggedIn") or dom.get("onLoginPage"):
+        return dom
+
+    try:
+        cookie_result = client.send("Network.getCookies", {
+            "urls": ["https://old.reddit.com/", "https://www.reddit.com/"]
+        })
+        cookie_names = {cookie.get("name", "") for cookie in cookie_result.get("cookies", [])}
+        auth_cookie = next((name for name in ("reddit_session", "token_v2") if name in cookie_names), "")
+        if auth_cookie:
+            return {**dom, "loggedIn": True, "cookieSignal": auth_cookie}
+    except Exception as exc:
+        log.debug("reddit auth: no se pudieron consultar cookies", error=str(exc))
+    return dom
+
+
 def _yt_logged_in(client) -> bool:
     """Detecta sesión activa en YouTube. Usa señal positiva (avatar presente)
     y negativa (botón Sign In ausente), con reintentos para tolerar carga lenta."""
@@ -432,18 +477,9 @@ def post_reddit_reply(client, comment_url: str, text: str, dry_run: bool) -> dic
     if dry_run:
         return {"success": True, "dry_run": True, "url": thread_url}
 
-    auth = _poll_login(client, """
-    (() => {
-      const u = document.querySelector('.user a.reddit-user-link') ||
-                document.querySelector('#header-bottom-right .user a') ||
-                document.querySelector('.user a');
-      const user = (u?.innerText || u?.textContent || '').trim();
-      const loggedIn = !!user && !/login|register|conect/i.test(user);
-      return {loggedIn, user};
-    })()
-    """)
+    auth = _reddit_login_status(client)
     if not auth or not auth.get("loggedIn"):
-        return {"success": False, "error": "not_logged_in", "user": (auth or {}).get("user", "")}
+        return {"success": False, "error": "not_logged_in", "details": auth or {}}
 
     archived = browser_cdp.evaluate(client, """
     (() => {

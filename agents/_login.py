@@ -29,7 +29,13 @@ LOGIN_CHECKS = {
     ),
     "reddit": (
         "https://old.reddit.com",
-        '(() => { const u = document.querySelector(".user a"); return {loggedIn: !!u && !/login|register|conect/i.test(u.textContent || "")}; })()',
+        '''(() => {
+          const onLoginPage = /\\/login(?:\\/|\\?|$)|\\/account\\/login/i.test(location.pathname);
+          const u = document.querySelector('.user a.reddit-user-link, #header-bottom-right .user a, a[href^="/user/"][data-click-id="user"]');
+          const logout = document.querySelector('form[action*="logout"] button, a[href*="logout"], button[name="logout"], faceplate-tracker[noun="logout"]');
+          const user = (u?.innerText || u?.textContent || '').trim();
+          return {loggedIn: !onLoginPage && (!!logout || (!!user && !/login|register|conect/i.test(user)))};
+        })()''',
     ),
 }
 
