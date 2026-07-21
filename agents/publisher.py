@@ -815,6 +815,40 @@ def post_facebook_comment(client, post_url: str, text: str, dry_run: bool) -> di
     return {"success": True, "url": watch_url}
 
 
+def _instagram_verify_comment(client, text: str, attempts: int = 8, interval: float = 1.5) -> dict:
+    """Confirma que Instagram incorporo el texto al DOM; un click no alcanza."""
+    expected = " ".join(text.split())
+    result: dict = {}
+    for attempt in range(attempts):
+        result = browser_cdp.evaluate(client, f"""
+        (() => {{
+          const normalize = value => (value || '').replace(/\\s+/g, ' ').trim();
+          const expected = normalize({json.dumps(expected)});
+          const textarea = Array.from(document.querySelectorAll('form textarea, textarea, [contenteditable="true"][role="textbox"]'))
+            .find(el => {{
+              const style = window.getComputedStyle(el);
+              return style.display !== 'none' && style.visibility !== 'hidden' && !el.disabled;
+            }});
+          const currentValue = normalize(textarea?.value || textarea?.innerText || textarea?.textContent || '');
+          const visibleText = Array.from(document.querySelectorAll('article span, article div, main span'))
+            .filter(el => {{
+              const rect = el.getBoundingClientRect();
+              return rect.width > 0 && rect.height > 0;
+            }})
+            .map(el => normalize(el.innerText || el.textContent || ''));
+          const commentVisible = visibleText.some(value => value === expected || value.includes(expected));
+          const body = normalize(document.body?.innerText || '').toLowerCase();
+          const rejected = /try again later|couldn't post|could not post|intenta de nuevo|no se pudo publicar|restringimos cierta actividad/.test(body);
+          return {{confirmed: commentVisible, rejected, textareaCleared: !!textarea && currentValue === '', textareaChars: currentValue.length, url: location.href}};
+        }})()
+        """) or {}
+        if result.get("confirmed") or result.get("rejected"):
+            return result
+        if attempt < attempts - 1:
+            time.sleep(interval)
+    return result
+
+
 def post_instagram_comment(client, post_url: str, text: str, dry_run: bool) -> dict:
     client.send("Page.navigate", {"url": post_url})
     time.sleep(5)
@@ -840,19 +874,38 @@ def post_instagram_comment(client, post_url: str, text: str, dry_run: bool) -> d
     if not auth or not auth.get("loggedIn"):
         return {"success": False, "error": "not_logged_in"}
 
-    result = browser_cdp.evaluate(client, """
-    (() => {
-      const textarea = Array.from(document.querySelectorAll('form textarea, textarea'))
+    # Idempotencia visible: un comando puede seguir vivo aunque el caller agote
+    # su timeout. Antes de tocar el editor, evitar volver a enviar el mismo texto.
+    existing = _instagram_verify_comment(client, text, attempts=1, interval=0)
+    if existing.get("confirmed"):
+        log.warning("instagram comentario duplicado evitado", url=post_url)
+        return {
+            "success": True,
+            "url": post_url,
+            "verified": True,
+            "already_exists": True,
+            "published_now": False,
+        }
+
+    result = None
+    for attempt in range(8):
+        result = browser_cdp.evaluate(client, """
+        (() => {
+          const textarea = Array.from(document.querySelectorAll('form textarea, textarea, [contenteditable="true"][role="textbox"]'))
         .find(el => {
           const style = window.getComputedStyle(el);
           return style.display !== 'none' && style.visibility !== 'hidden' && !el.disabled;
         });
-      if (!textarea) return {error: 'no_comment_textarea'};
-      textarea.click();
-      textarea.focus();
-      return {ok: true};
-    })()
-    """)
+          if (!textarea) return {error: 'no_comment_editor', url: location.href, title: document.title};
+          textarea.click();
+          textarea.focus();
+          return {ok: true, editor: textarea.tagName.toLowerCase()};
+        })()
+        """)
+        if result and result.get("ok"):
+            break
+        if attempt < 7:
+            time.sleep(1)
     if result and result.get("error"):
         return {"success": False, "error": result["error"]}
 
@@ -860,18 +913,28 @@ def post_instagram_comment(client, post_url: str, text: str, dry_run: bool) -> d
 
     result = browser_cdp.evaluate(client, f"""
     (() => {{
-      const textarea = Array.from(document.querySelectorAll('form textarea, textarea'))
+      const textarea = Array.from(document.querySelectorAll('form textarea, textarea, [contenteditable="true"][role="textbox"]'))
         .find(el => {{
           const style = window.getComputedStyle(el);
           return style.display !== 'none' && style.visibility !== 'hidden' && !el.disabled;
         }});
       if (!textarea) return {{error: 'no_textarea_after_click'}};
       textarea.focus();
-      textarea.value = '';
-      textarea.value = {json.dumps(text)};
-      textarea.dispatchEvent(new Event('input', {{bubbles: true}}));
+      if (textarea.tagName === 'TEXTAREA') {{
+        const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+        if (!setter) return {{error: 'no_native_value_setter'}};
+        setter.call(textarea, {json.dumps(text)});
+      }} else {{
+        document.execCommand('selectAll', false);
+        document.execCommand('delete', false);
+        document.execCommand('insertText', false, {json.dumps(text)});
+      }}
+      textarea.dispatchEvent(new InputEvent('input', {{bubbles: true, inputType: 'insertText', data: {json.dumps(text)}}}));
       textarea.dispatchEvent(new Event('change', {{bubbles: true}}));
-      return {{ok: true, chars: textarea.value?.length || 0}};
+      const current = textarea.value || textarea.innerText || textarea.textContent || '';
+      return current === {json.dumps(text)}
+        ? {{ok: true, chars: current.length, editor: textarea.tagName.toLowerCase()}}
+        : {{error: 'editor_value_not_applied', chars: current.length}};
     }})()
     """)
     if result and result.get("error"):
@@ -881,11 +944,15 @@ def post_instagram_comment(client, post_url: str, text: str, dry_run: bool) -> d
 
     result = browser_cdp.evaluate(client, """
     (() => {
-      const btn = document.querySelector(
-        'form button[type="submit"]:not([disabled]), ' +
-        'button[type="submit"]:not([disabled])'
-      );
-      const allBtns = Array.from(document.querySelectorAll('form button, button, div[role="button"]'));
+      const textarea = Array.from(document.querySelectorAll('form textarea, textarea, [contenteditable="true"][role="textbox"]')).find(el => {
+        const style = window.getComputedStyle(el);
+        return style.display !== 'none' && style.visibility !== 'hidden' && !el.disabled;
+      });
+      if (!textarea) return {error: 'no_textarea_for_submit'};
+      const form = textarea.closest('form');
+      const scope = form || textarea.parentElement;
+      const btn = form?.querySelector('button[type="submit"]:not([disabled])');
+      const allBtns = Array.from(scope?.querySelectorAll('button, div[role="button"]') || []);
       const postBtn = allBtns.find(b => {
         const t = (b.innerText || b.textContent || '').trim().toLowerCase();
         const aria = (b.getAttribute('aria-label') || '').toLowerCase();
@@ -899,11 +966,6 @@ def post_instagram_comment(client, post_url: str, text: str, dry_run: bool) -> d
         postBtn.click();
         return {ok: true, via: 'button'};
       }
-      const textarea = Array.from(document.querySelectorAll('form textarea, textarea')).find(el => {
-        const style = window.getComputedStyle(el);
-        return style.display !== 'none' && style.visibility !== 'hidden' && !el.disabled;
-      });
-      if (!textarea) return {error: 'no_submit_button'};
       textarea.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true}));
       textarea.dispatchEvent(new KeyboardEvent('keypress', {key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true}));
       textarea.dispatchEvent(new KeyboardEvent('keyup', {key: 'Enter', code: 'Enter', keyCode: 13, which: 13, bubbles: true}));
@@ -913,8 +975,18 @@ def post_instagram_comment(client, post_url: str, text: str, dry_run: bool) -> d
     if result and result.get("error"):
         return {"success": False, "error": result["error"]}
 
-    time.sleep(2)
-    return {"success": True, "url": post_url}
+    verification = _instagram_verify_comment(client, text)
+    if verification.get("confirmed"):
+        return {
+            "success": True,
+            "url": post_url,
+            "verified": True,
+            "already_exists": False,
+            "published_now": True,
+            "via": (result or {}).get("via", ""),
+        }
+    error = "instagram_rejected_comment" if verification.get("rejected") else "submit_unconfirmed"
+    return {"success": False, "error": error, "details": verification, "url": post_url}
 
 
 def publish_comment(channel: str, account: str | None, source_url: str, text: str, dry_run: bool) -> dict:
@@ -952,6 +1024,9 @@ def publish_comment(channel: str, account: str | None, source_url: str, text: st
 
 
 def main() -> None:
+    # publisher.py tambien se ejecuta directamente desde operaciones y debe
+    # cargar las credenciales del provider igual que browser-cdp.py.
+    browser_cdp.load_env()
     parser = argparse.ArgumentParser(description="Publica respuestas via CDP")
     parser.add_argument("--channel", required=True, choices=["youtube", "reddit", "x", "facebook", "instagram"])
     parser.add_argument("--account", default="")
