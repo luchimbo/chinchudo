@@ -274,6 +274,7 @@ model Opportunity {
   monitoredSource   MonitoredSource?    @relation(fields: [monitoredSourceId], references: [id])
   publishingLogs    PublishingLog[]
   responses         Response[]
+  draftJob          DraftJob?
   landings          Landing[]
   distribution      DistributionPiece[]
   observedEvent     ObservedEvent?
