@@ -11,6 +11,7 @@ export type ProductEntry = {
   categoria_id: string;
   url: string;
   uso: string;
+  especificaciones?: string;
 };
 
 export type ScopedProduct = Product & { brand?: Brand | null };
@@ -95,6 +96,7 @@ function productToEntry(product: ScopedProduct): ProductEntry {
     categoria_id: categoryId(product.category),
     url: "",
     uso: product.useCases || product.description,
+    especificaciones: product.technicalSpecs || "",
   };
 }
 

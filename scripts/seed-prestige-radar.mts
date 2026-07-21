@@ -13,7 +13,7 @@ const ACCOUNT_BY_CHANNEL: Record<string, string> = {
 
 async function main() {
   const prestige = await prisma.client.findUniqueOrThrow({ where: { slug: "prestige-running" } });
-  await prisma.client.update({ where: { id: prestige.id }, data: { dailyOpportunityTarget: 15 } });
+  await prisma.client.update({ where: { id: prestige.id }, data: { dailyOpportunityTarget: 50, dailyDraftTarget: 50 } });
   for (const source of PRESTIGE_RADAR_QUERIES) {
     const label = `Prestige · ${source.channel} · ${source.label}`;
     await prisma.monitoredSource.upsert({

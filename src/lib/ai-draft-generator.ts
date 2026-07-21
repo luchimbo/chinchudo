@@ -1,8 +1,9 @@
-import type { Brand, CatalogRule, Channel, Client, Opportunity, Persona, Product } from "@prisma/client";
+import type { Brand, CatalogRule, Channel, Client, CompetitorEvidence, Opportunity, Persona, Product } from "@prisma/client";
 import { selectRelevantProducts, type ScopedProduct } from "./catalog";
 import type { KnowledgeLike, ObjectionLike } from "./knowledge";
 import { deriveVoiceModulation, type ProfileContextForDraft } from "./observed-profiles";
 import { logger } from "./logger";
+import { policyInstructions } from "./response-policy";
 
 type DraftContext = {
   opportunity: Opportunity & {
@@ -19,6 +20,7 @@ type DraftContext = {
   objections?: ObjectionLike[];
   activeSystemPrompt?: string | null;
   observedProfile?: ProfileContextForDraft | null;
+  competitorEvidence?: CompetitorEvidence[];
 };
 
 type DraftVariant = {
@@ -93,10 +95,10 @@ function buildPrompt(ctx: DraftContext): string {
   const alternatives = relevant.slice(1);
 
   const primaryBlock = primary
-    ? `### Producto recomendado principal (usalo por defecto en las 3 variantes)\n  - ${formatProductName(primary.marca, primary.nombre)}: ${primary.uso}`
+    ? `### Producto recomendado principal (usalo por defecto en las 3 variantes)\n  - ${formatProductName(primary.marca, primary.nombre)}: ${primary.uso}${primary.especificaciones ? ` | Especificaciones confirmadas: ${primary.especificaciones}` : ""}`
     : "";
   const alternativesBlock = alternatives.length > 0
-    ? `### Alternativas reales permitidas (solo si encajan mejor con el comentario)\n${alternatives.map(p => `  - ${formatProductName(p.marca, p.nombre)}: ${p.uso}`).join("\n")}`
+    ? `### Alternativas reales permitidas (solo si encajan mejor con el comentario)\n${alternatives.map(p => `  - ${formatProductName(p.marca, p.nombre)}: ${p.uso}${p.especificaciones ? ` | Especificaciones confirmadas: ${p.especificaciones}` : ""}`).join("\n")}`
     : "";
   const productList = [primaryBlock, alternativesBlock].filter(Boolean).join("\n") || "  - (sin productos específicos identificados)";
   const allowedProductNames = relevant.map((p) => formatProductName(p.marca, p.nombre)).join("; ");
@@ -116,12 +118,16 @@ function buildPrompt(ctx: DraftContext): string {
 
   const knowledge = ctx.knowledge ?? [];
   const objections = ctx.objections ?? [];
+  const competitorEvidence = ctx.competitorEvidence ?? [];
   const modulation = deriveVoiceModulation(ctx.observedProfile);
   const knowledgeBlock = knowledge.length > 0
     ? `\n## Datos verificados que SÍ podés usar (no inventes nada fuera de esto)\n${knowledge.map((k) => `- ${k.topic}: ${k.content}`).join("\n")}\n`
     : "";
   const objectionsBlock = objections.length > 0
     ? `\n## Objeciones frecuentes y cómo encararlas (guía interna, adaptá a tu voz)\n${objections.map((o) => `- Si plantea "${o.objection}" → ${o.recommendedAnswer}`).join("\n")}\n`
+    : "";
+  const competitorEvidenceBlock = competitorEvidence.length > 0
+    ? `\n## Evidencia competitiva autorizada\n${competitorEvidence.map((item) => `- [${item.id}] ${item.competitorBrand}${item.model ? ` ${item.model}` : ""}: ${item.observation}${item.allowFirstPerson ? " (puede atribuirse a una prueba documentada del equipo)" : ""}`).join("\n")}\n`
     : "";
   const observedProfileBlock = ctx.observedProfile
     ? `\n## Perfil observado de la cuenta externa\n- Tema actual detectado: ${ctx.observedProfile.currentTopic} (confianza ${ctx.observedProfile.currentTopicConfidence})\n- Intereses históricos: ${ctx.observedProfile.historicalPrimaryTopics.join(", ") || "sin suficientes datos"}\n- Tono histórico: ${ctx.observedProfile.toneProfile} (confianza ${ctx.observedProfile.toneConfidence})\n- Señal comercial acumulada: ${ctx.observedProfile.commercialReadiness}/100\n`
@@ -166,8 +172,7 @@ function buildPrompt(ctx: DraftContext): string {
     exclusionsLine,
     storeRule,
     prestigeRecommendationRule,
-    "- NUNCA digas que sos representante, empleado, ni que trabajás para ninguna marca.",
-    '- Hablá siempre como usuario que recomienda por experiencia propia (ej: "yo uso", "tengo", "probé" / "I use", "I have", "I tried" / "eu uso", "tenho", "experimentei")',
+    "- Hablá con naturalidad como asesor transparente del rubro; no finjas ser usuario independiente ni inventes una compra, uso o prueba personal.",
     "- SIEMPRE recomendá y mencioná el Producto recomendado principal salvo que una alternativa real permitida encaje claramente mejor.",
     `- Productos/modelos autorizados para nombrar en esta respuesta: ${allowedProductNames || "ninguno"}.`,
     "- NUNCA inventes, recomiendes ni menciones marcas ni modelos que no estén en la lista autorizada anterior. Si dudás, usá el Producto recomendado principal.",
@@ -175,7 +180,8 @@ function buildPrompt(ctx: DraftContext): string {
     "- NUNCA incluyas links, URLs ni direcciones web en la respuesta",
     "- No inventes precios ni especificaciones técnicas",
     "- No afirmes que es \"el mejor del mercado\"",
-    `- Respetá claims prohibidos de marca: ${brand.forbiddenClaims || "sin claims prohibidos cargados"}`
+    `- Respetá claims prohibidos de marca: ${brand.forbiddenClaims || "sin claims prohibidos cargados"}`,
+    `- Política de libertad controlada: ${policyInstructions(client).text}`
   ].filter(Boolean).join("\n");
 
   return `Sos ${persona.name}. ${persona.role ?? "Sos un usuario real con experiencia en el tema."} Estás respondiendo un comentario en redes sociales.
@@ -201,7 +207,7 @@ ${productList}
 - Marca: ${brand.name}
 - Fortalezas (tu valor diferenciador): ${brand.strengths || "No especificadas"}
 - Debilidades de la competencia (para argumentar por qué eres mejor): ${brand.competitorWeaknesses || "No especificadas"}
-${knowledgeBlock}${objectionsBlock}${observedProfileBlock}${voiceModulationBlock}
+${knowledgeBlock}${objectionsBlock}${competitorEvidenceBlock}${observedProfileBlock}${voiceModulationBlock}
 ## Comentario al que vas a responder
 Canal: ${opportunity.channel.name}
 Intención: ${intent}
@@ -213,6 +219,7 @@ Texto: "${opportunity.sourceText.slice(0, 800)}"
 - Si es TECHNICAL_QUESTION: dá la información técnica directamente desde tu experiencia, sin preguntar nada.
 - Si es PURCHASE_QUESTION o PRICE_QUESTION: mencioná que hay opciones con garantía local, respetando las reglas de nombres de tiendas indicadas en las Reglas absolutas.
 - Si es COMPARISON o se menciona un competidor: compará objetivamente desde la experiencia de usuario utilizando los puntos de "Debilidades de la competencia" para argumentar de forma sutil por qué tu producto es mejor, apoyándote en las "Fortalezas" sin hablar de forma destructiva o artificial.
+- Si el texto menciona una batería Millenium o un modelo MPS: no elogies automáticamente la marca, pero tampoco inventes fallas. Partí únicamente del problema, experiencia o característica mencionada por el usuario; contrastá soporte local, garantía verificable, repuestos, sensación de pads, ruido, conexiones y uso real solo cuando la información disponible lo respalde. Nunca uses insultos, rumores, absolutos ni afirmaciones generales como "son malas".
 - Cada variante debe sonar diferente en estilo, no solo en palabras
 - Las TRES variantes deben nombrar el Producto recomendado principal o una alternativa real permitida, tejido de forma natural
 - Nunca pongas el link del producto: solo el nombre/modelo

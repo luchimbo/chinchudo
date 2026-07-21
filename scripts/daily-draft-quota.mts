@@ -8,7 +8,7 @@ import { loadEnv } from "./agent-utils.mjs";
 loadEnv();
 if (process.env.DIRECT_URL) process.env.DATABASE_URL = process.env.DIRECT_URL;
 
-const DEFAULT_DAILY_TARGET = 5;
+const DEFAULT_DAILY_TARGET = 50;
 const DRAFT_TIMEOUT_MS = Number(process.env.DAILY_DRAFT_TIMEOUT_MS || 180_000);
 
 function argentinaDayStart(now = new Date()) {
@@ -40,27 +40,24 @@ async function main() {
   const target = Math.max(1, Number(option("--target")) || DEFAULT_DAILY_TARGET);
   const dryRun = process.argv.includes("--dry-run") || process.env.npm_config_dry_run === "true";
   const since = argentinaDayStart();
-  const clients = await prisma.client.findMany({ where: { active: true }, select: { id: true, slug: true, name: true } });
-  const results: Array<Record<string, unknown>> = [];
-  let failed = false;
-
-  for (const client of clients) {
+  const clients = await prisma.client.findMany({ where: { active: true }, select: { id: true, slug: true, name: true, dailyDraftTarget: true } });
+  const results = await Promise.all(clients.map(async (client) => {
+    const clientTarget = Math.max(1, Number(option("--target")) || client.dailyDraftTarget || target);
     const draftedToday = await prisma.response.findMany({
       where: { createdAt: { gte: since }, opportunity: { clientId: client.id } },
       distinct: ["opportunityId"],
       select: { opportunityId: true },
     });
-    const remaining = Math.max(0, target - draftedToday.length);
+    const remaining = Math.max(0, clientTarget - draftedToday.length);
     if (!remaining) {
-      results.push({ client: client.slug, target, opportunities_drafted_today: draftedToday.length, requested: 0, status: "quota_reached" });
-      continue;
+      return { client: client.slug, target: clientTarget, opportunities_drafted_today: draftedToday.length, requested: 0, status: "quota_reached" };
     }
     const run = await runDraft(client.slug, remaining, dryRun);
     const created = Number(run.output.match(/draft-worker:\s+(\d+)\s+borradores/i)?.[1] || 0);
     const status = run.code === 0 ? "ok" : "failed";
-    if (status === "failed") failed = true;
-    results.push({ client: client.slug, target, opportunities_drafted_today: draftedToday.length, requested: remaining, drafts_created: created, status, output: run.output.trim().slice(-2000) });
-  }
+    return { client: client.slug, target: clientTarget, opportunities_drafted_today: draftedToday.length, requested: remaining, drafts_created: created, status, output: run.output.trim().slice(-2000) };
+  }));
+  const failed = results.some((result) => result.status === "failed");
 
   await mkdir(join(process.cwd(), "reports"), { recursive: true });
   const report = join(process.cwd(), "reports", `${new Date().toISOString().replace(/[:.]/g, "-")}-daily-draft-quota.json`);

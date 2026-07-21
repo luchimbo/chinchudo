@@ -19,6 +19,7 @@ import { loadClientContext, resolveOpportunityClient } from "@/lib/client-contex
 import { detectCrossClientTerms, validateClientScopedActors } from "@/lib/guardrails";
 import { triageOpportunity } from "@/lib/opportunity-triage";
 import { loadObservedProfileContext, overrideObservedProfileSignals, recordObservedProfileEvent } from "@/lib/observed-profiles";
+import { loadRelevantCompetitorEvidence } from "@/lib/competitor-evidence";
 import { selectVoiceVariant } from "@/lib/persona-router";
 
 const createOpportunitySchema = z.object({
@@ -143,7 +144,10 @@ export async function generateResponseDrafts(formData: FormData) {
     }),
     loadActivePrompt(prisma)
   ]);
-  const observedProfile = await loadObservedProfileContext(prisma, opportunity.id);
+  const [observedProfile, competitorEvidence] = await Promise.all([
+    loadObservedProfileContext(prisma, opportunity.id),
+    loadRelevantCompetitorEvidence(prisma, resolution.client.id, opportunity.sourceText),
+  ]);
 
   const ctx = {
     opportunity: opportunityForDraft,
@@ -156,6 +160,7 @@ export async function generateResponseDrafts(formData: FormData) {
     objections,
     activeSystemPrompt,
     observedProfile,
+    competitorEvidence,
   };
   const voiceVariant = selectVoiceVariant(persona.name, observedProfile);
   const drafts = (await generateAIDrafts(ctx)) ?? generateLocalDrafts(ctx);

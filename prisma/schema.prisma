@@ -58,7 +58,9 @@ model Client {
   description         String            @default("")
   domainKeywords      String            @default("[]")
   domainExclusions    String            @default("[]")
-  dailyOpportunityTarget Int             @default(15)
+  dailyOpportunityTarget Int             @default(50)
+  dailyDraftTarget       Int             @default(50)
+  responsePolicy         Json            @default("{}")
   opportunitySearchState Json            @default("{}")
   autoPublish         Boolean           @default(false)
   autoApprove         Boolean           @default(false)
@@ -107,6 +109,8 @@ model Client {
   trends              Trend[]
   videoScripts        VideoScript[]
   brandSnapshots      BrandSnapshot[]
+  competitorEvidence  CompetitorEvidence[]
+  draftJobs           DraftJob[]
 }
 
 model BrandSnapshot {
@@ -366,6 +370,7 @@ model Response {
   draftText     String
   editedText    String              @default("")
   riskNotes     String              @default("")
+  evidence      Json                @default("[]")
   approvedBy    String              @default("")
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
@@ -480,6 +485,46 @@ enum LandingStatus {
   ARCHIVED
 }
 
+model CompetitorEvidence {
+  id                String   @id @default(cuid())
+  clientId          String
+  competitorBrand   String
+  aliases           Json     @default("[]")
+  model             String   @default("")
+  topic             String
+  observation       String
+  testedBy          String   @default("")
+  testedAt          DateTime?
+  evidenceUrl       String   @default("")
+  confidence        String   @default("medium")
+  allowFirstPerson  Boolean  @default(false)
+  active            Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  client            Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, competitorBrand])
+  @@index([clientId, active])
+}
+
+model DraftJob {
+  id          String         @id @default(cuid())
+  opportunityId String       @unique
+  clientId    String
+  status      DraftJobStatus @default(QUEUED)
+  attempts    Int            @default(0)
+  lockedBy    String         @default("")
+  leaseUntil  DateTime?
+  lastError   String         @default("")
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  opportunity Opportunity    @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  client      Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, status, createdAt])
+  @@index([status, leaseUntil])
+}
+
 model IssueReport {
   id          String            @id @default(cuid())
   sector      String
@@ -527,6 +572,13 @@ enum DistributionStatus {
   APPROVED
   SCHEDULED
   PUBLISHED
+  FAILED
+}
+
+enum DraftJobStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
   FAILED
 }
 

@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -16,6 +17,7 @@ import { detectCrossClientTerms, validateClientScopedActors } from "../src/lib/g
 import { triageOpportunity } from "../src/lib/opportunity-triage";
 import { loadObservedProfileContext, recordObservedProfileEvent } from "../src/lib/observed-profiles";
 import { classifyJurispediaSafety, isJurispediaAutoPublishAllowed } from "../src/lib/jurispedia-policy";
+import { loadRelevantCompetitorEvidence } from "../src/lib/competitor-evidence";
 
 loadEnv();
 
@@ -28,7 +30,8 @@ function parseArgs() {
     dryRun: process.argv.includes("--dry-run") || process.env.npm_config_dry_run === "true",
     useAi: process.argv.includes("--use-ai") || process.env.npm_config_use_ai === "true",
     allPersonas: process.argv.includes("--all-personas") || process.env.npm_config_all_personas === "true",
-    limit: limitIndex >= 0 ? Number(process.argv[limitIndex + 1] || 5) : Number(process.env.npm_config_limit || 5),
+    replacePending: process.argv.includes("--replace-pending"),
+    limit: limitIndex >= 0 ? Number(process.argv[limitIndex + 1] || 50) : Number(process.env.npm_config_limit || 50),
     clientSlug: clientIndex >= 0 ? process.argv[clientIndex + 1] : process.env.npm_config_client || null,
   };
 }
@@ -50,9 +53,9 @@ async function main() {
 
   const whereClause: any = {
     status: { in: ["NEW", "NEEDS_REVIEW"] },
-    responses: { none: {} },
     OR: [
       { priority: { in: ["URGENT", "HIGH", "MEDIUM"] } },
+      { signalType: "contextual_presence", opportunityScore: { gte: 40 } },
       {
         client: { slug: "prestige-running" },
         priority: "LOW",
@@ -60,6 +63,7 @@ async function main() {
       },
     ],
   };
+  if (!args.replacePending) whereClause.responses = { none: {} };
 
   if (args.clientSlug) {
     whereClause.client = { slug: args.clientSlug };
@@ -72,12 +76,9 @@ async function main() {
       detectedBrand: { include: { client: true } },
       detectedProduct: true,
       monitoredSource: { include: { client: true } },
-    },
       client: { select: { slug: true } },
-    orderBy: [
-      { priority: "desc" },
-      { createdAt: "desc" },
-    ],
+    },
+    orderBy: [{ opportunityScore: "desc" }, { createdAt: "desc" }],
     take: args.limit * 4,
   });
 
@@ -87,6 +88,17 @@ async function main() {
     .sort((a, b) => b.triage.score - a.triage.score)
     .slice(0, args.limit)
     .map((row) => row.opportunity);
+
+  if (args.replacePending && !args.dryRun && opportunities.length > 0) {
+    const snapshot = await prisma.response.findMany({
+      where: { opportunityId: { in: opportunities.map((opportunity) => opportunity.id) } },
+      orderBy: { createdAt: "asc" },
+    });
+    await mkdir(join(process.cwd(), "reports"), { recursive: true });
+    const path = join(process.cwd(), "reports", `draft-backup-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
+    await writeFile(path, JSON.stringify({ command: "draft-worker", replacePending: true, opportunities: opportunities.map((opportunity) => opportunity.id), responses: snapshot }, null, 2), "utf8");
+    console.log(`Backup de borradores: ${path}`);
+  }
 
   let drafted = 0;
   let aiUsed = 0;
@@ -104,6 +116,7 @@ async function main() {
   }[] = [];
 
   const allowAi = shouldUseAi(args);
+  const workerId = `draft-${process.pid}-${randomUUID().slice(0, 8)}`;
 
   for (const opportunity of opportunities) {
     let resolution: Awaited<ReturnType<typeof resolveOpportunityClient>>;
@@ -111,6 +124,32 @@ async function main() {
     try {
       resolution = await resolveOpportunityClient(prisma, opportunity);
       clientContext = await loadClientContext(prisma, resolution.client.id, opportunity);
+      if (!args.dryRun) {
+        await prisma.draftJob.upsert({
+          where: { opportunityId: opportunity.id },
+          update: {},
+          create: { opportunityId: opportunity.id, clientId: resolution.client.id },
+        });
+        const claimed = await prisma.draftJob.updateMany({
+          where: {
+            opportunityId: opportunity.id,
+            OR: [
+              { status: "QUEUED" },
+              { status: "FAILED", attempts: { lt: 3 } },
+              { status: "PROCESSING", leaseUntil: { lt: new Date() } },
+              ...(args.replacePending ? [{ status: "COMPLETED" as const }] : []),
+            ],
+          },
+          data: {
+            status: "PROCESSING",
+            lockedBy: workerId,
+            leaseUntil: new Date(Date.now() + 10 * 60 * 1000),
+            attempts: { increment: 1 },
+            lastError: "",
+          },
+        });
+        if (claimed.count === 0) continue;
+      }
       await recordObservedProfileEvent(prisma, {
         opportunityId: opportunity.id,
         clientId: resolution.client.id,
@@ -135,6 +174,7 @@ async function main() {
             where: { id: opportunity.id },
             data: { status: "DISCARDED", notes: [opportunity.notes, `Jurispedia: ${legalSafety.reason}`].filter(Boolean).join(" ") },
           });
+          await prisma.draftJob.updateMany({ where: { opportunityId: opportunity.id, lockedBy: workerId }, data: { status: "COMPLETED", leaseUntil: null } });
         }
         routing.push({ opportunityId: opportunity.id, clientId: resolution.client.id, clientSlug: resolution.client.slug, confidence: resolution.confidence, clientReason: resolution.reason, persona: "", reason: legalSafety.reason, source: "jurispedia-policy" });
         continue;
@@ -147,8 +187,9 @@ async function main() {
     let objections: Awaited<ReturnType<typeof loadRelevantKnowledge>>["objections"];
     let activeSystemPrompt: Awaited<ReturnType<typeof loadActivePrompt>>;
     let observedProfile;
+    let competitorEvidence;
     try {
-      const [knowledgeResult, promptResult, observedProfileResult] = await Promise.all([
+      const [knowledgeResult, promptResult, observedProfileResult, evidenceResult] = await Promise.all([
         loadRelevantKnowledge(prisma, {
           sourceText: opportunity.sourceText,
           clientId: resolution.client.id,
@@ -157,11 +198,13 @@ async function main() {
         }),
         loadActivePrompt(prisma),
         loadObservedProfileContext(prisma, opportunity.id),
+        loadRelevantCompetitorEvidence(prisma, resolution.client.id, opportunity.sourceText),
       ]);
       knowledge = knowledgeResult.knowledge;
       objections = knowledgeResult.objections;
       activeSystemPrompt = promptResult;
       observedProfile = observedProfileResult;
+      competitorEvidence = evidenceResult;
     } catch (error) {
       errors.push({ opportunityId: opportunity.id, error: `carga de contexto: ${(error as Error).message}` });
       continue;
@@ -214,6 +257,7 @@ async function main() {
           objections,
           activeSystemPrompt,
           observedProfile,
+          competitorEvidence,
         };
         let source = "local";
         // Para Jurispedia el contenido público se genera con la plantilla auditada;
@@ -264,7 +308,10 @@ async function main() {
       }
     }
 
-    if (allRows.length === 0) continue;
+    if (allRows.length === 0) {
+      if (!args.dryRun) await prisma.draftJob.updateMany({ where: { opportunityId: opportunity.id, lockedBy: workerId }, data: { status: "FAILED", leaseUntil: null, lastError: "No se generaron variantes válidas." } });
+      continue;
+    }
 
     if (args.dryRun) {
       drafted += allRows.length;
@@ -282,8 +329,9 @@ async function main() {
       channel: opportunity.channel,
       channelEnabled: channelSetting?.value === "true",
     });
-    const autoApprove = resolution.client.autoApprove && !opportunityHadError && resolution.confidence === "high" && legalPublish.allowed;
-    const autoPublish = resolution.client.autoPublish && !opportunityHadError && resolution.confidence === "high" && legalPublish.allowed;
+    const contextualPresence = opportunity.signalType === "contextual_presence";
+    const autoApprove = !args.replacePending && !contextualPresence && resolution.client.autoApprove && !opportunityHadError && resolution.confidence === "high" && legalPublish.allowed;
+    const autoPublish = !args.replacePending && !contextualPresence && resolution.client.autoPublish && !opportunityHadError && resolution.confidence === "high" && legalPublish.allowed;
 
     if (autoApprove || autoPublish) {
       const bestPersonaName = suggestions[0]?.personaName;
@@ -308,16 +356,20 @@ async function main() {
         : (opportunityHadError || resolution.confidence === "low" || !legalPublish.allowed ? "NEEDS_REVIEW" : "DRAFTED");
 
       await prisma.$transaction([
+        ...(args.replacePending ? [
+          prisma.response.deleteMany({ where: { opportunityId: opportunity.id } }),
+        ] : []),
         prisma.response.createMany({ data: allRows }),
         prisma.opportunity.update({
           where: { id: opportunity.id },
           data: {
             detectedBrandId: brand.id,
-            status: opportunityStatus,
+            status: args.replacePending ? "DRAFTED" : opportunityStatus,
             notes: !legalPublish.allowed ? [opportunity.notes, `Publicación automática bloqueada: ${legalPublish.reason}`].filter(Boolean).join(" ") : undefined,
           },
         }),
       ]);
+      await prisma.draftJob.updateMany({ where: { opportunityId: opportunity.id, lockedBy: workerId }, data: { status: "COMPLETED", leaseUntil: null } });
       drafted += allRows.length;
 
       if (autoPublish && approvedResponseId) {
@@ -338,6 +390,7 @@ async function main() {
       }
     } catch (error) {
       errors.push({ opportunityId: opportunity.id, error: `guardado: ${(error as Error).message}` });
+      if (!args.dryRun) await prisma.draftJob.updateMany({ where: { opportunityId: opportunity.id, lockedBy: workerId }, data: { status: "FAILED", leaseUntil: null, lastError: (error as Error).message.slice(0, 1000) } });
     }
   }
 
