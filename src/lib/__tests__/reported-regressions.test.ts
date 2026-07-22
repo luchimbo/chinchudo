@@ -50,4 +50,10 @@ describe("regresiones de reportes de julio", () => {
   it("rechaza tags y recomendaciones MidiPlus sin modelo", () => {
     expect(validatePublicDraft("Te recomiendo el controlador MidiPlus #homeStudio")).toEqual(expect.arrayContaining(["blocked_language", "generic_midiplus_product"]));
   });
+
+  it("neutraliza promesas comerciales no verificadas", () => {
+    const clean = sanitizePublicDraft("En PC MIDI Center lo tenés a un muy buen precio con cuotas sin interés.");
+    expect(clean).toBe("Consultá en PC MIDI Center por stock, precio, garantía y financiación.");
+    expect(validatePublicDraft(clean)).toEqual([]);
+  });
 });

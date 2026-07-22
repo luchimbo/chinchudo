@@ -19,6 +19,8 @@ export function sanitizePublicDraft(text: string): string {
     .replace(/\bantes de cerrar\b/gi, "antes de elegir")
     .replace(/\bcerrar bien\b/gi, "elegir bien")
     .replace(/\bsi ocup[aá]s (\d+) teclas\b/gi, "si necesitás $1 teclas")
+    .replace(/En PC MIDI Center[^.!?]*(?:[.!?]|$)/gi, "Consultá en PC MIDI Center por stock, precio, garantía y financiación. ")
+    .replace(/\b(?:cuotas? sin inter[eé]s|cuotas? suaves|cuotas? c[oó]modas|muy buen precio)\b/gi, "condiciones a confirmar")
     .replace(/\s+([,.;!?])/g, "$1")
     .replace(/\s+/g, " ")
     .trim();
@@ -33,5 +35,6 @@ export function validatePublicDraft(text: string): string[] {
   if (/\b(?:controlador|teclado)\s+(?:de\s+)?midiplus\b/i.test(text) && !/\b(?:akm?\d+|ak\d+|origin\s*\d+|minicontrol\s*\d+|easy\s*piano\s*e?\d+|x\d+|xmini|i\d+)\b/i.test(text)) {
     errors.push("generic_midiplus_product");
   }
+  if (/\b(?:cuotas? sin inter[eé]s|cuotas? suaves|cuotas? c[oó]modas|muy buen precio|entrega inmediata|stock disponible)\b/i.test(text)) errors.push("unverified_commercial_claim");
   return [...new Set(errors)];
 }

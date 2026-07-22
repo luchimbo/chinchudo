@@ -26,6 +26,7 @@ const prisma = new PrismaClient();
 function parseArgs() {
   const limitIndex = process.argv.indexOf("--limit");
   const clientIndex = process.argv.indexOf("--client");
+  const opportunityIndex = process.argv.indexOf("--opportunity-id");
   return {
     dryRun: process.argv.includes("--dry-run") || process.env.npm_config_dry_run === "true",
     useAi: process.argv.includes("--use-ai") || process.env.npm_config_use_ai === "true",
@@ -33,6 +34,7 @@ function parseArgs() {
     replacePending: process.argv.includes("--replace-pending"),
     limit: limitIndex >= 0 ? Number(process.argv[limitIndex + 1] || 50) : Number(process.env.npm_config_limit || 50),
     clientSlug: clientIndex >= 0 ? process.argv[clientIndex + 1] : process.env.npm_config_client || null,
+    opportunityId: opportunityIndex >= 0 ? process.argv[opportunityIndex + 1] : null,
   };
 }
 
@@ -52,7 +54,7 @@ async function main() {
   }
 
   const whereClause: any = {
-    status: { in: ["NEW", "NEEDS_REVIEW"] },
+    status: { in: args.opportunityId ? ["NEW", "NEEDS_REVIEW", "DRAFTED"] : ["NEW", "NEEDS_REVIEW"] },
     OR: [
       { priority: { in: ["URGENT", "HIGH", "MEDIUM"] } },
       { signalType: "contextual_presence", opportunityScore: { gte: 40 } },
@@ -63,6 +65,7 @@ async function main() {
       },
     ],
   };
+  if (args.opportunityId) whereClause.id = args.opportunityId;
   if (!args.replacePending) whereClause.responses = { none: {} };
 
   if (args.clientSlug) {
@@ -357,7 +360,14 @@ async function main() {
 
       await prisma.$transaction([
         ...(args.replacePending ? [
-          prisma.response.deleteMany({ where: { opportunityId: opportunity.id } }),
+          prisma.response.deleteMany({
+            where: {
+              opportunityId: opportunity.id,
+              approvedBy: "",
+              editedText: "",
+              publishingLog: null,
+            },
+          }),
         ] : []),
         prisma.response.createMany({ data: allRows }),
         prisma.opportunity.update({
