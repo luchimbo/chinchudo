@@ -30,7 +30,7 @@ import { OBSERVED_TOPIC_KEYS, deriveVoiceModulation, jsonArray, loadObservedProf
 
 type PageProps = {
   params: { id: string };
-  searchParams?: { agentError?: string; agentOk?: string; agentPending?: string; client?: string };
+  searchParams?: { agentError?: string; agentOk?: string; agentPending?: string; attemptId?: string; client?: string };
 };
 
 function scoreResponseAlignment(
@@ -217,6 +217,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
         agentError={searchParams?.agentError}
         agentOk={searchParams?.agentOk}
         agentPending={searchParams?.agentPending}
+        attemptId={searchParams?.attemptId}
         opportunityId={params.id}
         agentErrorMessages={agentErrorMessages}
         clientSlug={searchParams?.client}

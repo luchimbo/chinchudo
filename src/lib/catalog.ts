@@ -52,7 +52,7 @@ const CATEGORY_HINTS: Record<string, string[]> = {
 };
 
 const PRODUCT_INTENT_HINTS: Record<string, string[]> = {
-  "controladores-midi": ["controlador", "midi", "minilab", "akai", "mpk", "teclas", "pads", "knobs", "ableton", "fl studio", "home studio"],
+  "controladores-midi": ["controlador", "midi", "teclado", "piano", "minilab", "akai", "mpk", "teclas", "pads", "knobs", "ableton", "fl studio", "home studio"],
   "interfaces-audio": ["interfaz", "interface", "placa", "audio", "grabar", "latencia", "microfono", "guitarra", "voz"],
   "microfonos": ["microfono", "mic", "condensador", "podcast", "streaming", "voz", "grabar"],
   "microfonos-profesionales": ["microfono", "mic", "condensador", "cardioide", "voz", "estudio"],
@@ -109,6 +109,10 @@ function selectScopedProducts(
   scoped = true,
 ): ProductEntry[] {
   const norm = normalize(sourceText);
+  const asksForPads = /\b(pad|pads|drum pad|launchpad|finger drum|fingerdrum)\b/.test(norm);
+  const asksForPadOnly = asksForPads && /\b(sin teclado|en lugar de teclas|pads? instead of|pad based|basado en pads)\b/.test(norm);
+  const asksFor88Keys = /\b88\b/.test(norm) && /\b(tecla|teclas|piano|controlador|keyboard)\b/.test(norm);
+  const asksForSynth = /\b(sintetizador|sinte|synth)\b/.test(norm);
   const ruleCategories = catalogRuleMatches(sourceText, catalogRules).map(categoryId);
   const detectedCategory = detectedProduct?.category ? categoryId(detectedProduct.category) : "";
   const matchingCategories = new Set([...ruleCategories, detectedCategory].filter(Boolean));
@@ -138,7 +142,21 @@ function selectScopedProducts(
     const compressionIntentBonus = /\b(compresion|compresion|recuperar|recuperacion|15 20|mm hg)\b/.test(norm) && /\b(compresion|15 20|mm hg)\b/.test(productName) ? 10 : 0;
     const trailIntentBonus = /\b(trail|montana|barro|sendero)\b/.test(norm) && /\b(trail)\b/.test(productName) ? 8 : 0;
     const stockPenalty = product.name.toLowerCase().includes("outlet") ? -1 : 0;
-    return { product, score: exactScore + productScore + modelScore + brandScore + categoryScore + keywordScore + useScore + minilabLikeBonus + packIntentBonus + compressionIntentBonus + trailIntentBonus + windControllerPenalty + stockPenalty };
+    const featureText = normalize(`${product.name} ${product.category} ${product.description} ${product.useCases} ${product.technicalSpecs}`);
+    const hasPads = /\bpad|pads|launchpad|finger drum|fingerdrum\b/.test(featureText);
+    const isPadFocused = /\b(tempopad|launchpad|controlador basado en \d* ?pads|controlador de pads)\b/.test(featureText);
+    const hasKeyboard = /\b(tecla|teclas|keyboard|keylab|keystep)\b/.test(featureText);
+    const keyIdentityText = normalize(`${product.name} ${product.category} ${product.useCases} ${product.technicalSpecs}`);
+    const has88Keys = /\b88\b/.test(keyIdentityText) && /\btecla|teclas|hammer|contrapesad|keylab\b/.test(keyIdentityText);
+    const productIdentity = normalize(`${product.name} ${product.category}`);
+    const isSynth = /\b(sintetizador|sintetizadores|sinte|synth)\b/.test(productIdentity)
+      && !/\b(controlador|controller|pedal|soporte|funda|accesorio)\b/.test(productIdentity);
+    const padCompatibility = asksForPads ? (hasPads ? 14 : -30) : 0;
+    const padOnlyCompatibility = asksForPadOnly ? (isPadFocused && !hasKeyboard ? 24 : -24) : 0;
+    const keyCompatibility = asksFor88Keys ? (has88Keys ? 16 : -24) : 0;
+    const synthCompatibility = asksForSynth ? (isSynth ? 12 : -18) : 0;
+    const score = exactScore + productScore + modelScore + brandScore + categoryScore + keywordScore + useScore + minilabLikeBonus + packIntentBonus + compressionIntentBonus + trailIntentBonus + windControllerPenalty + stockPenalty + padCompatibility + padOnlyCompatibility + keyCompatibility + synthCompatibility;
+    return { product, score };
   });
 
   const sorted = scored.sort((a, b) => {
@@ -146,6 +164,9 @@ function selectScopedProducts(
     return a.product.name.localeCompare(b.product.name);
   });
   return sorted
+    // Sin una señal positiva no recomendamos: el orden alfabético nunca debe
+    // convertirse accidentalmente en una recomendación comercial.
+    .filter(({ score }) => score >= 3)
     .slice(0, max)
     .map(({ product }) => productToEntry(product));
 }

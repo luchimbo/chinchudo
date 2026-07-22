@@ -164,12 +164,12 @@ function parseImportSummary(stdout) {
 }
 
 // Guarda el resultado de una publicacion en data/publish-results.json
-function saveResult(opportunityId, result) {
+function saveResult(resultKey, result) {
   try {
     const existing = existsSync(RESULTS_PATH)
       ? JSON.parse(readFileSync(RESULTS_PATH, "utf-8"))
       : {};
-    existing[opportunityId] = { ...result, ts: Date.now() };
+    existing[resultKey] = { ...result, ts: Date.now() };
     writeFileSync(RESULTS_PATH, JSON.stringify(existing, null, 2), "utf-8");
   } catch (e) {
     console.error("[agent-relay] No se pudo guardar resultado:", e.message);
@@ -308,7 +308,7 @@ const server = http.createServer(async (req, res) => {
     try { body = await readBody(req); }
     catch { return json(res, 400, { error: "invalid_json" }); }
 
-    const { opportunityId, responseId, account } = body;
+    const { opportunityId, responseId, account, attemptId } = body;
     if (!opportunityId || !responseId) {
       return json(res, 400, { error: "missing_fields" });
     }
@@ -320,10 +320,12 @@ const server = http.createServer(async (req, res) => {
     ];
     if (account) args.push("--account", account);
 
-    console.log(`[agent-relay] encolando opp=${opportunityId} resp=${responseId} account=${account ?? "auto"}`);
+    const resultKey = attemptId || opportunityId;
+    saveResult(resultKey, { pending: true, state: "queued", opportunityId, responseId, account: account ?? "auto", attemptId: resultKey });
+    console.log(`[agent-relay] encolando attempt=${resultKey} opp=${opportunityId} resp=${responseId} account=${account ?? "auto"}`);
 
     // Responder 202 de inmediato
-    json(res, 202, { accepted: true, opportunityId, account: account ?? "auto" });
+    json(res, 202, { accepted: true, attemptId: resultKey, opportunityId, account: account ?? "auto" });
 
     // Procesar en background
     execFile("node", args, { cwd: ROOT, encoding: "utf-8", timeout: 180_000 },
@@ -334,17 +336,17 @@ const server = http.createServer(async (req, res) => {
           const result = JSON.parse(lastLine);
           if (result.success) {
             console.log(`[agent-relay] OK opp=${opportunityId}`, JSON.stringify(result));
-            saveResult(opportunityId, { success: true, ...result });
+            saveResult(resultKey, { pending: false, state: "confirmed", attemptId: resultKey, opportunityId, responseId, account: account ?? "auto", success: true, ...result });
           } else {
             console.warn(`[agent-relay] ERROR opp=${opportunityId} — ${result.error}`);
-            saveResult(opportunityId, { success: false, error: result.error, detail: allOutput.slice(-500) });
+            saveResult(resultKey, { pending: false, state: "failed", attemptId: resultKey, opportunityId, responseId, account: account ?? "auto", success: false, error: result.error, detail: allOutput.slice(-500) });
           }
         } catch {
           const detail = err?.message || stderr || "spawn_failed";
           console.error(`[agent-relay] FALLO opp=${opportunityId} — ${detail}`);
           console.error("STDOUT:", stdout?.slice(-500));
           console.error("STDERR:", stderr?.slice(-500));
-          saveResult(opportunityId, { success: false, error: "spawn_failed", detail: allOutput.slice(-500) });
+          saveResult(resultKey, { pending: false, state: "failed", attemptId: resultKey, opportunityId, responseId, account: account ?? "auto", success: false, error: "spawn_failed", detail: allOutput.slice(-500) });
         }
       }
     );

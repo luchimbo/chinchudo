@@ -7,12 +7,13 @@ type Props = {
   agentError?: string;
   agentOk?: string;
   agentPending?: string;
+  attemptId?: string;
   opportunityId: string;
   agentErrorMessages: Record<string, string>;
   clientSlug?: string;
 };
 
-export function StatusBanner({ agentError, agentOk, agentPending, opportunityId, agentErrorMessages, clientSlug }: Props) {
+export function StatusBanner({ agentError, agentOk, agentPending, attemptId, opportunityId, agentErrorMessages, clientSlug }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [resolvedError, setResolvedError] = useState<string | null>(null);
   const [resolvedOk, setResolvedOk] = useState(false);
@@ -35,7 +36,9 @@ export function StatusBanner({ agentError, agentOk, agentPending, opportunityId,
     const poll = async () => {
       attempts++;
       try {
-        const resp = await fetch(`/api/publish-result?opportunityId=${opportunityId}`);
+        const query = new URLSearchParams({ opportunityId });
+        if (attemptId) query.set("attemptId", attemptId);
+        const resp = await fetch(`/api/publish-result?${query.toString()}`, { cache: "no-store" });
         if (!resp.ok) return;
         const data = await resp.json();
         if (data.pending) return; // aún procesando
@@ -64,7 +67,7 @@ export function StatusBanner({ agentError, agentOk, agentPending, opportunityId,
     }, 5_000);
 
     return () => clearInterval(id);
-  }, [agentPending, opportunityId]);
+  }, [agentPending, attemptId, opportunityId]);
 
   const showError = agentError || resolvedError;
   const showOk = agentOk || resolvedOk;

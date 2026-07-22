@@ -2,6 +2,7 @@
 
 import { checkPublishRateLimits, closeSiblingOpportunities, runPublisher } from "@/lib/publish-agent";
 import { execFileSync } from "child_process";
+import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -519,6 +520,7 @@ export async function publishViaAgent(formData: FormData) {
   let agentError: string | null = null;
 
   let agentPending = false;
+  const attemptId = randomUUID();
 
   if (relayUrl && relayToken) {
     // Path remoto: fire-and-forget al relay (Vercel tiene timeout corto, el relay procesa en background)
@@ -533,7 +535,8 @@ export async function publishViaAgent(formData: FormData) {
         body: JSON.stringify({
           opportunityId: parsed.opportunityId,
           responseId: parsed.responseId,
-          account: parsed.account ?? ""
+          account: parsed.account ?? "",
+          attemptId,
         }),
         signal: AbortSignal.timeout(10_000)
       });
@@ -580,7 +583,7 @@ export async function publishViaAgent(formData: FormData) {
   const base = `/opportunities/${parsed.opportunityId}`;
   // redirect() debe estar FUERA de cualquier try/catch (Next.js lo implementa con throw interno)
   if (agentPending) {
-    redirect(`${base}?agentPending=1${clientQuery}`);
+    redirect(`${base}?agentPending=1&attemptId=${encodeURIComponent(attemptId)}${clientQuery}`);
   }
   if (agentError) {
     redirect(`${base}?agentError=${encodeURIComponent(agentError)}${clientQuery}`);

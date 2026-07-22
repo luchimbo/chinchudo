@@ -3,6 +3,7 @@ import { selectRelevantProducts, type ProductEntry, type ScopedProduct } from ".
 import type { KnowledgeLike, ObjectionLike } from "./knowledge";
 import { deriveVoiceModulation, type ProfileContextForDraft } from "./observed-profiles";
 import { makeJurispediaDrafts } from "./jurispedia-policy";
+import { sanitizePublicDraft } from "./draft-output";
 
 type DraftContext = {
   opportunity: Opportunity & {
@@ -40,10 +41,8 @@ function profileToneHint(profile?: ProfileContextForDraft | null) {
 }
 
 function profileTopicGuard(profile?: ProfileContextForDraft | null) {
-  if (!profile || profile.historicalPrimaryTopics.length === 0) return "";
-  const extraTopics = profile.historicalPrimaryTopics.filter((topic) => topic !== profile.currentTopic).slice(0, 2);
-  if (extraTopics.length === 0) return "";
-  return ` Sin mezclar intereses historicos ajenos al foco actual (${extraTopics.join(", ")}).`;
+  // El historial es contexto para seleccionar el tono, nunca texto publicable.
+  return "";
 }
 
 // Voz de cada arquetipo: habla SIEMPRE como usuario real, nunca como la tienda.
@@ -65,8 +64,8 @@ function applyVoiceModulation(voice: PersonaVoice, observedProfile?: ProfileCont
       if (modulation.styleLabel === "aspirational") return `${base}, con foco en la experiencia general`;
       return base;
     },
-    angle: `${voice.angle} ${modulation.phrasingStyle}`.trim(),
-    tail: `${voice.tail} ${modulation.ctaStyle}`.trim(),
+    angle: voice.angle,
+    tail: voice.tail,
   };
 }
 
@@ -154,9 +153,9 @@ function getPersonaVoice(persona: Persona, product?: ProductEntry): PersonaVoice
   }
 
   return {
-    intro: (p) => p ? `Yo uso el ${p.modelo} y me anda bien` : "Te cuento desde mi experiencia",
-    angle: "Conviene compararlo por modelo y uso real antes de cerrar.",
-    tail: "Se acomoda bastante bien a distintas necesidades.",
+    intro: (p) => p ? `${p.modelo} es una opción concreta para mirar` : "Conviene definir primero el uso principal",
+    angle: "Compará el modelo y las funciones que realmente necesitás.",
+    tail: "La elección tiene que responder al uso real.",
   };
 }
 
@@ -520,13 +519,10 @@ export function generateLocalDrafts(ctx: DraftContext): DraftVariant[] {
 
   const clientSlug = ctx.client?.slug;
 
-  if (clientSlug === "prestige-running") {
-    return makePrestigeDrafts(original, riskNotes);
-  }
-
-  if (clientSlug === "pcmidi") {
-    return makePcmidiDrafts(opportunity.detectedIntent, original, voice, product, riskNotes, observedProfile);
-  }
-
-  return makeGenericDrafts(opportunity.detectedIntent, original, voice, product, riskNotes, observedProfile);
+  const drafts = clientSlug === "prestige-running"
+    ? makePrestigeDrafts(original, riskNotes)
+    : clientSlug === "pcmidi"
+      ? makePcmidiDrafts(opportunity.detectedIntent, original, voice, product, riskNotes, observedProfile)
+      : makeGenericDrafts(opportunity.detectedIntent, original, voice, product, riskNotes, observedProfile);
+  return drafts.map((draft) => ({ ...draft, draftText: sanitizePublicDraft(draft.draftText) }));
 }

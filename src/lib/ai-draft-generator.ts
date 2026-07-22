@@ -3,7 +3,9 @@ import { selectRelevantProducts, type ScopedProduct } from "./catalog";
 import type { KnowledgeLike, ObjectionLike } from "./knowledge";
 import { deriveVoiceModulation, type ProfileContextForDraft } from "./observed-profiles";
 import { logger } from "./logger";
+import { llmHeaders, resolveLLMConfig } from "./llm-provider";
 import { policyInstructions } from "./response-policy";
+import { sanitizePublicDraft, validatePublicDraft } from "./draft-output";
 
 type DraftContext = {
   opportunity: Opportunity & {
@@ -28,8 +30,6 @@ type DraftVariant = {
   draftText: string;
   riskNotes: string;
 };
-
-const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 const INTENT_LABELS: Record<string, string> = {
   TECHNICAL_QUESTION: "pregunta técnica (driver, compatibilidad, configuración)",
@@ -223,6 +223,9 @@ Texto: "${opportunity.sourceText.slice(0, 800)}"
 - Cada variante debe sonar diferente en estilo, no solo en palabras
 - Las TRES variantes deben nombrar el Producto recomendado principal o una alternativa real permitida, tejido de forma natural
 - Nunca pongas el link del producto: solo el nombre/modelo
+- No afirmes experiencias personales inventadas: evitá "yo uso", "yo tengo", "yo probé" o testimonios de amigos/alumnos salvo que estén expresamente incluidos como evidencia verificada.
+- Nunca copies instrucciones de estilo, etiquetas internas, nombres de campos ni hashtags al texto público.
+- ${primary ? `Cuando recomiendes, nombrá el modelo completo: ${formatProductName(primary.marca, primary.nombre)}.` : "No hay un producto suficientemente compatible: no fuerces una recomendación ni inventes un modelo; explicá qué dato falta para elegir."}
 - Las variantes de respuesta generadas en "text" deben estar completamente escritas en el idioma detectado (Español, Inglés o Portugués).
 
 
@@ -231,7 +234,7 @@ Texto: "${opportunity.sourceText.slice(0, 800)}"
   "variants": [
     {
       "type": "SHORT",
-      "text": "respuesta corta de 1-2 oraciones consistiendo exclusivamente de afirmaciones, nombrando un producto concreto del catálogo (ej: 'Midiplus AKM322', sin link), recomendándolo — NUNCA debe contener ninguna pregunta, signo de interrogación ni formular preguntas",
+      "text": "respuesta corta de 1-2 oraciones, sin preguntas, ${primary ? "nombrando el modelo concreto recomendado del catálogo" : "sin forzar una recomendación porque falta compatibilidad suficiente"}",
       "riskNotes": "nota interna sobre qué verificar antes de publicar"
     },
     {
@@ -292,35 +295,28 @@ async function fetchWithRetry(
 export async function generateAIDrafts(ctx: DraftContext): Promise<DraftVariant[] | null> {
   // La API key y el modelo se resuelven por cliente: lo que cargó el cliente en su
   // configuración tiene prioridad; si está vacío se cae al .env global (compat).
-  const apiKey = ctx.client?.openrouterApiKey?.trim() || process.env.OPENROUTER_API_KEY;
+  const llm = resolveLLMConfig(ctx.client);
+  const apiKey = llm.apiKey;
   if (!apiKey) {
     logAIError(
       ctx.client
         ? `Sin API key de OpenRouter para el cliente "${ctx.client.name}" ni en .env`
-        : "OPENROUTER_API_KEY no configurada",
+        : `API key de ${llm.provider} no configurada`,
       null,
     );
     return null;
   }
 
-  const model =
-    ctx.client?.openrouterModel?.trim() ||
-    process.env.OPENROUTER_MODEL ||
-    "google/gemini-2.0-flash-lite";
+  const model = llm.model;
 
   const keySource = ctx.client?.openrouterApiKey?.trim() ? `cliente:${ctx.client.slug}` : "env";
-  logger.info("ai_key_source", "OpenRouter key resuelta", { keySource, model }).catch(() => {});
+  logger.info("ai_key_source", "Configuracion LLM resuelta", { provider: llm.provider, keySource, model }).catch(() => {});
 
   let raw: string;
   try {
-    const response = await fetchWithRetry(OPENROUTER_URL, {
+    const response = await fetchWithRetry(llm.endpoint, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://10apostoles.local",
-        "X-Title": "10 Apostoles - Social Listening",
-      },
+      headers: llmHeaders(llm, "Los 5 Apostoles - Social Listening"),
       body: JSON.stringify({
         model,
         messages: [
@@ -365,13 +361,14 @@ export async function generateAIDrafts(ctx: DraftContext): Promise<DraftVariant[
       const match = variants.find((v) => v.type === variantType);
       return {
         variantType,
-        draftText: match?.text ?? "",
+        draftText: sanitizePublicDraft(match?.text ?? ""),
         riskNotes: match?.riskNotes ?? "Revisar antes de publicar.",
       };
     }).filter((v) => v.draftText.length > 0);
 
     const hasInvalidProduct = drafts.some((draft) => hasUncataloguedProductCode(draft.draftText, ctx));
-    if (hasInvalidProduct) {
+    const invalidPublicOutput = drafts.some((draft) => validatePublicDraft(draft.draftText).length > 0);
+    if (hasInvalidProduct || invalidPublicOutput) {
       logAIError("OpenRouter menciono un codigo de producto fuera del catalogo; usando fallback local", {
         opportunityId: ctx.opportunity.id,
       });

@@ -8,6 +8,7 @@ import { getRelayUrl } from "@/lib/settings";
 // Intenta leer de data/publish-results.json (local) o del relay via /result/:id (Vercel).
 export async function GET(req: NextRequest) {
   const opportunityId = req.nextUrl.searchParams.get("opportunityId");
+  const attemptId = req.nextUrl.searchParams.get("attemptId");
   if (!opportunityId) {
     return NextResponse.json({ error: "missing opportunityId" }, { status: 400 });
   }
@@ -17,7 +18,7 @@ export async function GET(req: NextRequest) {
   if (existsSync(resultsPath)) {
     try {
       const all = JSON.parse(readFileSync(resultsPath, "utf-8"));
-      const entry = all[opportunityId];
+      const entry = all[attemptId || opportunityId];
       if (entry) {
         return NextResponse.json(entry);
       }
@@ -31,7 +32,8 @@ export async function GET(req: NextRequest) {
   const relayToken = process.env.AGENT_RELAY_TOKEN;
   if (relayUrl && relayToken) {
     try {
-      const resp = await fetch(`${relayUrl.trim()}/result/${opportunityId}`, {
+      const resultKey = encodeURIComponent(attemptId || opportunityId);
+      const resp = await fetch(`${relayUrl.trim()}/result/${resultKey}`, {
         headers: { Authorization: `Bearer ${relayToken.trim()}` },
         signal: AbortSignal.timeout(5_000),
       });

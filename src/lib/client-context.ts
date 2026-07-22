@@ -119,9 +119,16 @@ export async function loadClientContext(
     opportunity.detectedProductId ? prisma.product.findUnique({ where: { id: opportunity.detectedProductId } }) : null,
   ]);
 
-  const brand = detectedBrand?.clientId === clientId
+  // Una oportunidad sin marca detectada no debe caer en la primera marca
+  // alfabética (antes PC MIDI terminaba sistemáticamente en Alctron).
+  const fallbackBrand = client.slug === "pcmidi"
+    ? await prisma.brand.findFirst({ where: { clientId, name: { equals: "MidiPlus", mode: "insensitive" } } })
+    : null;
+  const detectedBrandIsExplicit = !!detectedBrand
+    && normalizeForMatch(opportunity.sourceText).includes(normalizeForMatch(detectedBrand.name));
+  const brand = detectedBrand?.clientId === clientId && (detectedBrandIsExplicit || detectedProduct?.brandId === detectedBrand.id)
     ? detectedBrand
-    : await prisma.brand.findFirst({ where: { clientId }, orderBy: { name: "asc" } });
+    : fallbackBrand ?? await prisma.brand.findFirst({ where: { clientId }, orderBy: { name: "asc" } });
   if (!brand) throw new Error(`No hay marca configurada para clientId=${clientId}.`);
 
   const catalogProducts = await prisma.product.findMany({
