@@ -52,65 +52,65 @@ enum IssueReportStatus {
 // ─── Multi-Cliente ─────────────────────────────────────────────────────────────
 
 model Client {
-  id                  String            @id @default(cuid())
-  name                String            @unique
-  slug                String            @unique
-  description         String            @default("")
-  domainKeywords      String            @default("[]")
-  domainExclusions    String            @default("[]")
-  dailyOpportunityTarget Int             @default(50)
-  dailyDraftTarget       Int             @default(50)
-  responsePolicy         Json            @default("{}")
-  opportunitySearchState Json            @default("{}")
-  autoPublish         Boolean           @default(false)
-  autoApprove         Boolean           @default(false)
-  active              Boolean           @default(true)
-  openrouterApiKey    String            @default("")
-  openrouterModel     String            @default("")
+  id                     String               @id @default(cuid())
+  name                   String               @unique
+  slug                   String               @unique
+  description            String               @default("")
+  domainKeywords         String               @default("[]")
+  domainExclusions       String               @default("[]")
+  dailyOpportunityTarget Int                  @default(50)
+  dailyDraftTarget       Int                  @default(50)
+  responsePolicy         Json                 @default("{}")
+  opportunitySearchState Json                 @default("{}")
+  autoPublish            Boolean              @default(false)
+  autoApprove            Boolean              @default(false)
+  active                 Boolean              @default(true)
+  openrouterApiKey       String               @default("")
+  openrouterModel        String               @default("")
   // Branding / landings
-  storeUrl            String            @default("")
-  blogBaseUrl         String            @default("")
-  labName             String            @default("")
-  logoUrl             String            @default("")
-  landingTemplate     String            @default("")
-  landingPrimaryColor String            @default("")
-  landingSecondaryColor String            @default("")
+  storeUrl               String               @default("")
+  blogBaseUrl            String               @default("")
+  labName                String               @default("")
+  logoUrl                String               @default("")
+  landingTemplate        String               @default("")
+  landingPrimaryColor    String               @default("")
+  landingSecondaryColor  String               @default("")
   // Email / nurturing (Fase 2)
-  fromName            String            @default("")
-  fromEmail           String            @default("")
-  smtpHost            String            @default("")
-  smtpPort            Int               @default(465)
-  smtpUser            String            @default("")
-  smtpPass            String            @default("")
-  unsubscribeBaseUrl  String            @default("")
-  trackBaseUrl        String            @default("")
+  fromName               String               @default("")
+  fromEmail              String               @default("")
+  smtpHost               String               @default("")
+  smtpPort               Int                  @default(465)
+  smtpUser               String               @default("")
+  smtpPass               String               @default("")
+  unsubscribeBaseUrl     String               @default("")
+  trackBaseUrl           String               @default("")
   // GEO (Fase 3)
-  geoBrandPatterns    Json              @default("[]")
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @updatedAt
-  brands              Brand[]
-  personas            Persona[]
-  monitoredSources    MonitoredSource[]
-  catalogRules        CatalogRule[]
-  landingCategories   LandingCategory[]
-  landingProducts     LandingProduct[]
-  seedTopics          SeedTopic[]
-  landings            Landing[]
-  leadMagnets         LeadMagnet[]
-  leads               Lead[]
-  nurtureSteps        NurtureStep[]
-  distributionPieces  DistributionPiece[]
-  geoAudits           GeoAudit[]
-  aiPresenceResults   AIPresenceResult[]
-  trackingEvents      TrackingEvent[]
-  users               User[]
-  opportunities       Opportunity[]
-  observedProfiles    ObservedProfile[]
-  trends              Trend[]
-  videoScripts        VideoScript[]
-  brandSnapshots      BrandSnapshot[]
-  competitorEvidence  CompetitorEvidence[]
-  draftJobs           DraftJob[]
+  geoBrandPatterns       Json                 @default("[]")
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+  brands                 Brand[]
+  personas               Persona[]
+  monitoredSources       MonitoredSource[]
+  catalogRules           CatalogRule[]
+  landingCategories      LandingCategory[]
+  landingProducts        LandingProduct[]
+  seedTopics             SeedTopic[]
+  landings               Landing[]
+  leadMagnets            LeadMagnet[]
+  leads                  Lead[]
+  nurtureSteps           NurtureStep[]
+  distributionPieces     DistributionPiece[]
+  geoAudits              GeoAudit[]
+  aiPresenceResults      AIPresenceResult[]
+  trackingEvents         TrackingEvent[]
+  users                  User[]
+  opportunities          Opportunity[]
+  observedProfiles       ObservedProfile[]
+  trends                 Trend[]
+  videoScripts           VideoScript[]
+  brandSnapshots         BrandSnapshot[]
+  competitorEvidence     CompetitorEvidence[]
+  draftJobs              DraftJob[]
 }
 
 model BrandSnapshot {
@@ -247,40 +247,44 @@ model Channel {
 }
 
 model Opportunity {
-  id                String              @id @default(cuid())
-  channelId         String
-  sourceUrl         String
-  sourceAuthor      String              @default("")
-  sourceText        String
-  clientId          String?
-  observedProfileId String?
-  detectedBrandId   String?
-  detectedProductId String?
-  detectedIntent    OpportunityIntent   @default(GENERAL_DISCUSSION)
-  priority          OpportunityPriority @default(MEDIUM)
-  status            OpportunityStatus   @default(NEW)
-  detectedTopics    Json                @default("[]")
-  detectedTone      String              @default("")
-  detectedToneConfidence String         @default("low")
-  notes             String              @default("")
-  monitoredSourceId String?
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
-  channel           Channel             @relation(fields: [channelId], references: [id])
-  client            Client?             @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  observedProfile   ObservedProfile?    @relation(fields: [observedProfileId], references: [id])
-  detectedBrand     Brand?              @relation(fields: [detectedBrandId], references: [id])
-  detectedProduct   Product?            @relation(fields: [detectedProductId], references: [id])
-  monitoredSource   MonitoredSource?    @relation(fields: [monitoredSourceId], references: [id])
-  publishingLogs    PublishingLog[]
-  responses         Response[]
-  draftJob          DraftJob?
-  landings          Landing[]
-  distribution      DistributionPiece[]
-  observedEvent     ObservedEvent?
+  id                     String              @id @default(cuid())
+  channelId              String
+  sourceUrl              String
+  sourceAuthor           String              @default("")
+  sourceText             String
+  signalType             String              @default("actionable_question")
+  clientId               String?
+  observedProfileId      String?
+  detectedBrandId        String?
+  detectedProductId      String?
+  detectedIntent         OpportunityIntent   @default(GENERAL_DISCUSSION)
+  priority               OpportunityPriority @default(MEDIUM)
+  opportunityScore       Int                 @default(0)
+  contextAssessment      Json                @default("{}")
+  status                 OpportunityStatus   @default(NEW)
+  detectedTopics         Json                @default("[]")
+  detectedTone           String              @default("")
+  detectedToneConfidence String              @default("low")
+  notes                  String              @default("")
+  monitoredSourceId      String?
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+  channel                Channel             @relation(fields: [channelId], references: [id])
+  client                 Client?             @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  observedProfile        ObservedProfile?    @relation(fields: [observedProfileId], references: [id])
+  detectedBrand          Brand?              @relation(fields: [detectedBrandId], references: [id])
+  detectedProduct        Product?            @relation(fields: [detectedProductId], references: [id])
+  monitoredSource        MonitoredSource?    @relation(fields: [monitoredSourceId], references: [id])
+  publishingLogs         PublishingLog[]
+  responses              Response[]
+  draftJob               DraftJob?
+  landings               Landing[]
+  distribution           DistributionPiece[]
+  observedEvent          ObservedEvent?
 
   @@index([status])
   @@index([priority])
+  @@index([opportunityScore(sort: Desc), createdAt(sort: Desc)])
   @@index([createdAt])
   @@index([channelId])
   @@index([clientId])
@@ -291,27 +295,27 @@ model Opportunity {
 }
 
 model ObservedProfile {
-  id                 String             @id @default(cuid())
-  clientId           String
-  platform           String
-  externalHandle     String
-  displayName        String             @default("")
-  profileUrl         String             @default("")
-  toneSummary        String             @default("")
-  toneConfidence     String             @default("low")
-  profileStatus      String             @default("active")
-  primaryTopics      Json               @default("[]")
-  secondaryTopics    Json               @default("[]")
-  engagementPattern  Json               @default("{}")
-  commercialReadiness Float             @default(0)
-  firstSeenAt        DateTime           @default(now())
-  lastSeenAt         DateTime           @default(now())
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-  client             Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  interests          ObservedInterest[]
-  events             ObservedEvent[]
-  opportunities      Opportunity[]
+  id                  String             @id @default(cuid())
+  clientId            String
+  platform            String
+  externalHandle      String
+  displayName         String             @default("")
+  profileUrl          String             @default("")
+  toneSummary         String             @default("")
+  toneConfidence      String             @default("low")
+  profileStatus       String             @default("active")
+  primaryTopics       Json               @default("[]")
+  secondaryTopics     Json               @default("[]")
+  engagementPattern   Json               @default("{}")
+  commercialReadiness Float              @default(0)
+  firstSeenAt         DateTime           @default(now())
+  lastSeenAt          DateTime           @default(now())
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  client              Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  interests           ObservedInterest[]
+  events              ObservedEvent[]
+  opportunities       Opportunity[]
 
   @@unique([clientId, platform, externalHandle])
   @@index([clientId])
@@ -338,22 +342,22 @@ model ObservedInterest {
 }
 
 model ObservedEvent {
-  id                    String          @id @default(cuid())
-  observedProfileId     String
-  opportunityId         String          @unique
-  sourceTextSnapshot    String
-  primaryTopicKey       String          @default("general")
-  secondaryTopicKeys    Json            @default("[]")
-  topicConfidence       String          @default("low")
-  toneSummary           String          @default("")
-  toneConfidence        String          @default("low")
-  detectedIntent        OpportunityIntent @default(GENERAL_DISCUSSION)
-  detectedPriority      OpportunityPriority @default(MEDIUM)
-  signalSummary         String          @default("")
-  createdAt             DateTime        @default(now())
-  updatedAt             DateTime        @updatedAt
-  observedProfile       ObservedProfile @relation(fields: [observedProfileId], references: [id], onDelete: Cascade)
-  opportunity           Opportunity     @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  id                 String              @id @default(cuid())
+  observedProfileId  String
+  opportunityId      String              @unique
+  sourceTextSnapshot String
+  primaryTopicKey    String              @default("general")
+  secondaryTopicKeys Json                @default("[]")
+  topicConfidence    String              @default("low")
+  toneSummary        String              @default("")
+  toneConfidence     String              @default("low")
+  detectedIntent     OpportunityIntent   @default(GENERAL_DISCUSSION)
+  detectedPriority   OpportunityPriority @default(MEDIUM)
+  signalSummary      String              @default("")
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  observedProfile    ObservedProfile     @relation(fields: [observedProfileId], references: [id], onDelete: Cascade)
+  opportunity        Opportunity         @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
 
   @@index([observedProfileId])
   @@index([primaryTopicKey])
@@ -361,24 +365,24 @@ model ObservedEvent {
 }
 
 model Response {
-  id            String              @id @default(cuid())
-  opportunityId String
-  personaId     String
-  brandId       String
-  variantType   ResponseVariantType
-  voiceVariant  String              @default("")
-  voiceVariantReason String         @default("")
-  draftText     String
-  editedText    String              @default("")
-  riskNotes     String              @default("")
-  evidence      Json                @default("[]")
-  approvedBy    String              @default("")
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
-  publishingLog PublishingLog?
-  brand         Brand               @relation(fields: [brandId], references: [id])
-  opportunity   Opportunity         @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
-  persona       Persona             @relation(fields: [personaId], references: [id])
+  id                 String              @id @default(cuid())
+  opportunityId      String
+  personaId          String
+  brandId            String
+  variantType        ResponseVariantType
+  voiceVariant       String              @default("")
+  voiceVariantReason String              @default("")
+  draftText          String
+  editedText         String              @default("")
+  riskNotes          String              @default("")
+  evidence           Json                @default("[]")
+  approvedBy         String              @default("")
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  publishingLog      PublishingLog?
+  brand              Brand               @relation(fields: [brandId], references: [id])
+  opportunity        Opportunity         @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  persona            Persona             @relation(fields: [personaId], references: [id])
 
   @@index([opportunityId])
   @@index([personaId])
@@ -428,20 +432,33 @@ model Objection {
 }
 
 model MonitoredSource {
-  id            String        @id @default(cuid())
-  clientId      String?
-  label         String        @unique
-  channel       String
-  query         String
-  account       String        @default("")
-  limit         Int           @default(5)
-  active        Boolean       @default(true)
-  lastRunAt     DateTime?
-  lastCount     Int           @default(0)
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  client        Client?       @relation(fields: [clientId], references: [id])
-  opportunities Opportunity[]
+  id                String        @id @default(cuid())
+  clientId          String?
+  label             String        @unique
+  channel           String
+  query             String
+  account           String        @default("")
+  limit             Int           @default(5)
+  targetUrl         String        @default("")
+  sourceKind        String        @default("query")
+  lifecycle         String        @default("active")
+  priority          Int           @default(50)
+  expectedTopics    Json          @default("[]")
+  emptyReads        Int           @default(0)
+  lastEvidenceAt    DateTime?
+  blockedReason     String        @default("")
+  active            Boolean       @default(true)
+  lastRunAt         DateTime?
+  lastCount         Int           @default(0)
+  lastItemsRead     Int           @default(0)
+  lastCandidates    Int           @default(0)
+  lastDiscarded     Int           @default(0)
+  lastError         String        @default("")
+  lastDiscoveryMode String        @default("")
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  client            Client?       @relation(fields: [clientId], references: [id])
+  opportunities     Opportunity[]
 }
 
 model PromptVersion {
@@ -487,40 +504,40 @@ enum LandingStatus {
 }
 
 model CompetitorEvidence {
-  id                String   @id @default(cuid())
-  clientId          String
-  competitorBrand   String
-  aliases           Json     @default("[]")
-  model             String   @default("")
-  topic             String
-  observation       String
-  testedBy          String   @default("")
-  testedAt          DateTime?
-  evidenceUrl       String   @default("")
-  confidence        String   @default("medium")
-  allowFirstPerson  Boolean  @default(false)
-  active            Boolean  @default(true)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  client            Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  id               String    @id @default(cuid())
+  clientId         String
+  competitorBrand  String
+  aliases          Json      @default("[]")
+  model            String    @default("")
+  topic            String
+  observation      String
+  testedBy         String    @default("")
+  testedAt         DateTime?
+  evidenceUrl      String    @default("")
+  confidence       String    @default("medium")
+  allowFirstPerson Boolean   @default(false)
+  active           Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  client           Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@index([clientId, competitorBrand])
   @@index([clientId, active])
 }
 
 model DraftJob {
-  id          String         @id @default(cuid())
-  opportunityId String       @unique
-  clientId    String
-  status      DraftJobStatus @default(QUEUED)
-  attempts    Int            @default(0)
-  lockedBy    String         @default("")
-  leaseUntil  DateTime?
-  lastError   String         @default("")
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-  opportunity Opportunity    @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
-  client      Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  id            String         @id @default(cuid())
+  opportunityId String         @unique
+  clientId      String
+  status        DraftJobStatus @default(QUEUED)
+  attempts      Int            @default(0)
+  lockedBy      String         @default("")
+  leaseUntil    DateTime?
+  lastError     String         @default("")
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  opportunity   Opportunity    @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  client        Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@index([clientId, status, createdAt])
   @@index([status, leaseUntil])
@@ -600,29 +617,29 @@ model LeadMagnet {
 }
 
 model Landing {
-  id             String        @id @default(cuid())
-  clientId       String?
-  slug           String        @unique
-  keyword        String
-  intent         String        @default("")
-  titulo         String        @default("")
-  htmlContent    String
-  seoTitle       String        @default("")
-  seoDescription String        @default("")
-  status         LandingStatus @default(DRAFT)
-  publicPreviewUrl String      @default("")
+  id                 String              @id @default(cuid())
+  clientId           String?
+  slug               String              @unique
+  keyword            String
+  intent             String              @default("")
+  titulo             String              @default("")
+  htmlContent        String
+  seoTitle           String              @default("")
+  seoDescription     String              @default("")
+  status             LandingStatus       @default(DRAFT)
+  publicPreviewUrl   String              @default("")
   previewPublishedAt DateTime?
-  publishedAt    DateTime?
-  opportunityId  String?
-  leadMagnetId   String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  client         Client?       @relation(fields: [clientId], references: [id])
-  opportunity    Opportunity?  @relation(fields: [opportunityId], references: [id])
-  leadMagnet     LeadMagnet?   @relation(fields: [leadMagnetId], references: [id])
-  leads          Lead[]
-  distribution   DistributionPiece[]
-  trackingEvents TrackingEvent[]
+  publishedAt        DateTime?
+  opportunityId      String?
+  leadMagnetId       String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  client             Client?             @relation(fields: [clientId], references: [id])
+  opportunity        Opportunity?        @relation(fields: [opportunityId], references: [id])
+  leadMagnet         LeadMagnet?         @relation(fields: [leadMagnetId], references: [id])
+  leads              Lead[]
+  distribution       DistributionPiece[]
+  trackingEvents     TrackingEvent[]
 
   @@index([clientId])
   @@index([status])
@@ -715,26 +732,26 @@ enum AIPresenceIntent {
 }
 
 model AIPresenceResult {
-  id              String               @id @default(cuid())
-  clientId        String?
-  sourceType      AIPresenceSourceType
-  channel         String               @default("")
-  query           String               @default("")
-  sourceUrl       String               @default("")
-  videoUrl        String               @default("")
-  videoTitle      String               @default("")
-  author          String               @default("")
-  context         String               @default("")
-  aiResponse      String               @default("")
-  relevanceScore  Float                @default(0)
-  brandDetected   String               @default("")
-  intent          AIPresenceIntent     @default(GENERAL_DISCUSSION)
-  priority        String               @default("MEDIUM")
-  aiReasoning     String               @default("")
-  modelUsed       String               @default("")
-  metadata        Json                 @default("{}")
-  createdAt       DateTime             @default(now())
-  client          Client?              @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  id             String               @id @default(cuid())
+  clientId       String?
+  sourceType     AIPresenceSourceType
+  channel        String               @default("")
+  query          String               @default("")
+  sourceUrl      String               @default("")
+  videoUrl       String               @default("")
+  videoTitle     String               @default("")
+  author         String               @default("")
+  context        String               @default("")
+  aiResponse     String               @default("")
+  relevanceScore Float                @default(0)
+  brandDetected  String               @default("")
+  intent         AIPresenceIntent     @default(GENERAL_DISCUSSION)
+  priority       String               @default("MEDIUM")
+  aiReasoning    String               @default("")
+  modelUsed      String               @default("")
+  metadata       Json                 @default("{}")
+  createdAt      DateTime             @default(now())
+  client         Client?              @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@index([clientId])
   @@index([createdAt])
@@ -831,25 +848,25 @@ model SeedTopic {
 }
 
 model Trend {
-  id            String         @id @default(cuid())
-  clientId      String?
-  title         String
-  description   String
-  sourceUrl     String         @default("")
-  platform      String         // "TIKTOK" | "YOUTUBE" | "GOOGLE_TRENDS" | "TWITTER" | "REDDIT"
-  queryUsed     String         @default("")
-  metadata      Json           @default("{}") // volumen de búsqueda, hashtags asociados, etc.
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  client        Client?        @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  videoScripts  VideoScript[]
+  id           String        @id @default(cuid())
+  clientId     String?
+  title        String
+  description  String
+  sourceUrl    String        @default("")
+  platform     String // "TIKTOK" | "YOUTUBE" | "GOOGLE_TRENDS" | "TWITTER" | "REDDIT"
+  queryUsed    String        @default("")
+  metadata     Json          @default("{}") // volumen de búsqueda, hashtags asociados, etc.
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  client       Client?       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  videoScripts VideoScript[]
 
   @@index([clientId])
   @@index([createdAt])
 }
 
 model VideoScript {
-  id             String        @id @default(cuid())
+  id             String   @id @default(cuid())
   clientId       String?
   trendId        String?
   brandId        String?
@@ -858,24 +875,22 @@ model VideoScript {
   hook           String
   bodyText       String
   cta            String
-  visualCues     String        @default("") // Instrucciones visuales
-  audioPrompt    String        @default("") // Estilo de música o audio de fondo
-  avatarVideoUrl String        @default("") // Video renderizado final
-  avatarJobId    String        @default("") // ID del Talk en D-ID
-  avatarStatus   String        @default("PENDING") // PENDING | PROCESSING | COMPLETED | FAILED
-  status         String        @default("NEW") // NEW | APPROVED | RENDERING | READY | DISCARDED
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  
-  trend          Trend?        @relation(fields: [trendId], references: [id], onDelete: SetNull)
-  brand          Brand?        @relation(fields: [brandId], references: [id])
-  product        Product?      @relation(fields: [productId], references: [id])
-  persona        Persona       @relation(fields: [personaId], references: [id])
-  client         Client?       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  visualCues     String   @default("") // Instrucciones visuales
+  audioPrompt    String   @default("") // Estilo de música o audio de fondo
+  avatarVideoUrl String   @default("") // Video renderizado final
+  avatarJobId    String   @default("") // ID del Talk en D-ID
+  avatarStatus   String   @default("PENDING") // PENDING | PROCESSING | COMPLETED | FAILED
+  status         String   @default("NEW") // NEW | APPROVED | RENDERING | READY | DISCARDED
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  trend   Trend?   @relation(fields: [trendId], references: [id], onDelete: SetNull)
+  brand   Brand?   @relation(fields: [brandId], references: [id])
+  product Product? @relation(fields: [productId], references: [id])
+  persona Persona  @relation(fields: [personaId], references: [id])
+  client  Client?  @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@index([clientId])
   @@index([status])
   @@index([createdAt])
 }
-
-

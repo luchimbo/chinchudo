@@ -1,0 +1,21 @@
+services:
+  searxng:
+    image: searxng/searxng:latest
+    container_name: pcmidi-searxng
+    restart: unless-stopped
+    ports:
+      - "${SEARXNG_PORT:-8080}:8080"
+    volumes:
+      - ./docker/searxng:/etc/searxng
+    environment:
+      - SEARXNG_BASE_URL=${SEARXNG_BASE_URL:-http://localhost:8080/}
+
+  rsshub:
+    image: diygod/rsshub:latest
+    container_name: pcmidi-rsshub
+    restart: unless-stopped
+    ports:
+      - "${RSSHUB_PORT:-1200}:1200"
+    environment:
+      - NODE_ENV=production
+      - CACHE_TYPE=memory

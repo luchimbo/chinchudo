@@ -1,0 +1,14 @@
+# Configuración exclusiva para la instancia local del radar.
+use_default_settings: true
+
+server:
+  # No es una clave de cuenta ni API; protege las cookies de esta instancia.
+  secret_key: "pcmidi-local-searxng-9d03d043c10a4a0d9e1e60f6"
+  image_proxy: true
+  # El radar llama desde localhost, sin proxy inverso que aporte la IP.
+  limiter: false
+
+search:
+  formats:
+    - html
+    - json

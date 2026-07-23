@@ -18,6 +18,7 @@ import { triageOpportunity } from "../src/lib/opportunity-triage";
 import { loadObservedProfileContext, recordObservedProfileEvent } from "../src/lib/observed-profiles";
 import { classifyJurispediaSafety, isJurispediaAutoPublishAllowed } from "../src/lib/jurispedia-policy";
 import { loadRelevantCompetitorEvidence } from "../src/lib/competitor-evidence";
+import { findSimilarDraft } from "../src/lib/draft-uniqueness";
 
 loadEnv();
 
@@ -31,6 +32,7 @@ function parseArgs() {
     dryRun: process.argv.includes("--dry-run") || process.env.npm_config_dry_run === "true",
     useAi: process.argv.includes("--use-ai") || process.env.npm_config_use_ai === "true",
     allPersonas: process.argv.includes("--all-personas") || process.env.npm_config_all_personas === "true",
+    draftOnly: process.argv.includes("--draft-only"),
     replacePending: process.argv.includes("--replace-pending"),
     limit: limitIndex >= 0 ? Number(process.argv[limitIndex + 1] || 50) : Number(process.env.npm_config_limit || 50),
     clientSlug: clientIndex >= 0 ? process.argv[clientIndex + 1] : process.env.npm_config_client || null,
@@ -106,6 +108,7 @@ async function main() {
   let drafted = 0;
   let aiUsed = 0;
   let localUsed = 0;
+  let uniquenessRetries = 0;
   const errors: { opportunityId: string; error: string }[] = [];
   const routing: {
     opportunityId: string;
@@ -120,6 +123,8 @@ async function main() {
 
   const allowAi = shouldUseAi(args);
   const workerId = `draft-${process.pid}-${randomUUID().slice(0, 8)}`;
+  const prestigeUniqueAttempts = Math.max(1, Number(process.env.PRESTIGE_DRAFT_UNIQUENESS_ATTEMPTS || 8));
+  const knownDraftsByClient = new Map<string, Set<string>>();
 
   for (const opportunity of opportunities) {
     let resolution: Awaited<ReturnType<typeof resolveOpportunityClient>>;
@@ -265,10 +270,68 @@ async function main() {
         let source = "local";
         // Para Jurispedia el contenido público se genera con la plantilla auditada;
         // no se usa IA generativa para evitar asesoramiento o citas inventadas.
-        let variants = resolution.client.slug === "jurispedia" ? null : (allowAi ? await generateAIDrafts(ctx) : null);
-        if (variants && variants.length > 0) source = "ai";
-        else variants = generateLocalDrafts(ctx);
-        if (source === "ai") aiUsed++;
+        let variants;
+        if (resolution.client.slug === "prestige-running") {
+          if (!allowAi) {
+            throw new Error("Prestige requiere IA para crear borradores únicos; ejecutá sin --dry-run o agregá --use-ai.");
+          }
+
+          let knownDrafts = knownDraftsByClient.get(resolution.client.id);
+          if (!knownDrafts) {
+            const existing = await prisma.response.findMany({
+              where: { opportunity: { clientId: resolution.client.id } },
+              select: { draftText: true, editedText: true },
+            });
+            knownDrafts = new Set(existing.flatMap((row) => [row.draftText, row.editedText]).filter(Boolean));
+            knownDraftsByClient.set(resolution.client.id, knownDrafts);
+          }
+
+          type GeneratedVariant = {
+            variantType: "SHORT" | "TECHNICAL" | "CONVERSATIONAL";
+            draftText: string;
+            riskNotes: string;
+          };
+          const accepted = new Map<GeneratedVariant["variantType"], GeneratedVariant>();
+          const rejected: string[] = [];
+          for (let attempt = 1; attempt <= prestigeUniqueAttempts && accepted.size < 3; attempt++) {
+            const generated = await generateAIDrafts({
+              ...ctx,
+              avoidDrafts: [...knownDrafts].slice(-30).concat(
+                rejected.slice(-15),
+                [...accepted.values()].map((item) => item.draftText),
+              ),
+            });
+            if (!generated?.length) {
+              uniquenessRetries++;
+              continue;
+            }
+            for (const variant of generated) {
+              if (accepted.has(variant.variantType)) continue;
+              const comparisonPool = [
+                ...knownDrafts,
+                ...[...accepted.values()].map((item) => item.draftText),
+              ];
+              const similar = findSimilarDraft(variant.draftText, comparisonPool);
+              if (similar) {
+                rejected.push(variant.draftText, similar.text);
+                continue;
+              }
+              accepted.set(variant.variantType, variant);
+            }
+            if (accepted.size < 3) uniquenessRetries++;
+          }
+          variants = [...accepted.values()];
+          if (variants.length !== 3) {
+            throw new Error(`La IA no logró 3 variantes únicas tras ${prestigeUniqueAttempts} intentos; no se guardaron plantillas repetidas.`);
+          }
+          for (const variant of variants) knownDrafts.add(variant.draftText);
+          source = "ai-unique";
+        } else {
+          variants = resolution.client.slug === "jurispedia" ? null : (allowAi ? await generateAIDrafts(ctx) : null);
+          if (variants && variants.length > 0) source = "ai";
+          else variants = generateLocalDrafts(ctx);
+        }
+        if (source === "ai" || source === "ai-unique") aiUsed++;
         else localUsed++;
 
         routing.push({
@@ -333,8 +396,8 @@ async function main() {
       channelEnabled: channelSetting?.value === "true",
     });
     const contextualPresence = opportunity.signalType === "contextual_presence";
-    const autoApprove = !args.replacePending && !contextualPresence && resolution.client.autoApprove && !opportunityHadError && resolution.confidence === "high" && legalPublish.allowed;
-    const autoPublish = !args.replacePending && !contextualPresence && resolution.client.autoPublish && !opportunityHadError && resolution.confidence === "high" && legalPublish.allowed;
+    const autoApprove = !args.draftOnly && !args.replacePending && !contextualPresence && resolution.client.autoApprove && !opportunityHadError && resolution.confidence === "high" && legalPublish.allowed;
+    const autoPublish = !args.draftOnly && !args.replacePending && !contextualPresence && resolution.client.autoPublish && !opportunityHadError && resolution.confidence === "high" && legalPublish.allowed;
 
     if (autoApprove || autoPublish) {
       const bestPersonaName = suggestions[0]?.personaName;
@@ -411,6 +474,7 @@ async function main() {
     drafts_created: drafted,
     ai_used: aiUsed,
     local_used: localUsed,
+    uniqueness_retries: uniquenessRetries,
     all_personas: args.allPersonas,
     routing,
     errors,

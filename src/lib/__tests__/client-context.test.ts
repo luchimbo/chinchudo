@@ -106,12 +106,15 @@ describe("local fallback drafts by client", () => {
     sourceUrl: "https://youtube.com/123",
     sourceAuthor: "user1",
     sourceText: text,
+    signalType: "actionable_question",
     clientId: "pcmidi",
     observedProfileId: null,
     detectedBrandId: "b1",
     detectedProductId: null,
     detectedIntent: intent,
     priority: "MEDIUM" as const,
+    opportunityScore: 0,
+    contextAssessment: {},
     status: "NEW" as const,
     detectedTopics: [],
     detectedTone: "",
@@ -133,7 +136,7 @@ describe("local fallback drafts by client", () => {
       opportunity: mockOpp("TECHNICAL_QUESTION", "Tengo un controlador y no suena"),
       brand: mockBrand,
       persona: mockPersona,
-      client: { id: "pcmidi", name: "PC MIDI", slug: "pcmidi", description: "", domainKeywords: "", domainExclusions: "", dailyOpportunityTarget: 15, opportunitySearchState: {}, autoPublish: false, autoApprove: false, active: true, openrouterApiKey: "", openrouterModel: "", storeUrl: "", blogBaseUrl: "", labName: "", logoUrl: "", landingTemplate: "", landingPrimaryColor: "", landingSecondaryColor: "", fromName: "", fromEmail: "", smtpHost: "", smtpPort: 465, smtpUser: "", smtpPass: "", unsubscribeBaseUrl: "", trackBaseUrl: "", geoBrandPatterns: [], createdAt: new Date(), updatedAt: new Date() },
+      client: { id: "pcmidi", name: "PC MIDI", slug: "pcmidi", description: "", domainKeywords: "", domainExclusions: "", dailyOpportunityTarget: 50, dailyDraftTarget: 50, responsePolicy: {}, opportunitySearchState: {}, autoPublish: false, autoApprove: false, active: true, openrouterApiKey: "", openrouterModel: "", storeUrl: "", blogBaseUrl: "", labName: "", logoUrl: "", landingTemplate: "", landingPrimaryColor: "", landingSecondaryColor: "", fromName: "", fromEmail: "", smtpHost: "", smtpPort: 465, smtpUser: "", smtpPass: "", unsubscribeBaseUrl: "", trackBaseUrl: "", geoBrandPatterns: [], createdAt: new Date(), updatedAt: new Date() },
     });
     expect(drafts[0].draftText).toContain("sistema operativo");
   });
@@ -143,7 +146,7 @@ describe("local fallback drafts by client", () => {
       opportunity: mockOpp("TECHNICAL_QUESTION", "Tengo una duda con el producto"),
       brand: { ...mockBrand, clientId: "other", name: "Generic" },
       persona: { ...mockPersona, clientId: "other", name: "Generic Persona" },
-      client: { id: "other", name: "Other Client", slug: "other-client", description: "", domainKeywords: "", domainExclusions: "", dailyOpportunityTarget: 15, opportunitySearchState: {}, autoPublish: false, autoApprove: false, active: true, openrouterApiKey: "", openrouterModel: "", storeUrl: "", blogBaseUrl: "", labName: "", logoUrl: "", landingTemplate: "", landingPrimaryColor: "", landingSecondaryColor: "", fromName: "", fromEmail: "", smtpHost: "", smtpPort: 465, smtpUser: "", smtpPass: "", unsubscribeBaseUrl: "", trackBaseUrl: "", geoBrandPatterns: [], createdAt: new Date(), updatedAt: new Date() },
+      client: { id: "other", name: "Other Client", slug: "other-client", description: "", domainKeywords: "", domainExclusions: "", dailyOpportunityTarget: 50, dailyDraftTarget: 50, responsePolicy: {}, opportunitySearchState: {}, autoPublish: false, autoApprove: false, active: true, openrouterApiKey: "", openrouterModel: "", storeUrl: "", blogBaseUrl: "", labName: "", logoUrl: "", landingTemplate: "", landingPrimaryColor: "", landingSecondaryColor: "", fromName: "", fromEmail: "", smtpHost: "", smtpPort: 465, smtpUser: "", smtpPass: "", unsubscribeBaseUrl: "", trackBaseUrl: "", geoBrandPatterns: [], createdAt: new Date(), updatedAt: new Date() },
     });
     expect(drafts[0].draftText).not.toContain("sistema operativo");
     expect(drafts[0].draftText).not.toContain("placa/SO");
@@ -153,7 +156,7 @@ describe("local fallback drafts by client", () => {
   it("genera fallbacks de Prestige con foco tecnico o de estilo segun la consulta", () => {
     const prestigeBrand = { ...mockBrand, clientId: "prestige", name: "Prestige" };
     const prestigePersona = { ...mockPersona, clientId: "prestige", name: "PrÃ¡ctico" };
-    const prestigeClient = { id: "prestige", name: "Prestige", slug: "prestige-running", description: "", domainKeywords: "", domainExclusions: "", dailyOpportunityTarget: 15, opportunitySearchState: {}, autoPublish: false, autoApprove: false, active: true, openrouterApiKey: "", openrouterModel: "", storeUrl: "", blogBaseUrl: "", labName: "", logoUrl: "", landingTemplate: "", landingPrimaryColor: "", landingSecondaryColor: "", fromName: "", fromEmail: "", smtpHost: "", smtpPort: 465, smtpUser: "", smtpPass: "", unsubscribeBaseUrl: "", trackBaseUrl: "", geoBrandPatterns: [], createdAt: new Date(), updatedAt: new Date() };
+    const prestigeClient = { id: "prestige", name: "Prestige", slug: "prestige-running", description: "", domainKeywords: "", domainExclusions: "", dailyOpportunityTarget: 50, dailyDraftTarget: 50, responsePolicy: {}, opportunitySearchState: {}, autoPublish: false, autoApprove: false, active: true, openrouterApiKey: "", openrouterModel: "", storeUrl: "", blogBaseUrl: "", labName: "", logoUrl: "", landingTemplate: "", landingPrimaryColor: "", landingSecondaryColor: "", fromName: "", fromEmail: "", smtpHost: "", smtpPort: 465, smtpUser: "", smtpPass: "", unsubscribeBaseUrl: "", trackBaseUrl: "", geoBrandPatterns: [], createdAt: new Date(), updatedAt: new Date() };
 
     const technicalDrafts = generateLocalDrafts({
       opportunity: mockOpp("TECHNICAL_QUESTION", "Busco medias de compresion para correr 10k"),

@@ -6,9 +6,15 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Windows puede heredar una consola CP1252. La salida --output-json contiene
+# texto de redes (incluidos emojis), por lo que debe ser siempre UTF-8.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _log import get_logger  # noqa: E402
+import listening_connectors  # noqa: E402
 
 log = get_logger("social-listen")
 DATA_DIR = ROOT / "data"
@@ -82,6 +88,14 @@ DOMAIN_KEYWORDS = [
     "korg b2", "korg sp-", "korg pa",
     "aprender piano", "clases de piano", "tocar el piano",
     "piano para niños", "piano para principiantes",
+    # Baterías electrónicas: producto, partes, uso y posventa.
+    "bateria electronica", "baterias electronicas", "bateria electrica",
+    "electronic drum", "electronic drums", "e-drum", "e-drums",
+    "parche de malla", "parches de malla", "mesh head", "mesh heads",
+    "modulo de bateria", "drum module", "pad de bombo", "kick pad",
+    "pad de redoblante", "snare pad", "pad de plato", "cymbal pad",
+    "hi hat electronico", "charles electronico", "doble pedal",
+    "millenium mps", "millenium electronic drum", "millenium bateria",
 ]
 
 DOMAIN_EXCLUSIONS = [
@@ -89,6 +103,38 @@ DOMAIN_EXCLUSIONS = [
     "midi top", "midi coat", "midi pleated", "midi bodycon",
     "piano bar", "piano bar restaurant",
 ]
+
+# These are deliberately specific discovery aliases, not a copy of every
+# search query.  The quota worker rotates broad terms (for reach), while this
+# list decides whether a discovered post is genuinely in the client's domain.
+# Keeping ambiguous one-word terms out avoids accepting results about typing,
+# people with a matching surname, or unrelated products.
+DISCOVERY_KEYWORD_ALIASES: dict[str, list[str]] = {
+    "pcmidi": [
+        "novation launchkey", "novation circuit", "launchkey", "circuit tracks",
+        "akai mpk", "akai mpc", "mpk mini", "mpc key",
+        "arturia minilab", "arturia keylab", "minilab", "keylab",
+        "focusrite scarlett", "scarlett solo", "scarlett 2i2",
+        "behringer umc", "behringer audio", "behringer interface",
+        "korg minilogue", "korg microkorg", "korg volca",
+        "drum machine", "drum pad", "sintetizador", "sampler",
+        "placa de audio", "monitor de estudio", "microfono xlr",
+    ],
+    "jurispedia": [
+        "consulta juridica", "consulta legal", "abogado laboral", "derecho laboral",
+        "contrato de alquiler", "derecho de familia", "defensa del consumidor",
+        "accidente de transito", "marca registrada", "obra social", "copropiedad",
+        "me despidieron", "no me pagan", "trabajo en negro", "horas extras",
+        "problema alquiler", "aumento alquiler", "carta documento", "consulta abogado",
+        "me estafaron", "reclamo consumidor", "cuota alimentaria", "embargo sueldo",
+        "deuda tarjeta", "divorcio tenencia", "sucesion herencia", "contrato laboral",
+    ],
+    "prestige-running": [
+        "zapatillas running", "entrenamiento running", "correr 5k", "correr 10k",
+        "media maraton", "trail running", "fascitis plantar", "rozaduras al correr",
+        "ampollas al correr", "medias de compresion", "indumentaria running",
+    ],
+}
 
 
 def utc_stamp() -> str:
@@ -120,7 +166,7 @@ def load_client_rules(source_id: str | None = None, client_id: str | None = None
             row = None
             if source_id:
                 row = conn.execute(
-                    'SELECT c."domainKeywords", c."domainExclusions" '
+                    'SELECT c.slug, c."domainKeywords", c."domainExclusions" '
                     'FROM "Client" c '
                     'JOIN "MonitoredSource" ms ON ms."clientId" = c.id '
                     'WHERE ms.id = %s',
@@ -128,13 +174,13 @@ def load_client_rules(source_id: str | None = None, client_id: str | None = None
                 ).fetchone()
             elif client_id:
                 row = conn.execute(
-                    'SELECT "domainKeywords", "domainExclusions" FROM "Client" WHERE id = %s',
+                    'SELECT slug, "domainKeywords", "domainExclusions" FROM "Client" WHERE id = %s',
                     (client_id,)
                 ).fetchone()
             
             if not row and query:
                 # Intenta matchear por query contra el slug/name del cliente o sus keywords
-                clients = conn.execute('SELECT id, "domainKeywords", "domainExclusions" FROM "Client" WHERE active = true').fetchall()
+                clients = conn.execute('SELECT id, slug, "domainKeywords", "domainExclusions" FROM "Client" WHERE active = true').fetchall()
                 # Si una de las keywords del cliente está en la query, elegimos ese
                 q_lower = query.lower()
                 for c in clients:
@@ -147,7 +193,9 @@ def load_client_rules(source_id: str | None = None, client_id: str | None = None
                     row = clients[0]
 
             if row:
-                keywords = json.loads(row["domainKeywords"])
+                configured = json.loads(row["domainKeywords"])
+                aliases = DISCOVERY_KEYWORD_ALIASES.get(str(row.get("slug", "")).lower(), [])
+                keywords = list(dict.fromkeys([*configured, *aliases]))
                 exclusions = json.loads(row["domainExclusions"])
     except Exception as exc:
         log.warning("listen_db_rules_load_failed", error=str(exc))
@@ -157,8 +205,11 @@ def load_client_rules(source_id: str | None = None, client_id: str | None = None
 
 def is_on_topic(item: dict, query: str, keywords: list[str], exclusions: list[str]) -> bool:
     import unicodedata
+    # Query text is intentionally excluded: matching a broad search term must
+    # not make an unrelated result (for example another product called
+    # "Prestige") pass relevance validation.
     combined = (
-        " " + query + " " +
+        " " +
         (item.get("context") or "") + " " +
         (item.get("title") or "") + " " +
         (item.get("videoTitle") or "") +
@@ -290,11 +341,24 @@ def classify_intent(text: str) -> str:
 
 
 def classify_priority(intent: str, text: str) -> str:
+    normalized = text.lower()
+    millenium_drum = "millenium" in normalized and any(term in normalized for term in ("bateria", "battery", "drum", "mps", "parche", "pad", "modulo"))
+    if millenium_drum:
+        return "HIGH"
     if intent in ("PURCHASE_QUESTION", "TECHNICAL_QUESTION"):
         return "HIGH"
     if intent in ("WARRANTY_QUESTION", "PRICE_QUESTION", "COMPARISON"):
         return "MEDIUM"
     return "LOW"
+
+
+def classify_signal_type(intent: str, text: str) -> str:
+    lower = text.lower()
+    if intent in ("PURCHASE_QUESTION", "PRICE_QUESTION") or any(phrase in lower for phrase in ("donde comprar", "dónde comprar", "cuotas", "envío", "envio", "stock")):
+        return "purchase_signal"
+    if intent in ("TECHNICAL_QUESTION", "WARRANTY_QUESTION", "COMPARISON") or "?" in text:
+        return "actionable_question"
+    return "topic_interest"
 
 
 _COMMENT_TYPES = {"instagram_comment", "facebook_comment", "tiktok_comment"}
@@ -386,6 +450,7 @@ def normalize_item(channel: str, query: str, item: dict, account: str | None, so
         "videoUrl": item.get("videoUrl", ""),
         "publishedTime": item.get("publishedTime", ""),
         "detectedIntent": intent,
+        "signalType": classify_signal_type(intent, text),
         "priority": classify_priority(intent, text),
         "status": "NEW",
         "notes": notes,
@@ -442,7 +507,7 @@ def load_own_usernames() -> set[str]:
     return own
 
 
-def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str | None, source_id: str | None = None, client_id: str | None = None, language: str = "es") -> dict:
+def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str | None, source_id: str | None = None, client_id: str | None = None, language: str = "es", public_discovery: bool = True, indexed_only: bool = False) -> dict:
     log.info("listen_start", channel=channel, account=account or "default", query=query[:60], limit=limit, dry_run=dry_run, language=language)
     
     # Cargar dinámicamente palabras clave y exclusiones del cliente
@@ -450,46 +515,59 @@ def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str
     log.info("listen_rules_loaded", keywords_count=len(keywords), exclusions_count=len(exclusions))
     own_usernames = load_own_usernames()
 
-    try:
-        ws_url = browser_cdp.get_page_ws_url(account)
-    except Exception as exc:
-        log.error("listen_browser_connect_fail", channel=channel, account=account or "default", error=str(exc))
-        return {
-            "command": "listen", "channel": channel, "account": account or "default",
-            "query": query, "limit": limit, "dry_run": dry_run, "language": language,
-            "error": f"No se pudo conectar al browser: {exc}",
-            "items_read": 0, "intake_rows": 0, "discarded_count": 0,
-            "discard_reasons": {}, "discarded_sample": [], "intake_path": str(INTAKE_PATH), "sample": [],
-        }
+    browser_error = ""
+    ws_url = ""
+    if not indexed_only:
+        try:
+            ws_url = browser_cdp.get_page_ws_url(account)
+        except Exception as exc:
+            log.error("listen_browser_connect_fail", channel=channel, account=account or "default", error=str(exc))
+            # A broken local profile must not make already-indexed public posts
+            # invisible. This fallback is read-only and will still go through the
+            # exact same filters below before producing an intake row.
+            browser_error = f"No se pudo conectar al browser: {exc}"
 
     try:
-        with browser_cdp.CDPClient(ws_url, timeout=40.0) as client:
-            client.send("Page.enable")
-            client.send("Runtime.enable")
-            if channel == "youtube":
-                items = browser_cdp.extract_youtube_comment_items(client, query, limit)
-            elif channel == "reddit":
-                items = browser_cdp.extract_reddit_comment_items(client, query, limit)
-            elif channel == "facebook":
-                items = browser_cdp.extract_facebook_post_items(client, query, limit)
-            elif channel == "instagram":
-                items = browser_cdp.extract_instagram_post_items(client, query, limit)
-            elif channel == "x":
-                items = browser_cdp.extract_x_post_items(client, query, limit)
-            elif channel == "tiktok":
-                items = browser_cdp.extract_tiktok_items(client, query, limit)
-            elif channel == "linkedin":
-                items = browser_cdp.extract_linkedin_items(client, query, limit)
-            else:
-                url = browser_cdp.search_url_for(channel, query)
-                client.send("Page.navigate", {"url": url})
-                import time
-                time.sleep(5)
-                items = browser_cdp.extract_visible_items(client, channel, limit)
+        if indexed_only or not ws_url:
+            items = browser_cdp.extract_public_indexed_items(channel, query, limit)
+        else:
+            with browser_cdp.CDPClient(ws_url, timeout=40.0) as client:
+                client.send("Page.enable")
+                client.send("Runtime.enable")
+                if channel == "youtube":
+                    items = browser_cdp.extract_youtube_comment_items(client, query, limit)
+                elif channel == "reddit":
+                    items = browser_cdp.extract_reddit_comment_items(client, query, limit)
+                elif channel == "facebook":
+                    items = browser_cdp.extract_facebook_post_items(client, query, limit)
+                elif channel == "instagram":
+                    items = browser_cdp.extract_instagram_post_items(client, query, limit)
+                elif channel == "x":
+                    items = browser_cdp.extract_x_post_items(client, query, limit)
+                elif channel == "tiktok":
+                    items = browser_cdp.extract_tiktok_items(client, query, limit)
+                elif channel == "linkedin":
+                    items = browser_cdp.extract_linkedin_items(client, query, limit)
+                else:
+                    url = browser_cdp.search_url_for(channel, query)
+                    client.send("Page.navigate", {"url": url})
+                    import time
+                    time.sleep(5)
+                    items = browser_cdp.extract_visible_items(client, channel, limit)
+                if len(items) < limit:
+                    log.info("listen_indexed_fallback", channel=channel, query=query[:60])
+                else:
+                    log.info("listen_indexed_supplement", channel=channel, query=query[:60])
+                indexed = browser_cdp.extract_indexed_social_items(client, channel, query, limit)
+                if indexed:
+                    seen_urls = {item.get("url") for item in items}
+                    items.extend(item for item in indexed if item.get("url") not in seen_urls)
     except Exception as exc:
         import traceback
         log.error("listen_cdp_error", channel=channel, account=account or "default", error=str(exc))
-        return {
+        browser_error = f"Error CDP: {exc}"
+        items = []
+        _legacy_cdp_diagnostic = {
             "command": "listen", "channel": channel, "account": account or "default",
             "query": query, "limit": limit, "dry_run": dry_run, "language": language,
             "error": f"Error CDP durante extracción ({channel}): {exc}",
@@ -497,6 +575,17 @@ def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str
             "items_read": 0, "intake_rows": 0, "discarded_count": 0,
             "discard_reasons": {}, "discarded_sample": [], "intake_path": str(INTAKE_PATH), "sample": [],
         }
+
+    provider_health: list[dict] = []
+    if public_discovery:
+        public_items, provider_health = listening_connectors.discover_public(channel, query, limit)
+        seen_urls = {str(item.get("url", "")) for item in items}
+        items.extend(item for item in public_items if item.get("url") not in seen_urls)
+
+    indexed_markers = ("indexed", "searxng", "rsshub", "ytdlp")
+    indexed_items = sum(1 for item in items if any(marker in str(item.get("sourceType", "")).lower() for marker in indexed_markers))
+    direct_items = max(0, len(items) - indexed_items)
+    discovery_mode = "indexed" if indexed_only or (indexed_items > 0 and direct_items == 0) else "hybrid" if indexed_items > 0 else "direct"
 
     rows: list[dict] = []
     discarded: list[dict] = []
@@ -519,12 +608,21 @@ def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str
             discarded.append({"reason": f"idioma_no_{language}", "language": detected_language, "text": lang_text[:60]})
             continue
         published = item.get("publishedTime", "")
-        max_age = 18 if channel in ("x", "instagram") else 24
-        if is_too_old(published, max_months=max_age):
+        electronic_drum_search = bool(re.search(r"\b(bater[ií]a(?:s)?\s+electr[oó]nica(?:s)?|electronic\s+drums?|e[- ]?drums?)\b", query, re.IGNORECASE))
+        max_age = None if electronic_drum_search else (18 if channel in ("x", "instagram") else 24)
+        if max_age is not None and is_too_old(published, max_months=max_age):
             discarded.append({"reason": "comentario_viejo", "age": published, "text": (item.get("context") or "")[:60]})
             continue
         row = normalize_item(channel, query, item, account, source_id, detected_language)
-        ok, reason = is_actionable(row["sourceText"], row.get("sourceType", ""))
+        # Los posts/videos temáticos pueden ser oportunidades de presencia contextual
+        # aun sin pregunta. Los comentarios cortos siguen necesitando una señal clara.
+        source_type = row.get("sourceType", "")
+        contextual_source = source_type.endswith("_post") or source_type.endswith("_search_result") or source_type in {"youtube_video", "tiktok_video", "instagram_reel"}
+        contextual_text = " ".join([row["sourceText"], str(row.get("sourceTitle", "")), str(item.get("videoTitle", ""))]).strip()
+        if contextual_source and len(contextual_text.split()) >= 5:
+            ok, reason = True, ""
+        else:
+            ok, reason = is_actionable(row["sourceText"], source_type)
         if not ok:
             discarded.append({"reason": reason, "text": row["sourceText"][:60]})
             continue
@@ -548,6 +646,11 @@ def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str
         dry_run=dry_run,
     )
 
+    provider_errors = [
+        f"{provider.get('provider', 'provider')}: {provider.get('error', provider.get('status', 'error'))}"
+        for provider in provider_health
+        if provider.get("status") in {"unavailable", "degraded"}
+    ]
     summary = {
         "command": "listen",
         "channel": channel,
@@ -556,6 +659,12 @@ def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str
         "language": language,
         "limit": limit,
         "dry_run": dry_run,
+        "browser_error": browser_error,
+        "discovery_mode": discovery_mode,
+        "direct_items": direct_items,
+        "indexed_items": indexed_items,
+        "providers": provider_health,
+        "error": "; ".join(provider_errors) if not items and provider_errors else "",
         "items_read": len(items),
         "intake_rows": len(rows),
         "discarded_count": len(discarded),
@@ -580,13 +689,20 @@ def main() -> None:
     parser.add_argument("--source-id", default="")
     parser.add_argument("--client-id", default="")
     parser.add_argument("--language", default="es", choices=["es", "en", "pt", "any"])
+    parser.add_argument("--no-public-discovery", action="store_true", help="No consultar SearXNG/RSSHub autoalojados")
+    parser.add_argument("--indexed-only", action="store_true", help="Omitir el conector directo y usar solo descubrimiento público indexado")
+    parser.add_argument("--health", action="store_true", help="Verificar conectores de escucha y salir")
     parser.add_argument("--output-json", action="store_true", help="Devolver TODOS los rows en JSON por stdout (modo machine-readable)")
     args = parser.parse_args()
+
+    if args.health:
+        print(json.dumps(listening_connectors.health(), ensure_ascii=False, indent=2))
+        return
 
     summary = run_listen(
         args.channel, args.query, args.limit, args.dry_run, args.account or None,
         source_id=args.source_id or None, client_id=args.client_id or None,
-        language=args.language
+        language=args.language, public_discovery=not args.no_public_discovery, indexed_only=args.indexed_only
     )
     if args.output_json:
         # El orquestador/ai-presence-radar necesita la lista completa de rows, no solo el sample.

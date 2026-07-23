@@ -12,6 +12,7 @@ import {
 } from "../src/lib/client-context";
 import { classifyOpportunity } from "../src/lib/ai-opportunity-classifier";
 import { recordObservedProfileEvent } from "../src/lib/observed-profiles";
+import { calculateOpportunityScore, normalizeAssessment, prestigeFallbackAssessment, priorityFromOpportunityScore } from "../src/lib/contextual-opportunity";
 // @ts-ignore -- shared ESM helper used by operational scripts.
 import { isPrestigeRadarCandidate, normalizedRadarText } from "./prestige-radar.mjs";
 
@@ -22,6 +23,20 @@ if (process.env.DIRECT_URL) process.env.DATABASE_URL = process.env.DIRECT_URL;
 
 const prisma = new PrismaClient();
 const intakePath = join(dataDir, "social-listen-intake.jsonl");
+// Los modelos nuevos pueden razonar sobre catálogo y contexto durante bastante
+// más de 30 segundos. El valor sigue siendo configurable por entorno.
+const CLASSIFIER_TIMEOUT_MS = Number(process.env.OPPORTUNITY_CLASSIFIER_TIMEOUT_MS || 120_000);
+
+function withTimeout<T>(operation: (signal: AbortSignal) => Promise<T>, label: string, timeoutMs = CLASSIFIER_TIMEOUT_MS) {
+  return new Promise<T>((resolve, reject) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`${label}: timeout tras ${timeoutMs}ms`));
+    }, timeoutMs);
+    operation(controller.signal).then((value) => { clearTimeout(timer); resolve(value); }, (error) => { clearTimeout(timer); reject(error); });
+  });
+}
 
 const channelDefaults: Record<string, { name: string; type: string; baseUrl: string }> = {
   youtube: { name: "YouTube", type: "video_comments", baseUrl: "https://www.youtube.com" },
@@ -32,8 +47,13 @@ const channelDefaults: Record<string, { name: string; type: string; baseUrl: str
 };
 
 function parseArgs() {
+  const inputIndex = process.argv.indexOf("--input");
+  const input = inputIndex >= 0
+    ? process.argv[inputIndex + 1]
+    : (process.argv.find((arg) => arg.startsWith("--input="))?.slice("--input=".length) || process.env.npm_config_input || "");
   return {
     dryRun: process.argv.includes("--dry-run") || process.env.npm_config_dry_run === "true",
+    input: input.trim(),
   };
 }
 
@@ -58,9 +78,11 @@ export function detectIntent(text: string): string {
 }
 
 export function detectPriority(intent: string, text: string): string {
+  const lower = text.toLowerCase();
+  const milleniumDrum = lower.includes("millenium") && ["bateria", "battery", "drum", "mps", "parche", "pad", "modulo"].some((term) => lower.includes(term));
+  if (milleniumDrum) return "HIGH";
   if (intent === "PURCHASE_QUESTION" || intent === "TECHNICAL_QUESTION") return "HIGH";
   if (intent === "WARRANTY_QUESTION" || intent === "PRICE_QUESTION" || intent === "COMPARISON") return "MEDIUM";
-  const lower = text.toLowerCase();
   if (lower.includes("urgente") || lower.includes("hoy")) return "HIGH";
   return "LOW";
 }
@@ -114,13 +136,19 @@ function isNearDuplicate(sourceText: string, author: string, candidates: Array<{
 
 async function main() {
   const args = parseArgs();
-  const rows = readJsonl(intakePath) as any[];
+  // Daily quota runs collect CDP output concurrently.  Give each run its own
+  // intake file so its final serial import never races another monitor.
+  const activeIntakePath = args.input ? join(process.cwd(), args.input) : intakePath;
+  const rows = readJsonl(activeIntakePath) as any[];
   let created = 0;
   let duplicates = 0;
   let skipped = 0;
   let discardedAtImport = 0;
   const errors: { sourceUrl: string; error: string }[] = [];
   const sourceCounts = new Map<string, number>();
+  const attemptedSourceIds = new Set(
+    rows.map((row) => String(row.monitoredSourceId || "").trim()).filter(Boolean),
+  );
   const routing: any[] = [];
 
   // Cargar listado de cuentas propias para exclusión
@@ -235,13 +263,15 @@ async function main() {
     let aiResult;
 
     try {
-      aiResult = await classifyOpportunity(prisma, {
+      aiResult = await withTimeout((signal) => classifyOpportunity(prisma, {
         sourceText,
         sourceTitle: row.sourceTitle || "",
         videoTitle: row.videoTitle || "",
+        sourceType: row.sourceType || "",
         channel: row.channel,
         clientId: resolution.client.id,
-      });
+        signal,
+      }), "Clasificador IA");
 
       if (!aiResult.isSupportedLanguage || aiResult.isSpamOrFluff || !aiResult.isRelevant) {
         isDiscarded = true;
@@ -252,6 +282,10 @@ async function main() {
       errors.push({ sourceUrl, error: `Clasificador IA falló: ${(err as Error).message}` });
       // Fallback a clasificación local si falla la IA
       const intent = row.detectedIntent || detectIntent(sourceText);
+      const fallbackAssessment = resolution.client.slug === "prestige-running"
+        ? prestigeFallbackAssessment(relevanceText)
+        : normalizeAssessment({ opportunityType: "discard", confidence: "low" }, intent as any);
+      const fallbackScore = calculateOpportunityScore(fallbackAssessment, intent as any);
       aiResult = {
         isSpanish: true,
         isSupportedLanguage: true,
@@ -263,7 +297,9 @@ async function main() {
         priority: (row.priority || detectPriority(intent, sourceText)) as any,
         matchedBrandId: null,
         matchedProductId: null,
-        confidence: "low" as const
+        confidence: "low" as const,
+        assessment: fallbackAssessment,
+        opportunityScore: fallbackScore,
       };
     }
 
@@ -284,10 +320,24 @@ async function main() {
         },
       });
 
+      const assessment = aiResult.assessment ?? normalizeAssessment({ opportunityType: "discard", confidence: "low" }, aiResult.detectedIntent);
+      const opportunityScore = Number.isFinite(aiResult.opportunityScore)
+        ? aiResult.opportunityScore
+        : calculateOpportunityScore(assessment, aiResult.detectedIntent);
+      const normalizedSourceText = sourceText.toLowerCase();
+      const milleniumDrum = normalizedSourceText.includes("millenium")
+        && ["bateria", "battery", "drum", "mps", "parche", "pad", "modulo"].some((term) => normalizedSourceText.includes(term));
+      const scoredPriority = priorityFromOpportunityScore(opportunityScore, aiResult.detectedIntent);
+      const finalPriority = milleniumDrum && scoredPriority !== "URGENT" ? "HIGH" : scoredPriority;
       const finalStatus = isDiscarded ? "DISCARDED" : "NEW";
       const notes = isDiscarded
         ? `${buildNotes(row)} ${discardNotes} Cliente: ${resolution.client.slug}.`
-        : `${buildNotes(row)} Cliente: ${resolution.client.slug} (${resolution.confidence}, ${resolution.reason}). Razón IA: ${aiResult.actionableReason}`;
+        : `${buildNotes(row)} Cliente: ${resolution.client.slug} (${resolution.confidence}, ${resolution.reason}). Razón IA: ${aiResult.actionableReason}${milleniumDrum ? " Prioridad estratégica: conversación sobre batería Millenium; responder con comparación objetiva y evidencia verificable." : ""}`;
+
+      let detectedBrandId = aiResult.matchedBrandId || null;
+      let detectedProductId = aiResult.matchedProductId || null;
+      if (detectedBrandId && !await prisma.brand.findUnique({ where: { id: detectedBrandId }, select: { id: true } })) detectedBrandId = null;
+      if (detectedProductId && !await prisma.product.findUnique({ where: { id: detectedProductId }, select: { id: true } })) detectedProductId = null;
 
       const createdOpportunity = await prisma.opportunity.create({
         data: {
@@ -295,11 +345,14 @@ async function main() {
           sourceUrl,
           sourceAuthor: row.sourceAuthor || "",
           sourceText,
+          signalType: assessment.opportunityType === "contextual_presence" ? "contextual_presence" : String(row.signalType || "actionable_question"),
           clientId: resolution.client.id,
-          detectedBrandId: aiResult.matchedBrandId,
-          detectedProductId: aiResult.matchedProductId,
+          detectedBrandId,
+          detectedProductId,
           detectedIntent: aiResult.detectedIntent,
-          priority: aiResult.priority,
+          priority: finalPriority,
+          opportunityScore,
+          contextAssessment: assessment,
           status: finalStatus,
           notes,
           monitoredSourceId,
@@ -313,7 +366,7 @@ async function main() {
         sourceText,
         sourceUrl,
         detectedIntent: aiResult.detectedIntent,
-        priority: aiResult.priority,
+        priority: finalPriority,
         createdAt: createdOpportunity.createdAt,
       });
       created += 1;
@@ -324,11 +377,12 @@ async function main() {
   }
 
   if (!args.dryRun) {
-    for (const [sourceId, count] of sourceCounts.entries()) {
+    for (const sourceId of attemptedSourceIds) {
+      const count = sourceCounts.get(sourceId) ?? 0;
       try {
         await prisma.monitoredSource.update({
           where: { id: sourceId },
-          data: { lastRunAt: new Date(), lastCount: count },
+          data: { lastRunAt: new Date(), lastCount: count, emptyReads: count > 0 ? 0 : { increment: 1 }, lastEvidenceAt: count > 0 ? new Date() : undefined, lifecycle: count > 0 ? "active" : undefined },
         });
       } catch (error) {
         errors.push({ sourceUrl: `source:${sourceId}`, error: (error as Error).message });
@@ -337,9 +391,9 @@ async function main() {
   }
 
   if (!args.dryRun && rows.length > 0) {
-    const archivePath = join(dataDir, `social-listen-intake-${Date.now()}.jsonl.bak`);
+    const archivePath = `${activeIntakePath}.${Date.now()}.bak`;
     try {
-      await rename(intakePath, archivePath);
+      await rename(activeIntakePath, archivePath);
     } catch {
       // Non-fatal: intake may not exist or may already have been moved.
     }
@@ -348,7 +402,7 @@ async function main() {
   const report = writeReport("import-opportunities", {
     command: "import-opportunities",
     dry_run: args.dryRun,
-    intake_path: intakePath,
+    intake_path: activeIntakePath,
     rows_read: rows.length,
     created,
     duplicates,

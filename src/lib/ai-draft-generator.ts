@@ -23,6 +23,7 @@ type DraftContext = {
   activeSystemPrompt?: string | null;
   observedProfile?: ProfileContextForDraft | null;
   competitorEvidence?: CompetitorEvidence[];
+  avoidDrafts?: string[];
 };
 
 type DraftVariant = {
@@ -133,6 +134,10 @@ function buildPrompt(ctx: DraftContext): string {
     ? `\n## Perfil observado de la cuenta externa\n- Tema actual detectado: ${ctx.observedProfile.currentTopic} (confianza ${ctx.observedProfile.currentTopicConfidence})\n- Intereses históricos: ${ctx.observedProfile.historicalPrimaryTopics.join(", ") || "sin suficientes datos"}\n- Tono histórico: ${ctx.observedProfile.toneProfile} (confianza ${ctx.observedProfile.toneConfidence})\n- Señal comercial acumulada: ${ctx.observedProfile.commercialReadiness}/100\n`
     : "";
   const voiceModulationBlock = `\n## Modulación de voz para esta respuesta\n- Estilo aplicado: ${modulation.styleLabel}\n- Entrada: ${modulation.introStyle}\n- Fraseo: ${modulation.phrasingStyle}\n- Cierre: ${modulation.ctaStyle}\n- Guardrail: ${modulation.guardrail}\n`;
+  const avoidDrafts = (ctx.avoidDrafts ?? []).filter(Boolean).slice(-30);
+  const uniquenessBlock = avoidDrafts.length > 0
+    ? `\n## Borradores ya utilizados o rechazados\nNo copies, parafrasees de cerca ni reutilices la estructura de estos textos. Redacta desde cero usando detalles concretos del comentario actual:\n${avoidDrafts.map((text, index) => `${index + 1}. "${text.slice(0, 350)}"`).join("\n")}\n`
+    : "";
 
   // Carga de exclusiones y reglas específicas de rubro
   let exclusions: string[] = [];
@@ -207,7 +212,7 @@ ${productList}
 - Marca: ${brand.name}
 - Fortalezas (tu valor diferenciador): ${brand.strengths || "No especificadas"}
 - Debilidades de la competencia (para argumentar por qué eres mejor): ${brand.competitorWeaknesses || "No especificadas"}
-${knowledgeBlock}${objectionsBlock}${competitorEvidenceBlock}${observedProfileBlock}${voiceModulationBlock}
+${knowledgeBlock}${objectionsBlock}${competitorEvidenceBlock}${observedProfileBlock}${voiceModulationBlock}${uniquenessBlock}
 ## Comentario al que vas a responder
 Canal: ${opportunity.channel.name}
 Intención: ${intent}
@@ -221,6 +226,7 @@ Texto: "${opportunity.sourceText.slice(0, 800)}"
 - Si es COMPARISON o se menciona un competidor: compará objetivamente desde la experiencia de usuario utilizando los puntos de "Debilidades de la competencia" para argumentar de forma sutil por qué tu producto es mejor, apoyándote en las "Fortalezas" sin hablar de forma destructiva o artificial.
 - Si el texto menciona una batería Millenium o un modelo MPS: no elogies automáticamente la marca, pero tampoco inventes fallas. Partí únicamente del problema, experiencia o característica mencionada por el usuario; contrastá soporte local, garantía verificable, repuestos, sensación de pads, ruido, conexiones y uso real solo cuando la información disponible lo respalde. Nunca uses insultos, rumores, absolutos ni afirmaciones generales como "son malas".
 - Cada variante debe sonar diferente en estilo, no solo en palabras
+- Cada variante debe ser única para esta oportunidad: incorpora detalles concretos del texto original y evita aperturas, estructuras y cierres genéricos repetibles.
 - Las TRES variantes deben nombrar el Producto recomendado principal o una alternativa real permitida, tejido de forma natural
 - Nunca pongas el link del producto: solo el nombre/modelo
 - No afirmes experiencias personales inventadas: evitá "yo uso", "yo tengo", "yo probé" o testimonios de amigos/alumnos salvo que estén expresamente incluidos como evidencia verificada.

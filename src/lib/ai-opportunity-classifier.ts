@@ -1,5 +1,14 @@
 import type { PrismaClient } from "@prisma/client";
 import { logger } from "./logger";
+import { llmHeaders, resolveLLMConfig } from "./llm-provider";
+import {
+  calculateOpportunityScore,
+  isContextualCandidate,
+  normalizeAssessment,
+  prestigeFallbackAssessment,
+  priorityFromOpportunityScore,
+  type ContextualAssessment,
+} from "./contextual-opportunity";
 
 export type ClassificationResult = {
   isSpanish: boolean;
@@ -21,11 +30,16 @@ export type ClassificationResult = {
   matchedBrandId: string | null;
   matchedProductId: string | null;
   confidence: "high" | "medium" | "low";
+  assessment: ContextualAssessment;
+  opportunityScore: number;
 };
 
-const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 1000;
+
+function hasDirectFallbackSignal(text: string) {
+  return /\?|\b(comprar|precio|cuanto|cuánto|stock|env[ií]o|garant[ií]a|recomiendan|conviene|problema|ayuda)\b/i.test(text);
+}
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -52,6 +66,9 @@ async function fetchWithRetry(
       }
       return res;
     } catch (err) {
+      // A caller-owned timeout aborted the request. Retrying would leave the
+      // importer with more in-flight calls after it has already moved on.
+      if (options.signal?.aborted) throw err;
       if (attempt <= retries) {
         const wait = RETRY_DELAY_MS * attempt;
         logClassifierError(`Intento ${attempt} fallido (red), reintentando en ${wait}ms…`, err);
@@ -70,8 +87,10 @@ export async function classifyOpportunity(
     sourceText: string;
     sourceTitle?: string;
     videoTitle?: string;
+    sourceType?: string;
     channel: string;
     clientId: string;
+    signal?: AbortSignal;
   }
 ): Promise<ClassificationResult> {
   // 1. Cargar contexto del cliente
@@ -109,6 +128,7 @@ ${kbSummary || "- Ningún conocimiento cargado"}
 1. **Idioma**: Detectá el idioma del post/comentario. Soportamos los siguientes idiomas: ESPAÑOL ("es"), INGLÉS ("en") y PORTUGUÉS ("pt"). Si el comentario está en cualquiera de estos tres idiomas, consideralo soportado ("isSupportedLanguage": true). Si el comentario está en cualquier otro idioma, indicalo como "other" ("isSupportedLanguage": false). Si el idioma es español, marcá "isSpanish": true (de lo contrario false).
 2. **Spam o Ruido**: Comentarios de un solo emoji, etiquetas a amigos (ej. "@juan look"), o expresiones vacías y de alabanza sin contenido ("qué lindo", "me gusta", "buena foto") deben marcarse como "isSpamOrFluff": true.
 3. **Relevancia comercial**: Para ser relevante ("isRelevant": true), el texto debe mencionar, consultar o discutir temas de las marcas, productos o del nicho de mercado del cliente (ej: si el cliente vende controladores midi, preguntar sobre latencia, pianos, drivers, o grabaciones de home studio es relevante. Si el cliente vende medias, preguntar sobre abrigo, calzado, medias térmicas, es relevante. Si preguntan sobre comida, viajes o temas ajenos, marca "isRelevant": false).
+   - Para **PC MIDI**, una mención de Millenium junto con batería electrónica, drums o un modelo MPS es un competidor relevante. Clasificala como COMPETITOR_MENTION, COMPARISON, COMPLAINT o la intención directa que corresponda; no la descartes por no pertenecer al catálogo propio.
    - Para **Prestige Running**, aceptá solo español con contexto concreto sobre running, entrenamiento, indumentaria deportiva, calzado, comodidad del pie, roce, sudoración, ampollas o recuperación general. Una buena oportunidad permite sumar una recomendación de medias técnicas sin forzar la venta.
    - Para Prestige descartá publicaciones de venta de terceros, sorteos, texto corporativo, spam y consultas médicas que pidan diagnóstico o tratamiento. Nunca interpretes la compresión como tratamiento o prevención de lesiones.
 4. **Intención ("detectedIntent")**:
@@ -120,16 +140,23 @@ ${kbSummary || "- Ningún conocimiento cargado"}
    - COMPLAINT: Queja, descontento o reclamo.
    - COMPETITOR_MENTION: Mención de productos de competidores directos.
    - GENERAL_DISCUSSION: Consultas o afirmaciones generales del nicho.
-5. **Prioridad ("priority")**:
+5. **Lectura contextual obligatoria**: evaluá el contenido completo, no solamente una pregunta literal. Devolvé puntajes de 0 a 100 para audiencia afín, contexto natural de participación, problema que el negocio puede resolver, espacio conversacional y riesgo. Para marcar una publicación como contextual_presence necesitás evidencia textual concreta de audiencia y contexto; no alcanza una keyword aislada. risk alto para spam, venta ajena, contenido sensible, hostilidad o participación forzada.
+   - direct_response: hay una consulta, objeción o intención que amerita responder directamente.
+   - contextual_presence: audiencia/contexto muy afines aunque no exista una pregunta de compra; sugerí cómo aportar valor sin vender de forma invasiva.
+   - discard: no conviene intervenir.
+6. **Prioridad ("priority")**:
+   - HIGH para conversaciones sobre baterías Millenium o modelos MPS cuando exista contenido real para responder. La prioridad no autoriza inventar defectos.
+   - Para Prestige Running, HIGH cuando la audiencia sea claramente runner y exista un puente natural hacia medias técnicas: trail, equipamiento esencial, indumentaria, calzado, comodidad del pie, roce, humedad, ampollas o rendimiento. MEDIUM para contenido general de running donde convenga revisar la conversación antes de intervenir.
    - HIGH/URGENT si expresa fuerte intención de compra inmediata o soporte de garantía urgente.
    - MEDIUM si es una duda técnica normal o de precios.
    - LOW para discusiones generales de baja urgencia.
-6. **Mapeo de Entidades**:
+7. **Mapeo de Entidades**:
    - "matchedBrandId": ID exacto de la marca (de las listadas arriba) que se discute. Si no se puede determinar, usa null.
    - "matchedProductId": ID exacto del producto del catálogo (de los listados arriba con su ID) que se menciona o consulta. Si no se menciona ningún modelo específico de tu catálogo, usa null.
 
 ## Datos de la Oportunidad a Analizar
 - Canal: ${candidate.channel}
+- Tipo de fuente: ${candidate.sourceType || "post o comentario"}
 - Título/Contexto de origen: ${candidate.sourceTitle || candidate.videoTitle || "Sin título"}
 - Texto del post o comentario: "${candidate.sourceText}"
 
@@ -147,25 +174,32 @@ Devuelve únicamente un objeto JSON con las siguientes propiedades. No agregues 
   "matchedBrandId": "id_de_la_marca_en_el_catalogo" o null,
   "matchedProductId": "id_del_producto_en_el_catalogo" o null,
   "confidence": "high" | "medium" | "low"
+  ,"assessment": {
+    "audienceFit": 0-100,
+    "contextFit": 0-100,
+    "problemFit": 0-100,
+    "conversationFit": 0-100,
+    "risk": 0-100,
+    "opportunityType": "direct_response" | "contextual_presence" | "discard",
+    "recommendedApproach": "enfoque breve y concreto; vacío si se descarta",
+    "evidence": { "audienceFit": "frase o dato visible", "contextFit": "frase o dato visible", "problemFit": "frase o dato visible", "conversationFit": "frase o dato visible", "risk": "frase o dato visible" },
+    "confidence": "high" | "medium" | "low"
+  }
 }
 `;
 
   // 3. Obtener credenciales de OpenRouter
-  const apiKey = client.openrouterApiKey?.trim() || process.env.OPENROUTER_API_KEY;
+  const llm = resolveLLMConfig(client);
+  const apiKey = llm.apiKey;
   if (!apiKey) {
     throw new Error("No se ha configurado la API Key de OpenRouter para la clasificación.");
   }
-  const model = client.openrouterModel?.trim() || process.env.OPENROUTER_MODEL || "google/gemini-2.0-flash-lite";
+  const model = llm.model;
 
   try {
-    const response = await fetchWithRetry(OPENROUTER_URL, {
+    const response = await fetchWithRetry(llm.endpoint, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://10apostoles.local",
-        "X-Title": "10 Apostoles - Opportunity Classifier",
-      },
+      headers: llmHeaders(llm, "Los 5 Apostoles - Opportunity Classifier"),
       body: JSON.stringify({
         model,
         messages: [{ role: "user", content: prompt }],
@@ -173,6 +207,7 @@ Devuelve únicamente un objeto JSON con las siguientes propiedades. No agregues 
         temperature: 0.1, // temperatura baja para más consistencia en clasificación
         max_tokens: 1000,
       }),
+      signal: candidate.signal,
     });
 
     if (!response.ok) {
@@ -195,34 +230,61 @@ Devuelve únicamente un objeto JSON con las siguientes propiedades. No agregues 
     }
 
     const parsed = JSON.parse(content) as ClassificationResult;
+    const detectedIntent = parsed.detectedIntent || "GENERAL_DISCUSSION";
+    let assessment = normalizeAssessment(parsed.assessment, detectedIntent);
+    let opportunityScore = calculateOpportunityScore(assessment, detectedIntent);
+    const prestigeText = `${candidate.sourceTitle || ""} ${candidate.videoTitle || ""} ${candidate.sourceText}`;
+    const prestigeUnsafe = /\b(diagnostico|diagnóstico|recet[a-z]*|medicacion|medicación|lesi[oó]n|cura[r]?|trombosis|varices|várices|cirugia|cirugía|vendo|liquido|mayorista|distribuidor|oferta imperdible|sorteo|giveaway)\b/i.test(prestigeText);
+    if (client.slug === "prestige-running" && parsed.isSpanish && parsed.isSupportedLanguage && !parsed.isSpamOrFluff && !prestigeUnsafe) {
+      const prestigeBaseline = prestigeFallbackAssessment(prestigeText);
+      const prestigeBaselineScore = calculateOpportunityScore(prestigeBaseline, detectedIntent);
+      if (prestigeBaselineScore > opportunityScore) {
+        assessment = prestigeBaseline;
+        opportunityScore = prestigeBaselineScore;
+      }
+    }
+    const contextualValid = isContextualCandidate(assessment);
+    const isRelevant = (!!parsed.isRelevant || client.slug === "prestige-running")
+      && (assessment.opportunityType === "direct_response" || contextualValid);
     return {
       isSpanish: !!parsed.isSpanish,
       isSupportedLanguage: !!parsed.isSupportedLanguage,
       language: parsed.language || "es",
       isSpamOrFluff: !!parsed.isSpamOrFluff,
-      isRelevant: !!parsed.isRelevant,
+      isRelevant,
       actionableReason: parsed.actionableReason || "",
-      detectedIntent: parsed.detectedIntent || "GENERAL_DISCUSSION",
-      priority: parsed.priority || "LOW",
+      detectedIntent,
+      priority: priorityFromOpportunityScore(opportunityScore, detectedIntent),
       matchedBrandId: parsed.matchedBrandId || null,
       matchedProductId: parsed.matchedProductId || null,
       confidence: parsed.confidence || "low",
+      assessment,
+      opportunityScore,
     };
   } catch (error) {
     logClassifierError(`Error al clasificar oportunidad de canal ${candidate.channel}`, error);
     // Fallback básico ante falla del modelo
+    const directFallback = hasDirectFallbackSignal(`${candidate.sourceTitle || ""} ${candidate.videoTitle || ""} ${candidate.sourceText}`);
+    const fallbackIntent = directFallback ? "GENERAL_DISCUSSION" : "GENERAL_DISCUSSION";
+    const assessment = normalizeAssessment({
+      opportunityType: directFallback ? "direct_response" : "discard",
+      confidence: "low",
+      recommendedApproach: directFallback ? "Revisar la consulta y responder solo con información confirmada." : "",
+    }, fallbackIntent);
     return {
       isSpanish: true,
       isSupportedLanguage: true,
       language: "es",
       isSpamOrFluff: false,
-      isRelevant: true,
+      isRelevant: directFallback,
       actionableReason: "Falla de conexión con el clasificador IA. Importado con clasificación local básica.",
-      detectedIntent: "GENERAL_DISCUSSION",
-      priority: "LOW",
+      detectedIntent: fallbackIntent,
+      priority: directFallback ? "MEDIUM" : "LOW",
       matchedBrandId: null,
       matchedProductId: null,
       confidence: "low",
+      assessment,
+      opportunityScore: directFallback ? 40 : 0,
     };
   }
 }

@@ -9,7 +9,8 @@ loadEnv();
 if (process.env.DIRECT_URL) process.env.DATABASE_URL = process.env.DIRECT_URL;
 
 const DEFAULT_DAILY_TARGET = 50;
-const DRAFT_TIMEOUT_MS = Number(process.env.DAILY_DRAFT_TIMEOUT_MS || 180_000);
+// 0 significa sin corte: los modelos lentos pueden terminar la generación.
+const DRAFT_TIMEOUT_MS = Number(process.env.DAILY_DRAFT_TIMEOUT_MS || 0);
 
 function argentinaDayStart(now = new Date()) {
   const local = new Date(now.getTime() - 3 * 60 * 60 * 1000);
@@ -30,9 +31,9 @@ function runDraft(client: string, limit: number, dryRun: boolean) {
     let output = "";
     child.stdout.on("data", (chunk) => output += chunk.toString());
     child.stderr.on("data", (chunk) => output += chunk.toString());
-    const timeout = setTimeout(() => child.kill(), DRAFT_TIMEOUT_MS);
-    child.on("close", (code) => { clearTimeout(timeout); resolve({ code, output }); });
-    child.on("error", (error) => { clearTimeout(timeout); resolve({ code: -1, output: error.message }); });
+    const timeout = DRAFT_TIMEOUT_MS > 0 ? setTimeout(() => child.kill(), DRAFT_TIMEOUT_MS) : null;
+    child.on("close", (code) => { if (timeout) clearTimeout(timeout); resolve({ code, output }); });
+    child.on("error", (error) => { if (timeout) clearTimeout(timeout); resolve({ code: -1, output: error.message }); });
   });
 }
 
