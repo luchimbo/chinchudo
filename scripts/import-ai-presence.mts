@@ -3,7 +3,7 @@ import { pathToFileURL } from "node:url";
 import { rename } from "node:fs/promises";
 import { PrismaClient } from "@prisma/client";
 // @ts-ignore
-import { dataDir, loadEnv, readJsonl, writeReport } from "./agent-utils.mjs";
+import { dataDir, loadEnv, readJsonl, writeReport, runtimeArchivePath } from "./agent-utils.mjs";
 
 loadEnv();
 
@@ -171,7 +171,7 @@ async function main() {
   // Archivar intakes si no es dry-run
   if (!args.dryRun && rows.length > 0) {
     for (const path of [SOCIAL_INTAKE, DIRECT_INTAKE]) {
-      const archivePath = join(dataDir, `ai-presence-${path.endsWith("social.jsonl") ? "social" : "direct"}-${Date.now()}.jsonl.bak`);
+      const archivePath = runtimeArchivePath(`ai-presence-${path.endsWith("social.jsonl") ? "social" : "direct"}`);
       try {
         await rename(path, archivePath);
       } catch {

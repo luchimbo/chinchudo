@@ -17,6 +17,13 @@ session/
 agents/accounts.json
 data/*.jsonl
 data/*.jsonl.bak
+# Imports used to leave timestamped backups such as `intake.jsonl.123.bak`.
+# Keep both the legacy files and every new runtime artifact out of Git.
+data/*.jsonl.*.bak
+data/**/*.bak
+data/**/*.sqlite
+data/**/*.db
+runtime/
 data/browser-runtime.json
 # Estado de runtime y dumps sensibles (no versionar)
 data/login-status.json

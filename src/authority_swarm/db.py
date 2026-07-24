@@ -1,6 +1,8 @@
 import sqlite3
 from pathlib import Path
 
+from agents.runtime_guard import require_sqlite_sandbox
+
 from authority_swarm.config import ROOT
 from authority_swarm.models import AuditResult, ContentPlan, DistributionOpportunity, Draft, DraftReview, LandingPage, LandingResearchItem, LandingReview, Opportunity, OpportunityCuration
 

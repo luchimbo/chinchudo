@@ -2,6 +2,9 @@
 // Alternativa a `prisma migrate dev` (cuyo engine falla en esta maquina).
 // Usa `prisma migrate diff` (que sí funciona) + node:sqlite para ejecutar el SQL.
 import { execFileSync } from "node:child_process";
+import { requireSqliteSandbox } from "./legacy-sqlite-guard.mjs";
+
+requireSqliteSandbox("db-apply-diff");
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";

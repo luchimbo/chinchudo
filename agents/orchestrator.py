@@ -9,6 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _log import get_logger  # noqa: E402
+from runtime_guard import healthcheck_errors  # noqa: E402
 
 log = get_logger("orchestrator")
 
@@ -44,27 +45,63 @@ def _run_env() -> dict:
     return env
 
 
+def command_context(command: list[str]) -> dict:
+    """Extract stable operational fields for every step report."""
+    def value_after(*flags: str) -> str:
+        for flag in flags:
+            if flag in command:
+                index = command.index(flag)
+                if index + 1 < len(command):
+                    return command[index + 1]
+        return ""
+
+    return {
+        "dry_run": "--dry-run" in command,
+        "client": value_after("--client", "--client-slug", "--client-id"),
+        "account": value_after("--account"),
+    }
+
+
 def run_step(step: str, command: list[str]) -> dict:
     started = utc_stamp()
+    env = _run_env()
+    correlation_id = env["AGENT_CORRELATION_ID"]
     log.info("step_start", step=step, cmd=" ".join(command))
     print(f"agents: running {step}: {' '.join(command)}")
     try:
-        result = subprocess.run(command, cwd=ROOT, timeout=1800, env=_run_env())
+        result = subprocess.run(command, cwd=ROOT, timeout=1800, env=env, capture_output=True, text=True)
+        if result.stdout:
+            print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
+        if result.stderr:
+            print(result.stderr, end="" if result.stderr.endswith("\n") else "\n", file=sys.stderr)
         returncode = result.returncode
         status = "ok" if returncode == 0 else "failed"
+        error = result.stderr.strip().splitlines()[-1] if result.returncode else ""
     except subprocess.TimeoutExpired:
         returncode = -1
         status = "timeout"
+        error = "timeout after 1800 seconds"
+    except Exception as exc:
+        returncode = -1
+        status = "failed"
+        error = str(exc)
     log_fn = log.info if status == "ok" else log.error
     log_fn("step_done", step=step, status=status, returncode=returncode)
-    return {
+    summary = {
         "step": step,
         "command": command,
+        "correlation_id": correlation_id,
         "started_utc": started,
         "finished_utc": utc_stamp(),
         "returncode": returncode,
         "status": status,
+        "error": error,
+        **command_context(command),
     }
+    # One durable, machine-readable event per executed step. Workflow reports
+    # then aggregate these summaries without hiding failures mid-run.
+    summary["report"] = str(write_report("step", {"command": "step", **summary}))
+    return summary
 
 
 def require_ok(result: dict, steps: list[dict], workflow: str) -> None:
@@ -348,6 +385,14 @@ def run_healthcheck() -> None:
     """Verifica que node, Prisma y el CDP estén disponibles antes de una corrida real."""
     import urllib.request
     ok = True
+
+    sqlite_errors = healthcheck_errors()
+    if sqlite_errors:
+        for error in sqlite_errors:
+            print(f"  [FAIL] runtime: {error}")
+        ok = False
+    else:
+        print("  [OK] runtime: Postgres es la fuente de verdad; SQLite sólo sandbox explícito")
 
     # 1. Node
     node = resolve_bin("node")

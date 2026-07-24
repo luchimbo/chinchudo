@@ -4,7 +4,7 @@ import { rename } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { PrismaClient } from "@prisma/client";
 // @ts-ignore
-import { dataDir, loadEnv, readJsonl, writeReport, extractPostKey, isDomainRelevant, looksLikeSpam } from "./agent-utils.mjs";
+import { dataDir, loadEnv, readJsonl, writeReport, extractPostKey, isDomainRelevant, looksLikeSpam, runtimeArchivePath } from "./agent-utils.mjs";
 import {
   normalizeForMatch,
   parseClientList,
@@ -391,7 +391,7 @@ async function main() {
   }
 
   if (!args.dryRun && rows.length > 0) {
-    const archivePath = `${activeIntakePath}.${Date.now()}.bak`;
+    const archivePath = runtimeArchivePath("social-listen-intake");
     try {
       await rename(activeIntakePath, archivePath);
     } catch {

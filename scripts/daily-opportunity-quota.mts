@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { prisma } from "../src/lib/db";
 // @ts-ignore -- shared operational environment loader.
 import { loadEnv } from "./agent-utils.mjs";
+// @ts-ignore -- shared ESM helper used by operational scripts.
+import { runtimeDir } from "./agent-utils.mjs";
 
 loadEnv();
 if (process.env.DIRECT_URL) process.env.DATABASE_URL = process.env.DIRECT_URL;
@@ -322,9 +324,9 @@ async function runClient(client: Client, since: Date, maxRounds: number, runId: 
     // Import only the isolated rows collected in this wave. Import remains
     // serial because Prisma dedupe and client routing are the source of truth.
     if (stagedRows.length) {
-      const intakeRelative = join("data", `daily-quota-${runId}-${client.slug}-${round}.jsonl`);
+      const intakeRelative = join("runtime", "intake", `daily-quota-${runId}-${client.slug}-${round}.jsonl`);
       const intakePath = join(process.cwd(), intakeRelative);
-      await mkdir(join(process.cwd(), "data"), { recursive: true });
+      await mkdir(join(runtimeDir, "intake"), { recursive: true });
       await appendFile(intakePath, `${stagedRows.map((row) => JSON.stringify(row)).join("\n")}\n`, "utf8");
       // Classification can take up to ~12 seconds per candidate. Scale the
       // import allowance with the isolated batch so a healthy intake is not

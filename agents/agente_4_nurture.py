@@ -34,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lib.mailer import send_email
 from lib import nurture_pg
 import db_pg as db_pg_mod
+from runtime_guard import require_sqlite_sandbox
 
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
@@ -69,6 +70,7 @@ def write_report(name: str, data: dict) -> Path:
 
 
 def get_db_connection() -> sqlite3.Connection:
+    require_sqlite_sandbox("nurture_legacy")
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row

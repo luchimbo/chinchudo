@@ -5,6 +5,15 @@ export const rootDir = process.cwd();
 export const dataDir = join(rootDir, "data");
 export const reportsDir = join(rootDir, "reports");
 export const exportsDir = join(rootDir, "exports");
+// Ephemeral inputs and their recoverable archives live outside source data.
+// `runtime/` is intentionally ignored by Git.
+export const runtimeDir = join(rootDir, "runtime");
+export const runtimeArchiveDir = join(runtimeDir, "archive");
+
+export function runtimeArchivePath(name, extension = ".jsonl.bak") {
+  mkdirSync(runtimeArchiveDir, { recursive: true });
+  return join(runtimeArchiveDir, `${timestamp()}-${name}${extension}`);
+}
 
 export function loadEnv() {
   const envPath = join(rootDir, ".env");

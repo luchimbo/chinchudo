@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from lib import nurture_pg
+from runtime_guard import require_sqlite_sandbox
 
 
 ROOT = Path(__file__).resolve().parent
@@ -188,6 +189,7 @@ def load_postgres_metrics(window_days: int) -> list[dict]:
 
 
 def load_sqlite_metrics(window_days: int) -> list[dict]:
+    require_sqlite_sandbox("conversion_legacy")
     landings = load_landings()
     metrics = {slug: empty_metrics(slug, landing) for slug, landing in landings.items()}
     if not SQLITE_DB_PATH.exists():
@@ -390,6 +392,7 @@ def status() -> int:
     if nurture_pg.enabled():
         stats = nurture_pg.stats()
     elif SQLITE_DB_PATH.exists():
+        require_sqlite_sandbox("conversion_legacy")
         conn = sqlite3.connect(str(SQLITE_DB_PATH))
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()

@@ -4,7 +4,7 @@ import { rename } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { PrismaClient } from "@prisma/client";
 // @ts-ignore
-import { dataDir, loadEnv, readJsonl, writeReport } from "./agent-utils.mjs";
+import { dataDir, loadEnv, readJsonl, writeReport, runtimeArchivePath } from "./agent-utils.mjs";
 
 loadEnv();
 
@@ -76,7 +76,7 @@ async function main() {
 
   // Mover archivo intake a backup si no es dryRun
   if (!args.dryRun && rows.length > 0) {
-    const archivePath = join(dataDir, `trends-intake-${Date.now()}.jsonl.bak`);
+    const archivePath = runtimeArchivePath("trends-intake");
     try {
       await rename(intakePath, archivePath);
     } catch {
