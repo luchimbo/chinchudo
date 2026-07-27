@@ -26,10 +26,13 @@ export default async function VideosPage({ searchParams }: PageProps) {
     );
   }
 
+  const radarSince = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+  const radarPlatforms = ["TIKTOK", "TIKTOK_HASHTAG", "TIKTOK_CREATIVE_CENTER", "INSTAGRAM", "YOUTUBE", "VIRAL_MARKETING"];
+
   // Cargar datos asociados al cliente activo
   const [trends, products, personas, scripts, ideas] = await Promise.all([
     prisma.trend.findMany({
-      where: { clientId: activeClient.id },
+      where: { clientId: activeClient.id, platform: { in: radarPlatforms }, createdAt: { gte: radarSince } },
       orderBy: { createdAt: "desc" },
     }),
     prisma.product.findMany({

@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Radar de tendencias editoriales para Los 5 Apostoles.
+"""Radar de videos y formatos para Los 5 Apostoles.
 
-Recolecta senales de Google Trends Argentina, TikTok, YouTube Shorts e
-Instagram para alimentar la guionera. Es solo lectura: no publica, no comenta
-ni interactua con redes.
+Recolecta solamente referencias audiovisuales publicas de TikTok, Instagram y
+YouTube. Es solo lectura: no publica, no comenta ni interactua con redes.
 """
 import argparse
 import json
@@ -55,6 +54,30 @@ VIRAL_MARKETING_QUERIES = [
     {"query": "plantilla anuncio tiktok viral ecommerce", "format": "anuncio"},
     {"query": "tendencias marketing contenido corto 2026", "format": "tendencia_marketing"},
 ]
+
+
+def is_audiovisual_reference(trend: dict) -> bool:
+    """Acepta solo videos, hashtags de TikTok Creative Center y formatos con URL real."""
+    platform = (trend.get("platform") or "").upper()
+    source_url = (trend.get("source_url") or "").strip()
+    description = (trend.get("description") or "").strip()
+    if not source_url.startswith(("https://", "http://")) or len(description) < 20:
+        return False
+
+    parsed = urllib.parse.urlparse(source_url)
+    host = parsed.netloc.lower()
+    path = parsed.path.lower()
+    if platform == "TIKTOK_CREATIVE_CENTER":
+        return host.endswith("tiktok.com") and path.startswith("/tag/")
+    if platform in {"TIKTOK", "TIKTOK_HASHTAG"}:
+        return host.endswith("tiktok.com") and ("/@" in path or path.startswith("/tag/"))
+    if platform == "INSTAGRAM":
+        return host.endswith("instagram.com") and "/reel/" in path
+    if platform == "YOUTUBE":
+        return host.endswith("youtube.com") and (path == "/watch" or path.startswith("/shorts/"))
+    if platform == "VIRAL_MARKETING":
+        return (host.endswith("tiktok.com") or host.endswith("instagram.com") or host.endswith("youtube.com"))
+    return False
 
 
 def load_client_keywords() -> list[dict]:
@@ -513,6 +536,9 @@ def write_jsonl(rows: list[dict]) -> None:
 
 def add_unique_trends(collected: list[dict], client_id: str, seen: set[str], target: int, bucket: list[dict], all_trends: list[dict]) -> None:
     for trend in collected:
+        if not is_audiovisual_reference(trend):
+            log.info("trend_discarded", reason="not_audiovisual_reference", platform=trend.get("platform", ""), title=trend.get("title", ""))
+            continue
         trend["clientId"] = client_id
         key = trend_key(trend)
         if key in seen:
@@ -525,8 +551,8 @@ def add_unique_trends(collected: list[dict], client_id: str, seen: set[str], tar
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Radar de tendencias editoriales para Los 5 Apostoles")
-    parser.add_argument("--limit", type=int, default=10, help="Cantidad de tendencias nuevas a guardar")
+    parser = argparse.ArgumentParser(description="Radar de videos y formatos para Los 5 Apostoles")
+    parser.add_argument("--limit", type=int, default=10, help="Cantidad de referencias nuevas a guardar")
     parser.add_argument("--dry-run", action="store_true", help="No guardar en JSONL ni importar")
     args = parser.parse_args()
 
@@ -562,13 +588,10 @@ def main() -> None:
             keyword_batch = keywords[offset:offset + MAX_KEYWORDS_PER_SOURCE]
             collected = []
             source_runners = [
-                get_google_trends_ar,
-                get_twitter_trends_ar,
                 lambda kws: get_tiktok_creative_center_trends(kws, limit=max(2, min(6, args.limit))),
                 get_tiktok_public_search_trends,
                 get_instagram_public_search_trends,
                 get_youtube_trends,
-                get_reddit_trends,
             ]
             log.info("keyword_batch_start", client=client["name"], offset=offset, batch_size=len(keyword_batch), new_count=len(client_trends))
             for runner in source_runners:
@@ -608,9 +631,9 @@ def main() -> None:
     if all_trends:
         write_jsonl(all_trends)
         log.info("saved_to_intake", count=len(all_trends), target_per_client=args.limit, viral_target_per_client=args.limit, clients=len(clients), path=str(INTAKE_PATH))
-        print(f"Se guardaron {len(all_trends)} tendencias nuevas en {INTAKE_PATH} ({args.limit} de rubro + {args.limit} virales por cliente activo)")
+        print(f"Se guardaron {len(all_trends)} referencias de video nuevas en {INTAKE_PATH}")
     else:
-        print("No se encontraron tendencias nuevas relevantes al catalogo hoy.")
+        print("No se encontraron videos o formatos nuevos relevantes al catalogo hoy.")
 
 
 if __name__ == "__main__":

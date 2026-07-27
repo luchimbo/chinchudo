@@ -7,6 +7,21 @@ import type { ContentIdeaStatus, ContentIntent } from "@prisma/client";
 
 const INTENTS = new Set<ContentIntent>(["SALE", "EDUCATION", "USE_CASE", "ENTERTAINMENT"]);
 const IDEA_STATUSES = new Set<ContentIdeaStatus>(["REVIEW", "APPROVED", "SCRIPT_READY", "READY_TO_RECORD", "RECORDED", "PUBLISHED", "DISCARDED"]);
+const RADAR_PLATFORMS = ["TIKTOK", "TIKTOK_HASHTAG", "TIKTOK_CREATIVE_CENTER", "INSTAGRAM", "YOUTUBE", "VIRAL_MARKETING"];
+
+function isVideoReferenceUrl(platform: string, value: string) {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    const path = url.pathname.toLowerCase();
+    if (platform === "TIKTOK_CREATIVE_CENTER") return host.endsWith("tiktok.com") && path.startsWith("/tag/");
+    if (platform === "TIKTOK" || platform === "TIKTOK_HASHTAG") return host.endsWith("tiktok.com") && (path.includes("/@") || path.startsWith("/tag/"));
+    if (platform === "INSTAGRAM") return host.endsWith("instagram.com") && path.includes("/reel/");
+    if (platform === "YOUTUBE") return host.endsWith("youtube.com") && (path === "/watch" || path.startsWith("/shorts/"));
+    if (platform === "VIRAL_MARKETING") return host.endsWith("tiktok.com") || host.endsWith("instagram.com") || host.endsWith("youtube.com");
+  } catch {}
+  return false;
+}
 
 export async function GET() {
   const user = await getCurrentUser();
@@ -20,9 +35,10 @@ export async function GET() {
     const clients = await prisma.client.findMany({ where: clientWhere, select: { id: true } });
     const clientIds = clients.map((client) => client.id);
 
+    const radarSince = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
     const [trends, scripts, ideas] = await Promise.all([
       prisma.trend.findMany({
-        where: { clientId: { in: clientIds } },
+        where: { clientId: { in: clientIds }, platform: { in: RADAR_PLATFORMS }, createdAt: { gte: radarSince } },
         orderBy: { createdAt: "desc" },
       }),
       prisma.videoScript.findMany({
@@ -120,39 +136,14 @@ export async function POST(req: NextRequest) {
       if (!title || !platform || !clientId) {
         return NextResponse.json({ error: "Faltan parametros obligatorios" }, { status: 400 });
       }
+      if (!RADAR_PLATFORMS.includes(platform) || !isVideoReferenceUrl(platform, sourceUrl || "")) {
+        return NextResponse.json({ error: "Solo se pueden guardar videos, hashtags o formatos con una referencia pública válida." }, { status: 400 });
+      }
 
       await assertClientAccess(prisma, clientId);
 
       let finalDescription = description || "";
       const finalMetadata = { manual: true, ...(metadata || {}) };
-
-      if (platform === "URL_ARTICLE" && sourceUrl) {
-        try {
-          const fetchRes = await fetch(sourceUrl, {
-            headers: {
-              "User-Agent":
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            },
-          });
-          if (fetchRes.ok) {
-            const html = await fetchRes.text();
-            const textOnly = html
-              .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
-              .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
-              .replace(/<[^>]+>/g, " ")
-              .replace(/\s+/g, " ")
-              .trim()
-              .substring(0, 4500);
-
-            if (textOnly.length > 50) {
-              finalDescription = textOnly;
-              finalMetadata.scraped = true;
-            }
-          }
-        } catch (fetchErr) {
-          console.error("[api/videos/create_manual_trend] Error al leer URL:", fetchErr);
-        }
-      }
 
       const trend = await prisma.trend.create({
         data: {

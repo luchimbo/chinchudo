@@ -17,7 +17,7 @@ schtasks /Delete /TN "Los5Apostoles-Tendencias" /F 2>$null
 schtasks /Create /XML $taskPath /TN "Los5Apostoles-Tendencias" /F
 
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "LISTO. Tarea Los5Apostoles-Tendencias registrada para correr todos los dias a las 10:00 y 16:00."
+    Write-Host "LISTO. Tarea Los5Apostoles-Tendencias registrada para correr cada 6 horas."
     Write-Host "Ejecutando ahora para testear..."
     schtasks /Run /TN "Los5Apostoles-Tendencias"
 } else {

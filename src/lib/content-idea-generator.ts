@@ -38,7 +38,7 @@ export async function generateEditorialAngles({ clientId, productId, intent }: {
   const [client, product, trends] = await Promise.all([
     prisma.client.findUnique({ where: { id: clientId } }),
     prisma.product.findUnique({ where: { id: productId }, include: { brand: true } }),
-    prisma.trend.findMany({ where: { clientId, analysisStatus: "ANALYZED" }, orderBy: [{ viabilityScore: "desc" }, { createdAt: "desc" }], take: 5 }),
+    prisma.trend.findMany({ where: { clientId, analysisStatus: "ANALYZED", platform: { in: ["TIKTOK", "TIKTOK_HASHTAG", "TIKTOK_CREATIVE_CENTER", "INSTAGRAM", "YOUTUBE", "VIRAL_MARKETING"] }, createdAt: { gte: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) } }, orderBy: [{ viabilityScore: "desc" }, { createdAt: "desc" }], take: 5 }),
   ]);
   if (!client || !product) throw new Error("Producto o cliente no encontrado.");
 
