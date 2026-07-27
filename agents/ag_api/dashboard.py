@@ -1,4 +1,4 @@
-"""Single Vercel handler for /api/dashboard/*.
+﻿"""Single Vercel handler for /api/dashboard/*.
 
 Vercel reliably detects top-level Python functions. The rewrite in vercel.json
 passes the dashboard sub-route as the _path query parameter.
@@ -10,7 +10,7 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent  # repo root (ag_api -> agents -> raíz)
 VENDOR_DIR = ROOT / ".vendor"
 if VENDOR_DIR.exists():
     sys.path.insert(0, str(VENDOR_DIR))

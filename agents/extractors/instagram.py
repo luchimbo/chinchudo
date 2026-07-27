@@ -150,17 +150,18 @@ def extract_instagram_post_items(client: CDPClient, query: str, max_items: int, 
     post_urls: list[str] = []
     seen_urls: set[str] = set()
 
-    for tag in hashtags:
+    # Dos hashtags dan cobertura suficiente para la corrida diaria sin dejar
+    # que una pagina lenta consuma todo el presupuesto del canal.
+    for tag in hashtags[:2]:
         if len(post_urls) >= posts_limit:
             break
         url = f"https://www.instagram.com/explore/tags/{tag}/"
         print(f"[instagram] Probando hashtag #{tag} -> {url}")
         client.send("Page.navigate", {"url": url})
-        time.sleep(3)
+        time.sleep(2)
         evaluate(client, "window.scrollBy(0, 600)")
         time.sleep(1)
-        evaluate(client, "window.scrollBy(0, 600)")
-        new_urls = _instagram_poll_urls(client, posts_limit, timeout=15)
+        new_urls = _instagram_poll_urls(client, posts_limit, timeout=8)
         if new_urls:
             for u in new_urls:
                 if u not in seen_urls:
@@ -174,17 +175,17 @@ def extract_instagram_post_items(client: CDPClient, query: str, max_items: int, 
     seen_items: set[str] = set()
     comments_per_post = max(3, max_items // max(1, len(post_urls)))
 
-    for post_url in post_urls:
+    for post_url in post_urls[:2]:
         if len(items) >= max_items:
             break
         print(f"[instagram] Navegando a post: {post_url}")
         client.send("Page.navigate", {"url": post_url})
-        time.sleep(5)
+        time.sleep(3)
 
         caption = ""
         author = ""
         actual_url = post_url
-        deadline = time.time() + 15
+        deadline = time.time() + 8
         while time.time() < deadline:
             diag = evaluate(client, """
             (() => {

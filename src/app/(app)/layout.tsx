@@ -17,6 +17,7 @@ export default async function AppLayout({
     <AppShell
       clients={clients.map((c) => ({ slug: c.slug, name: c.name }))}
       userLabel={user?.label ?? null}
+      accessType={user?.accessType ?? null}
       canReportIssues={canReportIssues}
     >
       {children}

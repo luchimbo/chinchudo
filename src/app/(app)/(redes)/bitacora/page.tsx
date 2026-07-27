@@ -48,11 +48,11 @@ function getPersonaLabel(accountKeyOrName: string, clientSlug?: string | null) {
 }
 
 type PageProps = {
-  searchParams: Promise<{ client?: string }>;
+  searchParams: { client?: string };
 };
 
 export default async function BitacoraPage({ searchParams }: PageProps) {
-  const { client: clientSlug } = await searchParams;
+  const { client: clientSlug } = searchParams;
 
   const clients = await getVisibleClients(prisma);
   const activeClient = clients.find((c) => c.slug === clientSlug) ?? clients[0] ?? null;

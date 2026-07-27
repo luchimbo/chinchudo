@@ -37,9 +37,9 @@ const CANAL_EMOJI: Record<string, string> = {
 export default async function DistributionPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; client?: string }>;
+  searchParams: { status?: string; client?: string };
 }) {
-  const { status = "NEW", client: clientSlug } = await searchParams;
+  const { status = "NEW", client: clientSlug } = searchParams;
   const clients = await getVisibleClients(prisma);
   const activeClient = clients.find((c) => c.slug === clientSlug) ?? clients[0] ?? null;
   const clientFilter = activeClient ? { clientId: activeClient.id } : {};

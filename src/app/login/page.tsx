@@ -1,18 +1,21 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { verifyJwt } from "@/lib/auth-crypto";
 
 type Props = { searchParams: { from?: string; error?: string } };
 
 export default async function LoginPage({ searchParams }: Props) {
+  const requestedFrom = searchParams.from ?? "/";
+  const from = requestedFrom.startsWith("/") && !requestedFrom.startsWith("//") ? requestedFrom : "/";
   // Si ya tiene sesion valida, redirigir.
   const store = await cookies();
   const session = store.get("auth_session")?.value;
-  if (session && session === process.env.AUTH_SECRET) {
-    redirect(searchParams.from ?? "/");
+  const secret = process.env.AUTH_SECRET;
+  if (session && secret && verifyJwt(session, secret)) {
+    redirect(from);
   }
 
-  const from = searchParams.from ?? "/";
   const error = searchParams.error;
 
   return (

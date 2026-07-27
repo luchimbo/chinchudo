@@ -6,15 +6,17 @@ import { opportunityStatuses, statusLabels, type OpportunityStatusValue } from "
 
 type FilterBarProps = {
   channels: string[];
+  brands?: string[];
 };
 
-export function FilterBar({ channels }: FilterBarProps) {
+export function FilterBar({ channels, brands = [] }: FilterBarProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
   const status = searchParams.get("status") ?? "";
   const channel = searchParams.get("channel") ?? "";
+  const brand = searchParams.get("brand") ?? "";
   const view = searchParams.get("view") ?? "";
   const sort = searchParams.get("sort") ?? "";
 
@@ -51,7 +53,7 @@ export function FilterBar({ channels }: FilterBarProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
-  const hasActiveFilters = Boolean((!view && status) || channel || query || sort === "oldest");
+  const hasActiveFilters = Boolean((!view && status) || channel || brand || query || sort === "oldest");
 
   return (
     <div className="flex flex-wrap items-end gap-3 border-b border-ink/10 px-5 py-4">
@@ -86,6 +88,24 @@ export function FilterBar({ channels }: FilterBarProps) {
           ))}
         </select>
       </label>
+
+      {brands.length > 0 ? (
+        <label className="grid gap-1 text-xs font-bold uppercase tracking-[0.18em] text-slate/70">
+          Marca
+          <select
+            value={brand}
+            onChange={(e) => setParam("brand", e.target.value)}
+            className="min-w-[150px] rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm font-semibold text-ink"
+          >
+            <option value="">Todas</option>
+            {brands.map((b) => (
+              <option key={b} value={b}>
+                {b}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
 
       <label className="grid gap-1 text-xs font-bold uppercase tracking-[0.18em] text-slate/70">
         Orden

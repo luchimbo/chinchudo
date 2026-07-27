@@ -3,10 +3,15 @@ import { isDefaultIssueReporterUser } from "@/lib/auth";
 import { createIssueReportSchema, getIssueSector, ISSUE_IMAGE_MAX_SIZE, ISSUE_IMAGE_TYPES } from "@/lib/issue-reports";
 
 describe("reportes internos", () => {
-  it("autoriza solamente al usuario global default", () => {
-    expect(isDefaultIssueReporterUser({ username: "default" })).toBe(true);
+  it("rechaza el usuario global heredado", () => {
+    expect(isDefaultIssueReporterUser({ username: "default" })).toBe(false);
     expect(isDefaultIssueReporterUser({ username: "admin@pcmidi.com" })).toBe(false);
     expect(isDefaultIssueReporterUser(null)).toBe(false);
+  });
+
+  it("autoriza una sesión de soporte auditada", () => {
+    expect(isDefaultIssueReporterUser({ accessType: "support_session" })).toBe(true);
+    expect(isDefaultIssueReporterUser({ accessType: "tenant_user" })).toBe(false);
   });
 
   it("clasifica el sector según la ruta reportada", () => {

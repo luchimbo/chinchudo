@@ -29,9 +29,9 @@ const GROUPS: Group[] = [
 export default async function ConfiguracionPage({
   searchParams,
 }: {
-  searchParams: Promise<{ client?: string; password?: string }>;
+  searchParams: { client?: string; password?: string };
 }) {
-  const { client: slug, password } = await searchParams;
+  const { client: slug, password } = searchParams;
   if (!slug) notFound();
 
   const c = await prisma.client.findUnique({ where: { slug }, select: { id: true } });

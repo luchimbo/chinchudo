@@ -13,16 +13,11 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
 
-# Cargar variables de entorno desde .env si existe
+from lib.env import load_env
+
+# Cargar variables de entorno desde .env (loader centralizado: quita comillas)
 ROOT = Path(__file__).resolve().parent.parent
-ENV_FILE = ROOT / ".env"
-if ENV_FILE.exists():
-    with open(ENV_FILE, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key, value = line.split("=", 1)
-                os.environ.setdefault(key.strip(), value.strip())
+load_env()
 
 # Fallbacks desde .env (usados cuando no hay client_config)
 DEFAULT_FROM_NAME = os.getenv("NURTURE_FROM_NAME", "Bruno de PC MIDI Labs")

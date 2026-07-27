@@ -29,9 +29,9 @@ function fmt(d: Date | null | string) {
 export default async function LeadsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string; client?: string }>;
+  searchParams: { page?: string; client?: string };
 }) {
-  const { page = "1", client: clientSlug } = await searchParams;
+  const { page = "1", client: clientSlug } = searchParams;
   const pageNum = Math.max(1, parseInt(page));
   const PAGE_SIZE = 20;
 

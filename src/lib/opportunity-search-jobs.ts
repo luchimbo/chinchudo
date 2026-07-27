@@ -6,6 +6,32 @@ export const SEARCH_CHANNELS = ["instagram", "tiktok", "youtube", "facebook", "r
 export const SEARCH_LANGUAGES = ["es", "en", "pt", "any"] as const;
 export const SEARCH_CHANNEL_TIMEOUT_MS = 20_000;
 
+const ELECTRONIC_DRUM_QUERY_PATTERN = /\b(bater[ií]a(?:s)?\s+electr[oó]nica(?:s)?|electronic\s+drums?|e[- ]?drums?)\b/i;
+const ELECTRONIC_DRUM_DEEP_QUERIES = [
+  "bateria electronica", "bateria electrica", "electronic drums", "e drums",
+  "bateria electronica para empezar", "bateria electronica principiantes", "bateria electronica para niños",
+  "bateria electronica departamento", "bateria electronica vecinos", "bateria electronica silenciosa",
+  "bateria electronica auriculares", "bateria electronica ruido", "bateria electronica espacio reducido",
+  "bateria electronica parches de malla", "bateria electronica pads de goma", "bateria electronica rebote",
+  "bateria electronica feeling", "bateria electronica pedal bombo", "bateria electronica doble pedal",
+  "bateria electronica hi hat", "bateria electronica redoblante", "bateria electronica platos",
+  "bateria electronica midi", "bateria electronica usb", "bateria electronica grabar", "bateria electronica daw",
+  "bateria electronica latencia", "bateria electronica bluetooth", "bateria electronica parlante",
+  "bateria electronica precio", "bateria electronica cuotas", "bateria electronica stock",
+  "bateria electronica garantia", "bateria electronica repuestos", "bateria electronica service",
+  "que bateria electronica comprar", "mejor bateria electronica", "bateria electronica comparativa",
+  "bateria electronica opiniones", "bateria electronica argentina", "bateria electronica usada",
+  "Alesis bateria electronica", "Roland bateria electronica", "Yamaha bateria electronica",
+  "Donner bateria electronica", "Medeli bateria electronica", "Simmons bateria electronica",
+  "Millenium bateria electronica", "Millenium electronic drums", "Millenium MPS",
+  "Millenium MPS opiniones", "Millenium MPS problemas", "Millenium MPS comparativa",
+] as const;
+
+function expandElectronicDrumQueries(queries: string[]) {
+  if (!queries.some((query) => ELECTRONIC_DRUM_QUERY_PATTERN.test(query))) return queries;
+  return [...new Set([...queries, ...ELECTRONIC_DRUM_DEEP_QUERIES])];
+}
+
 export type SearchEvent = {
   status:
     | "queued"
@@ -219,14 +245,17 @@ async function runJob(job: SearchJob) {
   job.status = "running";
   job.updatedAt = now();
   const { query, suggestions } = await buildQuery(job.params.clientId, job.params.query);
-  const queries = (job.params.queries && job.params.queries.length > 0 ? job.params.queries : [query])
+  const requestedQueries = (job.params.queries && job.params.queries.length > 0 ? job.params.queries : [query])
     .map((item) => item.trim())
     .filter(Boolean);
+  const queries = expandElectronicDrumQueries(requestedQueries);
+  const electronicDrumDeepSearch = requestedQueries.some((item) => ELECTRONIC_DRUM_QUERY_PATTERN.test(item));
+  const effectiveLimit = electronicDrumDeepSearch ? Math.max(job.params.limit, 100) : job.params.limit;
   job.totals.totalSearches = job.params.channels.length * queries.length;
   addEvent(job, {
     status: "started",
     message: "Busqueda iniciada en segundo plano.",
-    data: { ...job.params, query, queries, suggestions },
+    data: { ...job.params, query, queries, suggestions, electronicDrumDeepSearch, effectiveLimit },
   });
 
   try {
@@ -243,14 +272,14 @@ async function runJob(job: SearchJob) {
           join("agents", "social-listen.py"),
           "--channel", channel,
           "--query", singleQuery,
-          "--limit", String(job.params.limit),
+          "--limit", String(effectiveLimit),
           "--client-id", job.params.clientId,
           "--language", job.params.language,
         ], (line, streamName) => {
           if (streamName === "stderr" && line.includes("ERROR")) {
             addEvent(job, { status: "error", channel, message: line.slice(0, 500), data: { query: singleQuery } });
           }
-        }, SEARCH_CHANNEL_TIMEOUT_MS);
+        }, electronicDrumDeepSearch ? undefined : SEARCH_CHANNEL_TIMEOUT_MS);
 
         if (listen.timedOut) {
           job.totals.timedOutChannels += 1;

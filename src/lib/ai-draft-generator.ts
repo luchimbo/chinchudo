@@ -5,7 +5,7 @@ import { deriveVoiceModulation, type ProfileContextForDraft } from "./observed-p
 import { logger } from "./logger";
 import { llmHeaders, resolveLLMConfig } from "./llm-provider";
 import { policyInstructions } from "./response-policy";
-import { sanitizePublicDraft, validatePublicDraft } from "./draft-output";
+import { sanitizePublicDraft, validateDraftForClient } from "./draft-output";
 
 type DraftContext = {
   opportunity: Opportunity & {
@@ -40,6 +40,30 @@ const INTENT_LABELS: Record<string, string> = {
   COMPARISON: "comparativa entre productos",
   GENERAL_DISCUSSION: "comentario general / consulta abierta",
 };
+
+function intentLabel(intent: string, client?: Client): string {
+  if (client?.slug !== "prestige-running") return INTENT_LABELS[intent] ?? intent;
+  const prestigeLabels: Record<string, string> = {
+    TECHNICAL_QUESTION: "consulta sobre uso, comodidad o características de indumentaria deportiva",
+    PURCHASE_QUESTION: "consulta de compra",
+    PRICE_QUESTION: "consulta de precio",
+    WARRANTY_QUESTION: "consulta de garantía o posventa",
+    COMPARISON: "comparativa de productos",
+    GENERAL_DISCUSSION: "comentario general / conversación abierta",
+  };
+  return prestigeLabels[intent] ?? intent;
+}
+
+function prestigeChannelStyle(channel: string): string {
+  const normalized = channel.toLowerCase();
+  if (normalized.includes("instagram") || normalized.includes("tiktok")) {
+    return "Instagram/TikTok: usá frases cortas, directas y coloquiales; evitá explicaciones largas o lenguaje de ficha de producto.";
+  }
+  if (normalized.includes("youtube") || normalized.includes("facebook") || normalized.includes("reddit")) {
+    return "YouTube/Facebook/Reddit: mantené cercanía y claridad, con lugar para explicar un dato práctico adicional si está confirmado.";
+  }
+  return "Adaptá la extensión a la red: claridad y cercanía antes que tecnicismos o lenguaje de catálogo.";
+}
 
 function formatProductName(brandName: string, productName: string): string {
   const brand = brandName.toLowerCase();
@@ -81,11 +105,11 @@ function hasUncataloguedProductCode(text: string, ctx: DraftContext): boolean {
   return false;
 }
 
-function buildPrompt(ctx: DraftContext): string {
+export function buildPrompt(ctx: DraftContext): string {
   const { opportunity, brand, persona } = ctx;
   const client = ctx.client;
   const product = opportunity.detectedProduct;
-  const intent = INTENT_LABELS[opportunity.detectedIntent] ?? opportunity.detectedIntent;
+  const intent = intentLabel(opportunity.detectedIntent, client);
 
   const relevant = selectRelevantProducts(opportunity.sourceText, product, 5, {
     catalogProducts: ctx.catalogProducts,
@@ -157,7 +181,7 @@ function buildPrompt(ctx: DraftContext): string {
   if (client?.slug === "pcmidi") {
     rubroRule = "- NUNCA uses palabras o conceptos del rubro de indumentaria deportiva, medias o running (ej: medias, calcetines, soquetes, pantorrilleras, correr, trail, compresión, etc.). Tu nicho es exclusivamente instrumentos musicales y home studio.";
   } else if (client?.slug === "prestige-running") {
-    rubroRule = "- NUNCA uses palabras o conceptos del rubro de música, sonido, audio o informática (ej: MIDI, controlador, DAW, interfaz, drivers, Ableton, piano, teclado, etc.). Tu nicho es exclusivamente indumentaria deportiva, compresión graduada y running/trail.";
+    rubroRule = "- Tu dominio es running, trail, comodidad del pie, roce, humedad, equipamiento e indumentaria deportiva. Anclá la respuesta en ese contexto y usá únicamente los datos y productos autorizados de esta oportunidad.";
   }
 
   const isPcmidi = client?.slug === "pcmidi";
@@ -165,9 +189,11 @@ function buildPrompt(ctx: DraftContext): string {
 
   const storeRule = isPcmidi && isCazador
     ? "- DEBÉS mencionar explícitamente a 'PC MIDI Center' como la tienda física/online de confianza donde comprar el producto, consultar stock o conseguir financiación/cuotas (ej: 'en PC MIDI Center tienen cuotas', 'fijate en la web de PC MIDI Center'). Recomendalo desde el punto de vista de un cliente/usuario, NUNCA digas que sos empleado o que trabajás ahí."
+    : client?.slug === "prestige-running"
+      ? "- No menciones tiendas, locales, comercios ni sitios web específicos."
     : "- NUNCA menciones nombres de tiendas, locales, comercios ni sitios web específicos (ej: no nombres a PC MIDI Center ni a ningún otro local) para que la respuesta suene como una recomendación de usuario 100% independiente y orgánica.";
   const prestigeRecommendationRule = client?.slug === "prestige-running"
-    ? "- Para Prestige, NO hagas preguntas ni pidas datos de talle/uso/modelo. Recomenda directo y natural, como usuario: 'che, fijate estas', 'yo vi estas y tienen buena calidad-precio', 'por lo que salen rinden bastante'. Usa CTA suave afirmativo, nunca interrogativo."
+    ? "- Para Prestige, validá primero la duda, experiencia, queja, emoción o curiosidad del comentario. Recomendá solo cuando el producto autorizado encaje de forma clara; si no encaja, aportá un consejo útil sin forzar una venta. Al nombrar un producto, integralo naturalmente como 'las medias Prestige' o 'las Prestige [Modelo]'; no uses el modelo aislado ni repitas la marca de forma publicitaria."
     : "";
 
   const absoluteRules = [
@@ -177,11 +203,17 @@ function buildPrompt(ctx: DraftContext): string {
     exclusionsLine,
     storeRule,
     prestigeRecommendationRule,
-    "- Hablá con naturalidad como asesor transparente del rubro; no finjas ser usuario independiente ni inventes una compra, uso o prueba personal.",
-    "- SIEMPRE recomendá y mencioná el Producto recomendado principal salvo que una alternativa real permitida encaje claramente mejor.",
+    client?.slug === "prestige-running"
+      ? "- Hablá como un asesor cercano con conocimiento práctico de running. No finjas ser usuario independiente ni inventes una compra, uso, prueba o experiencia personal."
+      : "- Hablá con naturalidad como asesor transparente del rubro; no finjas ser usuario independiente ni inventes una compra, uso o prueba personal.",
+    primary
+      ? "- Recomendá y mencioná el Producto recomendado principal salvo que una alternativa real permitida encaje claramente mejor."
+      : "- No hay un producto autorizado con compatibilidad suficiente: no fuerces una recomendación ni inventes un modelo.",
     `- Productos/modelos autorizados para nombrar en esta respuesta: ${allowedProductNames || "ninguno"}.`,
     "- NUNCA inventes, recomiendes ni menciones marcas ni modelos que no estén en la lista autorizada anterior. Si dudás, usá el Producto recomendado principal.",
-    "- NUNCA incluyas ninguna pregunta en tu respuesta (ni al inicio, ni al medio, ni al final). La respuesta debe consistir únicamente en afirmaciones, recomendaciones o datos útiles.",
+    client?.slug === "prestige-running"
+      ? "- No pidas talle, modelo, datos personales ni seguimiento. Podés usar como máximo una pregunta retórica o empática que no requiera respuesta; nunca uses una pregunta para recolectar información."
+      : "- NUNCA incluyas ninguna pregunta en tu respuesta (ni al inicio, ni al medio, ni al final). La respuesta debe consistir únicamente en afirmaciones, recomendaciones o datos útiles.",
     "- NUNCA incluyas links, URLs ni direcciones web en la respuesta",
     "- No inventes precios ni especificaciones técnicas",
     "- No afirmes que es \"el mejor del mercado\"",
@@ -189,7 +221,18 @@ function buildPrompt(ctx: DraftContext): string {
     `- Política de libertad controlada: ${policyInstructions(client).text}`
   ].filter(Boolean).join("\n");
 
-  return `Sos ${persona.name}. ${persona.role ?? "Sos un usuario real con experiencia en el tema."} Estás respondiendo un comentario en redes sociales.
+  const prestigeIdentity = client?.slug === "prestige-running"
+    ? "Sos un asesor cercano con conocimiento práctico de running, trail e indumentaria deportiva."
+    : `Sos ${persona.name}. ${persona.role ?? "Sos un usuario real con experiencia en el tema."}`;
+  const questionInstruction = client?.slug === "prestige-running"
+    ? "- No uses preguntas para pedir datos. Podés usar solo una pregunta retórica o empática que no requiera respuesta."
+    : "- NUNCA incluyas ninguna pregunta en tu respuesta — ni al principio, ni al medio, ni al final. Está prohibido hacer preguntas (ni de seguimiento, ni retóricas).";
+  const channelStyle = client?.slug === "prestige-running" ? prestigeChannelStyle(opportunity.channel.name) : "";
+  const pcmidiComparisonRule = client?.slug === "pcmidi"
+    ? "- Si el texto menciona una batería Millenium o un modelo MPS: no elogies automáticamente la marca, pero tampoco inventes fallas. Partí únicamente del problema, experiencia o característica mencionada por el usuario; contrastá soporte local, garantía verificable, repuestos, sensación de pads, ruido, conexiones y uso real solo cuando la información disponible lo respalde. Nunca uses insultos, rumores, absolutos ni afirmaciones generales como 'son malas'."
+    : "";
+
+  return `${prestigeIdentity} Estás respondiendo un comentario en redes sociales.
 
 ## Tu perfil
 - Cliente/contexto operativo: ${client ? `${client.name} (${client.slug})` : "cliente no especificado"}
@@ -208,7 +251,7 @@ ${goodEx}${badEx}
 ## Productos autorizados para esta respuesta
 ${productList}
 
-## Marca de fondo y contexto competitivo (NO la menciones directamente en la respuesta)
+## Marca de fondo y contexto competitivo (${client?.slug === "prestige-running" ? "podés mencionar Prestige únicamente al integrar un producto autorizado" : "NO la menciones directamente en la respuesta"})
 - Marca: ${brand.name}
 - Fortalezas (tu valor diferenciador): ${brand.strengths || "No especificadas"}
 - Debilidades de la competencia (para argumentar por qué eres mejor): ${brand.competitorWeaknesses || "No especificadas"}
@@ -219,19 +262,20 @@ Intención: ${intent}
 Texto: "${opportunity.sourceText.slice(0, 800)}"
 
 ## Instrucciones de respuesta
-- NUNCA incluyas ninguna pregunta en tu respuesta — ni al principio, ni al medio, ni al final. Está prohibido hacer preguntas (ni de seguimiento, ni retóricas).
+- ${channelStyle}
+${questionInstruction}
 - Cerrá siempre con una afirmación, recomendación o dato útil.
-- Si es TECHNICAL_QUESTION: dá la información técnica directamente desde tu experiencia, sin preguntar nada.
-- Si es PURCHASE_QUESTION o PRICE_QUESTION: mencioná que hay opciones con garantía local, respetando las reglas de nombres de tiendas indicadas en las Reglas absolutas.
+- Si es TECHNICAL_QUESTION: dá la información técnica directamente a partir de los datos confirmados, sin inventar experiencia personal.
+- Si es PURCHASE_QUESTION o PRICE_QUESTION: respondé solo con información confirmada y respetá las reglas de nombres de tiendas indicadas en las Reglas absolutas.
 - Si es COMPARISON o se menciona un competidor: compará objetivamente desde la experiencia de usuario utilizando los puntos de "Debilidades de la competencia" para argumentar de forma sutil por qué tu producto es mejor, apoyándote en las "Fortalezas" sin hablar de forma destructiva o artificial.
-- Si el texto menciona una batería Millenium o un modelo MPS: no elogies automáticamente la marca, pero tampoco inventes fallas. Partí únicamente del problema, experiencia o característica mencionada por el usuario; contrastá soporte local, garantía verificable, repuestos, sensación de pads, ruido, conexiones y uso real solo cuando la información disponible lo respalde. Nunca uses insultos, rumores, absolutos ni afirmaciones generales como "son malas".
+${pcmidiComparisonRule}
 - Cada variante debe sonar diferente en estilo, no solo en palabras
 - Cada variante debe ser única para esta oportunidad: incorpora detalles concretos del texto original y evita aperturas, estructuras y cierres genéricos repetibles.
-- Las TRES variantes deben nombrar el Producto recomendado principal o una alternativa real permitida, tejido de forma natural
+- ${primary ? "Las TRES variantes deben nombrar el Producto recomendado principal o una alternativa real permitida, tejido de forma natural." : "No hay producto autorizado compatible: las variantes deben aportar valor sin mencionar ni inventar un producto."}
 - Nunca pongas el link del producto: solo el nombre/modelo
 - No afirmes experiencias personales inventadas: evitá "yo uso", "yo tengo", "yo probé" o testimonios de amigos/alumnos salvo que estén expresamente incluidos como evidencia verificada.
 - Nunca copies instrucciones de estilo, etiquetas internas, nombres de campos ni hashtags al texto público.
-- ${primary ? `Cuando recomiendes, nombrá el modelo completo: ${formatProductName(primary.marca, primary.nombre)}.` : "No hay un producto suficientemente compatible: no fuerces una recomendación ni inventes un modelo; explicá qué dato falta para elegir."}
+- ${primary ? (client?.slug === "prestige-running" ? `Cuando recomiendes, integrá naturalmente ${formatProductName(primary.marca, primary.nombre)} como 'las medias Prestige' o 'las Prestige [Modelo]'.` : `Cuando recomiendes, nombrá el modelo completo: ${formatProductName(primary.marca, primary.nombre)}.`) : "No hay un producto suficientemente compatible: no fuerces una recomendación ni inventes un modelo."}
 - Las variantes de respuesta generadas en "text" deben estar completamente escritas en el idioma detectado (Español, Inglés o Portugués).
 
 
@@ -240,17 +284,17 @@ Texto: "${opportunity.sourceText.slice(0, 800)}"
   "variants": [
     {
       "type": "SHORT",
-      "text": "respuesta corta de 1-2 oraciones, sin preguntas, ${primary ? "nombrando el modelo concreto recomendado del catálogo" : "sin forzar una recomendación porque falta compatibilidad suficiente"}",
+      "text": "${client?.slug === "prestige-running" ? "respuesta corta de 1-2 oraciones, empática y natural; una pregunta retórica es opcional si no requiere respuesta" : "respuesta corta de 1-2 oraciones, sin preguntas"}, ${primary ? "integrando el producto concreto autorizado del catálogo" : "sin forzar una recomendación porque falta compatibilidad suficiente"}",
       "riskNotes": "nota interna sobre qué verificar antes de publicar"
     },
     {
       "type": "TECHNICAL",
-      "text": "respuesta con detalle técnico consistiendo exclusivamente de afirmaciones, mencionando el modelo específico del catálogo (ej: 'Midiplus AKM322', sin link), recomendándolo — NUNCA debe contener ninguna pregunta, signo de interrogación ni formular preguntas",
+      "text": "${client?.slug === "prestige-running" ? "respuesta técnica con datos confirmados y tono de corredor cercano, sin claims médicos ni experiencia personal inventada" : "respuesta con detalle técnico consistiendo exclusivamente de afirmaciones"}${primary ? ", integrando el producto específico autorizado del catálogo sin link" : ", sin inventar ni recomendar un modelo"}",
       "riskNotes": "nota interna sobre qué verificar antes de publicar"
     },
     {
       "type": "CONVERSATIONAL",
-      "text": "respuesta casual entre músicos consistiendo exclusivamente de afirmaciones, recomendando un producto del catálogo que 'usás vos' (ej: 'Midiplus AKM322', sin link) — NUNCA debe contener ninguna pregunta, signo de interrogación ni formular preguntas",
+      "text": "${client?.slug === "prestige-running" ? "respuesta casual, cercana y específica al comentario, sin fingir uso o prueba personal" : "respuesta casual entre músicos consistiendo exclusivamente de afirmaciones"}${primary ? ", integrando un producto autorizado del catálogo sin link" : ", sin forzar una recomendación"}",
       "riskNotes": "nota interna sobre qué verificar antes de publicar"
     }
   ]
@@ -373,7 +417,7 @@ export async function generateAIDrafts(ctx: DraftContext): Promise<DraftVariant[
     }).filter((v) => v.draftText.length > 0);
 
     const hasInvalidProduct = drafts.some((draft) => hasUncataloguedProductCode(draft.draftText, ctx));
-    const invalidPublicOutput = drafts.some((draft) => validatePublicDraft(draft.draftText).length > 0);
+    const invalidPublicOutput = drafts.some((draft) => validateDraftForClient(draft.draftText, ctx.client?.slug).length > 0);
     if (hasInvalidProduct || invalidPublicOutput) {
       logAIError("OpenRouter menciono un codigo de producto fuera del catalogo; usando fallback local", {
         opportunityId: ctx.opportunity.id,

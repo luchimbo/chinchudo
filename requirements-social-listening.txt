@@ -1,0 +1,17 @@
+# Core agents (social-listen, trend-listen, nurture, geo-audit, conversion, publisher).
+# Install on the local worker machine:
+#   pip install -r requirements-social-listening.txt
+psycopg[binary]>=3.2,<4
+python-dotenv>=1.0,<2
+feedparser>=6.0,<7
+requests>=2.32,<3
+duckduckgo-search>=8,<10
+openai>=1.50,<3
+edge-tts>=7,<9
+
+# Optional, free connectors. The core browser/CDP and RSSHub/SearXNG paths use the standard library.
+instaloader>=4.14,<5
+instagrapi[curl]>=2.2,<3
+TikTokApi>=7,<8
+praw>=7.8,<8
+yt-dlp>=2025.1

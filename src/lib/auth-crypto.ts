@@ -29,38 +29,50 @@ function base64UrlDecode(str: string): string {
   return Buffer.from(str, "base64url").toString("utf8");
 }
 
+const DEFAULT_JWT_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 días, igual que maxAge de la cookie
+
 /**
  * Firma un JWT usando HMAC-SHA256 con el secret dado.
+ * Agrega iat y exp (default 7 días) al payload.
  */
-export function signJwt(payload: object, secret: string): string {
+export function signJwt(payload: object, secret: string, ttlSeconds: number = DEFAULT_JWT_TTL_SECONDS): string {
+  const now = Math.floor(Date.now() / 1000);
+  const fullPayload = { ...payload, iat: now, exp: now + ttlSeconds };
   const header = { alg: "HS256", typ: "JWT" };
   const encodedHeader = base64UrlEncode(JSON.stringify(header));
-  const encodedPayload = base64UrlEncode(JSON.stringify(payload));
-  
+  const encodedPayload = base64UrlEncode(JSON.stringify(fullPayload));
+
   const signatureInput = `${encodedHeader}.${encodedPayload}`;
   const signature = createHmac("sha256", secret).update(signatureInput).digest("base64url");
-  
+
   return `${signatureInput}.${signature}`;
 }
 
 /**
  * Verifica y parsea un JWT firmado con HMAC-SHA256.
- * Retorna el payload decodificado, o null si la firma es inválida.
+ * Retorna el payload decodificado, o null si la firma es inválida o el token expiró.
+ * Tokens sin exp (emitidos antes de este cambio) se rechazan: fuerza re-login.
  */
 export function verifyJwt(token: string, secret: string): any | null {
   try {
     const parts = token.split(".");
     if (parts.length !== 3) return null;
     const [encodedHeader, encodedPayload, signature] = parts;
-    
+
     const signatureInput = `${encodedHeader}.${encodedPayload}`;
     const expectedSignature = createHmac("sha256", secret).update(signatureInput).digest("base64url");
-    
-    if (signature !== expectedSignature) {
+
+    const sigBuf = Buffer.from(signature);
+    const expectedBuf = Buffer.from(expectedSignature);
+    if (sigBuf.length !== expectedBuf.length || !timingSafeEqual(sigBuf, expectedBuf)) {
       return null;
     }
-    
-    return JSON.parse(base64UrlDecode(encodedPayload));
+
+    const payload = JSON.parse(base64UrlDecode(encodedPayload));
+    if (typeof payload?.exp !== "number" || payload.exp * 1000 <= Date.now()) {
+      return null;
+    }
+    return payload;
   } catch {
     return null;
   }

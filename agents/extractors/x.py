@@ -24,9 +24,11 @@ def _x_queries_from(query: str) -> list[str]:
         parts = [q.strip() for q in query.split("|") if q.strip()]
         if parts:
             return parts
+    # Una fuente representa una query concreta. Encadenar doce alternativas
+    # convierte un timeout de X en varios minutos de espera.
     if query.strip():
-        return [query.strip()] + [q for q in _X_DEFAULT_QUERIES if q.lower() not in query.lower()]
-    return _X_DEFAULT_QUERIES
+        return [query.strip()]
+    return _X_DEFAULT_QUERIES[:1]
 
 
 def _x_fetch_tweets(client: CDPClient, query: str, max_items: int) -> list[dict]:
@@ -36,7 +38,7 @@ def _x_fetch_tweets(client: CDPClient, query: str, max_items: int) -> list[dict]
 
     items: list[dict] = []
     seen: set[str] = set()
-    deadline = time.time() + 20
+    deadline = time.time() + 12
 
     while time.time() < deadline and len(items) < max_items:
         result = evaluate(client, f"""

@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "@/lib/db";
 import { hashPassword, signJwt } from "@/lib/auth-crypto";
 import { authUserCookieName, encodeAuthUser } from "@/lib/auth";
-
-const prisma = new PrismaClient();
 
 const defaultChannels = [
   { name: "YouTube", type: "video_comments", baseUrl: "https://www.youtube.com" },
@@ -126,6 +124,7 @@ export async function POST(req: NextRequest) {
       label: user.name,
       role: user.role as "admin" | "operator",
       clientSlugs: [client.slug],
+      accessType: "tenant_user" as const,
     };
 
     const response = NextResponse.json({ success: true });
@@ -154,7 +153,5 @@ export async function POST(req: NextRequest) {
       { error: `Error interno de registro: ${(error as Error).message}` },
       { status: 500 }
     );
-  } finally {
-    await prisma.$disconnect();
   }
 }

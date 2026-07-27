@@ -11,6 +11,7 @@ DB_PATH = ROOT / "data" / "app.db"
 
 
 def connect() -> sqlite3.Connection:
+    require_sqlite_sandbox("authority_swarm")
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row

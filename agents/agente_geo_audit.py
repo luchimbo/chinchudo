@@ -24,7 +24,19 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import llm_provider
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(_REPO_ROOT))
+
+if sys.platform.startswith("win"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 from lib.env import load_env
 
 load_env()
@@ -37,8 +49,6 @@ GEO_PROMPTS_FILE = DATA_DIR / "geo_prompts.csv"
 GEO_AUDITS_FILE = DATA_DIR / "geo_audits.jsonl"
 AI_PRESENCE_DIRECT_FILE = DATA_DIR / "ai-presence-direct.jsonl"
 CONTENT_FEEDBACK_FILE = DATA_DIR / "content_feedback.jsonl"
-
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 _CLIENT_CONFIG: dict = {}
 
@@ -67,7 +77,6 @@ def _client_name() -> str:
 DEFAULT_MODELS = [
     "deepseek/deepseek-v4-flash",
     "tencent/hy3-preview",
-    "openrouter/owl-alpha",
     "google/gemini-2.5-flash-lite",
     "nvidia/nemotron-3-super-120b-a12b:free",
     "openai/gpt-4o-mini",
@@ -130,27 +139,9 @@ def load_prompts(limit: int = 0) -> list[dict]:
     return rows
 
 
-def query_openrouter(model: str, prompt: str, api_key: str) -> dict:
+def query_llm(model: str, prompt: str, api_key: str) -> dict:
     try:
-        import openai
-    except ImportError:
-        raise SystemExit("geo-audit: necesitas instalar openai: pip install openai")
-
-    client = openai.OpenAI(
-        api_key=api_key,
-        base_url=OPENROUTER_BASE_URL,
-    )
-
-    try:
-        completion = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "user", "content": prompt},
-            ],
-            max_tokens=800,
-            temperature=0.3,
-        )
-        text = completion.choices[0].message.content or ""
+        text = llm_provider.chat("", prompt, model, temperature=0.3, max_tokens=800, timeout=120)
         return {"ok": True, "text": text, "error": None}
     except Exception as e:
         return {"ok": False, "text": "", "error": str(e)}
@@ -266,11 +257,10 @@ def to_ai_presence_direct_entry(entry: dict, client_id: str = "") -> dict:
 
 
 def run_audit(args: argparse.Namespace) -> None:
-    api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
-    if not api_key:
-        raise SystemExit("geo-audit: falta OPENROUTER_API_KEY en .env o variables de entorno")
+    settings = llm_provider.config()
+    api_key = settings["api_key"]
 
-    models = DEFAULT_MODELS
+    models = [settings["model"]] if settings["provider"] == "local" else DEFAULT_MODELS
     if args.models:
         models = [m.strip() for m in args.models.split(",") if m.strip()]
 
@@ -293,7 +283,7 @@ def run_audit(args: argparse.Namespace) -> None:
 
         for model in models:
             print(f"    -> {model} ...", end="", flush=True)
-            response = query_openrouter(model, prompt_text, api_key)
+            response = query_llm(model, prompt_text, api_key)
 
             if not response["ok"]:
                 print(f" ERROR: {response['error']}")
@@ -315,7 +305,7 @@ def run_audit(args: argparse.Namespace) -> None:
                 "prompt": prompt_text,
                 "category": prompt_row.get("category", ""),
                 "priority": prompt_row.get("priority", ""),
-                "provider": "openrouter",
+                "provider": settings["provider"],
                 "model": model,
                 "response_text": text,
                 "score": score,

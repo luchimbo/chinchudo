@@ -51,8 +51,23 @@ def load_categories() -> dict[str, dict]:
     return _categories_map
 
 
+_PRISMA_ONLY_PARAMS = {"pgbouncer", "connection_limit", "pool_timeout", "schema", "statement_cache_size"}
+
+
 def database_url() -> str:
-    return os.environ.get("DATABASE_URL", "").strip()
+    url = (os.environ.get("DIRECT_URL") or os.environ.get("DATABASE_URL", "")).strip()
+    if not url:
+        return ""
+    # psycopg3 usa postgresql://, no postgres://
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://"):]
+    # Quitar parámetros exclusivos de Prisma que libpq no reconoce (pgbouncer, etc.)
+    from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
+    parsed = urlparse(url)
+    if parsed.query:
+        filtered = [(k, v) for k, v in parse_qsl(parsed.query) if k not in _PRISMA_ONLY_PARAMS]
+        url = urlunparse(parsed._replace(query=urlencode(filtered)))
+    return url
 
 
 def enabled() -> bool:

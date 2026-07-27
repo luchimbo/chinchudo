@@ -20,8 +20,8 @@
   <Actions Context="Author">
     <Exec>
       <Command>powershell.exe</Command>
-      <Arguments>-NonInteractive -ExecutionPolicy Bypass -File "D:\10Apostoles\scripts\start-remote-boot.ps1"</Arguments>
-      <WorkingDirectory>D:\10Apostoles</WorkingDirectory>
+      <Arguments>-NonInteractive -ExecutionPolicy Bypass -File "D:\pcmidi-suite\scripts\start-remote-boot.ps1"</Arguments>
+      <WorkingDirectory>D:\pcmidi-suite</WorkingDirectory>
     </Exec>
   </Actions>
 </Task>

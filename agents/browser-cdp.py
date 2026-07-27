@@ -39,7 +39,7 @@ from _login import (  # noqa: E402, F401
     LOGIN_CHECKS, login_account, login_status,
 )
 from extractors.generic import (  # noqa: E402, F401
-    search_url_for, extract_visible_items,
+    search_url_for, extract_visible_items, extract_indexed_social_items, extract_public_indexed_items,
 )
 from extractors.youtube import extract_youtube_comment_items  # noqa: E402, F401
 from extractors.reddit import extract_reddit_comment_items  # noqa: E402, F401

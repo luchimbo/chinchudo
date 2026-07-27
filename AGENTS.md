@@ -16,6 +16,17 @@ Crear un software maestro que permita a PC MIDI Center operar presencia organica
 - Control humano antes de publicar.
 - Analitica de objeciones, marcas y conversiones.
 
+## Estado Actual (Julio 2026)
+
+El proyecto ya supero el MVP y hoy es una suite multi-cliente:
+
+- **Clientes activos**: `pcmidi` (PC MIDI Center), `prestige-running`, `jurispedia`.
+- **Base de datos**: Supabase Postgres (fuente de verdad). La etapa SQLite quedo deprecada; `prisma/migrations` tiene baseline `0_init` y `prisma migrate deploy` funciona. Para una DB existente creada con `db push`, ejecutar una sola vez `prisma migrate resolve --applied 0_init` antes de `prisma migrate deploy`.
+- **App**: Next.js 14 (App Router) con panel de oportunidades, aprobacion, analytics, landings, leads/nurture, videos y GEO.
+- **IA real**: generacion y clasificacion via OpenRouter (key por cliente con fallback global), con fallback local deterministico y guardarrailes anti-inventos.
+- **Publicacion asistida operativa**: `agents/publisher.py` comenta en YouTube/Reddit/X/Facebook/Instagram con rate limits diarios y `--dry-run` real (propagado desde `scripts/publish-response.mjs` y desde el panel). El orchestrator NO publica: Fede aprueba y decide.
+- **Provider de navegador por defecto**: NSTBrowser (local API). Dolphin Anty sigue soportado como alternativa (`browserProvider: "dolphin"`).
+
 ## Principios Del Proyecto
 
 1. **Utilidad antes que volumen**
@@ -201,25 +212,21 @@ Estilo:
 
 ## Stack Tecnico Recomendado
 
-### MVP
+### Stack Actual (implementado)
 
-- Node.js.
-- TypeScript.
-- SQLite.
-- Prisma ORM.
-- Next.js o Remix para dashboard.
-- Tailwind CSS para interfaz rapida.
-- Playwright solo para monitoreo controlado y QA.
-- API LLM para generacion de respuestas.
+- Node.js + TypeScript estricto.
+- Next.js 14 (App Router) + Tailwind CSS.
+- Prisma ORM 5 sobre Supabase Postgres.
+- Vitest para unit tests; pytest para la capa Python.
+- OpenRouter como proveedor LLM (key por cliente o global).
+- NSTBrowser / Dolphin Anty + CDP para navegador real.
 
 ### Escalamiento
 
-- Supabase Postgres.
-- Supabase Auth.
-- Jobs programados.
+- Supabase Auth (hoy auth propia con JWT firmado y expiracion).
+- Jobs programados (hoy: Task Scheduler de Windows).
 - Cola de tareas con BullMQ o Supabase Queues.
 - Almacenamiento de screenshots y evidencia.
-- Exportacion CSV.
 - Reportes semanales.
 
 ## Arquitectura De Agentes Internos
@@ -229,18 +236,19 @@ Antes de seguir puliendo la app visible, el proyecto prioriza una capa interna e
 Enfoque elegido:
 
 - Python para navegador real y CDP, reutilizando la logica que ya funciono en otra app.
-- Node.js + Prisma para persistir en SQLite, porque la base local es la fuente de verdad del MVP.
+- Node.js + Prisma para persistir en Supabase Postgres, la fuente de verdad del sistema.
 - JSON/JSONL solo como buffer, staging, evidencia o reporte tecnico. No debe ser la fuente principal.
-- Publicacion automatica fuera del MVP. Los agentes pueden detectar, preparar y asistir, pero Fede publica manualmente.
+- Publicacion asistida bajo control humano: los agentes detectan, preparan y pueden publicar comentarios con `agents/publisher.py` (rate limits + `--dry-run`), pero el orchestrator nunca publica solo; Fede aprueba y decide.
 
 Capas esperadas:
 
-- `agents/browser-cdp.py`: abre perfiles con Dolphin o Chrome local, usa CDP, permite login asistido, extrae contenido visible y soporta `dry-run`.
+- `agents/browser-cdp.py`: abre perfiles con NSTBrowser (default), Dolphin o Chrome local, usa CDP, permite login asistido, extrae contenido visible y soporta `dry-run`.
 - `agents/accounts.example.json`: plantilla de cuentas/perfiles. Copiar a `agents/accounts.json` para configurar cuentas reales.
 - `agents/social-listen.py`: ejecuta busquedas por canal, normaliza oportunidades y deja evidencia de escucha.
-- `scripts/import-opportunities.mjs`: importa oportunidades desde el buffer JSONL a SQLite con deduplicacion por URL.
-- `scripts/draft-worker.mjs`: genera borradores locales seguros y los guarda en Prisma.
-- `agents/orchestrator.py`: coordina pasos `listen`, `draft`, `export` y `daily`.
+- `scripts/import-opportunities.mts`: importa oportunidades desde el buffer JSONL a Postgres con deduplicacion por URL.
+- `scripts/draft-worker.mts`: genera borradores (IA o fallback local) seguros y los guarda en Prisma.
+- `agents/publisher.py`: publica comentarios aprobados con rate limits diarios y `--dry-run` real.
+- `agents/orchestrator.py`: coordina pasos `listen`, `draft`, `export`, `daily`, `monitor`, `healthcheck`, `trend-listen`, `nurture`, `distribution`, `geo-audit`, `conversion`, `ai-presence`.
 - `reports/`: reportes JSON auditables por corrida.
 - `data/`: intake temporal JSONL para staging/debug.
 - `exports/`: CSVs operativos para revision o backup.
@@ -251,21 +259,22 @@ Reglas de agentes:
 - Todo comando que escriba datos debe aceptar `--dry-run` cuando sea razonable.
 - Las credenciales de cuentas deben vivir en `.env`, referenciadas desde `agents/accounts.json` por nombre de variable. Nunca hardcodear usuarios ni claves.
 - Cada cuenta debe usar un perfil Chrome y puerto CDP propio para no mezclar sesiones.
+- Si `browserProvider` es `nstbrowser` (default), `start-browser` llama a la Local API de NSTBrowser (`NSTBROWSER_API_BASE`, por defecto `http://localhost:8848/api/v2`) con header `x-api-key: NSTBROWSER_API_KEY`.
 - Si `browserProvider` es `dolphin`, `start-browser` debe llamar a la Local API de Dolphin (`DOLPHIN_API_BASE`, por defecto `http://localhost:3001/v1.0`) y guardar el `automation.port`/`wsEndpoint` en `data/browser-runtime.json`.
 - Si Dolphin responde `401`, configurar `DOLPHIN_API_TOKEN` en `.env`; el agente lo envia como `Authorization: Bearer`.
 - El login automatizado solo puede completar usuario y contraseña de cuentas propias/autorizadas. Si aparece 2FA, captcha o checkpoint, el agente debe frenar y dejar la ventana abierta para resolucion humana.
 - La escucha no debe duplicar oportunidades con la misma URL.
 - Los borradores no deben inventar stock, precio, garantia ni claims tecnicos.
-- Ningun agente debe hacer clicks de publicacion ni enviar comentarios en redes durante el MVP.
+- La publicacion via `publisher.py`/`publish-response.mjs` debe respetar rate limits diarios por cuenta y soportar `--dry-run` end-to-end (el flag llega hasta el navegador).
 
 Flujo de cuentas:
 
 ```bash
 copy agents\accounts.example.json agents\accounts.json
-REM Editar agents\accounts.json y reemplazar dolphinProfileId por el ID real del perfil Dolphin.
-REM Si Dolphin pide autorizacion, cargar DOLPHIN_API_TOKEN en .env.
+REM Editar agents\accounts.json y reemplazar nstbrowserProfileId por el ID real del perfil NSTBrowser.
+REM (Alternativa: browserProvider "dolphin" + dolphinProfileId + DOLPHIN_API_TOKEN en .env)
 python agents/browser-cdp.py start-browser --account soporte-pc-midi
-python agents/browser-cdp.py list-dolphin-profiles
+python agents/browser-cdp.py list-nstbrowser-profiles
 python agents/browser-cdp.py login --account soporte-pc-midi --channel facebook
 npm run agents:listen -- --account soporte-pc-midi --channel facebook --query "MidiPlus controlador MIDI" --dry-run
 ```
@@ -435,7 +444,7 @@ Cuando exista implementacion:
 npm install
 npm run dev
 npm run db:migrate
-npm run db:sync
+npm run db:push
 npm run db:seed
 npm run lint
 npm run test

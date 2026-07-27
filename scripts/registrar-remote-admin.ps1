@@ -1,4 +1,5 @@
 # Ejecutar como Administrador (una sola vez).
+param([switch]$NoRun)
 # Registra la tarea "10Apostoles-Remote" que arranca el acceso remoto al iniciar sesion.
 $Root = Split-Path $PSScriptRoot -Parent
 
@@ -6,7 +7,7 @@ $Root = Split-Path $PSScriptRoot -Parent
 $xml = Get-Content "$PSScriptRoot\remote-task.xml" -Raw -Encoding UTF8
 
 # Reemplazar la ruta base hardcodeada por la actual
-$xml = $xml -replace 'D:\\10Apostoles', $Root
+$xml = $xml -replace 'D:\\(?:10Apostoles|pcmidi-suite)', $Root
 $xml = $xml -replace 'encoding="UTF-8"', 'encoding="UTF-16"'
 
 # Guardar temporal UTF-16 requerido por schtasks
@@ -18,9 +19,10 @@ schtasks /Create /XML "$PSScriptRoot\remote-task-utf16.xml" /TN "10Apostoles-Rem
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host "LISTO. Tarea 10Apostoles-Remote registrada (arranca al iniciar sesion)."
+    if ($NoRun) { exit 0 }
     Write-Host "Ejecutando ahora para probar..."
     schtasks /Run /TN "10Apostoles-Remote"
 } else {
     Write-Host "Error al registrar la tarea."
 }
-Read-Host "Presiona Enter para cerrar"
+if (-not $NoRun) { Read-Host "Presiona Enter para cerrar" }

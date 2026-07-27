@@ -26,8 +26,8 @@
   <Actions Context="Author">
     <Exec>
       <Command>powershell.exe</Command>
-      <Arguments>-NonInteractive -ExecutionPolicy Bypass -File "D:\10Apostoles\scripts\run-scheduled.ps1"</Arguments>
-      <WorkingDirectory>D:\10Apostoles</WorkingDirectory>
+      <Arguments>-NonInteractive -ExecutionPolicy Bypass -File "D:\pcmidi-suite\scripts\run-scheduled.ps1"</Arguments>
+      <WorkingDirectory>D:\pcmidi-suite</WorkingDirectory>
     </Exec>
   </Actions>
 </Task>

@@ -231,7 +231,7 @@ export function ManualOpportunitySearch({ clientId, initialQuery }: Props) {
             <span className="relative inline-flex h-3 w-3 rounded-full bg-ink" />
           </span>
           <span className="font-bold">Buscando oportunidades en segundo plano...</span>
-          <span className="text-slate">Si un intento tarda mas de 20s, saltamos al siguiente.</span>
+          <span className="text-slate">Las búsquedas de baterías electrónicas continúan hasta completar cada consulta.</span>
           {totals.totalSearches > 0 ? (
             <span className="font-bold text-slate">{totals.attemptedSearches}/{totals.totalSearches} busquedas</span>
           ) : null}
@@ -290,10 +290,10 @@ export function ManualOpportunitySearch({ clientId, initialQuery }: Props) {
           Cantidad por red
           <input
             value={limit}
-            onChange={(event) => setLimit(Math.max(1, Math.min(20, Number(event.target.value) || 1)))}
+            onChange={(event) => setLimit(Math.max(1, Math.min(500, Number(event.target.value) || 1)))}
             type="number"
             min={1}
-            max={20}
+            max={500}
             className="min-w-0 w-full rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm text-ink"
           />
         </label>

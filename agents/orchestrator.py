@@ -520,7 +520,7 @@ def main() -> None:
     conv_cmd = sub.add_parser("conversion", help="Analizar conversión de landings")
     conv_cmd.add_argument("--window-days", type=int, default=30)
     conv_cmd.add_argument("--min-views", type=int, default=50)
-    conv_cmd.add_argument("--client-slug", default="", help="Cliente a analizar")
+    conv_cmd.add_argument("--dry-run", action="store_true")
 
     trend_cmd = sub.add_parser("trend-listen", help="Buscar tendencias calientes en AR relacionadas al catálogo")
     trend_cmd.add_argument("--limit", type=int, default=15)
@@ -572,7 +572,7 @@ def main() -> None:
             cmd.extend(["--client-slug", args.client_slug])
         run_step("build-landings", cmd)
     elif args.command == "nurture":
-        cmd = [sys.executable, str(NURTURE_SCRIPT), "--limit", str(args.limit)]
+        cmd = [sys.executable, str(NURTURE_SCRIPT), "process", "--limit", str(args.limit)]
         if args.dry_run:
             cmd.append("--dry-run")
         if getattr(args, "client_slug", ""):
@@ -586,16 +586,18 @@ def main() -> None:
             cmd.extend(["--client-slug", args.client_slug])
         run_step(f"distribution-{args.action}", cmd)
     elif args.command == "geo-audit":
-        cmd = [sys.executable, str(GEO_SCRIPT), "--limit", str(args.limit)]
+        # --client-slug es argumento global del script: debe ir ANTES del subcomando "audit"
+        cmd = [sys.executable, str(GEO_SCRIPT)]
+        if getattr(args, "client_slug", ""):
+            cmd.extend(["--client-slug", args.client_slug])
+        cmd.extend(["audit", "--limit", str(args.limit)])
         if args.dry_run:
             cmd.append("--dry-run")
-        if getattr(args, "client_slug", ""):
-            cmd.extend(["--client-slug", args.client_slug])
         run_step("geo-audit", cmd)
     elif args.command == "conversion":
-        cmd = [sys.executable, str(CONV_SCRIPT), "--window-days", str(args.window_days), "--min-views", str(args.min_views)]
-        if getattr(args, "client_slug", ""):
-            cmd.extend(["--client-slug", args.client_slug])
+        cmd = [sys.executable, str(CONV_SCRIPT), "run", "--window-days", str(args.window_days), "--min-views", str(args.min_views)]
+        if getattr(args, "dry_run", False):
+            cmd.append("--dry-run")
         run_step("conversion", cmd)
     elif args.command == "trend-listen":
         TREND_SCRIPT = ROOT / "agents" / "trend-listen.py"

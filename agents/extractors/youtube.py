@@ -4,9 +4,9 @@ from _cdp import CDPClient, evaluate
 from extractors.generic import extract_visible_items, search_url_for
 
 
-def extract_youtube_comment_items(client: CDPClient, query: str, max_items: int, videos_limit: int = 8) -> list[dict]:
+def extract_youtube_comment_items(client: CDPClient, query: str, max_items: int, videos_limit: int = 2) -> list[dict]:
     client.send("Page.navigate", {"url": search_url_for("youtube", query)})
-    time.sleep(5)
+    time.sleep(3)
     videos = extract_visible_items(client, "youtube", videos_limit)
     comments: list[dict] = []
     seen = set()
@@ -18,11 +18,11 @@ def extract_youtube_comment_items(client: CDPClient, query: str, max_items: int,
         if not video_url:
             continue
         client.send("Page.navigate", {"url": video_url})
-        time.sleep(4)
+        time.sleep(3)
         evaluate(client, "window.scrollTo(0, Math.max(900, document.documentElement.scrollHeight * 0.35))")
-        time.sleep(3)
+        time.sleep(1)
         evaluate(client, "window.scrollTo(0, Math.max(1400, document.documentElement.scrollHeight * 0.55))")
-        time.sleep(3)
+        time.sleep(1)
         expression = f"""
         (async () => {{
           const maxItems = {int(max_items - len(comments))};

@@ -26,6 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "agents"))
 
 from _log import get_logger  # noqa: E402
+import llm_provider  # noqa: E402
 
 try:
     from dotenv import load_dotenv
@@ -42,7 +43,6 @@ SOCIAL_LISTEN = ROOT / "agents" / "social-listen.py"
 LIST_SOURCES = ROOT / "scripts" / "list-monitored-sources.mjs"
 INTAKE_PATH = DATA_DIR / "ai-presence-social.jsonl"
 
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_MODEL = "openai/gpt-4o-mini"
 
 # Queries de respaldo si no hay fuentes monitoreadas activas
@@ -166,22 +166,9 @@ def run_social_listen(source: dict) -> list[dict]:
         return []
 
 
-def query_openrouter(model: str, prompt: str, api_key: str) -> dict:
+def query_llm(model: str, prompt: str, api_key: str) -> dict:
     try:
-        import openai
-    except ImportError:
-        raise SystemExit("ai-presence-radar: necesitas instalar openai: pip install openai")
-
-    client = openai.OpenAI(api_key=api_key, base_url=OPENROUTER_BASE_URL)
-    try:
-        completion = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=1200,
-            temperature=0.2,
-            response_format={"type": "json_object"},
-        )
-        text = completion.choices[0].message.content or ""
+        text = llm_provider.chat("", prompt, model, temperature=0.2, max_tokens=1200, timeout=120)
         return {"ok": True, "text": text, "error": None}
     except Exception as e:
         return {"ok": False, "text": "", "error": str(e)}
@@ -232,7 +219,7 @@ def score_items(items: list[dict], model: str, api_key: str) -> list[dict]:
         return []
 
     prompt = build_scoring_prompt(items)
-    response = query_openrouter(model, prompt, api_key)
+    response = query_llm(model, prompt, api_key)
     if not response["ok"]:
         log.error("ai_presence_scoring_failed", error=response["error"])
         return []
@@ -277,11 +264,9 @@ def score_items(items: list[dict], model: str, api_key: str) -> list[dict]:
 
 
 def run_radar(args: argparse.Namespace) -> None:
-    api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
-    if not api_key:
-        raise SystemExit("ai-presence-radar: falta OPENROUTER_API_KEY en .env")
-
-    model = args.model or os.getenv("OPENROUTER_MODEL", DEFAULT_MODEL) or DEFAULT_MODEL
+    settings = llm_provider.config(args.model)
+    api_key = settings["api_key"]
+    model = settings["model"]
 
     sources = list_active_sources()
     if not sources:

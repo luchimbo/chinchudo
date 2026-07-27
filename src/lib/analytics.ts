@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { intentLabels, statusLabels, type OpportunityIntentValue, type OpportunityStatusValue } from "@/lib/labels";
+import { llmHeaders, resolveLLMConfig } from "@/lib/llm-provider";
 
 // ─── Tipos públicos ─────────────────────────────────────────────────────────
 
@@ -259,9 +260,8 @@ export async function generateWeeklySummary(
   opts?: { apiKey?: string | null; model?: string | null; clientName?: string | null },
 ): Promise<string> {
   // Si se pasa la config de un cliente activo, se usa esa key/modelo; si no, el .env global.
-  const apiKey = opts?.apiKey?.trim() || process.env.OPENROUTER_API_KEY;
-  const model  = opts?.model?.trim() || process.env.OPENROUTER_MODEL || "deepseek/deepseek-chat-v3-0324:free";
-  if (!apiKey) return "Falta API key de OpenRouter (configurala en el cliente o en .env)";
+  const llm = resolveLLMConfig({ openrouterApiKey: opts?.apiKey, openrouterModel: opts?.model });
+  if (!llm.apiKey) return `Falta API key del proveedor ${llm.provider} (configurala en el cliente o en .env)`;
 
   const snapshot = `
 Oportunidades totales: ${data.totalOpportunities}
@@ -286,7 +286,7 @@ ${data.weeklyTrend.map(w => `  ${w.week}: ${w.total} nuevas, ${w.publicadas} pub
 `.trim();
 
   const body = {
-    model,
+    model: llm.model,
     messages: [
       {
         role: "system",
@@ -300,9 +300,9 @@ ${data.weeklyTrend.map(w => `  ${w.week}: ${w.total} nuevas, ${w.publicadas} pub
     max_tokens: 400,
   };
 
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const res = await fetch(llm.endpoint, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    headers: llmHeaders(llm, "Los 5 Apostoles - Analytics"),
     body: JSON.stringify(body),
   });
 

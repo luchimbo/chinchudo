@@ -26,9 +26,9 @@ function fmt(d: Date | null | string) {
 export default async function LandingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; client?: string }>;
+  searchParams: { status?: string; client?: string };
 }) {
-  const { status = "DRAFT", client: clientSlug } = await searchParams;
+  const { status = "DRAFT", client: clientSlug } = searchParams;
   const clients = await getVisibleClients(prisma);
   const activeClient = clients.find((c) => c.slug === clientSlug) ?? clients[0] ?? null;
 

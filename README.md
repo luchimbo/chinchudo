@@ -60,6 +60,21 @@ npm run db:seed       # Cargar datos iniciales
 npm run db:studio     # Prisma Studio (explorador visual de DB)
 ```
 
+### Migraciones de una base Supabase existente
+
+El repositorio incluye el baseline PostgreSQL `prisma/migrations/0_init`. Si la
+base ya tiene las tablas porque se creó antes con `prisma db push`, se debe
+registrar ese baseline una sola vez, sin volver a crear las tablas:
+
+```bash
+npx prisma migrate resolve --applied 0_init
+npx prisma migrate deploy
+```
+
+En una base nueva, ejecutar directamente `npx prisma migrate deploy` y luego
+`npm run db:seed`. No usar `db:push` como mecanismo habitual de producción:
+queda reservado para iteración local o recuperación controlada.
+
 ## Rutina diaria de Fede (30–45 min)
 
 1. Abrir `http://localhost:3000` e ingresar con la contraseña.
@@ -91,7 +106,7 @@ Para automatizar en Windows, crear una tarea en el Programador de tareas:
 
 ```
 Programa:   cmd.exe
-Argumentos: /c cd /d D:\10Apostoles && npm run agents:monitor
+Argumentos: /c cd /d D:\pcmidi-suite && npm run agents:monitor
 ```
 
 Cada corrida deja un reporte JSON en `reports/`.

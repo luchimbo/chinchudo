@@ -4,11 +4,11 @@ import { getCurrentUser, getVisibleClients } from "@/lib/auth";
 import VideosClient from "./VideosClient";
 
 type PageProps = {
-  searchParams: Promise<{ client?: string }>;
+  searchParams: { client?: string };
 };
 
 export default async function VideosPage({ searchParams }: PageProps) {
-  const params = await searchParams;
+  const params = searchParams;
   const user = await getCurrentUser();
   if (!user) {
     redirect("/auth/login");

@@ -1,4 +1,5 @@
 import { prisma } from "./db";
+import { llmHeaders, resolveLLMConfig } from "./llm-provider";
 
 type ScriptGenerationContext = {
   trendId: string;
@@ -6,8 +7,6 @@ type ScriptGenerationContext = {
   personaId: string;
   clientId: string;
 };
-
-const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 export async function generateVideoScript(ctx: ScriptGenerationContext): Promise<string | null> {
   const { trendId, productId, personaId, clientId } = ctx;
@@ -30,13 +29,14 @@ export async function generateVideoScript(ctx: ScriptGenerationContext): Promise
     return null;
   }
 
-  const apiKey = client.openrouterApiKey?.trim() || process.env.OPENROUTER_API_KEY;
+  const llm = resolveLLMConfig(client);
+  const apiKey = llm.apiKey;
   if (!apiKey) {
-    console.error("[Script Generator] OPENROUTER_API_KEY no configurada.");
+    console.error(`[Script Generator] API key de ${llm.provider} no configurada.`);
     return null;
   }
 
-  const model = client.openrouterModel?.trim() || process.env.OPENROUTER_MODEL || "google/gemini-2.0-flash-lite";
+  const model = llm.model;
   const { taskInstruction, contextDetail } = buildTrendContext(trend);
 
   const prompt = `
@@ -88,14 +88,9 @@ ${contextDetail}
 `;
 
   try {
-    const response = await fetch(OPENROUTER_URL, {
+    const response = await fetch(llm.endpoint, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://los5apostoles.local",
-        "X-Title": "Los 5 Apostoles - Editorial Video Script Generator",
-      },
+      headers: llmHeaders(llm, "Los 5 Apostoles - Editorial Video Script Generator"),
       body: JSON.stringify({
         model,
         messages: [

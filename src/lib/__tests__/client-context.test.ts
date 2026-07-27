@@ -171,8 +171,8 @@ describe("local fallback drafts by client", () => {
       client: prestigeClient,
     });
 
-    expect(technicalDrafts[1].draftText).toContain("compresion real");
-    expect(technicalDrafts[1].draftText).toContain("testeadas con atletas");
-    expect(styleDrafts[2].draftText).toContain("mas color");
+    expect(technicalDrafts[1].draftText).toContain("compresión puede sentirse");
+    expect(technicalDrafts[1].draftText).not.toMatch(/yo miraría|testeadas con atletas/i);
+    expect(styleDrafts[2].draftText).toContain("más color o estética");
   });
 });

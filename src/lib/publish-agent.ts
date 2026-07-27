@@ -50,11 +50,13 @@ export function runPublisher({
   sourceUrl,
   text,
   account,
+  dryRun = false,
 }: {
   channel: string;
   sourceUrl: string;
   text: string;
   account: string;
+  dryRun?: boolean;
 }): PublishResult {
   const pyArgs = [
     "agents/publisher.py",
@@ -63,6 +65,7 @@ export function runPublisher({
     "--text", text,
   ];
   if (account) pyArgs.push("--account", account);
+  if (dryRun) pyArgs.push("--dry-run");
 
   try {
     const output = execFileSync("python", pyArgs, { encoding: "utf-8", cwd: process.cwd() });

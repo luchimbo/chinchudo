@@ -9,9 +9,9 @@ export const dynamic = "force-dynamic";
 export default async function EditorPage({
   searchParams,
 }: {
-  searchParams: Promise<{ client?: string }>;
+  searchParams: { client?: string };
 }) {
-  const { client: slug } = await searchParams;
+  const { client: slug } = searchParams;
   if (!slug) notFound();
 
   const c = await prisma.client.findUnique({

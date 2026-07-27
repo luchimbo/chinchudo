@@ -111,6 +111,8 @@ model Client {
   brandSnapshots         BrandSnapshot[]
   competitorEvidence     CompetitorEvidence[]
   draftJobs              DraftJob[]
+  supportSessions        SupportSession[]
+  adminAuditEvents       AdminAuditEvent[]
 }
 
 model BrandSnapshot {
@@ -144,6 +146,64 @@ model User {
   updatedAt    DateTime @updatedAt
 
   @@index([clientId])
+}
+
+model PlatformAdminProfile {
+  id              String            @id @default(cuid())
+  authUserId      String            @unique @db.Uuid
+  name            String
+  active          Boolean           @default(true)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  supportSessions SupportSession[]
+  auditEvents     AdminAuditEvent[]
+
+  @@index([active])
+}
+
+model SupportSession {
+  id              String               @id @default(cuid())
+  platformAdminId String
+  clientId        String
+  reason          String
+  tokenHash       String               @unique
+  expiresAt       DateTime
+  exchangedAt     DateTime?
+  revokedAt       DateTime?
+  endedAt         DateTime?
+  ipAddress       String               @default("")
+  userAgent       String               @default("")
+  metadata        Json                 @default("{}")
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  platformAdmin   PlatformAdminProfile @relation(fields: [platformAdminId], references: [id], onDelete: Restrict)
+  client          Client               @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  auditEvents     AdminAuditEvent[]
+
+  @@index([platformAdminId, createdAt])
+  @@index([clientId, expiresAt])
+  @@index([revokedAt])
+}
+
+model AdminAuditEvent {
+  id               String                @id @default(cuid())
+  actorId          String
+  clientId         String?
+  supportSessionId String?
+  action           String
+  targetType       String
+  targetId         String?
+  ipAddress        String                @default("")
+  userAgent        String                @default("")
+  metadata         Json                  @default("{}")
+  createdAt        DateTime              @default(now())
+  actor            PlatformAdminProfile  @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  client           Client?               @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  supportSession   SupportSession?       @relation(fields: [supportSessionId], references: [id], onDelete: SetNull)
+
+  @@index([actorId, createdAt])
+  @@index([clientId, createdAt])
+  @@index([supportSessionId])
 }
 
 model CatalogRule {

@@ -6,9 +6,9 @@ export const runtime = "nodejs";
 
 export async function GET(
   _request: Request,
-  { params }: { params: Promise<{ slug: string }> },
+  { params }: { params: { slug: string } },
 ) {
-  const { slug } = await params;
+  const { slug } = params;
   const landing = await prisma.landing.findUnique({
     where: { slug },
     include: {

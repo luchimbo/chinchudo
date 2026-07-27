@@ -15,7 +15,7 @@ const PAGE_SIZE = 12;
 const OPEN_STATUSES = ["NEW", "NEEDS_REVIEW", "DRAFTED", "APPROVED", "FOLLOW_UP"] as const;
 
 type PageProps = {
-  searchParams: { channel?: string; q?: string; page?: string; client?: string; sort?: string; status?: string; view?: string };
+  searchParams: { channel?: string; q?: string; page?: string; client?: string; sort?: string; status?: string; view?: string; brand?: string };
 };
 
 function parseKeywords(value: string | null | undefined) {
@@ -27,14 +27,30 @@ function parseKeywords(value: string | null | undefined) {
   }
 }
 
+function canonicalOpportunityUrl(sourceUrl: string) {
+  try {
+    const url = new URL(sourceUrl);
+    url.hash = "";
+    url.hostname = url.hostname.replace(/^www\./, "").toLowerCase();
+    url.pathname = url.pathname.replace(/\/+$/, "");
+    return url.toString();
+  } catch {
+    return sourceUrl.replace(/#.*$/, "").trim().toLowerCase();
+  }
+}
+
 export default async function OportunidadesPage({ searchParams }: PageProps) {
   const [channelsList, clients] = await Promise.all([
     prisma.channel.findMany({ orderBy: { name: "asc" } }),
     getVisibleClients(prisma),
   ]);
   const activeClient = clients.find((c) => c.slug === searchParams.client) ?? clients[0] ?? null;
+  const brandsList = activeClient
+    ? await prisma.brand.findMany({ where: { clientId: activeClient.id }, orderBy: { name: "asc" } })
+    : [];
 
   const validChannel = channelsList.find((c) => c.name === searchParams.channel)?.name ?? "";
+  const validBrand = brandsList.find((b) => b.name === searchParams.brand)?.name ?? "";
   const q = (searchParams.q ?? "").trim();
   const page = Math.max(1, Number(searchParams.page) || 1);
   const sort = searchParams.sort === "oldest" ? "oldest" : "newest";
@@ -52,15 +68,18 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
     where.clientId = activeClient.id;
   }
   if (validChannel) where.channel = { name: validChannel };
+  if (validBrand) where.detectedBrand = { name: validBrand };
   if (q) {
     where.AND = [{ OR: [{ sourceText: { contains: q } }, { sourceAuthor: { contains: q } }] }];
   }
 
-  const orderBy: Prisma.OpportunityOrderByWithRelationInput =
-    sort === "oldest" ? { createdAt: "asc" } : { createdAt: "desc" };
+  const orderBy: Prisma.OpportunityOrderByWithRelationInput | Prisma.OpportunityOrderByWithRelationInput[] =
+    sort === "oldest"
+      ? { createdAt: "asc" }
+      : [{ opportunityScore: "desc" }, { createdAt: "desc" }];
 
   const scopedClientWhere: Prisma.OpportunityWhereInput = activeClient ? { clientId: activeClient.id } : {};
-  const [opportunities, matchingCount, readyCount, inboxCount, missingClientCount, products] = await Promise.all([
+  const [matchingOpportunities, readyCount, inboxCount, missingClientCount, products] = await Promise.all([
     prisma.opportunity.findMany({
       where,
       include: {
@@ -79,10 +98,7 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
         _count: { select: { responses: true } },
       },
       orderBy,
-      skip: (page - 1) * PAGE_SIZE,
-      take: PAGE_SIZE,
     }),
-    prisma.opportunity.count({ where }),
     prisma.opportunity.count({
       where: {
         ...scopedClientWhere,
@@ -111,6 +127,22 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
         })
       : Promise.resolve([]),
   ]);
+  // Un post puede llegar desde el extractor como enlace base y como `#comment-*`.
+  // Mostramos una única tarjeta y priorizamos la que conserva autor/borradores.
+  const uniqueOpportunities = Array.from(
+    matchingOpportunities.reduce((byUrl, opportunity) => {
+      const key = canonicalOpportunityUrl(opportunity.sourceUrl);
+      const current = byUrl.get(key);
+      const currentScore = current
+        ? (current._count.responses * 10) + (current.sourceAuthor ? 1 : 0)
+        : -1;
+      const nextScore = (opportunity._count.responses * 10) + (opportunity.sourceAuthor ? 1 : 0);
+      if (!current || nextScore > currentScore) byUrl.set(key, opportunity);
+      return byUrl;
+    }, new Map<string, (typeof matchingOpportunities)[number]>()).values(),
+  );
+  const matchingCount = uniqueOpportunities.length;
+  const opportunities = uniqueOpportunities.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const keywordSuggestions = [
     ...parseKeywords(activeClient?.domainKeywords).slice(0, 6),
     ...products.map((p) => `${p.brand.name} ${p.name}`),
@@ -159,18 +191,24 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
   }
 
   const totalPages = Math.max(1, Math.ceil(matchingCount / PAGE_SIZE));
-  const buildPageHref = (targetPage: number) => {
+  const currentParams = () => {
     const params = new URLSearchParams();
     if (activeClient) params.set("client", activeClient.slug);
     if (validChannel) params.set("channel", validChannel);
+    if (validBrand) params.set("brand", validBrand);
     if (q) params.set("q", q);
     if (sort === "oldest") params.set("sort", "oldest");
     if (view === "inbox") params.set("view", "inbox");
     if (validStatus) params.set("status", validStatus);
+    return params;
+  };
+  const buildPageHref = (targetPage: number) => {
+    const params = currentParams();
     if (targetPage > 1) params.set("page", String(targetPage));
     const qs = params.toString();
     return qs ? `/oportunidades?${qs}` : "/oportunidades";
   };
+  const exportHref = `/api/opportunities/export?${currentParams().toString()}`;
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col px-5 py-8 lg:px-8">
@@ -216,14 +254,21 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
       ) : null}
 
       <div className="overflow-hidden rounded-lg border border-ink/10 bg-white/75 shadow-panel backdrop-blur">
-        <div className="border-b border-ink/10 px-5 py-4">
+        <div className="flex items-center justify-between gap-3 border-b border-ink/10 px-5 py-4">
           <p className="text-sm text-slate/75">
             {matchingCount} {matchingCount === 1 ? "oportunidad" : "oportunidades"}
             {totalPages > 1 ? ` · página ${page} de ${totalPages}` : ""}
           </p>
+          <a
+            href={exportHref}
+            download
+            className="inline-flex h-8 items-center rounded-full border border-ink/15 px-3 text-xs font-bold text-ink transition hover:border-ink/40 hover:bg-paper"
+          >
+            Exportar CSV
+          </a>
         </div>
 
-        <FilterBar channels={channelsList.map((c) => c.name)} />
+        <FilterBar channels={channelsList.map((c) => c.name)} brands={brandsList.map((b) => b.name)} />
 
         <OpportunityList
           opportunities={opportunities}

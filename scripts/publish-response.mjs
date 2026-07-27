@@ -54,10 +54,7 @@ async function main() {
     }
   }
 
-  let result = runPublisher({ channel, sourceUrl, text, account });
-  if (dryRun) {
-    result = { ...result, dry_run: true };
-  }
+  const result = runPublisher({ channel, sourceUrl, text, account, dryRun });
 
   if (result.success && !dryRun) {
     await prisma.$transaction([

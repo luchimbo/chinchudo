@@ -1,8 +1,4 @@
-export function getRelayUrl() {
-  const url = process.env.AGENT_RELAY_URL;
-  if (!url) throw new Error("AGENT_RELAY_URL no configurado.");
-  return url.replace(/\/$/, "");
-}
+import { getRelayUrl } from "@/lib/settings";
 
 export function getRelayHeaders() {
   const token = process.env.AGENT_RELAY_TOKEN;
@@ -13,10 +9,12 @@ export function getRelayHeaders() {
   };
 }
 
-export function relayFetch(path: string, init: RequestInit = {}) {
-  const url = getRelayUrl();
+export async function relayFetch(path: string, init: RequestInit = {}) {
+  const url = await getRelayUrl();
+  if (!url) throw new Error("AGENT_RELAY_URL no configurado (ni en AppSetting ni en env).");
+  const base = url.replace(/\/$/, "");
   const headers = getRelayHeaders();
-  return fetch(`${url}${path}`, {
+  return fetch(`${base}${path}`, {
     ...init,
     headers: {
       ...headers,

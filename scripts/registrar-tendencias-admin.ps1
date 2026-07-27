@@ -5,7 +5,7 @@ $Root = Split-Path $PSScriptRoot -Parent
 $xml = Get-Content "$PSScriptRoot\scheduled-trends-task.xml" -Raw -Encoding UTF8
 
 # Reemplazar la ruta base hardcodeada por la actual
-$xml = $xml.Replace('D:\10Apostoles', $Root)
+$xml = $xml -replace 'D:\\(?:10Apostoles|pcmidi-suite)', $Root
 $xml = $xml -replace 'encoding="UTF-8"', 'encoding="UTF-16"'
 
 # Guardar temporal UTF-16 requerido por schtasks

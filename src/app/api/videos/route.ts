@@ -10,10 +10,7 @@ export async function GET() {
   }
 
   try {
-    const clientWhere =
-      user.role !== "admin" && user.clientSlugs.length > 0
-        ? { active: true, slug: { in: user.clientSlugs } }
-        : { active: true };
+    const clientWhere = { active: true, slug: { in: user.clientSlugs } };
 
     const clients = await prisma.client.findMany({ where: clientWhere, select: { id: true } });
     const clientIds = clients.map((client) => client.id);

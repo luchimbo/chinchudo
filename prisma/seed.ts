@@ -5,9 +5,9 @@ const prisma = new PrismaClient();
 const json = (items: string[]) => JSON.stringify(items);
 
 const personaNameMigrations = [
-  ["TÈcnico / Productor", "TÈcnico"],
-  ["Baterista de Departamento", "Pr·ctico"],
-  ["Trend-Setter Kressmer", "InnovaciÛn"],
+  ["T√©cnico / Productor", "T√©cnico"],
+  ["Baterista de Departamento", "Pr√°ctico"],
+  ["Trend-Setter Kressmer", "Innovaci√≥n"],
   ["Profe / Madre-Padre", "Educativo"],
   ["Cazador de Ofertas", "Comercial"],
 ] as const;
@@ -106,8 +106,8 @@ async function main() {
         "soquetes running",
         "running",
         "trail",
-        "media caÒa",
-        "cuarto de caÒa",
+        "media ca√±a",
+        "cuarto de ca√±a",
         "pantorrillera",
         "pantorrilleras",
         "compresion",
@@ -163,8 +163,8 @@ async function main() {
         "soquetes running",
         "running",
         "trail",
-        "media caÒa",
-        "cuarto de caÒa",
+        "media ca√±a",
+        "cuarto de ca√±a",
         "pantorrillera",
         "pantorrilleras",
         "compresion",
@@ -237,7 +237,7 @@ async function main() {
       tone: "Tecnico, claro, seguro y orientado a resolver dudas.",
       allowedClaims: "Soporte local; buena relacion precio-calidad; opcion practica para home studio; compra con garantia.",
       forbiddenClaims: "El mejor del mercado; superior a todas las marcas; garantia no confirmada; datos tecnicos no verificados.",
-      competitorWeaknesses: "Marcas importadas genÈricas carecen de soporte tÈcnico local oficial y garantÌa en el paÌs.",
+      competitorWeaknesses: "Marcas importadas gen√©ricas carecen de soporte t√©cnico local oficial y garant√≠a en el pa√≠s.",
     },
     create: {
       clientId: pcmidi.id,
@@ -246,7 +246,7 @@ async function main() {
       tone: "Tecnico, claro, seguro y orientado a resolver dudas.",
       allowedClaims: "Soporte local; buena relacion precio-calidad; opcion practica para home studio; compra con garantia.",
       forbiddenClaims: "El mejor del mercado; superior a todas las marcas; garantia no confirmada; datos tecnicos no verificados.",
-      competitorWeaknesses: "Marcas importadas genÈricas carecen de soporte tÈcnico local oficial y garantÌa en el paÌs.",
+      competitorWeaknesses: "Marcas importadas gen√©ricas carecen de soporte t√©cnico local oficial y garant√≠a en el pa√≠s.",
     },
   });
 
@@ -258,7 +258,7 @@ async function main() {
       tone: "Moderno, curioso, aspiracional y cuidadoso con claims tecnicos.",
       allowedClaims: "Linea nueva; estetica cuidada; propuesta diferente; consultar modelo, stock y garantia.",
       forbiddenClaims: "Lo mejor; exclusivo sin confirmacion; caracteristicas no verificadas; comparaciones absolutas.",
-      competitorWeaknesses: "Marcas tradicionales del mismo rango de precio ofrecen diseÒos pl·sticos desactualizados y nula diferenciaciÛn estÈtica.",
+      competitorWeaknesses: "Marcas tradicionales del mismo rango de precio ofrecen dise√±os pl√°sticos desactualizados y nula diferenciaci√≥n est√©tica.",
     },
     create: {
       clientId: pcmidi.id,
@@ -267,7 +267,7 @@ async function main() {
       tone: "Moderno, curioso, aspiracional y cuidadoso con claims tecnicos.",
       allowedClaims: "Linea nueva; estetica cuidada; propuesta diferente; consultar modelo, stock y garantia.",
       forbiddenClaims: "Lo mejor; exclusivo sin confirmacion; caracteristicas no verificadas; comparaciones absolutas.",
-      competitorWeaknesses: "Marcas tradicionales del mismo rango de precio ofrecen diseÒos pl·sticos desactualizados y nula diferenciaciÛn estÈtica.",
+      competitorWeaknesses: "Marcas tradicionales del mismo rango de precio ofrecen dise√±os pl√°sticos desactualizados y nula diferenciaci√≥n est√©tica.",
     },
   });
 
@@ -294,7 +294,7 @@ async function main() {
 
   const pcmidiPersonas = [
     {
-      name: "TÈcnico",
+      name: "T√©cnico",
       role: "Valida la marca por componentes, drivers, compatibilidad MIDI/DAW y uso en home studio.",
       tone: "Preciso, practico y sin vender de mas.",
       goals: "Traducir especificaciones a beneficios reales y aclarar limites tecnicos.",
@@ -302,7 +302,7 @@ async function main() {
       angle: "Setup, compatibilidad, DAW, drivers y uso real.",
     },
     {
-      name: "Pr·ctico",
+      name: "Pr√°ctico",
       role: "Resuelve ruido, espacio, parches de malla y practica diaria en departamento.",
       tone: "Cotidiano, cercano y concreto.",
       goals: "Ayudar a elegir pensando en vecinos, silencio y rebote.",
@@ -310,7 +310,7 @@ async function main() {
       angle: "Ruido, auriculares, espacio reducido y practica diaria.",
     },
     {
-      name: "InnovaciÛn",
+      name: "Innovaci√≥n",
       role: "Posiciona Kressmer como novedad desde diseno, estetica y primeras impresiones.",
       tone: "Moderno, curioso y aspiracional, sin exagerar datos.",
       goals: "Mostrar Kressmer como opcion distinta y deseable.",
@@ -339,7 +339,7 @@ async function main() {
   const oldPersonas = await prisma.persona.findMany({
     where: {
       clientId: prestigeClient.id,
-      name: { in: ["El Corredor", "El KinesiÛlogo", "El Futbolista", "Cazador de Promos Deportivo"] }
+      name: { in: ["El Corredor", "El Kinesi√≥logo", "El Futbolista", "Cazador de Promos Deportivo"] }
     }
   });
   const oldPersonaIds = oldPersonas.map((p) => p.id);
@@ -352,7 +352,7 @@ async function main() {
 
   const prestigePersonas = [
     {
-      name: "TÈcnico",
+      name: "T√©cnico",
       role: "Aporta mirada tecnica sobre compresion, recuperacion, soporte y cuidado del pie sin prometer resultados medicos.",
       tone: "Criterioso, claro y responsable.",
       goals: "Explicar beneficios posibles y limites de las medias de compresion, evitando diagnosticos medicos.",
@@ -360,7 +360,7 @@ async function main() {
       angle: "Compresion graduada, soporte, recuperacion y cuidado de la pisada sin claims medicos.",
     },
     {
-      name: "Pr·ctico",
+      name: "Pr√°ctico",
       role: "Responde desde la experiencia de running, entrenamientos de calle, distancias y rozamiento diario.",
       tone: "Cercano, activo, cotidiano y con lenguaje de corredor urbano.",
       goals: "Ayudar a elegir medias segun distancia, comodidad, rebote/impacto y ampollas.",
@@ -368,12 +368,12 @@ async function main() {
       angle: "Running urbano, trail, comodidad, rozamiento, ajuste y uso en entrenamiento diario.",
     },
     {
-      name: "InnovaciÛn",
-      role: "Posiciona las medias desde el diseÒo, estetica cuidada, ergonomia y primeras impresiones.",
-      tone: "Moderno, curioso y estÈtico, sin exagerar datos.",
-      goals: "Mostrar las medias ergonÛmicas como opcion premium y de diseÒo de vanguardia.",
+      name: "Innovaci√≥n",
+      role: "Posiciona las medias desde el dise√±o, estetica cuidada, ergonomia y primeras impresiones.",
+      tone: "Moderno, curioso y est√©tico, sin exagerar datos.",
+      goals: "Mostrar las medias ergon√≥micas como opcion premium y de dise√±o de vanguardia.",
       preferredLength: "Corta",
-      angle: "DiseÒo ergonÛmico, costuras planas, estÈtica premium y tendencia.",
+      angle: "Dise√±o ergon√≥mico, costuras planas, est√©tica premium y tendencia.",
     },
     {
       name: "Educativo",
@@ -387,7 +387,7 @@ async function main() {
       name: "Comercial",
       role: "Resuelve precio, combos, tripacks, bipacks, cuotas, envios y disponibilidad.",
       tone: "Directo, practico y entusiasta.",
-      goals: "Llevar al usuario a una compra inteligente y econÛmica destacando envÌos y promos.",
+      goals: "Llevar al usuario a una compra inteligente y econ√≥mica destacando env√≠os y promos.",
       preferredLength: "Corta",
       angle: "Packs, cuotas, promos, envios y conveniencia.",
     },
@@ -461,16 +461,16 @@ async function main() {
     },
     {
       brandId: prestige.id,
-      name: "Trail Pro. Media caÒa. Art 1025",
+      name: "Trail Pro. Media ca√±a. Art 1025",
       category: "Trail",
-      description: "Media tecnica de media caÒa orientada a trail y entrenamiento.",
+      description: "Media tecnica de media ca√±a orientada a trail y entrenamiento.",
       useCases: "Trail, running, entrenamientos al aire libre y usuarios que prefieren mas cobertura.",
       warrantyNotes: "Confirmar stock, talle y color antes de responder.",
       priceRange: "Verificar en tienda antes de responder.",
     },
     {
       brandId: prestige.id,
-      name: "Media de compresiÛn graduada 15-20 mm Hg. Art 1010",
+      name: "Media de compresi√≥n graduada 15-20 mm Hg. Art 1010",
       category: "Compresion Graduada",
       description: "Media de compresion graduada indicada por la tienda como 15-20 mm Hg.",
       technicalSpecs: "Compresion graduada 15-20 mm Hg segun ficha publica.",
@@ -480,9 +480,9 @@ async function main() {
     },
     {
       brandId: prestige.id,
-      name: "Core Run-Tech Design. Soquete tecnico media caÒa running-trail",
+      name: "Core Run-Tech Design. Soquete tecnico media ca√±a running-trail",
       category: "Medias tecnicas running",
-      description: "Soquete tecnico de media caÒa para running y trail.",
+      description: "Soquete tecnico de media ca√±a para running y trail.",
       useCases: "Running, trail, entrenamientos y uso deportivo con calzado tecnico.",
       warrantyNotes: "Confirmar stock, talle y color antes de responder.",
       priceRange: "Verificar en tienda antes de responder.",
@@ -498,9 +498,9 @@ async function main() {
     },
     {
       brandId: prestige.id,
-      name: "Cuarto de caÒa. InMyself. DiseÒo ergonÛmico",
-      category: "Cuarto de CaÒa",
-      description: "Media cuarto de caÒa con diseno ergonomico segun ficha publica.",
+      name: "Cuarto de ca√±a. InMyself. Dise√±o ergon√≥mico",
+      category: "Cuarto de Ca√±a",
+      description: "Media cuarto de ca√±a con diseno ergonomico segun ficha publica.",
       useCases: "Entrenamiento, caminata, gimnasio y usuarios que prefieren cobertura intermedia.",
       warrantyNotes: "Confirmar stock, talle y color antes de responder.",
       priceRange: "Verificar en tienda antes de responder.",
@@ -520,7 +520,7 @@ async function main() {
     { clientId: pcmidi.id, category: "interfaces-audio", keywords: ["interfaz", "interface", "placa", "asio", "latencia", "grabar"] },
     { clientId: pcmidi.id, category: "baterias-electronicas", keywords: ["bateria", "drum", "electronica", "parche", "malla"] },
     { clientId: prestigeClient.id, category: "running", keywords: ["running", "correr", "runner", "maraton", "10k", "21k", "entrenamiento"] },
-    { clientId: prestigeClient.id, category: "trail", keywords: ["trail", "montaÒa", "barro", "sendero", "trekking"] },
+    { clientId: prestigeClient.id, category: "trail", keywords: ["trail", "monta√±a", "barro", "sendero", "trekking"] },
     { clientId: prestigeClient.id, category: "compresion", keywords: ["compresion", "15-20", "mm hg", "recuperacion", "circulacion"] },
     { clientId: prestigeClient.id, category: "futbol", keywords: ["futbol", "botines", "cancha", "partido", "entrenar"] },
     { clientId: prestigeClient.id, category: "promos-combos", keywords: ["combo", "pack", "tripack", "bipack", "promo", "descuento", "cuotas", "envio"] },
@@ -565,7 +565,7 @@ async function main() {
         clientId: prestigeClient.id,
         brandId: prestige.id,
         topic: "Categorias Prestige Running",
-        content: "La tienda organiza productos en soquetes cortos, cuarto de caÒa, media caÒa, largas, pantorrillera, trail, termicas, tripack, bipack, promos y compresion graduada.",
+        content: "La tienda organiza productos en soquetes cortos, cuarto de ca√±a, media ca√±a, largas, pantorrillera, trail, termicas, tripack, bipack, promos y compresion graduada.",
         source: "seed",
         confidence: "high",
       },
@@ -625,7 +625,7 @@ async function main() {
     "Necesita drivers complicados",
     "Me preocupa el ruido para los vecinos",
     "Me salen ampollas cuando corro",
-    "No se si elegir media corta, media caÒa o larga",
+    "No se si elegir media corta, media ca√±a o larga",
     "La compresion sirve para lesiones",
   ] } } });
   await prisma.objection.createMany({
@@ -642,35 +642,35 @@ async function main() {
         brandId: midiplus.id,
         objection: "Necesita drivers complicados",
         recommendedAnswer: "La mayoria es plug-and-play por USB; si hay dudas conviene confirmar el modelo exacto y el sistema operativo antes de instalar nada.",
-        personaNotes: "TÈcnico.",
+        personaNotes: "T√©cnico.",
       },
       {
         clientId: pcmidi.id,
         brandId: midiplus.id,
         objection: "Me preocupa el ruido para los vecinos",
         recommendedAnswer: "Con parches de malla y auriculares el ruido baja muchisimo; es una opcion comoda para departamento.",
-        personaNotes: "Pr·ctico.",
+        personaNotes: "Pr√°ctico.",
       },
       {
         clientId: prestigeClient.id,
         brandId: prestige.id,
         objection: "Me salen ampollas cuando corro",
         recommendedAnswer: "Conviene mirar ajuste, costuras, material y altura de la media segun distancia y calzado. Para running/trail, una media tecnica bien ajustada suele ayudar a reducir roce, pero no conviene prometer que elimina ampollas.",
-        personaNotes: "Pr·ctico.",
+        personaNotes: "Pr√°ctico.",
       },
       {
         clientId: prestigeClient.id,
         brandId: prestige.id,
-        objection: "No se si elegir media corta, media caÒa o larga",
-        recommendedAnswer: "Depende del uso: soquete corto para algo mas liviano, media caÒa para running/trail con mas cobertura, y largas o pantorrilleras si buscas mayor cobertura en pierna. Lo ideal es cruzarlo con talle, calzado y terreno.",
-        personaNotes: "Pr·ctico.",
+        objection: "No se si elegir media corta, media ca√±a o larga",
+        recommendedAnswer: "Depende del uso: soquete corto para algo mas liviano, media ca√±a para running/trail con mas cobertura, y largas o pantorrilleras si buscas mayor cobertura en pierna. Lo ideal es cruzarlo con talle, calzado y terreno.",
+        personaNotes: "Pr√°ctico.",
       },
       {
         clientId: prestigeClient.id,
         brandId: prestige.id,
         objection: "La compresion sirve para lesiones",
         recommendedAnswer: "La compresion puede aportar sensacion de soporte y ajuste, pero no reemplaza una indicacion medica. Si hay dolor, lesion o una condicion previa, mejor consultarlo con un profesional.",
-        personaNotes: "TÈcnico.",
+        personaNotes: "T√©cnico.",
       },
     ],
   });
@@ -693,9 +693,9 @@ async function main() {
   }
 
   const prestigePersonaRules = [
-    { personaName: "TÈcnico", weight: 5, trigger: "keyword", pattern: "compresion|recuperacion|circulacion|lesion|dolor|tendon|gemelo|pantorrilla|15-20|kinesiologia|kinesio", reason: "consulta de compresion o cuidado fisico" },
-    { personaName: "Pr·ctico", weight: 5, trigger: "keyword", pattern: "running|correr|runner|maraton|10k|21k|trail|ampolla|rozadura|entrenamiento", reason: "uso real de running/trail" },
-    { personaName: "InnovaciÛn", weight: 5, trigger: "keyword", pattern: "ergonomico|diseÒo|estetica|premium|novedad|nuevo modelo", reason: "diseÒo o estetica premium" },
+    { personaName: "T√©cnico", weight: 5, trigger: "keyword", pattern: "compresion|recuperacion|circulacion|lesion|dolor|tendon|gemelo|pantorrilla|15-20|kinesiologia|kinesio", reason: "consulta de compresion o cuidado fisico" },
+    { personaName: "Pr√°ctico", weight: 5, trigger: "keyword", pattern: "running|correr|runner|maraton|10k|21k|trail|ampolla|rozadura|entrenamiento", reason: "uso real de running/trail" },
+    { personaName: "Innovaci√≥n", weight: 5, trigger: "keyword", pattern: "ergonomico|dise√±o|estetica|premium|novedad|nuevo modelo", reason: "dise√±o o estetica premium" },
     { personaName: "Educativo", weight: 5, trigger: "keyword", pattern: "colegio|escuela|hijo|hija|principiante|aprender|gimnasio", reason: "deporte escolar o aprendizaje" },
     { personaName: "Comercial", weight: 5, trigger: "keyword", pattern: "precio|cuanto|cuotas|promo|descuento|combo|pack|tripack|bipack|envio|stock", reason: "precio, combos, cuotas o envio" },
   ];
@@ -755,7 +755,7 @@ async function main() {
       channelId: instagram.id,
       sourceUrl: "https://www.instagram.com/p/demo-prestige",
       sourceAuthor: "runner_demo",
-      sourceText: "Para correr 10K y evitar rozaduras conviene media caÒa o soquete corto?",
+      sourceText: "Para correr 10K y evitar rozaduras conviene media ca√±a o soquete corto?",
       detectedBrandId: prestige.id,
       detectedIntent: "PURCHASE_QUESTION",
       priority: "HIGH",

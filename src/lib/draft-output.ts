@@ -38,3 +38,17 @@ export function validatePublicDraft(text: string): string[] {
   if (/\b(?:cuotas? sin inter[eé]s|cuotas? suaves|cuotas? c[oó]modas|muy buen precio|entrega inmediata|stock disponible)\b/i.test(text)) errors.push("unverified_commercial_claim");
   return [...new Set(errors)];
 }
+
+const PRESTIGE_PERSONAL_TESTIMONY = /\b(?:yo\s+(?:uso|tengo|prob[eé]|vi|corr[ií]|entren[eé])|mi\s+(?:experiencia|uso|entrenamiento))\b/i;
+const PRESTIGE_MEDICAL_CLAIM = /\b(?:cura|curan|trata|tratan|previene|previenen|diagnostic[ao]|lesi[oó]n|dolor|v[aá]rices|trombosis)\b/i;
+const PRESTIGE_DATA_QUESTION = /[¿?][^¿?]*(?:talle|modelo|cu[aá]nto|cu[aá]ntas|d[oó]nde|cu[aá]l|qu[eé]\s+(?:talle|modelo|us[aá]s)|ten[eé]s|us[aá]s|corr[eé]s)[^¿?]*[?]/i;
+
+export function validateDraftForClient(text: string, clientSlug?: string): string[] {
+  const errors = validatePublicDraft(text);
+  if (clientSlug !== "prestige-running") return errors;
+
+  if (PRESTIGE_PERSONAL_TESTIMONY.test(text)) errors.push("prestige_unverified_personal_testimony");
+  if (PRESTIGE_MEDICAL_CLAIM.test(text)) errors.push("prestige_medical_claim");
+  if (PRESTIGE_DATA_QUESTION.test(text)) errors.push("prestige_data_question");
+  return [...new Set(errors)];
+}

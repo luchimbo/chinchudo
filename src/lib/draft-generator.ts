@@ -173,7 +173,7 @@ function isPrestigeContext(ctx: { client?: Client; brand: Brand }) {
   return ctx.client?.slug === "prestige-running" || ctx.brand.name.toLowerCase().includes("prestige");
 }
 
-function makePrestigeDrafts(original: string, riskNotes: string): DraftVariant[] {
+function makePrestigeDrafts(original: string, riskNotes: string, product?: ProductEntry, channel = ""): DraftVariant[] {
   const norm = original.toLowerCase();
   const mentionsLongRun = /\b(10k|21k|maraton|trail|correr|running|entren)/i.test(original);
   const mentionsRub = /rozadura|ampolla|roce|lastima|molesta/i.test(original);
@@ -190,29 +190,34 @@ function makePrestigeDrafts(original: string, riskNotes: string): DraftVariant[]
     ? "tienen costuras mas comodas y buen ajuste, eso ayuda bastante con el roce"
     : "tienen buen ajuste, secan rapido y no se mueven tanto dentro del calzado";
   const valueHint = mentionsPrice
-    ? "en precio-calidad cierran muy bien, sobre todo frente a varias opciones mas masivas"
-    : "por lo que salen, rinden muy bien";
+    ? "conviene revisar las condiciones vigentes antes de elegir"
+    : "priorizan comodidad y ajuste para el entrenamiento";
   const technicalHint = mentionsCompression
-    ? "en la linea tecnica suman compresion real y una propuesta bastante enfocada en cumplir la funcion"
-    : "tienen Fast Dry, zonas antifriccion y una construccion bastante pensada para uso real";
+    ? "la compresión puede sentirse como un ajuste más firme durante la actividad, siempre que esa característica esté confirmada para el modelo"
+    : "el ajuste y los materiales deben verificarse en la ficha confirmada del modelo";
   const styleHint = mentionsStyle
-    ? "si buscas algo super llamativo capaz hay marcas con mas color, pero en funcionalidad y calce estan muy bien paradas"
+    ? "si buscás más color o estética, revisá el modelo que mejor combine con tu equipo sin dejar de priorizar calce y comodidad"
     : "se nota que priorizan funcionalidad antes que puro look";
+
+  const productName = product ? `las Prestige ${product.modelo}` : "unas medias técnicas adecuadas para ese uso";
+  const visualChannel = /instagram|tiktok/i.test(channel);
+  const prefix = visualChannel ? "" : "Por lo que comentás, ";
+  const recommendation = product ? productName : "sin forzar una recomendación de modelo";
 
   return [
     {
       variantType: "SHORT",
-      draftText: `Che, fijate las medias de Prestige. La verdad ${valueHint}, ${heightHint} y ${rubHint}.`,
+      draftText: `${prefix}${recommendation} puede encajar bien: ${heightHint} y ${rubHint}.`,
       riskNotes,
     },
     {
       variantType: "TECHNICAL",
-      draftText: `Yo miraria las tecnicas de Prestige ${useHint}: ${technicalHint}. Tambien estan testeadas con atletas y por precio-calidad quedan muy bien paradas.`,
+      draftText: `${prefix}${product ? `${productName} para ${useHint}` : "Para ese uso"} puede ser una opción práctica: ${technicalHint}.`,
       riskNotes,
     },
     {
       variantType: "CONVERSATIONAL",
-      draftText: `Mira, yo iria por Prestige en ese caso. No son puro marketing: tienen buena construccion, calce comodo y ${styleHint}.`,
+      draftText: `${prefix}${product ? productName : "Priorizar un modelo técnico"} tiene sentido en ese caso: ${valueHint} y ${styleHint}.`,
       riskNotes,
     },
   ];
@@ -520,7 +525,7 @@ export function generateLocalDrafts(ctx: DraftContext): DraftVariant[] {
   const clientSlug = ctx.client?.slug;
 
   const drafts = clientSlug === "prestige-running"
-    ? makePrestigeDrafts(original, riskNotes)
+    ? makePrestigeDrafts(original, riskNotes, product, opportunity.channel.name)
     : clientSlug === "pcmidi"
       ? makePcmidiDrafts(opportunity.detectedIntent, original, voice, product, riskNotes, observedProfile)
       : makeGenericDrafts(opportunity.detectedIntent, original, voice, product, riskNotes, observedProfile);

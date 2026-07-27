@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/registro", "/api/auth", "/l"];
+const PUBLIC_PATHS = ["/login", "/registro", "/api/auth", "/api/support/exchange", "/l"];
 
 function base64UrlToUint8Array(base64Url: string): Uint8Array {
   const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
@@ -44,9 +44,43 @@ async function verifyEdgeJwt(token: string, secret: string): Promise<any | null>
     if (!isValid) return null;
 
     const decodedPayload = atob(encodedPayload.replace(/-/g, "+").replace(/_/g, "/"));
-    return JSON.parse(decodedPayload);
+    const payload = JSON.parse(decodedPayload);
+    if (typeof payload?.exp !== "number" || payload.exp * 1000 <= Date.now()) {
+      return null;
+    }
+    return payload;
   } catch {
     return null;
+  }
+}
+
+async function supportSessionIsActive(id: string, clientId: string): Promise<boolean> {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceKey) return false;
+  const params = new URLSearchParams({
+    select: "id",
+    id: `eq.${id}`,
+    clientId: `eq.${clientId}`,
+    revokedAt: "is.null",
+    endedAt: "is.null",
+    exchangedAt: "not.is.null",
+    expiresAt: `gt.${new Date().toISOString()}`,
+    limit: "1",
+  });
+  try {
+    const response = await fetch(`${supabaseUrl}/rest/v1/SupportSession?${params}`, {
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+      },
+      cache: "no-store",
+    });
+    if (!response.ok) return false;
+    const rows = await response.json();
+    return Array.isArray(rows) && rows.length === 1;
+  } catch {
+    return false;
   }
 }
 
@@ -64,22 +98,31 @@ export async function middleware(request: NextRequest) {
   }
 
   const session = request.cookies.get("auth_session")?.value;
+  const supportSession = request.cookies.get("support_session")?.value;
   const secret  = process.env.AUTH_SECRET;
+  const supportSecret = process.env.SUPPORT_SESSION_SECRET;
 
-  if (!secret || !session) {
+  if ((!secret || !session) && (!supportSecret || !supportSession)) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("from", pathname);
     return NextResponse.redirect(loginUrl);
   }
 
-  // 1. Validar si es la clave maestra global heredada
-  if (session === secret) {
-    return NextResponse.next();
-  }
-
-  // 2. Validar firma del JWT de la base de datos
-  const payload = await verifyEdgeJwt(session, secret);
-  if (!payload) {
+  // Validar firma y expiración del JWT (emitido por login de usuario o login maestro)
+  const tenantPayload = session && secret ? await verifyEdgeJwt(session, secret) : null;
+  const supportPayload = supportSession && supportSecret
+    ? await verifyEdgeJwt(supportSession, supportSecret)
+    : null;
+  const tenantValid = Boolean(
+    tenantPayload?.email && tenantPayload?.clientId && tenantPayload?.clientSlug && !tenantPayload?.legacy
+  );
+  const supportShapeValid = Boolean(
+    supportPayload?.type === "support_session" && supportPayload?.sid && supportPayload?.clientId
+  );
+  const supportValid = supportShapeValid
+    ? await supportSessionIsActive(supportPayload.sid, supportPayload.clientId)
+    : false;
+  if (!tenantValid && !supportValid) {
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("from", pathname);
     return NextResponse.redirect(loginUrl);

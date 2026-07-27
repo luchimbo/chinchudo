@@ -38,7 +38,7 @@ export async function checkPublishRateLimits(prisma, account) {
   return { ok: true };
 }
 
-export function runPublisher({ channel, sourceUrl, text, account }) {
+export function runPublisher({ channel, sourceUrl, text, account, dryRun = false }) {
   const pyArgs = [
     "agents/publisher.py",
     "--channel", channel,
@@ -46,6 +46,7 @@ export function runPublisher({ channel, sourceUrl, text, account }) {
     "--text", text,
   ];
   if (account) pyArgs.push("--account", account);
+  if (dryRun) pyArgs.push("--dry-run");
 
   try {
     const output = execFileSync("python", pyArgs, { encoding: "utf-8", cwd: process.cwd() });

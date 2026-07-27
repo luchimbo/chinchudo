@@ -116,4 +116,23 @@ describe("classifyOpportunity language handling", () => {
     expect(result.isRelevant).toBe(true);
     expect(result.detectedIntent).toBe("PURCHASE_QUESTION");
   });
+
+  it("propaga la señal de cancelación al request de OpenRouter", async () => {
+    const controller = new AbortController();
+    (global.fetch as any).mockImplementationOnce((_url: string, options: RequestInit) => {
+      expect(options.signal).toBe(controller.signal);
+      return Promise.reject(new DOMException("Aborted", "AbortError"));
+    });
+
+    controller.abort();
+    const result = await classifyOpportunity(mockPrisma, {
+      sourceText: "Necesito ayuda con el controlador MIDI",
+      channel: "youtube",
+      clientId: "client1",
+      signal: controller.signal,
+    });
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(result.confidence).toBe("low");
+  });
 });

@@ -16,9 +16,9 @@ const searchSchema = z.object({
   clientId: z.string().min(1),
   channels: z.array(z.enum(SEARCH_CHANNELS)).min(1).max(SEARCH_CHANNELS.length),
   query: z.string().max(400).default(""),
-  queries: z.array(z.string().min(1).max(120)).max(20).optional(),
+  queries: z.array(z.string().min(1).max(120)).max(100).optional(),
   language: z.enum(SEARCH_LANGUAGES).default("es"),
-  limit: z.coerce.number().int().min(1).max(20).default(5),
+  limit: z.coerce.number().int().min(1).max(500).default(5),
 });
 
 export async function POST(req: NextRequest) {

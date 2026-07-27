@@ -6,10 +6,11 @@ export type AuthUser = {
   label: string;
   role: "admin" | "operator";
   clientSlugs: string[];
+  accessType: "tenant_user" | "support_session";
+  supportSessionId?: string;
 };
 
 type EnvUser = AuthUser & { password: string };
-
 const USER_COOKIE = "auth_user";
 
 function parseUsers(): EnvUser[] {
@@ -31,6 +32,7 @@ export function findEnvUser(username: string, password: string): AuthUser | null
     label: user.label || user.username,
     role: user.role === "admin" ? "admin" : "operator",
     clientSlugs: user.clientSlugs ?? [],
+    accessType: "tenant_user",
   };
 }
 
@@ -48,6 +50,7 @@ export function decodeAuthUser(value: string | undefined): AuthUser | null {
       label: parsed.label || parsed.username,
       role: parsed.role === "admin" ? "admin" : "operator",
       clientSlugs: Array.isArray(parsed.clientSlugs) ? parsed.clientSlugs : [],
+      accessType: "tenant_user",
     };
   } catch {
     return null;
@@ -56,74 +59,89 @@ export function decodeAuthUser(value: string | undefined): AuthUser | null {
 
 export async function getCurrentUser(): Promise<AuthUser | null> {
   const store = await cookies();
-  const session = store.get("auth_session")?.value;
-  if (!session) return null;
-
-  const secret = process.env.AUTH_SECRET;
-  if (!secret) return null;
-
-  // 1. Caso Legado
-  if (session === secret) {
-    return {
-      username: "default",
-      label: "Administrador Global",
-      role: "admin",
-      clientSlugs: [],
-    };
+  const tenantToken = store.get("auth_session")?.value;
+  const tenantSecret = process.env.AUTH_SECRET;
+  if (tenantToken && tenantSecret) {
+    try {
+      const { verifyJwt } = await import("./auth-crypto");
+      const decoded = verifyJwt(tenantToken, tenantSecret);
+      if (decoded?.email && decoded?.clientSlug && decoded?.clientId && decoded?.legacy !== true) {
+        return {
+          username: decoded.email,
+          label: decodeAuthUser(store.get(USER_COOKIE)?.value)?.label || decoded.email.split("@")[0],
+          role: decoded.role === "admin" ? "admin" : "operator",
+          clientSlugs: [decoded.clientSlug],
+          accessType: "tenant_user",
+        };
+      }
+    } catch {
+      // A delegated support session may still be valid.
+    }
   }
 
-  // 2. Caso JWT de Base de Datos
+  const supportToken = store.get("support_session")?.value;
+  const supportSecret = process.env.SUPPORT_SESSION_SECRET;
+  if (!supportToken || !supportSecret) return null;
   try {
     const { verifyJwt } = await import("./auth-crypto");
-    const decoded = verifyJwt(session, secret);
-    if (!decoded || !decoded.email) return null;
-
-    // Para mantener consistencia con los nombres de operador
-    const label = store.get(USER_COOKIE)?.value 
-      ? decodeAuthUser(store.get(USER_COOKIE)?.value)?.label || decoded.email.split("@")[0]
-      : decoded.email.split("@")[0];
-
+    const decoded = verifyJwt(supportToken, supportSecret);
+    const { isValidSupportClaims } = await import("./support-auth");
+    if (!isValidSupportClaims(decoded)) return null;
+    const { prisma } = await import("./db");
+    const delegated = await prisma.supportSession.findFirst({
+      where: {
+        id: decoded.sid,
+        clientId: decoded.clientId,
+        exchangedAt: { not: null },
+        revokedAt: null,
+        endedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      include: {
+        client: { select: { slug: true } },
+        platformAdmin: { select: { name: true, active: true } },
+      },
+    });
+    if (!delegated?.platformAdmin.active) return null;
     return {
-      username: decoded.email,
-      label,
-      role: decoded.role as "admin" | "operator",
-      clientSlugs: [decoded.clientSlug],
+      username: `support:${delegated.platformAdminId}`,
+      label: `${delegated.platformAdmin.name} · Soporte`,
+      role: "admin",
+      clientSlugs: [delegated.client.slug],
+      accessType: "support_session",
+      supportSessionId: delegated.id,
     };
   } catch {
     return null;
   }
 }
 
-/** Usuario compartido de desarrollo autorizado a crear y gestionar reportes internos. */
 export async function isDefaultIssueReporter(): Promise<boolean> {
-  const user = await getCurrentUser();
-  return isDefaultIssueReporterUser(user);
+  return isDefaultIssueReporterUser(await getCurrentUser());
 }
 
-export function isDefaultIssueReporterUser(user: Pick<AuthUser, "username"> | null): boolean {
-  return user?.username === "default";
+export function isDefaultIssueReporterUser(
+  user: Pick<AuthUser, "accessType"> | Pick<AuthUser, "username"> | null,
+): boolean {
+  return Boolean(user && "accessType" in user && user.accessType === "support_session");
 }
 
 export async function getVisibleClients(prisma: PrismaClient): Promise<Client[]> {
   const user = await getCurrentUser();
-  const where = user && user.role !== "admin" && user.clientSlugs.length > 0
-    ? { active: true, slug: { in: user.clientSlugs } }
-    : { active: true };
-  return prisma.client.findMany({ where, orderBy: { name: "asc" } });
+  if (!user || user.clientSlugs.length === 0) return [];
+  return prisma.client.findMany({
+    where: { active: true, slug: { in: user.clientSlugs } },
+    orderBy: { name: "asc" },
+  });
 }
 
 export function authUserCookieName() {
   return USER_COOKIE;
 }
 
-/**
- * Lanza si el usuario actual no puede operar sobre el cliente dado.
- * Admin (o sin sesión en desarrollo, donde el middleware no exige login) pasa siempre.
- * Evita que un form manipulado cree/edite datos de un cliente fuera del alcance del usuario.
- */
 export async function assertClientAccess(prisma: PrismaClient, clientId: string): Promise<void> {
   const user = await getCurrentUser();
-  if (!user || user.role === "admin") return;
+  if (!user) throw new Error("No autenticado.");
   const client = await prisma.client.findUnique({ where: { id: clientId }, select: { slug: true } });
   if (!client || !user.clientSlugs.includes(client.slug)) {
     throw new Error("No tenés acceso a este cliente.");

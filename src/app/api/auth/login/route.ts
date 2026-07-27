@@ -1,18 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
+import { prisma } from "@/lib/db";
 import { verifyPassword, signJwt } from "@/lib/auth-crypto";
 import { authUserCookieName, encodeAuthUser } from "@/lib/auth";
-
-const prisma = new PrismaClient();
 
 export async function POST(req: NextRequest) {
   try {
     const form     = await req.formData();
     const username = ((form.get("username") as string) || "").toLowerCase().trim();
     const password = (form.get("password") as string) || "";
-    const from     = (form.get("from") as string) || "/";
+    const requestedFrom = (form.get("from") as string) || "/";
+    const from = requestedFrom.startsWith("/") && !requestedFrom.startsWith("//") ? requestedFrom : "/";
 
-    const correct = process.env.AUTH_PASSWORD;
     const secret  = process.env.AUTH_SECRET;
 
     if (!secret) {
@@ -34,17 +32,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 2. Fallback de legado (si no hay usuarios creados o si coincide con la clave maestra global)
-    let isLegacyOk = false;
-    if (!authenticatedUser && correct && password === correct) {
-      // Si el email coincide con el default_user o el total de usuarios en DB es 0
-      const totalUsers = await prisma.user.count();
-      if (totalUsers === 0 || username === "default" || username === "") {
-        isLegacyOk = true;
-      }
-    }
-
-    if (!authenticatedUser && !isLegacyOk) {
+    if (!authenticatedUser) {
       const url = new URL("/login", req.url);
       url.searchParams.set("error", "wrong");
       url.searchParams.set("from", from);
@@ -69,6 +57,7 @@ export async function POST(req: NextRequest) {
         label: authenticatedUser.name,
         role: authenticatedUser.role as "admin" | "operator",
         clientSlugs: [authenticatedUser.client.slug],
+        accessType: "tenant_user" as const,
       };
 
       response.cookies.set("auth_session", token, {
@@ -86,23 +75,11 @@ export async function POST(req: NextRequest) {
         maxAge: 60 * 60 * 24 * 7,
         path: "/",
       });
-    } else {
-      // Login heredado con clave global maestra
-      response.cookies.set("auth_session", secret, {
-        httpOnly: true,
-        sameSite: "lax",
-        secure:   process.env.NODE_ENV === "production",
-        maxAge:   60 * 60 * 24 * 7,
-        path:     "/",
-      });
-      response.cookies.set(authUserCookieName(), "", { maxAge: 0, path: "/" });
     }
 
     return response;
   } catch (error) {
     console.error("Error en login API:", error);
     return NextResponse.redirect(new URL("/login?error=server", req.url));
-  } finally {
-    await prisma.$disconnect();
   }
 }

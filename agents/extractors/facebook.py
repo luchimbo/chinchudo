@@ -193,7 +193,10 @@ def _fb_extract_post_comments(client: CDPClient, post_url: str, post_text: str, 
 
 def extract_facebook_post_items(client: CDPClient, query: str, max_items: int) -> list[dict]:
     # Soporta "query |groups:ID1,ID2" para especificar grupos desde social-listen
-    groups = _FB_DEFAULT_GROUPS
+    # La escucha diaria debe devolver evidencia rapidamente. Los grupos son
+    # opt-in mediante |groups:...; recorrer una lista fija puede tardar varios
+    # minutos y ocultar el estado real del conector.
+    groups: list[str] = []
     if "|groups:" in query:
         parts = query.split("|groups:")
         if len(parts) > 1:
@@ -204,23 +207,23 @@ def extract_facebook_post_items(client: CDPClient, query: str, max_items: int) -
     seen: set[str] = set()
 
     client.send("Page.navigate", {"url": search_url_for("facebook", query)})
-    time.sleep(8)
-    for _ in range(6):
+    time.sleep(4)
+    for _ in range(2):
         evaluate(client, "window.scrollBy(0, 900)")
-        time.sleep(2)
+        time.sleep(1)
     _fb_extract(client, seen, posts, max_items * 3, "any")
     print(f"[facebook] búsqueda keyword: {len(posts)} posts encontrados")
 
     for group_id in groups:
         client.send("Page.navigate", {"url": f"https://www.facebook.com/groups/{group_id}/"})
-        time.sleep(8)
+        time.sleep(4)
         result_check = evaluate(client, "location.href") or ""
         if "login" in result_check.lower():
             print(f"[facebook] grupo {group_id}: redirigido a login, saltando")
             continue
-        for _ in range(6):
+        for _ in range(2):
             evaluate(client, "window.scrollBy(0, 900)")
-            time.sleep(2)
+            time.sleep(1)
         _fb_extract(client, seen, posts, max_items * 3, "groups")
         print(f"[facebook] grupo {group_id}: {len(posts)} posts acumulados")
 
@@ -228,7 +231,9 @@ def extract_facebook_post_items(client: CDPClient, query: str, max_items: int) -
     comments_per_post = max(3, max_items // max(1, len(posts)))
     items_seen: set[str] = set()
 
-    for post in posts:
+    # Los comentarios son mucho mas caros que la busqueda. Muestreamos solo
+    # los primeros dos posts para respetar el presupuesto del worker.
+    for post in posts[:2]:
         if len(items) >= max_items:
             break
         post_url = post.get("url", "")

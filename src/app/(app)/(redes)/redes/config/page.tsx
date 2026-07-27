@@ -21,9 +21,9 @@ const CARDS: Card[] = [
 export default async function RedesConfigPage({
   searchParams,
 }: {
-  searchParams: Promise<{ client?: string }>;
+  searchParams: { client?: string };
 }) {
-  const { client: slug } = await searchParams;
+  const { client: slug } = searchParams;
   if (!slug) notFound();
 
   const c = await prisma.client.findUnique({

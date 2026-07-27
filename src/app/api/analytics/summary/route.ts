@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
       ? await prisma.client.findUnique({ where: { slug: clientSlug } })
       : null;
 
-    const data    = await getAnalyticsData();
+    const data    = await getAnalyticsData(client?.id);
     const summary = await generateWeeklySummary(data, {
       apiKey: client?.openrouterApiKey,
       model: client?.openrouterModel,

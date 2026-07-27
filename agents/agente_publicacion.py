@@ -10,6 +10,8 @@ import webbrowser
 from datetime import datetime, timezone
 from pathlib import Path
 
+import llm_provider
+
 
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
@@ -18,7 +20,6 @@ DISTRIBUTION_LOG_PATH = DATA_DIR / "distribution_log.jsonl"
 LANDINGS_PATH = DATA_DIR / "landings_aprobadas.jsonl"
 SEARCH_TASKS_PATH = DATA_DIR / "distribution_search_tasks.jsonl"
 
-OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 DEFAULT_MODEL = "openai/gpt-4o-mini"
 BASE_URL = "https://blog.pcmidicenter.com"
 
@@ -178,36 +179,7 @@ def extract_json_object(raw: str) -> dict:
 
 
 def chat_json(system: str, user: str, model: str, temperature: float = 0.4) -> dict:
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    if not api_key:
-        raise RuntimeError("Falta OPENROUTER_API_KEY en .env o variables de entorno")
-    payload = {
-        "model": model,
-        "temperature": temperature,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-    }
-    request = urllib.request.Request(
-        OPENROUTER_URL,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://www.pcmidi.com.ar/",
-            "X-Title": "PC MIDI Publicacion Agent",
-        },
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=90) as response:
-            data = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Error OpenRouter {exc.code}: {detail}") from exc
-    content = data["choices"][0]["message"]["content"]
-    return extract_json_object(content)
+    return llm_provider.chat_json(system, user, model, temperature, timeout=120)
 
 
 def validate_body(body: str) -> list[str]:

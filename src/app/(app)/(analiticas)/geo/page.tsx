@@ -90,9 +90,9 @@ function fmt(d: Date | string) {
 export default async function GeoPage({
   searchParams,
 }: {
-  searchParams: Promise<{ client?: string }>;
+  searchParams: { client?: string };
 }) {
-  const { client: clientSlug } = await searchParams;
+  const { client: clientSlug } = searchParams;
   const clients = await getVisibleClients(prisma);
   const activeClient = clients.find((c) => c.slug === clientSlug) ?? clients[0] ?? null;
   const clientFilter = activeClient ? { clientId: activeClient.id } : {};

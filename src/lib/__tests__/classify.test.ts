@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 // detectIntent/detectPriority viven en el script de import; se exportan para testearlos.
 import { detectIntent, detectPriority } from "../../../scripts/import-opportunities.mjs";
+// @ts-ignore -- utilidad ESM compartida sin declaraciones TypeScript.
+import { extractPostKey } from "../../../scripts/agent-utils.mjs";
 
 describe("detectIntent", () => {
   it("driver/Windows → TECHNICAL_QUESTION", () => {
@@ -29,6 +31,9 @@ describe("detectIntent", () => {
 });
 
 describe("detectPriority", () => {
+  it("Millenium + batería/modelo MPS → HIGH", () => {
+    expect(detectPriority("GENERAL_DISCUSSION", "Opiniones sobre la bateria Millenium MPS-850")).toBe("HIGH");
+  });
   it("compra/técnica → HIGH", () => {
     expect(detectPriority("PURCHASE_QUESTION", "x")).toBe("HIGH");
     expect(detectPriority("TECHNICAL_QUESTION", "x")).toBe("HIGH");
@@ -45,5 +50,12 @@ describe("detectPriority", () => {
 
   it("general con 'urgente' → HIGH", () => {
     expect(detectPriority("GENERAL_DISCUSSION", "lo necesito urgente")).toBe("HIGH");
+  });
+});
+
+describe("extractPostKey", () => {
+  it("agrupa las variantes de comentario de un post Facebook pfbid", () => {
+    const post = "https://www.facebook.com/wallas.out/posts/pfbid02qtLpxNKq6XncQj1r2sP28uepQN2upuWTjxwVTbPfoazYoD4mALwpgKWfwnTNS9ycl";
+    expect(extractPostKey("facebook", post)).toBe(extractPostKey("facebook", `${post}#comment-2`));
   });
 });

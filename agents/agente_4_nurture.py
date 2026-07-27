@@ -29,8 +29,18 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-# Importar mailer desde lib/
+# lib/ vive en la raíz del repo; agents/ también queda en path para db_pg y módulos internos
+_REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(_REPO_ROOT))
+
+if sys.platform.startswith("win"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 from lib.mailer import send_email
 from lib import nurture_pg
 import db_pg as db_pg_mod
@@ -43,15 +53,10 @@ DB_PATH = DATA_DIR / "nurture.db"
 LEAD_MAGNETS_FILE = DATA_DIR / "lead_magnets.jsonl"
 LANDINGS_FILE = DATA_DIR / "landings_aprobadas.jsonl"
 
-# Cargar variables de entorno desde .env si existe
-ENV_FILE = ROOT / ".env"
-if ENV_FILE.exists():
-    with open(ENV_FILE, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                key, value = line.split("=", 1)
-                os.environ.setdefault(key.strip(), value.strip())
+# Cargar variables de entorno desde el .env de la raíz (loader centralizado: quita comillas)
+from lib.env import load_env as _load_repo_env
+
+_load_repo_env()
 
 UNSUBSCRIBE_BASE_URL = os.getenv("NURTURE_UNSUBSCRIBE_BASE_URL", "").strip()
 

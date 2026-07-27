@@ -26,9 +26,9 @@ function maskKey(key: string): string {
 export default async function ClientSettingsPage({
   params,
 }: {
-  params: Promise<{ slug: string }>;
+  params: { slug: string };
 }) {
-  const { slug } = await params;
+  const { slug } = params;
 
   const c = await prisma.client.findUnique({
     where: { slug },

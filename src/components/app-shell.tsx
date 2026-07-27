@@ -39,11 +39,13 @@ const MOBILE_SECTORS = [
 export function AppShell({
   clients,
   userLabel,
+  accessType,
   canReportIssues,
   children,
 }: {
   clients: ClientOption[];
   userLabel: string | null;
+  accessType: "tenant_user" | "support_session" | null;
   canReportIssues: boolean;
   children: React.ReactNode;
 }) {
@@ -159,6 +161,18 @@ export function AppShell({
 
       {/* Content area */}
       <div className="flex min-w-0 flex-1 flex-col">
+        {accessType === "support_session" ? (
+          <div className="sticky top-0 z-40 flex min-h-11 items-center justify-between gap-3 bg-[#17231e] px-4 py-2 text-[#e7f5ec] shadow-lg">
+            <p className="text-xs font-semibold tracking-wide">
+              Sesión de soporte auditada · {userLabel}
+            </p>
+            <form action="/api/support/end" method="POST">
+              <button className="rounded-full border border-white/25 px-3 py-1 text-xs font-bold transition hover:bg-white/10">
+                Finalizar acceso
+              </button>
+            </form>
+          </div>
+        ) : null}
         {/* Desktop: client switcher header */}
         <header className="sticky top-0 z-20 hidden h-12 items-center justify-end border-b border-ink/10 bg-paper/80 px-4 backdrop-blur lg:flex">
           <ClientSwitcher clients={clients} />

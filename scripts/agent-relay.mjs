@@ -75,6 +75,35 @@ function getPythonCommand() {
   return { command: "python", argsPrefix: [] };
 }
 
+async function proxyLocalLlm(req, res) {
+  let body;
+  try { body = await readBody(req); }
+  catch { return json(res, 400, { error: "invalid_json" }); }
+
+  const origin = (process.env.LLM_LOCAL_BASE_URL || process.env.LLM_BASE_URL || "http://127.0.0.1:11434/v1").replace(/\/+$/, "");
+  const upstreamKey = process.env.LLM_LOCAL_UPSTREAM_API_KEY || process.env.LLM_API_KEY || "ollama";
+  try {
+    const upstream = await fetch(`${origin}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${upstreamKey}`,
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(180_000),
+    });
+    const payload = await upstream.text();
+    res.writeHead(upstream.status, {
+      "Content-Type": upstream.headers.get("content-type") || "application/json",
+      "Cache-Control": "no-store",
+    });
+    res.end(payload);
+  } catch (error) {
+    console.error("[agent-relay] LLM upstream failed:", error instanceof Error ? error.message : error);
+    return json(res, 502, { error: "local_llm_unavailable" });
+  }
+}
+
 function commandName(name) {
   if (name === "python") return getPythonCommand();
   if (process.platform !== "win32") return { command: name, argsPrefix: [] };
@@ -215,6 +244,12 @@ const server = http.createServer(async (req, res) => {
 
   if (!authOk(req)) {
     return json(res, 401, { error: "unauthorized" });
+  }
+
+  // POST /v1/chat/completions — proxy autenticado hacia la IA local.
+  // El túnel sólo expone este relay, nunca Ollama directamente.
+  if (method === "POST" && url === "/v1/chat/completions") {
+    return proxyLocalLlm(req, res);
   }
 
   // GET /debug — diagnostica NSTBrowser y configuracion

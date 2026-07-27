@@ -73,7 +73,10 @@ export function extractPostKey(channel, url) {
       return m ? `/${m[1]}/${m[2]}` : null;
     }
     if (ch === "facebook") {
-      const m = url.match(/\/posts\/(\d+)/) || url.match(/\/permalink\/(\d+)/) || url.match(/[?&]story_fbid=(\d+)/);
+      // Facebook usa tanto IDs numéricos como `pfbid…` al compartir posts.
+      // La clave no debe incluir el fragmento de un comentario: todos pertenecen
+      // al mismo post y sólo deben generar una oportunidad.
+      const m = url.match(/\/posts\/([A-Za-z0-9_-]+)/) || url.match(/\/permalink\/([A-Za-z0-9_-]+)/) || url.match(/[?&]story_fbid=([A-Za-z0-9_-]+)/);
       return m ? m[1] : null;
     }
     if (ch === "x" || ch === "twitter") {

@@ -24,9 +24,9 @@ function maskKey(key: string): string {
 export default async function IdentidadConfigPage({
   searchParams,
 }: {
-  searchParams: Promise<{ client?: string }>;
+  searchParams: { client?: string };
 }) {
-  const { client: slug } = await searchParams;
+  const { client: slug } = searchParams;
   if (!slug) notFound();
 
   const c = await prisma.client.findUnique({

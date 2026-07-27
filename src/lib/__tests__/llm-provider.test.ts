@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { resolveLLMConfig } from "../llm-provider";
+import { resolveLLMConfig, resolveLLMProvider } from "../llm-provider";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -33,5 +33,12 @@ describe("resolveLLMConfig", () => {
     expect(config.endpoint).toBe("https://openrouter.ai/api/v1/chat/completions");
     expect(config.model).toBe("remote/model");
     expect(config.apiKey).toBe("remote-key");
+  });
+
+  it("uses local IA from 09:30 until 17:30 Buenos Aires time", () => {
+    process.env.LLM_PROVIDER = "schedule";
+    process.env.LLM_SCHEDULE_TIMEZONE = "America/Argentina/Buenos_Aires";
+    expect(resolveLLMProvider(new Date("2026-07-24T12:30:00Z"))).toBe("local"); // 09:30 ART
+    expect(resolveLLMProvider(new Date("2026-07-24T20:30:00Z"))).toBe("openrouter"); // 17:30 ART
   });
 });

@@ -106,6 +106,12 @@ export default async function MonitoringPage({ searchParams }: { searchParams: {
                 </select>
               </label>
               <label className={`${labelCls} md:col-span-2`}>Query<input name="query" defaultValue={s.query} required className={inputCls} /></label>
+              <div className="md:col-span-2 flex flex-wrap gap-2 text-xs">
+                <span className="rounded-full bg-ink/5 px-2.5 py-1 font-semibold text-ink">{s.lifecycle}</span>
+                <span className="rounded-full bg-ink/5 px-2.5 py-1 text-slate">prioridad {s.priority}</span>
+                <span className="rounded-full bg-ink/5 px-2.5 py-1 text-slate">{s.emptyReads} lectura(s) vacía(s)</span>
+                {s.blockedReason ? <span className="rounded-full bg-red-50 px-2.5 py-1 text-red-700">{s.blockedReason}</span> : null}
+              </div>
               <label className={labelCls}>Límite<input name="limit" type="number" min={1} max={50} defaultValue={s.limit} className={inputCls} /></label>
               <label className="flex items-end gap-2 text-xs font-semibold text-slate"><input name="active" type="checkbox" defaultChecked={s.active} className="h-4 w-4" /> Activa</label>
               <div className="flex min-w-0 flex-col gap-3 md:col-span-2 md:flex-row md:items-end md:justify-between">

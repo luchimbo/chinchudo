@@ -133,14 +133,14 @@ def _tiktok_extract_comments_from_video(client: CDPClient, video_url: str, max_c
     return evaluate(client, expression) or []
 
 
-def extract_tiktok_items(client: CDPClient, query: str, max_items: int, videos_limit: int = 5) -> list[dict]:
+def extract_tiktok_items(client: CDPClient, query: str, max_items: int, videos_limit: int = 2) -> list[dict]:
     client.send("Page.navigate", {"url": search_url_for("tiktok", query)})
-    time.sleep(6)
+    time.sleep(4)
     evaluate(client, "window.scrollBy(0, 400)")
     time.sleep(2)
 
     video_urls: list[str] = []
-    deadline = time.time() + 25
+    deadline = time.time() + 10
     while time.time() < deadline and len(video_urls) < videos_limit:
         urls, login_wall = _tiktok_get_video_urls(client, videos_limit)
         print(f"[tiktok] búsqueda '{query}': {len(urls)} videos encontrados, loginWall={login_wall}")
@@ -182,7 +182,7 @@ def extract_tiktok_items(client: CDPClient, query: str, max_items: int, videos_l
     if not comments:
         print("[tiktok] Sin comentarios extraídos, devolviendo descripciones de videos como fallback.")
         client.send("Page.navigate", {"url": search_url_for("tiktok", query)})
-        time.sleep(5)
+        time.sleep(3)
         fallback_urls, _ = _tiktok_get_video_urls(client, max_items)
         for href in fallback_urls[:max_items]:
             comments.append({
