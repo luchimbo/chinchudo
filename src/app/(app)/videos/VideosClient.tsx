@@ -11,7 +11,7 @@ type Props = { activeClient: Client; clients: Client[]; trends: Trend[]; product
 type Tab = "create" | "lab" | "production";
 
 const INTENTS: { value: ContentIntent; label: string; hint: string }[] = [
-  { value: "SALE", label: "Vender", hint: "Mostrar valor sin prometer de más" },
+  { value: "SALE", label: "Vender", hint: "Mostrar valor con claridad" },
   { value: "EDUCATION", label: "Enseñar", hint: "Resolver una duda real" },
   { value: "USE_CASE", label: "Mostrar uso", hint: "Llevarlo a una escena concreta" },
   { value: "ENTERTAINMENT", label: "Entretener", hint: "Humor o formato de comunidad" },
