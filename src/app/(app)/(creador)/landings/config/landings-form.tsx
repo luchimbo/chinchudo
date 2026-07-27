@@ -17,6 +17,7 @@ type Config = {
   blogBaseUrl: string;
   autoApprove: boolean;
   autoPublish: boolean;
+  generationSchedule: { enabled: boolean; intervalHours: number; limit: number };
 };
 
 export function LandingsForm({
@@ -88,6 +89,27 @@ export function LandingsForm({
             <span className={`block ${hintCls}`}>Las landings aprobadas se publican en el blog sin confirmación.</span>
           </span>
         </label>
+      </div>
+
+      <p className={subHead}>Generación programada</p>
+      <div className="rounded-xl border border-ink/10 bg-white/60 p-4">
+        <label className="flex items-start gap-3 text-sm text-slate">
+          <input type="checkbox" name="generationEnabled" defaultChecked={config.generationSchedule.enabled} className="mt-0.5" />
+          <span>
+            <span className="font-semibold text-ink">Generar landings automáticamente</span>
+            <span className={`block ${hintCls}`}>El relay local debe permanecer encendido. Máximo: 12 intentos por día.</span>
+          </span>
+        </label>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <label className={labelCls}>Cada cuántas horas
+            <input name="generationIntervalHours" type="number" min="1" max="168" defaultValue={config.generationSchedule.intervalHours} className={inputCls} />
+            <span className={hintCls}>Entre 1 hora y 7 días.</span>
+          </label>
+          <label className={labelCls}>Landings por corrida
+            <input name="generationLimit" type="number" min="1" max="5" defaultValue={config.generationSchedule.limit} className={inputCls} />
+            <span className={hintCls}>Entre 1 y 5 por corrida.</span>
+          </label>
+        </div>
       </div>
 
       <div className="mt-6 flex items-center gap-4 border-t border-ink/10 pt-6">

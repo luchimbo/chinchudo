@@ -5,6 +5,7 @@ import { execFile, spawn } from "node:child_process";
 import { readFileSync, existsSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { PrismaClient } from "@prisma/client";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -27,6 +28,39 @@ if (existsSync(envPath)) {
 const PORT = parseInt(process.env.AGENT_RELAY_PORT ?? "3099", 10);
 const TOKEN = process.env.AGENT_RELAY_TOKEN;
 const landingGenerationClients = new Set();
+const prisma = new PrismaClient();
+
+async function runScheduledLandings() {
+  try {
+    const settings = await prisma.appSetting.findMany({ where: { key: { startsWith: "landing_generation_schedule:" } } });
+    const now = Date.now();
+    for (const setting of settings) {
+      let schedule;
+      try { schedule = JSON.parse(setting.value); } catch { continue; }
+      if (!schedule?.enabled) continue;
+      const intervalMs = Math.max(1, Math.min(168, Number(schedule.intervalHours) || 24)) * 3_600_000;
+      const lastRun = Date.parse(schedule.lastRunAt || "") || 0;
+      const windowStart = Date.parse(schedule.dailyWindowStart || "") || now;
+      const dailyAttempts = windowStart + 86_400_000 > now ? Number(schedule.dailyAttempts) || 0 : 0;
+      if (lastRun + intervalMs > now || dailyAttempts >= 12) continue;
+      const clientId = setting.key.replace("landing_generation_schedule:", "");
+      const client = await prisma.client.findUnique({ where: { id: clientId }, select: { slug: true, active: true } });
+      if (!client?.active || landingGenerationClients.has(client.slug)) continue;
+      landingGenerationClients.add(client.slug);
+      schedule.lastRunAt = new Date(now).toISOString();
+      schedule.dailyWindowStart = dailyAttempts ? new Date(windowStart).toISOString() : new Date(now).toISOString();
+      schedule.dailyAttempts = dailyAttempts + Math.min(5, Math.max(1, Number(schedule.limit) || 3));
+      await prisma.appSetting.update({ where: { key: setting.key }, data: { value: JSON.stringify(schedule) } });
+      const python = getPythonCommand();
+      const child = spawn(python.command, [...python.argsPrefix, join(ROOT, "landing-build", "swarm.py"), "generate", "--limit", String(Math.min(5, Math.max(1, Number(schedule.limit) || 3))), "--client-slug", client.slug], { cwd: ROOT, env: process.env, windowsHide: true });
+      child.on("close", (code) => { landingGenerationClients.delete(client.slug); console.log(`[agent-relay] generación programada ${client.slug} finalizó (exit ${code})`); });
+      child.on("error", (error) => { landingGenerationClients.delete(client.slug); console.error("[agent-relay] generación programada falló:", error.message); });
+      console.log(`[agent-relay] generación programada iniciada para ${client.slug}`);
+    }
+  } catch (error) {
+    console.error("[agent-relay] scheduler de landings:", error instanceof Error ? error.message : error);
+  }
+}
 
 if (!TOKEN) {
   console.error("[agent-relay] ERROR: AGENT_RELAY_TOKEN no configurado en .env");
@@ -633,3 +667,6 @@ server.listen(PORT, "127.0.0.1", () => {
   console.log(`[agent-relay] token: ${TOKEN.slice(0, 4)}...${TOKEN.slice(-4)}`);
   console.log(`[agent-relay] para exponer: cloudflared tunnel --url http://127.0.0.1:${PORT}`);
 });
+
+setInterval(runScheduledLandings, 60_000).unref();
+void runScheduledLandings();

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { assertClientAccess } from "@/lib/auth";
+import { setSetting } from "@/lib/settings";
 
 function str(fd: FormData, key: string) {
   return String(fd.get(key) ?? "").trim();
@@ -25,6 +26,11 @@ export async function updateLandingsConfig(formData: FormData) {
       autoPublish: formData.get("autoPublish") === "on",
     },
   });
+
+  const intervalHours = z.coerce.number().int().min(1).max(168).parse(formData.get("generationIntervalHours"));
+  const limit = z.coerce.number().int().min(1).max(5).parse(formData.get("generationLimit"));
+  const enabled = formData.get("generationEnabled") === "on";
+  await setSetting(`landing_generation_schedule:${id}`, JSON.stringify({ enabled, intervalHours, limit, lastRunAt: new Date().toISOString() }));
 
   revalidatePath("/landings/config");
 }

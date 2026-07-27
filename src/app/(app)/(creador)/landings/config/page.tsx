@@ -5,6 +5,17 @@ import { updateLandingsConfig, updateEmailConfig } from "./actions";
 import { LandingsForm } from "./landings-form";
 import { EmailsForm } from "./emails-form";
 
+type GenerationSchedule = { enabled: boolean; intervalHours: number; limit: number };
+
+function parseSchedule(value: string | null): GenerationSchedule {
+  try {
+    const raw = JSON.parse(value || "{}");
+    return { enabled: Boolean(raw.enabled), intervalHours: Math.min(168, Math.max(1, Number(raw.intervalHours) || 24)), limit: Math.min(5, Math.max(1, Number(raw.limit) || 3)) };
+  } catch {
+    return { enabled: false, intervalHours: 24, limit: 3 };
+  }
+}
+
 export default async function LandingsConfigPage({
   searchParams,
 }: {
@@ -43,6 +54,7 @@ export default async function LandingsConfigPage({
   } catch {
     notFound();
   }
+  const schedule = parseSchedule((await prisma.appSetting.findUnique({ where: { key: `landing_generation_schedule:${c.id}` } }))?.value ?? null);
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col px-5 py-8">
@@ -66,6 +78,7 @@ export default async function LandingsConfigPage({
               blogBaseUrl: c.blogBaseUrl ?? "",
               autoApprove: c.autoApprove ?? false,
               autoPublish: c.autoPublish ?? false,
+              generationSchedule: schedule,
             }}
             updateLandingsConfig={updateLandingsConfig}
           />
