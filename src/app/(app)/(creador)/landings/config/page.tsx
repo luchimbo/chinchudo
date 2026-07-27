@@ -1,6 +1,6 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { assertClientAccess } from "@/lib/auth";
+import { assertClientAccess, getVisibleClients } from "@/lib/auth";
 import { updateLandingsConfig, updateEmailConfig } from "./actions";
 import { LandingsForm } from "./landings-form";
 import { EmailsForm } from "./emails-form";
@@ -10,8 +10,11 @@ export default async function LandingsConfigPage({
 }: {
   searchParams: { client?: string };
 }) {
-  const { client: slug } = searchParams;
+  const requestedSlug = searchParams.client;
+  const visibleClients = requestedSlug ? [] : await getVisibleClients(prisma);
+  const slug = requestedSlug ?? visibleClients[0]?.slug;
   if (!slug) notFound();
+  if (!requestedSlug) redirect(`/landings/config?client=${encodeURIComponent(slug)}`);
 
   const c = await prisma.client.findUnique({
     where: { slug },

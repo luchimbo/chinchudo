@@ -1,6 +1,6 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { assertClientAccess } from "@/lib/auth";
+import { assertClientAccess, getVisibleClients } from "@/lib/auth";
 import { updateLandingTemplate } from "./actions";
 import { EditorForm } from "./editor-form";
 
@@ -11,8 +11,13 @@ export default async function EditorPage({
 }: {
   searchParams: { client?: string };
 }) {
-  const { client: slug } = searchParams;
+  const requestedSlug = searchParams.client;
+  // A support session is scoped to one client. Keep that scope when a link
+  // arrives without its query string instead of sending the user to the 404.
+  const visibleClients = requestedSlug ? [] : await getVisibleClients(prisma);
+  const slug = requestedSlug ?? visibleClients[0]?.slug;
   if (!slug) notFound();
+  if (!requestedSlug) redirect(`/landings/editor?client=${encodeURIComponent(slug)}`);
 
   const c = await prisma.client.findUnique({
     where: { slug },
