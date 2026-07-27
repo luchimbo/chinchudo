@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
-import { ADMIN_COOKIE, verifyPlatformToken } from "@/lib/admin-auth";
+import { ADMIN_COOKIE, ADMIN_REFRESH_COOKIE, PERSISTENT_COOKIE_MAX_AGE, verifyPlatformToken } from "@/lib/admin-auth";
 
 const schema = z.object({ email: z.string().email(), password: z.string().min(8).max(200) });
 
@@ -23,7 +23,14 @@ export async function POST(request: NextRequest) {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "strict",
-    maxAge: 60 * 60,
+    maxAge: PERSISTENT_COOKIE_MAX_AGE,
+    path: "/",
+  });
+  response.cookies.set(ADMIN_REFRESH_COOKIE, data.session.refresh_token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    maxAge: PERSISTENT_COOKIE_MAX_AGE,
     path: "/",
   });
   response.headers.set("Cache-Control", "no-store");

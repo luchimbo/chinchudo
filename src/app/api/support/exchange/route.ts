@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db";
 import { signJwt } from "@/lib/auth-crypto";
 import { hashSupportExchangeCode } from "@/lib/support-auth";
 
+const SUPPORT_SESSION_TTL_SECONDS = 60 * 60 * 24 * 365;
+
 function requestIp(request: NextRequest): string {
   return request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
     || request.headers.get("x-real-ip")
@@ -42,7 +44,7 @@ export async function POST(request: NextRequest) {
       where: { id: candidate.id, exchangedAt: null, revokedAt: null, expiresAt: { gt: now } },
       data: {
         exchangedAt: now,
-        expiresAt: new Date(now.getTime() + 30 * 60 * 1000),
+        expiresAt: new Date(now.getTime() + SUPPORT_SESSION_TTL_SECONDS * 1000),
         ipAddress: requestIp(request),
         userAgent: request.headers.get("user-agent") || "",
       },
@@ -71,7 +73,7 @@ export async function POST(request: NextRequest) {
     type: "support_session",
     sid: delegated.id,
     clientId: delegated.clientId,
-  }, sessionSecret, 30 * 60);
+  }, sessionSecret, SUPPORT_SESSION_TTL_SECONDS);
   const response = NextResponse.redirect(
     new URL(`/?client=${encodeURIComponent(delegated.client.slug)}`, request.url),
     303,
@@ -80,7 +82,7 @@ export async function POST(request: NextRequest) {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
-    maxAge: 30 * 60,
+    maxAge: SUPPORT_SESSION_TTL_SECONDS,
     path: "/",
   });
   response.headers.set("Cache-Control", "no-store");

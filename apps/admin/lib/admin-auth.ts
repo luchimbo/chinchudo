@@ -3,6 +3,8 @@ import { createClient } from "@supabase/supabase-js";
 import { prisma } from "@/lib/db";
 
 export const ADMIN_COOKIE = "platform_admin_access_token";
+export const ADMIN_REFRESH_COOKIE = "platform_admin_refresh_token";
+export const PERSISTENT_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 
 function readJwtPayload(token: string): Record<string, unknown> | null {
   try { return JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString("utf8")); }
