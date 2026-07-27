@@ -20,6 +20,20 @@ npm run agents:listening-health
 
 No se requiere cuenta paga para ninguno de los dos servicios.
 
+### Recuperación automática
+
+Antes de cada escucha que use descubrimiento público, el agente verifica ambos
+servicios. Si alguno no responde, ejecuta `docker compose ... up -d` solo para
+el servicio afectado y espera hasta 20 segundos. El resultado queda en el
+reporte de la corrida bajo `provider_recovery`; si Docker Desktop está apagado,
+la escucha continúa con los conectores disponibles.
+
+Para desactivarlo de forma explícita:
+
+```env
+LISTENING_AUTO_RECOVER=false
+```
+
 ## Conectores opcionales por red
 
 Instalar únicamente los que se vayan a usar:

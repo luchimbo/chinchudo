@@ -46,5 +46,26 @@ class SearxngDiscoveryTests(unittest.TestCase):
         self.assertTrue(listening_connectors._valid_social_result("x", "https://x.com/prestige/status/123"))
 
 
+class RecoveryTests(unittest.TestCase):
+    def test_recovers_only_unavailable_service(self):
+        probes = iter([
+            {"name": "searxng", "status": "unavailable", "url": "http://test/healthz"},
+            {"name": "rsshub", "status": "ok", "url": "http://test"},
+            {"name": "searxng", "status": "ok", "url": "http://test/healthz"},
+            {"name": "rsshub", "status": "ok", "url": "http://test"},
+        ])
+        with patch.object(listening_connectors, "_probe_service", side_effect=lambda _name: next(probes)), \
+             patch.object(listening_connectors.shutil, "which", return_value="docker"), \
+             patch.object(listening_connectors.subprocess, "run") as run, \
+             patch.object(listening_connectors.time, "sleep"):
+            run.return_value.returncode = 0
+            result = listening_connectors.recover_local_services()
+
+        self.assertTrue(result["attempted"])
+        self.assertEqual(result["recovered"], ["searxng"])
+        self.assertIn("searxng", run.call_args.args[0])
+        self.assertNotIn("rsshub", run.call_args.args[0])
+
+
 if __name__ == "__main__":
     unittest.main()

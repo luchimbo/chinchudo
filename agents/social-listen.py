@@ -578,6 +578,7 @@ def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str
 
     provider_health: list[dict] = []
     if public_discovery:
+        recovery = listening_connectors.recover_local_services()
         public_items, provider_health = listening_connectors.discover_public(channel, query, limit)
         seen_urls = {str(item.get("url", "")) for item in items}
         items.extend(item for item in public_items if item.get("url") not in seen_urls)
@@ -664,6 +665,7 @@ def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str
         "direct_items": direct_items,
         "indexed_items": indexed_items,
         "providers": provider_health,
+        "provider_recovery": recovery if public_discovery else None,
         "error": "; ".join(provider_errors) if not items and provider_errors else "",
         "items_read": len(items),
         "intake_rows": len(rows),

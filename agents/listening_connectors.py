@@ -8,6 +8,8 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import subprocess
+import time
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -20,6 +22,7 @@ DATA_DIR = ROOT / "data"
 HEALTH_PATH = DATA_DIR / "listener-health.json"
 SEARXNG_URL = os.getenv("SEARXNG_URL", "http://127.0.0.1:8080").rstrip("/")
 RSSHUB_URL = os.getenv("RSSHUB_URL", "http://127.0.0.1:1200").rstrip("/")
+COMPOSE_FILE = ROOT / "docker-compose.social-listening.yml"
 
 CHANNEL_HOSTS = {
     "facebook": ("facebook.com",),
@@ -255,16 +258,67 @@ def discover_public(channel: str, query: str, limit: int) -> tuple[list[dict[str
     return items, providers
 
 
+def _service_url(name: str) -> str:
+    return f"{SEARXNG_URL}/healthz" if name == "searxng" else RSSHUB_URL
+
+
+def _probe_service(name: str) -> dict[str, Any]:
+    url = _service_url(name)
+    try:
+        _request(url, "application/json, text/plain")
+        return {"name": name, "status": "ok", "url": url}
+    except Exception as exc:
+        return {"name": name, "status": "unavailable", "url": url, "error": str(exc)}
+
+
+def recover_local_services() -> dict[str, Any]:
+    """Start unavailable local discovery containers, then wait briefly for them.
+
+    This is deliberately best-effort: discovery remains non-blocking when Docker
+    Desktop is stopped or unavailable, and the returned detail is kept in the
+    normal listening report for an operator to inspect.
+    """
+    before = [_probe_service(name) for name in ("searxng", "rsshub")]
+    unavailable = [service["name"] for service in before if service["status"] != "ok"]
+    result: dict[str, Any] = {"attempted": False, "before": before, "after": before, "services": unavailable}
+    if not unavailable or os.getenv("LISTENING_AUTO_RECOVER", "true").lower() in {"0", "false", "no"}:
+        return result
+    if not COMPOSE_FILE.exists():
+        result["error"] = f"No existe {COMPOSE_FILE.name}"
+        return result
+    docker = shutil.which("docker")
+    if not docker:
+        result["error"] = "Docker no está disponible en PATH"
+        return result
+    result["attempted"] = True
+    try:
+        completed = subprocess.run(
+            [docker, "compose", "-f", str(COMPOSE_FILE), "up", "-d", *unavailable],
+            cwd=ROOT, capture_output=True, text=True, timeout=45, check=False,
+        )
+        result["command"] = "docker compose -f docker-compose.social-listening.yml up -d " + " ".join(unavailable)
+        if completed.returncode:
+            result["error"] = (completed.stderr or completed.stdout or f"docker exit {completed.returncode}").strip()[-1000:]
+            return result
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            after = [_probe_service(name) for name in ("searxng", "rsshub")]
+            if all(service["status"] == "ok" for service in after if service["name"] in unavailable):
+                result["after"] = after
+                result["recovered"] = unavailable
+                return result
+            time.sleep(1)
+        result["after"] = [_probe_service(name) for name in ("searxng", "rsshub")]
+        result["error"] = "Los servicios no respondieron dentro de 20 segundos"
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        result["error"] = str(exc)
+    return result
+
+
 def health() -> dict[str, Any]:
-    def probe(name: str, url: str) -> dict[str, Any]:
-        try:
-            _request(url, "application/json, text/plain")
-            return {"name": name, "status": "ok", "url": url}
-        except Exception as exc:
-            return {"name": name, "status": "unavailable", "url": url, "error": str(exc)}
     result = {
         "checkedAt": datetime.now(timezone.utc).isoformat(),
-        "services": [probe("searxng", f"{SEARXNG_URL}/healthz"), probe("rsshub", RSSHUB_URL)],
+        "services": [_probe_service("searxng"), _probe_service("rsshub")],
         "tools": {
             "instaloader": _module_available("instaloader"),
             "instagrapi": _module_available("instagrapi"),
