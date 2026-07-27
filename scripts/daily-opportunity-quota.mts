@@ -1,4 +1,4 @@
-import { appendFile, mkdir, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, open, unlink, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { prisma } from "../src/lib/db";
@@ -13,10 +13,11 @@ const REQUIRED_CHANNELS = ["facebook", "instagram", "linkedin", "reddit", "tikto
 const LISTEN_TIMEOUT_MS = Number(process.env.DAILY_QUOTA_LISTEN_TIMEOUT_MS || 60_000);
 const IMPORT_TIMEOUT_MS = Number(process.env.DAILY_QUOTA_IMPORT_TIMEOUT_MS || 90_000);
 const CLASSIFIER_TIMEOUT_MS = Number(process.env.OPPORTUNITY_CLASSIFIER_TIMEOUT_MS || 120_000);
-// Zero means "keep looking until the daily quota is real". A finite value is
-// only for diagnostics and controlled runs via --max-rounds=N.
-const DEFAULT_MAX_ROUNDS = Number(process.env.DAILY_QUOTA_MAX_ROUNDS || 0);
-const MAX_CONCURRENCY = Math.max(1, Math.min(6, Number(process.env.DAILY_QUOTA_CONCURRENCY || 6)));
+// Cada ejecución está acotada: evita que un objetivo de volumen mantenga
+// navegadores y conexiones Prisma ocupados sin fin.
+const DEFAULT_MAX_ROUNDS = Math.max(1, Number(process.env.DAILY_QUOTA_MAX_ROUNDS || 3));
+const MAX_CONCURRENCY = Math.max(1, Math.min(3, Number(process.env.DAILY_QUOTA_CONCURRENCY || 3)));
+const PIPELINE_LOCK_PATH = join(process.cwd(), "data", "opportunity-pipeline.lock");
 
 type Source = { id: string; label: string; channel: string; query: string; account: string | null; limit: number; lastRunAt: Date | null; lifecycle: string; priority: number; emptyReads: number };
 type Client = { id: string; slug: string; name: string; dailyOpportunityTarget: number; opportunitySearchState: unknown; domainKeywords: string };
@@ -218,7 +219,7 @@ async function writeProgressReport(runId: string, client: Client, target: number
     client: client.slug,
     target,
     newOpportunities: count,
-    maxRounds: maxRounds || "until-quota",
+    maxRounds,
     roundsCompleted: Math.max(0, ...attempts.filter((attempt) => typeof attempt.round === "number").map((attempt) => Number(attempt.round))),
     attempts,
   }, null, 2));
@@ -239,7 +240,7 @@ async function runClient(client: Client, since: Date, maxRounds: number, runId: 
 
   // Always execute the first round for coverage, even when prior runs already
   // reached the numeric quota. Later rounds are only needed to fill the quota.
-  for (let round = 0; (maxRounds === 0 || round < maxRounds) && (round === 0 || count < target); round += 1) {
+  for (let round = 0; round < maxRounds && (round === 0 || count < target); round += 1) {
     // One rotating source per network is enough for full coverage in a round.
     // This keeps a client with many saved searches from spawning an unbounded
     // number of CDP sessions while still rotating every account/query later.
@@ -347,9 +348,7 @@ async function runClient(client: Client, since: Date, maxRounds: number, runId: 
   const missingConfiguredChannels = REQUIRED_CHANNELS.filter((channel) => !configuredChannels.includes(channel));
   const unattemptedConfiguredChannels = configuredChannels.filter((channel) => !attemptedChannels.includes(channel));
   const blockedChannels = [...new Set(attempts.filter((attempt) => Boolean(attempt.listenTimedOut) || Boolean(attempt.error)).map((attempt) => String(attempt.channel)).filter((channel) => channel !== "internal"))].sort();
-  const exhaustedChannels = maxRounds > 0
-    ? configuredChannels.filter((channel) => attempts.filter((attempt) => attempt.channel === channel).length >= maxRounds)
-    : [];
+  const exhaustedChannels = configuredChannels.filter((channel) => attempts.filter((attempt) => attempt.channel === channel).length >= maxRounds);
   const coverageComplete = missingConfiguredChannels.length === 0 && unattemptedConfiguredChannels.length === 0;
   await withTimeout(prisma.client.update({ where: { id: client.id }, data: { opportunitySearchState: { cursor, lastRunAt: new Date().toISOString(), lastTarget: target, lastCount: count, maxRounds, attempts } } }), `Actualizacion de estado de ${client.slug}`);
   return { client: client.slug, target, newOpportunities: count, quotaComplete: count >= target, coverageComplete, complete: count >= target && coverageComplete, configuredChannels, attemptedChannels, missingConfiguredChannels, unattemptedConfiguredChannels, exhaustedChannels, blockedChannels, deduplicatedUrls: seenUrls.size, discardReasons: discards, attempts };
@@ -358,7 +357,7 @@ async function runClient(client: Client, since: Date, maxRounds: number, runId: 
 async function main() {
   const since = argentinaDayStart();
   const maxRoundsOption = cliOption("--max-rounds");
-  const maxRounds = maxRoundsOption === "" ? DEFAULT_MAX_ROUNDS : Math.max(0, Number(maxRoundsOption));
+  const maxRounds = maxRoundsOption === "" ? DEFAULT_MAX_ROUNDS : Math.max(1, Number(maxRoundsOption));
   const clientSlug = cliOption("--client");
   const clients = await withTimeout(prisma.client.findMany({ where: { active: true, ...(clientSlug ? { slug: clientSlug } : {}) }, select: { id: true, slug: true, name: true, dailyOpportunityTarget: true, opportunitySearchState: true, domainKeywords: true } }), "Lectura de clientes activos") as Client[];
   const runId = new Date().toISOString().replace(/[:.]/g, "-");
@@ -374,7 +373,28 @@ async function main() {
   await withTimeout(prisma.$disconnect(), "Cierre de Prisma", 5_000);
 }
 
-main().catch(async (error) => {
+async function runWithPipelineLock() {
+  await mkdir(join(process.cwd(), "data"), { recursive: true });
+  let lock: Awaited<ReturnType<typeof open>>;
+  try {
+    lock = await open(PIPELINE_LOCK_PATH, "wx");
+  } catch (error: any) {
+    if (error?.code === "EEXIST") {
+      console.log(JSON.stringify({ command: "daily-opportunity-quota", status: "skipped", reason: "Otra corrida del pipeline de oportunidades está activa." }));
+      return;
+    }
+    throw error;
+  }
+  try {
+    await lock.writeFile(JSON.stringify({ pid: process.pid, command: "daily-opportunity-quota", startedAt: new Date().toISOString() }));
+    await main();
+  } finally {
+    await lock.close();
+    await unlink(PIPELINE_LOCK_PATH).catch(() => {});
+  }
+}
+
+runWithPipelineLock().catch(async (error) => {
   try { console.error(`daily-opportunity-quota failed. Reporte: ${await writeFailureReport(error)}`); } catch { /* best effort */ }
   console.error(error);
   try { await withTimeout(prisma.$disconnect(), "Cierre de Prisma", 5_000); } catch { /* exit */ }

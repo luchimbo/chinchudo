@@ -26,7 +26,7 @@ def resolve_bin(name: str) -> str:
 ROOT = Path(__file__).resolve().parents[1]
 REPORTS_DIR = ROOT / "reports"
 SOCIAL_LISTEN = ROOT / "agents" / "social-listen.py"
-MONITOR_LOCK = ROOT / "data" / "monitor.lock"
+MONITOR_LOCK = ROOT / "data" / "opportunity-pipeline.lock"
 MONITOR_LOCK_MAX_AGE_SECONDS = 1900
 
 
