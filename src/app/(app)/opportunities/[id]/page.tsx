@@ -274,7 +274,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
           </article>
 
           <section className="rounded-lg border border-ink/10 bg-white/75 p-5 shadow-panel backdrop-blur">
-            <h2 className="font-display text-2xl">Borradores</h2>
+            <h2 className="font-display text-2xl">Respuestas sugeridas</h2>
             <div className="mt-5 grid items-start gap-5 md:grid-cols-2 xl:grid-cols-3">
               {opportunity.responses.length === 0 ? (
                 <p className="rounded-md bg-paper p-4 text-sm text-slate">
@@ -410,7 +410,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
         <form action={generateResponseDrafts} className="mt-6 rounded-lg border border-ink/10 bg-ink p-5 text-paper shadow-panel">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <h2 className="font-display text-2xl">Generar más borradores</h2>
+              <h2 className="font-display text-2xl">Generar más respuestas</h2>
               <p className="mt-1 text-sm text-paper/65">Elegí el enfoque y sumá tres variantes nuevas.</p>
             </div>
             <SubmitButton

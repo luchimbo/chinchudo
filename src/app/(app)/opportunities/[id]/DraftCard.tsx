@@ -165,7 +165,7 @@ export function DraftCard({
 
           <div className="flex flex-1 flex-col">
             <label className="mb-1 text-xs font-bold uppercase tracking-wider text-slate/50">
-              Contenido del Borrador
+              Respuesta sugerida
             </label>
             <textarea
               name="editedText"
@@ -223,20 +223,6 @@ export function DraftCard({
             </p>
           ) : null}
 
-          {response.riskNotes ? (
-            <details className="rounded-md border border-amber-200 bg-amber-50/50 px-3 py-2 text-xs text-amber-800 transition-colors">
-              <summary className="cursor-pointer font-bold text-amber-700 hover:text-amber-900 focus:outline-none">
-                Ver advertencias y notas internas
-              </summary>
-              {response.voiceVariantReason ? (
-                <p className="mt-2 leading-relaxed">
-                  <span className="font-bold">Variante de voz:</span> {response.voiceVariantReason}
-                </p>
-              ) : null}
-              <p className="mt-2 leading-relaxed">{response.riskNotes}</p>
-            </details>
-          ) : null}
-
           {!isAlreadyPublished ? (
             <div className="flex items-center justify-between gap-2 border-t border-ink/5 pt-2">
               <div>
@@ -258,7 +244,7 @@ export function DraftCard({
                       : "bg-ink text-paper hover:bg-slate-850"
                   }`}
                 >
-                  {isOneStep ? "Publicar comentario" : response.approvedBy ? "Actualizar texto aprobado" : "Aprobar texto"}
+                  {isOneStep ? "Publicar comentario" : response.approvedBy ? "Actualizar respuesta aprobada" : "Aprobar respuesta"}
                 </SubmitButton>
               </div>
             </div>
