@@ -489,9 +489,9 @@ async function main() {
     },
     {
       brandId: prestige.id,
-      name: "Pack x 3 Tech Basic - soquetes cortos con refuerzo",
+      name: "Tech Basic. Soquetes cortos con refuerzo",
       category: "Tripack",
-      description: "Pack de tres soquetes cortos con refuerzo.",
+      description: "Soquetes cortos Tech Basic con refuerzo.",
       useCases: "Compra por conveniencia, entrenamiento frecuente y reposicion de uso diario.",
       warrantyNotes: "Confirmar stock, talle y colores del pack antes de responder.",
       priceRange: "Verificar en tienda antes de responder.",

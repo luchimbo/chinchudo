@@ -25,9 +25,9 @@ function context(channelName = "Instagram", sourceText = "Se me hacen ampollas e
 }
 
 describe("prompt de Prestige", () => {
-  it("ancla la identidad de asesor y no filtra reglas de PC MIDI", () => {
+  it("ancla la identidad de usuario real y no filtra reglas de PC MIDI", () => {
     const prompt = buildPrompt(context());
-    expect(prompt).toContain("asesor cercano con conocimiento práctico de running");
+    expect(prompt).toContain("usuario real de Prestige Medias");
     expect(prompt).toContain("Instagram/TikTok: usá frases cortas");
     expect(prompt).not.toMatch(/MIDI|Millenium|Ableton|PC MIDI/);
     expect(prompt).not.toMatch(/yo vi estas|usuario 100% independiente/i);
@@ -43,11 +43,25 @@ describe("prompt de Prestige", () => {
     expect(buildPrompt(context("YouTube"))).toContain("YouTube/Facebook/Reddit: mantené cercanía");
   });
 
-  it("bloquea testimonios, claims médicos y preguntas de recolección", () => {
-    expect(validateDraftForClient("Yo uso estas y me curaron el dolor.", "prestige-running")).toEqual(expect.arrayContaining([
-      "prestige_unverified_personal_testimony", "prestige_medical_claim",
-    ]));
+  it("permite experiencias reales, pero bloquea claims médicos y preguntas de recolección", () => {
+    expect(validateDraftForClient("Yo uso medias Prestige para correr y me resultan cómodas.", "prestige-running")).toEqual([]);
+    expect(validateDraftForClient("Correr mejora la resistencia.", "prestige-running")).toContain("prestige_missing_brand_mention");
+    expect(validateDraftForClient("Yo uso estas y me curaron el dolor.", "prestige-running")).toContain("prestige_medical_claim");
     expect(validateDraftForClient("¿Qué talle usás para correr?", "prestige-running")).toContain("prestige_data_question");
-    expect(validateDraftForClient("¿A quién no le pasó terminar con roce?", "prestige-running")).toEqual([]);
+    expect(validateDraftForClient("¿A quién no le pasó terminar con roce?", "prestige-running")).toContain("prestige_missing_brand_mention");
+    expect(validateDraftForClient("El Pack x3 Tech Basic va muy bien.", "prestige-running")).toContain("prestige_pack_as_model");
+  });
+
+  it("presenta Tech Basic como modelo y exige la marca Prestige Medias", () => {
+    const prompt = buildPrompt({
+      ...context(),
+      catalogProducts: [{
+        id: "tech-basic", name: "Pack x 3 Tech Basic - soquetes cortos con refuerzo", category: "Tripack",
+        description: "Soquetes cortos Tech Basic con refuerzo.", useCases: "Running", technicalSpecs: "",
+        brand: { name: "Prestige" },
+      }],
+    } as any);
+    expect(prompt).toContain("Prestige Medias Tech Basic");
+    expect(prompt).toContain("nombrá 'Prestige Medias' una sola vez");
   });
 });

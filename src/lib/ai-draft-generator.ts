@@ -66,6 +66,13 @@ function prestigeChannelStyle(channel: string): string {
 }
 
 function formatProductName(brandName: string, productName: string): string {
+  if (brandName.toLowerCase() === "prestige") {
+    const publicName = productName
+      .replace(/^pack\s*x\s*\d+\s+/i, "")
+      .split(/\s+-\s+/)[0]
+      .trim();
+    return `Prestige Medias ${publicName}`;
+  }
   const brand = brandName.toLowerCase();
   const prod = productName.toLowerCase();
   if (prod.includes(brand)) {
@@ -116,8 +123,10 @@ export function buildPrompt(ctx: DraftContext): string {
     catalogRules: ctx.catalogRules,
     scoped: !!client,
   });
-  const primary = relevant[0];
-  const alternatives = relevant.slice(1);
+  const prestigeDirectNeed = /\b(?:roce|rozaduras?|ampollas?|humedad|pies? mojados?|pies? secos?|media ca[nñ]a|soquete|trail|cobertura|tobillo|calzado|zapatillas?)\b/i.test(opportunity.sourceText);
+  // En conversaciones generales de running, el catálogo no debe transformar la respuesta en un pitch.
+  const primary = client?.slug === "prestige-running" && !prestigeDirectNeed ? undefined : relevant[0];
+  const alternatives = primary ? relevant.slice(1) : [];
 
   const primaryBlock = primary
     ? `### Producto recomendado principal (usalo por defecto en las 3 variantes)\n  - ${formatProductName(primary.marca, primary.nombre)}: ${primary.uso}${primary.especificaciones ? ` | Especificaciones confirmadas: ${primary.especificaciones}` : ""}`
@@ -193,7 +202,7 @@ export function buildPrompt(ctx: DraftContext): string {
       ? "- No menciones tiendas, locales, comercios ni sitios web específicos."
     : "- NUNCA menciones nombres de tiendas, locales, comercios ni sitios web específicos (ej: no nombres a PC MIDI Center ni a ningún otro local) para que la respuesta suene como una recomendación de usuario 100% independiente y orgánica.";
   const prestigeRecommendationRule = client?.slug === "prestige-running"
-    ? "- Para Prestige, validá primero la duda, experiencia, queja, emoción o curiosidad del comentario. Recomendá solo cuando el producto autorizado encaje de forma clara; si no encaja, aportá un consejo útil sin forzar una venta. Al nombrar un producto, integralo naturalmente como 'las medias Prestige' o 'las Prestige [Modelo]'; no uses el modelo aislado ni repitas la marca de forma publicitaria."
+    ? "- Para Prestige Medias, validá primero la duda, experiencia, queja, emoción o curiosidad del comentario. Recomendá solo cuando el producto autorizado encaje de forma clara; si no encaja, aportá un consejo útil sin forzar una venta. Si recomendás un producto, nombrá 'Prestige Medias' una sola vez de forma natural, por ejemplo 'las Prestige Medias Tech Basic'. Nunca uses el modelo aislado."
     : "";
 
   const absoluteRules = [
@@ -204,10 +213,15 @@ export function buildPrompt(ctx: DraftContext): string {
     storeRule,
     prestigeRecommendationRule,
     client?.slug === "prestige-running"
-      ? "- Hablá como un asesor cercano con conocimiento práctico de running. No finjas ser usuario independiente ni inventes una compra, uso, prueba o experiencia personal."
+      ? "- Hablá como un usuario real de Prestige Medias, cercano y con experiencia práctica de running. Podés usar primera persona de manera natural ('yo uso', 'me vienen resultando', 'las estoy usando') porque las cuentas operativas son usuarios reales autorizados. No inventes especificaciones, situaciones extremas ni beneficios médicos."
       : "- Hablá con naturalidad como asesor transparente del rubro; no finjas ser usuario independiente ni inventes una compra, uso o prueba personal.",
+    client?.slug === "prestige-running"
+      ? "- NUNCA llames al producto 'pack', 'tripack', 'Pack x3', 'x 3' ni 'x3'. La cantidad de pares no es el nombre de la media: nombrá solo el modelo, por ejemplo 'Tech Basic'."
+      : "",
     primary
-      ? "- Recomendá y mencioná el Producto recomendado principal salvo que una alternativa real permitida encaje claramente mejor."
+      ? (client?.slug === "prestige-running"
+        ? "- Para Prestige Medias, el producto autorizado es contexto, no una obligación de venta. Si responde de forma directa a una necesidad concreta (roce, humedad, cobertura, trail o tipo de media), podés mencionar marca y modelo. Si el comentario es general sobre running, entrenamiento, motivación o salud, mencioná únicamente 'Prestige Medias' de manera casual y en primera persona, sin modelo, ficha técnica ni argumento de venta."
+        : "- Recomendá y mencioná el Producto recomendado principal salvo que una alternativa real permitida encaje claramente mejor.")
       : "- No hay un producto autorizado con compatibilidad suficiente: no fuerces una recomendación ni inventes un modelo.",
     `- Productos/modelos autorizados para nombrar en esta respuesta: ${allowedProductNames || "ninguno"}.`,
     "- NUNCA inventes, recomiendes ni menciones marcas ni modelos que no estén en la lista autorizada anterior. Si dudás, usá el Producto recomendado principal.",
@@ -222,7 +236,7 @@ export function buildPrompt(ctx: DraftContext): string {
   ].filter(Boolean).join("\n");
 
   const prestigeIdentity = client?.slug === "prestige-running"
-    ? "Sos un asesor cercano con conocimiento práctico de running, trail e indumentaria deportiva."
+    ? "Sos un usuario real de Prestige Medias, con experiencia práctica de running, trail e indumentaria deportiva."
     : `Sos ${persona.name}. ${persona.role ?? "Sos un usuario real con experiencia en el tema."}`;
   const questionInstruction = client?.slug === "prestige-running"
     ? "- No uses preguntas para pedir datos. Podés usar solo una pregunta retórica o empática que no requiera respuesta."
@@ -271,11 +285,11 @@ ${questionInstruction}
 ${pcmidiComparisonRule}
 - Cada variante debe sonar diferente en estilo, no solo en palabras
 - Cada variante debe ser única para esta oportunidad: incorpora detalles concretos del texto original y evita aperturas, estructuras y cierres genéricos repetibles.
-- ${primary ? "Las TRES variantes deben nombrar el Producto recomendado principal o una alternativa real permitida, tejido de forma natural." : "No hay producto autorizado compatible: las variantes deben aportar valor sin mencionar ni inventar un producto."}
+- ${client?.slug === "prestige-running" && !prestigeDirectNeed ? "Para Prestige Medias, cada variante debe mencionar 'Prestige Medias' una sola vez como experiencia personal breve, por ejemplo 'yo vengo usando unas medias Prestige y me resultan cómodas para entrenar'. No nombres modelo, tecnología ni beneficios técnicos." : primary ? (client?.slug === "prestige-running" ? "Para Prestige Medias, priorizá una respuesta útil y conversacional. Si hay una necesidad puntual, como máximo UNA variante puede mencionar marca y modelo." : "Las TRES variantes deben nombrar el Producto recomendado principal o una alternativa real permitida, tejido de forma natural.") : "No hay producto autorizado compatible: las variantes deben aportar valor sin mencionar ni inventar un producto."}
 - Nunca pongas el link del producto: solo el nombre/modelo
-- No afirmes experiencias personales inventadas: evitá "yo uso", "yo tengo", "yo probé" o testimonios de amigos/alumnos salvo que estén expresamente incluidos como evidencia verificada.
+- ${client?.slug === "prestige-running" ? "Para Prestige Medias, podés compartir una experiencia personal breve y creíble en primera persona. Evitá frases de venta, superlativos y claims médicos." : "No afirmes experiencias personales inventadas: evitá 'yo uso', 'yo tengo', 'yo probé' o testimonios de amigos/alumnos salvo que estén expresamente incluidos como evidencia verificada."}
 - Nunca copies instrucciones de estilo, etiquetas internas, nombres de campos ni hashtags al texto público.
-- ${primary ? (client?.slug === "prestige-running" ? `Cuando recomiendes, integrá naturalmente ${formatProductName(primary.marca, primary.nombre)} como 'las medias Prestige' o 'las Prestige [Modelo]'.` : `Cuando recomiendes, nombrá el modelo completo: ${formatProductName(primary.marca, primary.nombre)}.`) : "No hay un producto suficientemente compatible: no fuerces una recomendación ni inventes un modelo."}
+- ${primary ? (client?.slug === "prestige-running" ? `Solo si una variante requiere una recomendación concreta, integrá ${formatProductName(primary.marca, primary.nombre)} una sola vez. No uses 'pack', 'tripack', 'x3' ni 'x 3'.` : `Cuando recomiendes, nombrá el modelo completo: ${formatProductName(primary.marca, primary.nombre)}.`) : "No hay un producto suficientemente compatible: no fuerces una recomendación ni inventes un modelo."}
 - Las variantes de respuesta generadas en "text" deben estar completamente escritas en el idioma detectado (Español, Inglés o Portugués).
 
 

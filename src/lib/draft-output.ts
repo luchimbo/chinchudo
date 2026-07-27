@@ -43,12 +43,16 @@ const PRESTIGE_PERSONAL_TESTIMONY = /\b(?:yo\s+(?:uso|tengo|prob[eé]|vi|corr[i�
 const PRESTIGE_MEDICAL_CLAIM = /\b(?:cura|curan|trata|tratan|previene|previenen|diagnostic[ao]|lesi[oó]n|dolor|v[aá]rices|trombosis)\b/i;
 const PRESTIGE_DATA_QUESTION = /[¿?][^¿?]*(?:talle|modelo|cu[aá]nto|cu[aá]ntas|d[oó]nde|cu[aá]l|qu[eé]\s+(?:talle|modelo|us[aá]s)|ten[eé]s|us[aá]s|corr[eé]s)[^¿?]*[?]/i;
 
+const PRESTIGE_PACK_AS_MODEL = /\b(?:pack|tripack|x\s*3)\b/i;
+const PRESTIGE_BRAND_MENTION = /\b(?:prestige\s+medias|medias\s+prestige)\b/i;
+
 export function validateDraftForClient(text: string, clientSlug?: string): string[] {
   const errors = validatePublicDraft(text);
   if (clientSlug !== "prestige-running") return errors;
 
-  if (PRESTIGE_PERSONAL_TESTIMONY.test(text)) errors.push("prestige_unverified_personal_testimony");
   if (PRESTIGE_MEDICAL_CLAIM.test(text)) errors.push("prestige_medical_claim");
   if (PRESTIGE_DATA_QUESTION.test(text)) errors.push("prestige_data_question");
+  if (PRESTIGE_PACK_AS_MODEL.test(text)) errors.push("prestige_pack_as_model");
+  if (!PRESTIGE_BRAND_MENTION.test(text)) errors.push("prestige_missing_brand_mention");
   return [...new Set(errors)];
 }
