@@ -27,7 +27,7 @@ export default async function VideosPage({ searchParams }: PageProps) {
   }
 
   // Cargar datos asociados al cliente activo
-  const [trends, products, personas, scripts] = await Promise.all([
+  const [trends, products, personas, scripts, ideas] = await Promise.all([
     prisma.trend.findMany({
       where: { clientId: activeClient.id },
       orderBy: { createdAt: "desc" },
@@ -47,7 +47,13 @@ export default async function VideosPage({ searchParams }: PageProps) {
         product: true,
         persona: true,
         trend: { select: { title: true } },
+        contentIdea: { select: { hook: true } },
       },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.contentIdea.findMany({
+      where: { clientId: activeClient.id },
+      include: { product: { include: { brand: true } }, trend: { select: { title: true } }, videoScripts: { select: { id: true } } },
       orderBy: { createdAt: "desc" },
     }),
   ]);
@@ -60,6 +66,7 @@ export default async function VideosPage({ searchParams }: PageProps) {
       products={products}
       personas={personas}
       scripts={scripts}
+      ideas={ideas}
     />
   );
 }

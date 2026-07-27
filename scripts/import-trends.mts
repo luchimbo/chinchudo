@@ -3,6 +3,7 @@ import { pathToFileURL } from "node:url";
 import { rename } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { PrismaClient } from "@prisma/client";
+import { analyzeTrend } from "../src/lib/content-idea-generator";
 // @ts-ignore
 import { dataDir, loadEnv, readJsonl, writeReport, runtimeArchivePath } from "./agent-utils.mjs";
 
@@ -56,7 +57,7 @@ async function main() {
       }
 
       if (!args.dryRun) {
-        await prisma.trend.create({
+        const trend = await prisma.trend.create({
           data: {
             clientId: row.clientId,
             title: row.title,
@@ -67,6 +68,7 @@ async function main() {
             metadata: row.metadata || {},
           },
         });
+        await analyzeTrend(trend.id);
       }
       created++;
     } catch (err: any) {

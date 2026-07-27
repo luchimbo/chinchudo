@@ -2,26 +2,28 @@ import { prisma } from "./db";
 import { llmHeaders, resolveLLMConfig } from "./llm-provider";
 
 type ScriptGenerationContext = {
-  trendId: string;
-  productId: string;
+  contentIdeaId?: string;
+  trendId?: string;
+  productId?: string;
   personaId: string;
   clientId: string;
 };
 
 export async function generateVideoScript(ctx: ScriptGenerationContext): Promise<string | null> {
-  const { trendId, productId, personaId, clientId } = ctx;
+  const { trendId, productId, personaId, clientId, contentIdeaId } = ctx;
 
-  const trend = await prisma.trend.findUnique({ where: { id: trendId } });
+  const idea = contentIdeaId ? await prisma.contentIdea.findUnique({ where: { id: contentIdeaId }, include: { trend: true } }) : null;
+  const trend = idea?.trend ?? (trendId ? await prisma.trend.findUnique({ where: { id: trendId } }) : null);
   const product = await prisma.product.findUnique({
-    where: { id: productId },
+    where: { id: idea?.productId ?? productId },
     include: { brand: true },
   });
   const persona = await prisma.persona.findUnique({ where: { id: personaId } });
   const client = await prisma.client.findUnique({ where: { id: clientId } });
 
-  if (!trend || !product || !persona || !client) {
+  if (!product || !persona || !client || (contentIdeaId && !idea)) {
     console.error("[Script Generator] Faltan entidades para generar guion", {
-      trend: !!trend,
+      trend: !!trend || !!idea,
       product: !!product,
       persona: !!persona,
       client: !!client,
@@ -37,7 +39,9 @@ export async function generateVideoScript(ctx: ScriptGenerationContext): Promise
   }
 
   const model = llm.model;
-  const { taskInstruction, contextDetail } = buildTrendContext(trend);
+  const { taskInstruction, contextDetail } = idea
+    ? { taskInstruction: "Escribe el guion a partir de una idea editorial ya aprobada. Respeta su formato, gancho y direccion visual.", contextDetail: `1. Idea aprobada:\n- Formato: ${idea.format}\n- Hook: ${idea.hook}\n- Por que funciona: ${idea.rationale}\n- Direccion visual: ${idea.visualDirection}\n- Intencion: ${idea.intent}\n- Referencia: ${trend?.title || "Estructura evergreen"}` }
+    : trend ? buildTrendContext(trend) : { taskInstruction: "Escribe un guion basado en el producto.", contextDetail: "1. Idea editorial: usar una estructura clara y grabable." };
 
   const prompt = `
 Actua como redactor experto en guiones para videos cortos verticales (TikTok, Instagram Reels y YouTube Shorts) para PC MIDI Center en Argentina.
@@ -135,7 +139,8 @@ ${contextDetail}
     const script = await prisma.videoScript.create({
       data: {
         clientId,
-        trendId,
+        trendId: trend?.id,
+        contentIdeaId: idea?.id,
         brandId: product.brandId,
         productId,
         personaId,

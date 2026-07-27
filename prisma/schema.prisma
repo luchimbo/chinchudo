@@ -108,6 +108,7 @@ model Client {
   observedProfiles       ObservedProfile[]
   trends                 Trend[]
   videoScripts           VideoScript[]
+  contentIdeas           ContentIdea[]
   brandSnapshots         BrandSnapshot[]
   competitorEvidence     CompetitorEvidence[]
   draftJobs              DraftJob[]
@@ -268,6 +269,7 @@ model Product {
   opportunities  Opportunity[]
   brand          Brand         @relation(fields: [brandId], references: [id], onDelete: Cascade)
   videoScripts   VideoScript[]
+  contentIdeas   ContentIdea[]
 
   @@unique([brandId, name])
 }
@@ -916,10 +918,17 @@ model Trend {
   platform     String // "TIKTOK" | "YOUTUBE" | "GOOGLE_TRENDS" | "TWITTER" | "REDDIT"
   queryUsed    String        @default("")
   metadata     Json          @default("{}") // volumen de búsqueda, hashtags asociados, etc.
+  analysisStatus String      @default("PENDING")
+  viabilityScore Int         @default(0)
+  viralFormula String        @default("")
+  suggestedProductId String  @default("")
+  suggestedAngle String      @default("")
+  visualDirection String     @default("")
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   client       Client?       @relation(fields: [clientId], references: [id], onDelete: Cascade)
   videoScripts VideoScript[]
+  contentIdeas ContentIdea[]
 
   @@index([clientId])
   @@index([createdAt])
@@ -932,6 +941,7 @@ model VideoScript {
   brandId        String?
   productId      String?
   personaId      String
+  contentIdeaId  String?
   hook           String
   bodyText       String
   cta            String
@@ -949,8 +959,52 @@ model VideoScript {
   product Product? @relation(fields: [productId], references: [id])
   persona Persona  @relation(fields: [personaId], references: [id])
   client  Client?  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  contentIdea ContentIdea? @relation(fields: [contentIdeaId], references: [id], onDelete: SetNull)
 
   @@index([clientId])
   @@index([status])
+  @@index([createdAt])
+  @@index([contentIdeaId])
+}
+
+enum ContentIntent {
+  SALE
+  EDUCATION
+  USE_CASE
+  ENTERTAINMENT
+}
+
+enum ContentIdeaStatus {
+  REVIEW
+  APPROVED
+  SCRIPT_READY
+  READY_TO_RECORD
+  RECORDED
+  PUBLISHED
+  DISCARDED
+}
+
+model ContentIdea {
+  id              String            @id @default(cuid())
+  clientId        String
+  productId       String
+  trendId         String?
+  intent          ContentIntent
+  format          String
+  hook            String
+  rationale       String
+  visualDirection String
+  viabilityScore  Int               @default(3)
+  status          ContentIdeaStatus @default(REVIEW)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  client          Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  product         Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  trend           Trend?            @relation(fields: [trendId], references: [id], onDelete: SetNull)
+  videoScripts    VideoScript[]
+
+  @@index([clientId, status])
+  @@index([productId])
+  @@index([trendId])
   @@index([createdAt])
 }

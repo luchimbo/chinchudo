@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { assertClientAccess, getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { generateVideoScript } from "@/lib/video-script-generator";
+import { analyzeTrend, generateEditorialAngles } from "@/lib/content-idea-generator";
+import type { ContentIdeaStatus, ContentIntent } from "@prisma/client";
+
+const INTENTS = new Set<ContentIntent>(["SALE", "EDUCATION", "USE_CASE", "ENTERTAINMENT"]);
+const IDEA_STATUSES = new Set<ContentIdeaStatus>(["REVIEW", "APPROVED", "SCRIPT_READY", "READY_TO_RECORD", "RECORDED", "PUBLISHED", "DISCARDED"]);
 
 export async function GET() {
   const user = await getCurrentUser();
@@ -15,7 +20,7 @@ export async function GET() {
     const clients = await prisma.client.findMany({ where: clientWhere, select: { id: true } });
     const clientIds = clients.map((client) => client.id);
 
-    const [trends, scripts] = await Promise.all([
+    const [trends, scripts, ideas] = await Promise.all([
       prisma.trend.findMany({
         where: { clientId: { in: clientIds } },
         orderBy: { createdAt: "desc" },
@@ -29,9 +34,10 @@ export async function GET() {
         },
         orderBy: { createdAt: "desc" },
       }),
+      prisma.contentIdea.findMany({ where: { clientId: { in: clientIds } }, include: { product: { include: { brand: true } }, trend: { select: { title: true } }, videoScripts: { select: { id: true } } }, orderBy: { createdAt: "desc" } }),
     ]);
 
-    return NextResponse.json({ trends, scripts });
+    return NextResponse.json({ trends, scripts, ideas });
   } catch (err) {
     console.error("[api/videos/list] Error:", err);
     return NextResponse.json({ error: "Error interno al listar" }, { status: 500 });
@@ -48,24 +54,64 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { action } = body;
 
-    if (action === "generate") {
-      const { trendId, productId, personaId, clientId } = body;
-
-      if (!trendId || !productId || !personaId || !clientId) {
-        return NextResponse.json(
-          { error: "Faltan parametros obligatorios (trendId, productId, personaId, clientId)" },
-          { status: 400 },
-        );
-      }
-
+    if (action === "generate_angles") {
+      const { clientId, productId, intent } = body;
+      if (!clientId || !productId || !INTENTS.has(intent)) return NextResponse.json({ error: "Producto e intención válidos son obligatorios." }, { status: 400 });
       await assertClientAccess(prisma, clientId);
+      const product = await prisma.product.findFirst({ where: { id: productId, brand: { clientId } } });
+      if (!product) return NextResponse.json({ error: "Producto no disponible para este cliente." }, { status: 404 });
+      const angles = await generateEditorialAngles({ clientId, productId, intent });
+      return NextResponse.json({ success: true, angles });
+    }
 
-      const scriptId = await generateVideoScript({ trendId, productId, personaId, clientId });
-      if (!scriptId) {
-        return NextResponse.json({ error: "No se pudo generar el guion" }, { status: 500 });
-      }
+    if (action === "create_idea") {
+      const { clientId, productId, trendId, intent, format, hook, rationale, visualDirection, viabilityScore } = body;
+      if (!clientId || !productId || !INTENTS.has(intent) || !format || !hook) return NextResponse.json({ error: "Faltan datos de la idea." }, { status: 400 });
+      await assertClientAccess(prisma, clientId);
+      const product = await prisma.product.findFirst({ where: { id: productId, brand: { clientId } } });
+      if (!product) return NextResponse.json({ error: "Producto no disponible para este cliente." }, { status: 404 });
+      const trend = trendId ? await prisma.trend.findFirst({ where: { id: trendId, clientId } }) : null;
+      const idea = await prisma.contentIdea.create({ data: { clientId, productId, trendId: trend?.id, intent, format, hook, rationale: rationale || "", visualDirection: visualDirection || "", viabilityScore: Math.max(1, Math.min(5, Number(viabilityScore) || 3)), status: "APPROVED" } });
+      return NextResponse.json({ success: true, idea });
+    }
 
+    if (action === "generate_script_from_idea") {
+      const { clientId, contentIdeaId, personaId } = body;
+      if (!clientId || !contentIdeaId || !personaId) return NextResponse.json({ error: "Faltan datos para generar el guion." }, { status: 400 });
+      await assertClientAccess(prisma, clientId);
+      const idea = await prisma.contentIdea.findFirst({ where: { id: contentIdeaId, clientId } });
+      if (!idea || idea.status !== "APPROVED") return NextResponse.json({ error: "La idea debe estar aprobada antes de generar el guion." }, { status: 409 });
+      const persona = await prisma.persona.findFirst({ where: { id: personaId, clientId } });
+      if (!persona) return NextResponse.json({ error: "Persona no disponible para este cliente." }, { status: 404 });
+      const scriptId = await generateVideoScript({ contentIdeaId, personaId, clientId });
+      if (!scriptId) return NextResponse.json({ error: "No se pudo generar el guion." }, { status: 500 });
+      await prisma.contentIdea.update({ where: { id: contentIdeaId }, data: { status: "SCRIPT_READY" } });
       return NextResponse.json({ success: true, scriptId });
+    }
+
+    if (action === "update_idea_status") {
+      const { clientId, ideaId, status } = body;
+      if (!clientId || !ideaId || !IDEA_STATUSES.has(status)) return NextResponse.json({ error: "Estado inválido." }, { status: 400 });
+      await assertClientAccess(prisma, clientId);
+      const idea = await prisma.contentIdea.findFirst({ where: { id: ideaId, clientId } });
+      if (!idea) return NextResponse.json({ error: "Idea no encontrada." }, { status: 404 });
+      return NextResponse.json({ success: true, idea: await prisma.contentIdea.update({ where: { id: ideaId }, data: { status } }) });
+    }
+
+    if (action === "analyze_trend") {
+      const { clientId, trendId } = body;
+      await assertClientAccess(prisma, clientId);
+      const trend = await prisma.trend.findFirst({ where: { id: trendId, clientId } });
+      if (!trend) return NextResponse.json({ error: "Referencia no encontrada." }, { status: 404 });
+      await analyzeTrend(trendId);
+      return NextResponse.json({ success: true });
+    }
+
+    if (action === "generate") {
+      return NextResponse.json(
+        { error: "Los guiones ahora se generan desde una idea aprobada." },
+        { status: 410 },
+      );
     }
 
     if (action === "create_manual_trend") {
@@ -119,6 +165,8 @@ export async function POST(req: NextRequest) {
           metadata: finalMetadata,
         },
       });
+
+      void analyzeTrend(trend.id);
 
       return NextResponse.json({ success: true, trendId: trend.id });
     }
