@@ -4,7 +4,6 @@ import { loadEnv } from "./agent-utils.mjs";
 import { PRESTIGE_RADAR_QUERIES } from "./prestige-radar.mjs";
 
 loadEnv();
-if (process.env.DIRECT_URL) process.env.DATABASE_URL = process.env.DIRECT_URL;
 
 const ACCOUNT_BY_CHANNEL: Record<string, string> = {
   instagram: "deportista-aficionado", tiktok: "entrenador-deportivo", youtube: "deportista-aficionado",

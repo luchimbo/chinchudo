@@ -19,7 +19,6 @@ import { isPrestigeRadarCandidate, normalizedRadarText } from "./prestige-radar.
 loadEnv();
 // El worker local necesita una conexión estable durante las rondas largas;
 // prioriza la URL directa si está configurada, sin exponerla al cliente web.
-if (process.env.DIRECT_URL) process.env.DATABASE_URL = process.env.DIRECT_URL;
 
 const prisma = new PrismaClient();
 const intakePath = join(dataDir, "social-listen-intake.jsonl");

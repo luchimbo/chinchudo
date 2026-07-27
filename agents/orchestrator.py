@@ -4,6 +4,8 @@ import os
 import shutil
 import subprocess
 import sys
+import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -24,6 +26,12 @@ def resolve_bin(name: str) -> str:
 ROOT = Path(__file__).resolve().parents[1]
 REPORTS_DIR = ROOT / "reports"
 SOCIAL_LISTEN = ROOT / "agents" / "social-listen.py"
+MONITOR_LOCK = ROOT / "data" / "monitor.lock"
+MONITOR_LOCK_MAX_AGE_SECONDS = 1900
+
+
+class MonitorLockBusy(RuntimeError):
+    pass
 
 
 def utc_stamp() -> str:
@@ -35,6 +43,38 @@ def write_report(name: str, data: dict) -> Path:
     path = REPORTS_DIR / f"{utc_stamp()}-orchestrator-{name}.json"
     path.write_text(json.dumps({"timestamp_utc": utc_stamp(), **data}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return path
+
+
+@contextmanager
+def monitor_run_lock():
+    """Guarantee a single monitor/import pipeline on this workstation."""
+    MONITOR_LOCK.parent.mkdir(parents=True, exist_ok=True)
+    metadata = {"pid": os.getpid(), "started_at": datetime.now(timezone.utc).isoformat()}
+    try:
+        fd = os.open(MONITOR_LOCK, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        try:
+            age = time.time() - MONITOR_LOCK.stat().st_mtime
+        except OSError:
+            age = 0
+        if age > MONITOR_LOCK_MAX_AGE_SECONDS:
+            try:
+                MONITOR_LOCK.unlink()
+            except OSError:
+                pass
+            fd = os.open(MONITOR_LOCK, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        else:
+            holder = MONITOR_LOCK.read_text(encoding="utf-8", errors="replace").strip()
+            raise MonitorLockBusy(f"Ya hay una corrida monitor activa ({holder or 'lock sin detalle'}).")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as lock_file:
+            json.dump(metadata, lock_file)
+        yield
+    finally:
+        try:
+            MONITOR_LOCK.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def _run_env() -> dict:
@@ -316,6 +356,15 @@ def list_active_sources() -> list[dict]:
 
 
 def run_monitor(args: argparse.Namespace) -> None:
+    try:
+        with monitor_run_lock():
+            _run_monitor_locked(args)
+    except MonitorLockBusy as exc:
+        report = write_report("monitor", {"command": "monitor", "status": "skipped", "reason": str(exc)})
+        print(f"agents: monitor omitido; {exc} Reporte: {report}")
+
+
+def _run_monitor_locked(args: argparse.Namespace) -> None:
     steps: list[dict] = []
     sources = list_active_sources()
     if not sources:

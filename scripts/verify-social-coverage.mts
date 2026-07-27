@@ -6,7 +6,6 @@ import { prisma } from "../src/lib/db";
 import { loadEnv } from "./agent-utils.mjs";
 
 loadEnv();
-if (process.env.DIRECT_URL) process.env.DATABASE_URL = process.env.DIRECT_URL;
 
 const CHANNELS = ["facebook", "instagram", "linkedin", "reddit", "tiktok", "x", "youtube"] as const;
 const LISTEN_TIMEOUT_MS = Number(process.env.COVERAGE_LISTEN_TIMEOUT_MS || 45_000);

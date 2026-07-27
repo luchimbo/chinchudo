@@ -28,6 +28,10 @@ el servicio afectado y espera hasta 20 segundos. El resultado queda en el
 reporte de la corrida bajo `provider_recovery`; si Docker Desktop está apagado,
 la escucha continúa con los conectores disponibles.
 
+Un motor externo que responda con CAPTCHA o rate limit se informa como
+`degraded`, no como SearXNG caído. Solo los timeouts reciben un reintento único;
+los bloqueos explícitos quedan en espera para no agravar el límite.
+
 Para desactivarlo de forma explícita:
 
 ```env

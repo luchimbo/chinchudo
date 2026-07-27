@@ -8,7 +8,6 @@ import { loadEnv } from "./agent-utils.mjs";
 import { runtimeDir } from "./agent-utils.mjs";
 
 loadEnv();
-if (process.env.DIRECT_URL) process.env.DATABASE_URL = process.env.DIRECT_URL;
 
 const REQUIRED_CHANNELS = ["facebook", "instagram", "linkedin", "reddit", "tiktok", "x", "youtube"] as const;
 const LISTEN_TIMEOUT_MS = Number(process.env.DAILY_QUOTA_LISTEN_TIMEOUT_MS || 60_000);

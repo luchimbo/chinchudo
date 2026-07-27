@@ -45,6 +45,19 @@ class SearxngDiscoveryTests(unittest.TestCase):
         self.assertFalse(listening_connectors._valid_social_result("x", "https://x.com/prestige"))
         self.assertTrue(listening_connectors._valid_social_result("x", "https://x.com/prestige/status/123"))
 
+    def test_retries_only_a_transient_timeout(self):
+        responses = iter([
+            {"results": [], "unresponsive_engines": [["duckduckgo", "timeout"]]},
+            {"results": [{"url": "https://www.youtube.com/watch?v=abc", "title": "Controlador MIDI para home studio", "content": "Comparativa práctica de controladores MIDI para producir en casa."}]},
+        ])
+        with patch.object(listening_connectors, "_request", side_effect=lambda *_args: json.dumps(next(responses)).encode()), \
+             patch.object(listening_connectors.time, "sleep"):
+            items, health = listening_connectors.discover_searxng("youtube", "controlador MIDI", 5)
+
+        self.assertEqual(health["status"], "ok")
+        self.assertEqual(health["retry_attempted"], 1)
+        self.assertEqual(len(items), 1)
+
 
 class RecoveryTests(unittest.TestCase):
     def test_recovers_only_unavailable_service(self):

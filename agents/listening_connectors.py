@@ -104,6 +104,7 @@ def discover_searxng(channel: str, query: str, limit: int) -> tuple[list[dict[st
     seen: set[str] = set()
     errors: list[str] = []
     unresponsive: list[str] = []
+    retries = 0
     site_filters = CHANNEL_SITE_FILTERS.get(channel) or tuple(f"site:{host}" for host in hosts)
     for site_filter in site_filters:
         search = urllib.parse.quote(f"{site_filter} {query}")
@@ -116,7 +117,20 @@ def discover_searxng(channel: str, query: str, limit: int) -> tuple[list[dict[st
         except Exception as exc:
             errors.append(str(exc))
             continue
-        for engine in payload.get("unresponsive_engines", []):
+        engines = payload.get("unresponsive_engines", [])
+        # Reintentar una sola vez ante un timeout transitorio. CAPTCHA y rate
+        # limits no se reintentan porque insistir empeora el bloqueo externo.
+        transient_timeout = any("timeout" in " ".join(str(part) for part in engine).lower() for engine in engines if isinstance(engine, (list, tuple)))
+        if transient_timeout:
+            retries += 1
+            time.sleep(float(os.getenv("SEARXNG_TIMEOUT_RETRY_DELAY_SEC", "1")))
+            try:
+                payload = json.loads(_request(url, "application/json").decode("utf-8", "replace"))
+                engines = payload.get("unresponsive_engines", [])
+            except Exception as exc:
+                errors.append(str(exc))
+                continue
+        for engine in engines:
             if isinstance(engine, (list, tuple)) and engine:
                 unresponsive.append(": ".join(str(value) for value in engine[:2]))
         for result in payload.get("results", []):
@@ -141,8 +155,8 @@ def discover_searxng(channel: str, query: str, limit: int) -> tuple[list[dict[st
     if not items and errors:
         return [], {"provider": "searxng", "status": "unavailable", "error": errors[-1]}
     if not items and unresponsive:
-        return [], {"provider": "searxng", "status": "degraded", "items": 0, "error": "; ".join(unresponsive[:4])}
-    return items, {"provider": "searxng", "status": "ok", "items": len(items)}
+        return [], {"provider": "searxng", "status": "degraded", "items": 0, "error": "; ".join(unresponsive[:4]), "retry_attempted": retries}
+    return items, {"provider": "searxng", "status": "ok", "items": len(items), "retry_attempted": retries}
 
 
 def _feed_template(channel: str) -> str:

@@ -6,7 +6,6 @@ import { prisma } from "../src/lib/db";
 import { loadEnv } from "./agent-utils.mjs";
 
 loadEnv();
-if (process.env.DIRECT_URL) process.env.DATABASE_URL = process.env.DIRECT_URL;
 
 const DEFAULT_DAILY_TARGET = 50;
 // 0 significa sin corte: los modelos lentos pueden terminar la generación.
