@@ -145,6 +145,7 @@ export function EditorForm({
   const [saved, setSaved] = useState(false);
   const [actionLabel, setActionLabel] = useState<"preview" | "confirm">("preview");
   const [previewVersion, setPreviewVersion] = useState(0);
+  const [previewStatus, setPreviewStatus] = useState<"loading" | "ready" | "error">("loading");
 
   const previewSrc = `/api/landings/preview?client=${encodeURIComponent(config.clientSlug)}&v=${previewVersion}`;
 
@@ -154,6 +155,7 @@ export function EditorForm({
     setPrimaryColor(config.landingPrimaryColor || "#EB6517");
     setSecondaryColor(config.landingSecondaryColor || "#F6A00C");
     setSaved(false);
+    setPreviewStatus("loading");
     setPreviewVersion((version) => version + 1);
   }, [
     config.id,
@@ -181,6 +183,7 @@ export function EditorForm({
     await updateLandingTemplate(fd);
     setSaving(false);
     setSaved(true);
+    setPreviewStatus("loading");
     setPreviewVersion((version) => version + 1);
     router.refresh();
     setTimeout(() => setSaved(false), 3000);
@@ -344,17 +347,55 @@ export function EditorForm({
           <h2 className="font-display text-sm font-bold text-paper">Previsualización</h2>
           <button
             type="button"
-            onClick={() => setPreviewVersion((version) => version + 1)}
+            onClick={() => {
+              setPreviewStatus("loading");
+              setPreviewVersion((version) => version + 1);
+            }}
             className="rounded-full border border-white/15 px-3 py-1.5 text-xs font-bold text-paper transition hover:border-white/35"
           >
             Actualizar
           </button>
         </div>
-        <div className="bg-[#202326] p-3">
+        <div className="relative bg-[#202326] p-3">
+          {previewStatus !== "ready" ? (
+            <div className="absolute inset-3 z-10 flex items-center justify-center rounded-lg bg-[#202326] text-center text-paper">
+              <div className="flex max-w-xs flex-col items-center gap-3 px-6">
+                {previewStatus === "loading" ? (
+                  <>
+                    <span className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-brass" aria-hidden="true" />
+                    <div>
+                      <p className="text-sm font-bold">Generando previsualización</p>
+                      <p className="mt-1 text-xs leading-5 text-white/55">Estamos preparando la landing con el diseño elegido.</p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <span className="flex h-8 w-8 items-center justify-center rounded-full border border-signal/50 text-sm text-signal" aria-hidden="true">!</span>
+                    <div>
+                      <p className="text-sm font-bold">No se pudo cargar la previsualización</p>
+                      <p className="mt-1 text-xs leading-5 text-white/55">Verificá el relay y volvé a intentarlo.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPreviewStatus("loading");
+                        setPreviewVersion((version) => version + 1);
+                      }}
+                      className="rounded-full border border-white/20 px-3 py-1.5 text-xs font-bold transition hover:border-white/45"
+                    >
+                      Reintentar
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          ) : null}
           <iframe
             key={previewSrc}
             src={previewSrc}
             title="Previsualización de landing"
+            onLoad={() => setPreviewStatus("ready")}
+            onError={() => setPreviewStatus("error")}
             className="h-[640px] w-full rounded-lg border border-white/10 bg-white"
           />
         </div>

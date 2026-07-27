@@ -26,6 +26,7 @@ if (existsSync(envPath)) {
 
 const PORT = parseInt(process.env.AGENT_RELAY_PORT ?? "3099", 10);
 const TOKEN = process.env.AGENT_RELAY_TOKEN;
+const landingGenerationClients = new Set();
 
 if (!TOKEN) {
   console.error("[agent-relay] ERROR: AGENT_RELAY_TOKEN no configurado en .env");
@@ -451,6 +452,42 @@ const server = http.createServer(async (req, res) => {
         "Cache-Control": "no-store",
       });
       res.end(html);
+    });
+    return;
+  }
+
+  // POST /landings/generate — inicia la generación local sin bloquear la UI remota.
+  if (method === "POST" && url === "/landings/generate") {
+    let body;
+    try { body = await readBody(req); }
+    catch { return json(res, 400, { error: "invalid_json" }); }
+
+    const clientSlug = String(body.clientSlug || "").trim();
+    if (!clientSlug) return json(res, 400, { error: "missing_client_slug" });
+    if (landingGenerationClients.has(clientSlug)) {
+      return json(res, 409, { error: "generation_already_running" });
+    }
+
+    landingGenerationClients.add(clientSlug);
+    const swarmPath = join(ROOT, "landing-build", "swarm.py");
+    const python = getPythonCommand();
+    console.log(`[agent-relay] landings/generate iniciado para ${clientSlug}`);
+    json(res, 202, { accepted: true, clientSlug });
+
+    const child = spawn(python.command, [...python.argsPrefix, swarmPath, "generate", "--limit", "10", "--client-slug", clientSlug], {
+      cwd: ROOT,
+      env: process.env,
+      windowsHide: true,
+    });
+    child.stdout.on("data", (chunk) => console.log(`[agent-relay] landings/generate ${clientSlug}: ${chunk.toString().trim()}`));
+    child.stderr.on("data", (chunk) => console.error(`[agent-relay] landings/generate ${clientSlug}: ${chunk.toString().trim()}`));
+    child.on("close", (code) => {
+      landingGenerationClients.delete(clientSlug);
+      console.log(`[agent-relay] landings/generate finalizado para ${clientSlug} (exit ${code})`);
+    });
+    child.on("error", (error) => {
+      landingGenerationClients.delete(clientSlug);
+      console.error(`[agent-relay] landings/generate no pudo iniciar para ${clientSlug}:`, error.message);
     });
     return;
   }

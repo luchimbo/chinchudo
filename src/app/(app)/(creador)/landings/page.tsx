@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { getVisibleClients } from "@/lib/auth";
 import { publishLandingPreview, updateLandingStatus } from "./actions";
+import { GenerateLandingsButton } from "./generate-landings-button";
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: "Borrador",
@@ -92,7 +93,11 @@ export default async function LandingsPage({
       </div>
 
       {landings.length === 0 ? (
-        <p className="text-sm text-slate">No hay landings en este estado.</p>
+        status === "DRAFT" && activeClient ? (
+          <GenerateLandingsButton clientSlug={activeClient.slug} />
+        ) : (
+          <p className="text-sm text-slate">No hay landings en este estado.</p>
+        )
       ) : (
         <div className="flex flex-col gap-3">
           {landings.map((landing) => (
