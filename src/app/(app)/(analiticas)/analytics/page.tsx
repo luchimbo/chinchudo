@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getAnalyticsData } from "@/lib/analytics";
+import { ANALYTICS_PERIODS, analyticsPeriodStart, getAnalyticsData, type AnalyticsPeriod } from "@/lib/analytics";
 import { prisma } from "@/lib/db";
 import { getVisibleClients } from "@/lib/auth";
 import { deleteSystemLog, clearAllSystemErrors } from "./actions";
@@ -58,6 +58,18 @@ function EmptyChart({ label = "Sin datos suficientes aún" }: { label?: string }
     <div className="flex h-[180px] items-center justify-center rounded-xl border border-dashed border-ink/15 bg-ink/[0.01]">
       <p className="text-sm text-slate/40 italic">{label}</p>
     </div>
+  );
+}
+
+function InactiveModule({ title, description }: { title: string; description: string }) {
+  return (
+    <section className="flex items-center justify-between gap-5 rounded-xl border border-dashed border-ink/15 bg-white/45 px-5 py-4">
+      <div>
+        <h2 className="text-xs font-bold uppercase tracking-[0.18em] text-slate/65">{title}</h2>
+        <p className="mt-1 text-sm text-slate/60">{description}</p>
+      </div>
+      <span className="shrink-0 rounded-full bg-ink/5 px-3 py-1 text-xs font-semibold text-slate/70">Sin actividad</span>
+    </section>
   );
 }
 
@@ -144,34 +156,55 @@ function pct(a: number, b: number) {
 }
 
 type PageProps = {
-  searchParams: { client?: string; showErrors?: string };
+  searchParams: { client?: string; showErrors?: string; period?: string; from?: string; to?: string };
 };
+
+const PERIOD_LABELS: Record<AnalyticsPeriod, string> = {
+  "7d": "7 días",
+  "30d": "30 días",
+  "90d": "90 días",
+  all: "Todo",
+};
+
+function dateParam(value: string | undefined, endOfDay = false) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
+  const date = new Date(`${value}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}`);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
 
 // ─── Componente Principal ───────────────────────────────────────────────────
 
 export default async function AnalyticsPage({ searchParams }: PageProps) {
   const { client: clientSlug, showErrors } = searchParams;
+  const period: AnalyticsPeriod = ANALYTICS_PERIODS.includes(searchParams.period as AnalyticsPeriod)
+    ? searchParams.period as AnalyticsPeriod
+    : "30d";
 
   const clients = await getVisibleClients(prisma);
   const activeClient = clients.find((c) => c.slug === clientSlug) ?? clients[0] ?? null;
 
-  const data = await getAnalyticsData(activeClient?.id);
+  const range = { from: dateParam(searchParams.from), to: dateParam(searchParams.to, true) };
+  const hasCustomRange = Boolean(range.from || range.to);
+  const data = await getAnalyticsData(activeClient?.id, period, range);
   const brandSnapshots = await prisma.brandSnapshot.findMany({
     where: activeClient ? { clientId: activeClient.id } : { id: "__no_client__" },
     orderBy: { capturedAt: "asc" },
   });
 
-  const responseRate =
+  const draftRate =
     data.totalOpportunities > 0
-      ? Math.round((data.totalPublished / data.totalOpportunities) * 100)
+      ? Math.round((data.totalDrafted / data.totalOpportunities) * 100)
       : 0;
 
-  const conversionRate =
-    data.totalPublished > 0
-      ? Math.round((data.totalConverted / data.totalPublished) * 100)
+  const approvalRate =
+    data.totalDrafted > 0
+      ? Math.round((data.totalApproved / data.totalDrafted) * 100)
       : 0;
 
-  const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const periodStart = range.from ?? analyticsPeriodStart(period);
+  const createdDuringPeriod = periodStart || range.to
+    ? { createdAt: { ...(periodStart ? { gte: periodStart } : {}), ...(range.to ? { lte: range.to } : {}) } }
+    : {};
   const since7  = new Date(Date.now() - 7  * 24 * 60 * 60 * 1000);
   const cf = activeClient ? { clientId: activeClient.id } : {};
 
@@ -209,37 +242,37 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
     // Blog
     prisma.landing.count({ where: cf }),
     prisma.landing.count({ where: { status: "PUBLISHED", ...cf } }),
-    prisma.landing.count({ where: { createdAt: { gte: since30 }, ...cf } }),
+    prisma.landing.count({ where: { ...createdDuringPeriod, ...cf } }),
     prisma.trackingEvent.groupBy({
       by: ["slug"], _count: { id: true },
-      where: { eventType: "page_view", ...cf },
+      where: { eventType: "page_view", ...createdDuringPeriod, ...cf },
     }),
-    prisma.trackingEvent.count({ where: { eventType: "page_view", ...cf } }),
+    prisma.trackingEvent.count({ where: { eventType: "page_view", ...createdDuringPeriod, ...cf } }),
     prisma.trackingEvent.groupBy({
       by: ["referrer"], _count: { id: true },
-      where: { eventType: "page_view", referrer: { not: "" }, ...cf },
+      where: { eventType: "page_view", referrer: { not: "" }, ...createdDuringPeriod, ...cf },
     }),
 
     // Contactos
-    prisma.lead.count({ where: cf }),
-    prisma.lead.count({ where: { createdAt: { gte: since30 }, ...cf } }),
-    prisma.nurtureStep.count({ where: cf }),
-    prisma.nurtureStep.count({ where: { status: "SENT", ...cf } }),
-    prisma.nurtureStep.count({ where: { status: "FAILED", ...cf } }),
+    prisma.lead.count({ where: { ...createdDuringPeriod, ...cf } }),
+    prisma.lead.count({ where: { ...createdDuringPeriod, ...cf } }),
+    prisma.nurtureStep.count({ where: { ...createdDuringPeriod, ...cf } }),
+    prisma.nurtureStep.count({ where: { status: "SENT", ...createdDuringPeriod, ...cf } }),
+    prisma.nurtureStep.count({ where: { status: "FAILED", ...createdDuringPeriod, ...cf } }),
 
     // Distribución
-    prisma.distributionPiece.count({ where: cf }),
-    prisma.distributionPiece.count({ where: { status: "PUBLISHED", ...cf } }),
+    prisma.distributionPiece.count({ where: { ...createdDuringPeriod, ...cf } }),
+    prisma.distributionPiece.count({ where: { status: "PUBLISHED", ...createdDuringPeriod, ...cf } }),
     prisma.distributionPiece.groupBy({
       by: ["canal"], _count: { id: true },
-      where: { status: "PUBLISHED", ...cf },
+      where: { status: "PUBLISHED", ...createdDuringPeriod, ...cf },
     }),
 
     // GEO
-    prisma.geoAudit.count({ where: cf }),
-    prisma.geoAudit.aggregate({ where: cf, _avg: { score: true }, _max: { score: true } }),
+    prisma.geoAudit.count({ where: { ...createdDuringPeriod, ...cf } }),
+    prisma.geoAudit.aggregate({ where: { ...createdDuringPeriod, ...cf }, _avg: { score: true }, _max: { score: true } }),
     prisma.geoAudit.findMany({
-      where: cf,
+      where: { ...createdDuringPeriod, ...cf },
       orderBy: { createdAt: "desc" },
       take: 3,
       select: { score: true, modeloIA: true, createdAt: true, prompt: true }
@@ -314,6 +347,44 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
           </Link>
         )}
       </header>
+
+      <nav aria-label="Período de análisis" className="flex flex-wrap items-center gap-2">
+        <span className="mr-1 text-[10px] font-bold uppercase tracking-[0.18em] text-slate/55">Período</span>
+        {ANALYTICS_PERIODS.map((option) => {
+          const params = new URLSearchParams();
+          if (clientSlug) params.set("client", clientSlug);
+          params.set("period", option);
+          return (
+            <Link
+              key={option}
+              href={`/analytics?${params.toString()}`}
+              aria-current={period === option ? "page" : undefined}
+              className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${
+                period === option
+                  ? "bg-ink text-paper shadow-sm"
+                  : "border border-ink/10 bg-white/60 text-slate hover:border-ink/25 hover:text-ink"
+              }`}
+            >
+              {PERIOD_LABELS[option]}
+            </Link>
+          );
+        })}
+        <form action="/analytics" className="ml-auto flex flex-wrap items-end gap-2 rounded-lg border border-ink/10 bg-white/60 px-3 py-2">
+          {clientSlug && <input type="hidden" name="client" value={clientSlug} />}
+          <input type="hidden" name="period" value={period} />
+          <label className="flex flex-col gap-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate/60">
+            Desde
+            <input name="from" type="date" defaultValue={searchParams.from} className="rounded border border-ink/10 bg-paper px-2 py-1 text-xs font-medium normal-case tracking-normal text-ink" />
+          </label>
+          <label className="flex flex-col gap-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate/60">
+            Hasta
+            <input name="to" type="date" defaultValue={searchParams.to} className="rounded border border-ink/10 bg-paper px-2 py-1 text-xs font-medium normal-case tracking-normal text-ink" />
+          </label>
+          <button type="submit" className="rounded bg-moss px-3 py-1.5 text-xs font-bold text-paper transition hover:bg-ink">Aplicar</button>
+          {hasCustomRange && <Link href={`/analytics?${clientSlug ? `client=${clientSlug}&` : ""}period=${period}`} className="pb-1 text-xs font-semibold text-slate hover:text-ink">Limpiar</Link>}
+        </form>
+        <span className="ml-1 text-xs text-slate/55">Datos registrados en {hasCustomRange ? "el rango elegido" : PERIOD_LABELS[period].toLowerCase()}.</span>
+      </nav>
 
       {/* ── PANEL DE DETALLE DE ERRORES (Solo si showErrors === "1") ── */}
       {activeClient?.slug === "pcmidi" && showErrors === "1" && (
@@ -423,22 +494,23 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
         <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-slate/50">1. Oportunidades y Conversación en Redes</h2>
         
         {/* KPI Cards */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard label="Oportunidades" value={data.totalOpportunities} />
-          <StatCard label="Publicadas"    value={data.totalPublished}      accent="moss"   sub={`${responseRate}% tasa de publicación`} />
-          <StatCard label="Convertidas"   value={data.totalConverted}      accent="brass"  sub={`${conversionRate}% de lo publicado`} />
-          <StatCard label="Borradores IA" value={data.totalResponses}      accent="slate" />
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <StatCard label="Oportunidades nuevas" value={data.totalOpportunities} sub="Detectadas en el período" />
+          <StatCard label="Con borrador" value={data.totalDrafted} accent="slate" sub={`${draftRate}% sobre oportunidades`} />
+          <StatCard label="Borradores aprobados" value={data.totalApproved} accent="brass" sub={`${approvalRate}% de los borradores`} />
+          <StatCard label="Publicaciones reales" value={data.totalPublished} accent="moss" sub="Según el registro de publicación" />
+          <StatCard label="Conversiones" value={data.totalConverted} accent="brass" sub="Resultado atribuido a una publicación" />
         </div>
 
         {/* Resumen semanal IA */}
-        <WeeklySummary />
+        <WeeklySummary period={period} />
 
         {/* Gráficos Operativos */}
         <div className="grid gap-6 lg:grid-cols-2">
-          <ChartCard title="Pipeline por estado">
+          <ChartCard title="Estado actual de la cohorte">
             <PipelineChart data={data.statusCounts} />
           </ChartCard>
-          <ChartCard title="Tendencia semanal (últimas 8 semanas)">
+          <ChartCard title="Actividad semanal del período">
             <WeeklyTrendChart data={data.weeklyTrend} />
           </ChartCard>
         </div>
@@ -480,7 +552,7 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
         <div className="grid gap-6 lg:grid-cols-2">
           <div className="rounded-xl border border-ink/10 bg-white/70 p-5 shadow-panel backdrop-blur">
             <h2 className="mb-4 text-xs font-bold uppercase tracking-[0.18em] text-slate/70">
-              Variantes de voz más usadas
+              Variantes de voz generadas
             </h2>
             {data.voiceVariantCounts.length > 0 ? (
               <div className="flex flex-col gap-2">
@@ -549,6 +621,9 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
       </section>
 
       {/* ── SECCIÓN 2: BLOG SEO Y TRÁFICO WEB ── */}
+      {landingsTotal === 0 && totalVisits === 0 ? (
+        <InactiveModule title="2. Blog de contenidos y tráfico SEO" description="Todavía no hay artículos ni visitas registrados en este período." />
+      ) : (
       <section className="flex flex-col gap-6">
         <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-slate/50">2. Blog de Contenidos y Tráfico SEO</h2>
 
@@ -556,8 +631,8 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard label="Artículos creados" value={landingsTotal} />
           <StatCard label="Publicados" value={landingsPublished} sub={pct(landingsPublished, landingsTotal)} accent="moss" />
-          <StatCard label="Creados este mes" value={landingsLast30} />
-          <StatCard label="Visitas totales" value={totalVisits} accent="brass" />
+          <StatCard label="Creados en el período" value={landingsLast30} />
+          <StatCard label="Visitas del período" value={totalVisits} accent="brass" />
         </div>
 
         <div className="grid gap-6 lg:grid-cols-2">
@@ -596,8 +671,12 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
           </div>
         </div>
       </section>
+      )}
 
       {/* ── SECCIÓN 3: DISTRIBUCIÓN AUTOMÁTICA Y CONTACTOS ── */}
+      {distTotal === 0 && leadsTotal === 0 && nurtureTotal === 0 ? (
+        <InactiveModule title="3. Distribución y contactos" description="No se registraron piezas, contactos ni envíos de nutrición durante el período." />
+      ) : (
       <section className="flex flex-col gap-6">
         <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-slate/50">3. Distribución Automática y Contactos</h2>
 
@@ -658,6 +737,7 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
           </div>
         </div>
       </section>
+      )}
 
       {/* ── SECCIÓN 4: PRESENCIA EN IAS (GEO) Y FUENTES DE MONITOREO ── */}
       <section className="grid gap-6 lg:grid-cols-2">

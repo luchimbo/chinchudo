@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { getAnalyticsData, generateWeeklySummary } from "@/lib/analytics";
+import { ANALYTICS_PERIODS, getAnalyticsData, generateWeeklySummary, type AnalyticsPeriod } from "@/lib/analytics";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/db";
@@ -17,11 +17,23 @@ export async function POST(request: NextRequest) {
   try {
     // Cliente activo opcional: si llega su slug, el resumen usa su key/modelo de OpenRouter.
     const clientSlug = new URL(request.url).searchParams.get("client")?.trim();
+    const requestedPeriod = new URL(request.url).searchParams.get("period");
+    const period: AnalyticsPeriod = ANALYTICS_PERIODS.includes(requestedPeriod as AnalyticsPeriod)
+      ? requestedPeriod as AnalyticsPeriod
+      : "30d";
     const client = clientSlug
       ? await prisma.client.findUnique({ where: { slug: clientSlug } })
       : null;
 
-    const data    = await getAnalyticsData(client?.id);
+    const parseDate = (value: string | null, endOfDay = false) => {
+      if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
+      const date = new Date(`${value}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}`);
+      return Number.isNaN(date.getTime()) ? undefined : date;
+    };
+    const data = await getAnalyticsData(client?.id, period, {
+      from: parseDate(new URL(request.url).searchParams.get("from")),
+      to: parseDate(new URL(request.url).searchParams.get("to"), true),
+    });
     const summary = await generateWeeklySummary(data, {
       apiKey: client?.openrouterApiKey,
       model: client?.openrouterModel,

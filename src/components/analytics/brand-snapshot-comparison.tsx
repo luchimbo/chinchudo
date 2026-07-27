@@ -8,7 +8,28 @@ const formatDate = (date: Date) => new Intl.DateTimeFormat("es-AR", { day: "nume
 
 export function BrandSnapshotComparison({ snapshots, clientName }: { snapshots: BrandSnapshot[]; clientName: string }) {
   const baseline = snapshots.find((snapshot) => snapshot.milestone === "D0");
-  if (!baseline) return null;
+  if (!baseline) {
+    return <section className="rounded-2xl border border-moss/20 bg-gradient-to-br from-moss/10 via-white to-white p-6 shadow-panel">
+      <div className="flex flex-wrap items-start justify-between gap-5">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-moss">Seguimiento programado</p>
+          <h2 className="mt-1 font-display text-3xl text-ink">Foto de marca: {clientName}</h2>
+          <p className="mt-1 max-w-2xl text-sm text-slate">Compará el crecimiento con una foto inicial y cortes programados. El seguimiento empieza cuando se registre el Día 0.</p>
+        </div>
+        <div className="rounded-xl border border-brass/20 bg-brass/5 px-4 py-3 shadow-sm">
+          <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-brass">Próximo paso</p>
+          <p className="mt-1 text-lg font-bold text-ink">Registrar Día 0</p>
+          <p className="mt-1 text-xs text-slate">Así se programan los cortes siguientes.</p>
+        </div>
+      </div>
+      <div className="mt-5 grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
+        {milestones.map((milestone) => <div key={milestone} className="rounded-lg border border-dashed border-ink/15 bg-white/60 px-3 py-3">
+          <p className="text-xs font-bold text-slate">○ {label[milestone]}</p>
+          <p className="mt-1 text-[11px] text-slate/65">Pendiente de programar</p>
+        </div>)}
+      </div>
+    </section>;
+  }
   const completed = new Set(snapshots.map((snapshot) => snapshot.milestone));
   const nextMilestone = milestones.find((milestone) => !completed.has(milestone));
   const nextDate = nextMilestone ? scheduleForMilestone(baseline.baselineAt, nextMilestone) : null;

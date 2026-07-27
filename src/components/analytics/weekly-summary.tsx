@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-export function WeeklySummary() {
+export function WeeklySummary({ period }: { period: string }) {
   const [text, setText]       = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string>("");
@@ -14,7 +14,14 @@ export function WeeklySummary() {
     try {
       // Propaga el cliente activo (?client=slug) para que el resumen use su key de OpenRouter.
       const clientSlug = new URLSearchParams(window.location.search).get("client") ?? "";
-      const url = clientSlug ? `/api/analytics/summary?client=${encodeURIComponent(clientSlug)}` : "/api/analytics/summary";
+      const current = new URLSearchParams(window.location.search);
+      const params = new URLSearchParams({ period });
+      if (clientSlug) params.set("client", clientSlug);
+      for (const key of ["from", "to"]) {
+        const value = current.get(key);
+        if (value) params.set(key, value);
+      }
+      const url = `/api/analytics/summary?${params.toString()}`;
       const res = await fetch(url, { method: "POST" });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? res.statusText);

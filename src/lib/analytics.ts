@@ -18,7 +18,9 @@ export interface WeekPoint    { week: string; total: number; publicadas: number 
 
 export interface AnalyticsData {
   totalOpportunities: number;
+  totalDrafted:       number;
   totalResponses:     number;
+  totalApproved:      number;
   totalPublished:     number;
   totalConverted:     number;
   statusCounts:   StatusCount[];
@@ -33,9 +35,23 @@ export interface AnalyticsData {
   weeklyTrend:    WeekPoint[];
 }
 
+export const ANALYTICS_PERIODS = ["7d", "30d", "90d", "all"] as const;
+export type AnalyticsPeriod = (typeof ANALYTICS_PERIODS)[number];
+export type AnalyticsDateRange = { from?: Date; to?: Date };
+
+export function analyticsPeriodStart(period: AnalyticsPeriod, now = new Date()): Date | undefined {
+  if (period === "all") return undefined;
+  const days = period === "7d" ? 7 : period === "30d" ? 30 : 90;
+  const start = new Date(now);
+  start.setDate(start.getDate() - days);
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
 // ─── Etiquetas ───────────────────────────────────────────────────────────────
 
 const RESULT_LABELS: Record<string, string> = {
+  published:      "Publicada",
   no_reply:       "Sin respuesta",
   reply:          "Con respuesta",
   positive_reply: "Respuesta positiva",
@@ -57,7 +73,8 @@ function weekLabel(date: Date): string {
 }
 
 function buildWeeklyTrend(
-  opps: { createdAt: Date; status: string }[],
+  opps: { createdAt: Date }[],
+  publicationDates: Date[],
   weeks = 8
 ): WeekPoint[] {
   const now = new Date();
@@ -75,7 +92,7 @@ function buildWeeklyTrend(
     points.push({
       week: weekLabel(weekStart),
       total: slice.length,
-      publicadas: slice.filter(o => o.status === "PUBLISHED" || o.status === "CONVERTED").length,
+      publicadas: publicationDates.filter(date => date >= weekStart && date < weekEnd).length,
     });
   }
 
@@ -84,17 +101,29 @@ function buildWeeklyTrend(
 
 // ─── Función principal ────────────────────────────────────────────────────────
 
-export async function getAnalyticsData(clientId?: string): Promise<AnalyticsData> {
-  const since8w = new Date();
-  since8w.setDate(since8w.getDate() - 56);
+export async function getAnalyticsData(clientId?: string, period: AnalyticsPeriod = "30d", range?: AnalyticsDateRange): Promise<AnalyticsData> {
+  const periodStart = analyticsPeriodStart(period);
+  const dateRange: Prisma.DateTimeFilter = {
+    ...(range?.from ? { gte: range.from } : periodStart ? { gte: periodStart } : {}),
+    ...(range?.to ? { lte: range.to } : {}),
+  };
+  const createdDuringPeriod = Object.keys(dateRange).length ? { createdAt: dateRange } : {};
 
-  const oppWhere: Prisma.OpportunityWhereInput = clientId
-    ? { OR: [{ detectedBrand: { clientId } }, { monitoredSource: { clientId } }] }
+  const clientWhere: Prisma.OpportunityWhereInput = clientId
+    ? { OR: [{ clientId }, { detectedBrand: { clientId } }, { monitoredSource: { clientId } }] }
     : {};
+  const oppWhere: Prisma.OpportunityWhereInput = { ...clientWhere, ...createdDuringPeriod };
+  const responseWhere: Prisma.ResponseWhereInput = { opportunity: oppWhere, ...createdDuringPeriod };
+  const publishingWhere: Prisma.PublishingLogWhereInput = {
+    opportunity: clientWhere,
+    ...(Object.keys(dateRange).length ? { publishedAt: dateRange } : {}),
+  };
 
   const [
     totalOpportunities,
+    draftedOpportunities,
     totalResponses,
+    approvedOpportunities,
     statusGroups,
     channelGroups,
     brandGroups,
@@ -105,12 +134,15 @@ export async function getAnalyticsData(clientId?: string): Promise<AnalyticsData
     responseRows,
     resultGroups,
     recentOpps,
+    recentPublications,
     channels,
     brands,
     personas,
   ] = await Promise.all([
     prisma.opportunity.count({ where: oppWhere }),
-    prisma.response.count({ where: clientId ? { opportunity: oppWhere } : {} }),
+    prisma.response.groupBy({ by: ["opportunityId"], where: responseWhere }),
+    prisma.response.count({ where: responseWhere }),
+    prisma.response.groupBy({ by: ["opportunityId"], where: { ...responseWhere, approvedBy: { not: "" } } }),
     prisma.opportunity.groupBy({ by: ["status"],          where: oppWhere, _count: { status: true } }),
     prisma.opportunity.groupBy({ by: ["channelId"],       where: oppWhere, _count: { channelId: true } }),
     prisma.opportunity.groupBy({ by: ["detectedBrandId"], where: oppWhere, _count: { detectedBrandId: true } }),
@@ -129,29 +161,30 @@ export async function getAnalyticsData(clientId?: string): Promise<AnalyticsData
     }),
     prisma.response.groupBy({
       by: ["personaId"],
-      where: clientId ? { opportunity: oppWhere } : {},
+      where: responseWhere,
       _count: { personaId: true },
       orderBy: { _count: { personaId: "desc" } },
     }),
     prisma.response.groupBy({
       by: ["voiceVariant"],
-      where: clientId ? { opportunity: oppWhere } : {},
+      where: responseWhere,
       _count: { voiceVariant: true },
       orderBy: { _count: { voiceVariant: "desc" } },
     }),
     prisma.response.findMany({
-      where: clientId ? { opportunity: oppWhere } : {},
+      where: responseWhere,
       select: {
         voiceVariant: true,
         approvedBy: true,
         publishingLog: { select: { id: true } },
       },
     }),
-    prisma.publishingLog.groupBy({ by: ["result"], _count: { result: true } }),
+    prisma.publishingLog.groupBy({ by: ["result"], where: publishingWhere, _count: { result: true } }),
     prisma.opportunity.findMany({
-      where: { ...oppWhere, createdAt: { gte: since8w } },
-      select: { createdAt: true, status: true },
+      where: oppWhere,
+      select: { createdAt: true },
     }),
+    prisma.publishingLog.findMany({ where: publishingWhere, select: { publishedAt: true } }),
     prisma.channel.findMany(),
     prisma.brand.findMany({ where: clientId ? { clientId } : {} }),
     prisma.persona.findMany({ where: clientId ? { clientId } : {} }),
@@ -173,8 +206,8 @@ export async function getAnalyticsData(clientId?: string): Promise<AnalyticsData
 
   // Derived
   const statMap = new Map(statusGroups.map(s => [s.status, s._count.status]));
-  const totalPublished  = statMap.get("PUBLISHED")  ?? 0;
-  const totalConverted  = statMap.get("CONVERTED")  ?? 0;
+  const totalPublished = resultGroups.reduce((total, row) => total + row._count.result, 0);
+  const totalConverted = resultGroups.find((row) => row.result === "converted")?._count.result ?? 0;
 
   // Status counts ordenados por pipeline
   const statusCounts: StatusCount[] = STATUS_ORDER.map(s => ({
@@ -233,11 +266,14 @@ export async function getAnalyticsData(clientId?: string): Promise<AnalyticsData
     count:  r._count.result,
   }));
 
-  const weeklyTrend = buildWeeklyTrend(recentOpps);
+  const trendWeeks = period === "7d" ? 1 : period === "30d" ? 5 : period === "90d" ? 13 : 8;
+  const weeklyTrend = buildWeeklyTrend(recentOpps, recentPublications.map((row) => row.publishedAt), trendWeeks);
 
   return {
     totalOpportunities,
+    totalDrafted: draftedOpportunities.length,
     totalResponses,
+    totalApproved: approvedOpportunities.length,
     totalPublished,
     totalConverted,
     statusCounts,
