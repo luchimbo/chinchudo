@@ -457,7 +457,7 @@ model PublishingLog {
   responseId     String      @unique
   publishedUrl   String      @default("")
   publishedAt    DateTime    @default(now())
-  publishedBy    String      @default("Fede")
+  publishedBy    String      @default("Operador")
   result         String      @default("no_reply")
   followUpNeeded Boolean     @default(false)
   createdAt      DateTime    @default(now())
