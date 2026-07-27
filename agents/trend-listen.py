@@ -36,24 +36,6 @@ DEFAULT_HEADERS = {
     "Accept-Language": "es-419,es;q=0.9,en;q=0.8",
 }
 MAX_KEYWORDS_PER_SOURCE = int(os.environ.get("TRENDS_KEYWORDS_PER_SOURCE", "8"))
-VIRAL_MARKETING_QUERIES = [
-    {"query": "hook viral marketing tiktok argentina", "format": "hook"},
-    {"query": "formato ugc viral producto tiktok", "format": "ugc"},
-    {"query": "before after marketing reel viral", "format": "before_after"},
-    {"query": "storytelling marca producto tiktok viral", "format": "storytelling"},
-    {"query": "oferta limitada reel viral argentina", "format": "oferta"},
-    {"query": "comparativa producto tiktok viral", "format": "comparativa"},
-    {"query": "errores comunes reel viral marketing", "format": "errores_comunes"},
-    {"query": "pov cliente tiktok marketing viral", "format": "pov"},
-    {"query": "unboxing producto tiktok viral argentina", "format": "unboxing"},
-    {"query": "demo producto shorts viral", "format": "demo"},
-    {"query": "3 cosas que reel viral marketing", "format": "lista"},
-    {"query": "mitos producto tiktok viral", "format": "mitos"},
-    {"query": "review honesta producto tiktok viral", "format": "review"},
-    {"query": "problema solucion reel viral marketing", "format": "problema_solucion"},
-    {"query": "plantilla anuncio tiktok viral ecommerce", "format": "anuncio"},
-    {"query": "tendencias marketing contenido corto 2026", "format": "tendencia_marketing"},
-]
 
 
 def is_audiovisual_reference(trend: dict) -> bool:
@@ -83,7 +65,7 @@ def is_audiovisual_reference(trend: dict) -> bool:
 def load_client_keywords() -> list[dict]:
     clients_data = []
     with connect() as conn:
-        rows = conn.execute('SELECT id, name, slug, "domainKeywords" FROM "Client" WHERE active = true').fetchall()
+        rows = conn.execute('SELECT id, name, slug, description, "domainKeywords", "domainExclusions" FROM "Client" WHERE active = true').fetchall()
         for row in rows:
             try:
                 keywords = json.loads(row["domainKeywords"] or "[]")
@@ -92,12 +74,32 @@ def load_client_keywords() -> list[dict]:
 
             brands = conn.execute('SELECT name FROM "Brand" WHERE "clientId" = %s', (row["id"],)).fetchall()
             brand_names = [brand["name"].lower() for brand in brands]
-            merged = sorted({str(keyword).lower() for keyword in keywords if keyword} | set(brand_names))
+            rules = conn.execute('SELECT category, keywords FROM "CatalogRule" WHERE "clientId" = %s', (row["id"],)).fetchall()
+            rule_keywords = []
+            for rule in rules:
+                rule_keywords.append(rule["category"])
+                try:
+                    rule_keywords.extend(json.loads(rule["keywords"] or "[]"))
+                except Exception:
+                    pass
+            products = conn.execute('SELECT name, category, "useCases" FROM "Product" WHERE "brandId" IN (SELECT id FROM "Brand" WHERE "clientId" = %s)', (row["id"],)).fetchall()
+            product_terms = []
+            for product in products:
+                product_terms.extend([product["name"], product["category"]])
+                product_terms.extend(re.split(r"[,;/|]", product["useCases"] or ""))
+            try:
+                exclusions = {str(item).lower() for item in json.loads(row["domainExclusions"] or "[]") if item}
+            except Exception:
+                exclusions = set()
+            merged = [term for term in dict.fromkeys(
+                [str(term).strip().lower() for term in [*rule_keywords, *product_terms, *keywords, *brand_names] if str(term).strip()]
+            ) if term not in exclusions]
 
             clients_data.append({
                 "id": row["id"],
                 "name": row["name"],
                 "slug": row["slug"],
+                "description": row["description"],
                 "keywords": merged,
             })
     return clients_data
@@ -319,7 +321,9 @@ def get_tiktok_creative_center_trends(keywords: list[str], limit: int = 6) -> li
         title = row.get("hashtag_name") or row.get("keyword") or row.get("title") or row.get("name")
         if not title:
             continue
-        matched = keyword_match(json.dumps(row, ensure_ascii=False), keywords) or "argentina"
+        matched = keyword_match(json.dumps(row, ensure_ascii=False), keywords)
+        if not matched:
+            continue
         trends.append({
             "title": f"TikTok Creative Center: #{str(title).lstrip('#')}",
             "description": "Hashtag detectado en TikTok Creative Center para Argentina. Revisar fuente y adaptar al catalogo antes de publicar.",
@@ -479,9 +483,9 @@ def make_viral_marketing_trend(result: dict, query: str, format_name: str, sourc
     if not href:
         href = f"viral-marketing://{urllib.parse.quote(query)}::{urllib.parse.quote(title)}"
     return {
-        "title": f"Idea viral ({format_name.replace('_', ' ')}): {title}",
+        "title": f"Formato en video ({format_name.replace('_', ' ')}): {title}",
         "description": (
-            f"Inspiracion general de marketing para adaptar a cualquier cliente. "
+            f"Referencia de formato en video para adaptar al rubro del cliente. "
             f"Formato sugerido: {format_name.replace('_', ' ')}. Referencia: {body}"
         ),
         "source_url": href,
@@ -497,7 +501,13 @@ def make_viral_marketing_trend(result: dict, query: str, format_name: str, sourc
     }
 
 
-def get_viral_marketing_trends(query_specs: list[dict]) -> list[dict]:
+def get_client_format_trends(keywords: list[str], client_name: str) -> list[dict]:
+    """Busca formatos aplicados al rubro del cliente, nunca marketing genérico."""
+    query_specs = [
+        {"query": f"{keyword} rutina video corto argentina", "format": "rutina real"}
+        for keyword in keywords[:MAX_KEYWORDS_PER_SOURCE]
+        if len(keyword) >= 3
+    ]
     log.info("viral_marketing_start", queries=len(query_specs))
     trends = []
     for spec in query_specs:
@@ -521,6 +531,7 @@ def get_viral_marketing_trends(query_specs: list[dict]) -> list[dict]:
                 continue
             trend = make_viral_marketing_trend(result, query, format_name, "duckduckgo_viral_social_search")
             if trend:
+                trend["description"] = f"Referencia de formato para {client_name}. {trend['description']}"
                 trends.append(trend)
                 break
     log.info("viral_marketing_done", found=len(trends))
@@ -571,7 +582,6 @@ def main() -> None:
     seen = set(existing_keys)
     for client in clients:
         client_trends = []
-        client_viral_trends = []
         keywords = client["keywords"]
         log.info("process_client", client=client["name"], keywords_count=len(keywords))
         if not keywords:
@@ -602,35 +612,26 @@ def main() -> None:
 
             add_unique_trends(collected, client["id"], seen, args.limit, client_trends, all_trends)
 
-        for offset in range(0, len(VIRAL_MARKETING_QUERIES), MAX_KEYWORDS_PER_SOURCE):
-            if time.monotonic() - started_at > budget_seconds:
-                log.warning("time_budget_reached", seconds=budget_seconds)
-                break
-            if len(client_viral_trends) >= args.limit:
-                break
-
-            query_batch = VIRAL_MARKETING_QUERIES[offset:offset + MAX_KEYWORDS_PER_SOURCE]
-            log.info("viral_marketing_batch_start", client=client["name"], offset=offset, batch_size=len(query_batch), new_count=len(client_viral_trends))
-            collected = get_viral_marketing_trends(query_batch)
-            add_unique_trends(collected, client["id"], seen, args.limit, client_viral_trends, all_trends)
+        if len(client_trends) < args.limit:
+            collected = get_client_format_trends(keywords, client["name"])
+            add_unique_trends(collected, client["id"], seen, args.limit, client_trends, all_trends)
 
         log.info(
             "client_done",
             client=client["name"],
             domain_new_count=len(client_trends),
-            viral_new_count=len(client_viral_trends),
             target=args.limit,
         )
 
     if args.dry_run:
-        log.info("dry_run_summary", count=len(all_trends), target_per_client=args.limit, viral_target_per_client=args.limit, clients=len(clients))
+        log.info("dry_run_summary", count=len(all_trends), target_per_client=args.limit, clients=len(clients))
         for trend in all_trends:
             print(f"[{trend['platform']}] {trend['title']} (Term: {trend['query_used']})")
         return
 
     if all_trends:
         write_jsonl(all_trends)
-        log.info("saved_to_intake", count=len(all_trends), target_per_client=args.limit, viral_target_per_client=args.limit, clients=len(clients), path=str(INTAKE_PATH))
+        log.info("saved_to_intake", count=len(all_trends), target_per_client=args.limit, clients=len(clients), path=str(INTAKE_PATH))
         print(f"Se guardaron {len(all_trends)} referencias de video nuevas en {INTAKE_PATH}")
     else:
         print("No se encontraron videos o formatos nuevos relevantes al catalogo hoy.")
