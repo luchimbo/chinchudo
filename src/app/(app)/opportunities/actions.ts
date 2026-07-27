@@ -472,6 +472,60 @@ export async function markAsPublished(formData: FormData) {
   revalidatePath(`/opportunities/${parsed.opportunityId}`);
 }
 
+const simulateDemoPublicationSchema = z.object({
+  opportunityId: z.string().min(1),
+  responseId: z.string().min(1),
+});
+
+/** Solo habilitado para la cuenta ficticia local, sin conexión a redes externas. */
+export async function simulateDemoPublication(formData: FormData) {
+  const parsed = simulateDemoPublicationSchema.parse({
+    opportunityId: formData.get("opportunityId"),
+    responseId: formData.get("responseId"),
+  });
+
+  const opportunity = await prisma.opportunity.findUniqueOrThrow({
+    where: { id: parsed.opportunityId },
+    include: { client: true },
+  });
+  if (opportunity.client?.slug !== "aurora-demo") {
+    throw new Error("La simulación de publicación solo está disponible en la cuenta demo local.");
+  }
+
+  const response = await prisma.response.findFirst({
+    where: { id: parsed.responseId, opportunityId: parsed.opportunityId },
+  });
+  if (!response?.approvedBy) {
+    throw new Error("Aprobá el borrador antes de simular la publicación.");
+  }
+
+  await prisma.$transaction([
+    prisma.publishingLog.upsert({
+      where: { responseId: parsed.responseId },
+      update: {
+        publishedUrl: `https://demo.local/publicado/${parsed.responseId}`,
+        publishedBy: "Simulación local",
+        result: "published",
+      },
+      create: {
+        opportunityId: parsed.opportunityId,
+        responseId: parsed.responseId,
+        publishedUrl: `https://demo.local/publicado/${parsed.responseId}`,
+        publishedBy: "Simulación local",
+        account: "Cuenta demo",
+        result: "published",
+      },
+    }),
+    prisma.opportunity.update({
+      where: { id: parsed.opportunityId },
+      data: { status: OpportunityStatus.PUBLISHED },
+    }),
+  ]);
+
+  revalidatePath("/");
+  revalidatePath(`/opportunities/${parsed.opportunityId}`);
+}
+
 const updateStatusSchema = z.object({
   opportunityId: z.string().min(1),
   status: z.nativeEnum(OpportunityStatus)

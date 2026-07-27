@@ -6,11 +6,10 @@ import {
   approveResponse,
   approveAndPublishResponse,
   generateResponseDrafts,
-  markAsPublished,
   publishViaAgent,
+  simulateDemoPublication,
   updateOpportunityStatus,
-  deleteResponse,
-  updateObservedSignals
+  deleteResponse
 } from "../actions";
 import { prisma } from "@/lib/db";
 import { StatusBanner } from "./StatusBanner";
@@ -22,11 +21,9 @@ import { suggestAllPersonasForClient } from "@/lib/persona-router";
 import { resolveOpportunityClient } from "@/lib/client-context";
 import { selectRelevantProducts } from "@/lib/catalog";
 import { getRelayUrl } from "@/lib/settings";
-import { CopyButton } from "./CopyButton";
 import { SubmitButton } from "./SubmitButton";
 import { DraftCard } from "./DraftCard";
-import { BrowserPreview } from "./BrowserPreview";
-import { OBSERVED_TOPIC_KEYS, deriveVoiceModulation, jsonArray, loadObservedProfileContext, loadObservedProfileSummary } from "@/lib/observed-profiles";
+import { loadObservedProfileContext } from "@/lib/observed-profiles";
 
 type PageProps = {
   params: { id: string };
@@ -124,7 +121,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
   }
 
   const resolution = await resolveOpportunityClient(prisma, opportunity);
-  const [personas, brands, products, observedProfileContext, observedProfileSummary] = await Promise.all([
+  const [personas, brands, products, observedProfileContext] = await Promise.all([
     prisma.persona.findMany({ where: { clientId: resolution.client.id }, orderBy: { name: "asc" } }),
     prisma.brand.findMany({ where: { clientId: resolution.client.id }, orderBy: { name: "asc" } }),
     prisma.product.findMany({
@@ -133,7 +130,6 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
       orderBy: [{ brand: { name: "asc" } }, { name: "asc" }]
     }),
     loadObservedProfileContext(prisma, opportunity.id),
-    opportunity.observedProfileId ? loadObservedProfileSummary(prisma, opportunity.observedProfileId) : Promise.resolve(null),
   ]);
 
   const selectedBrandId = opportunity.detectedBrandId ?? brands[0]?.id ?? "";
@@ -169,7 +165,6 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
   const suggestion = suggestions[0];
   const suggestedPersona = personas.find((p) => p.name === suggestion?.personaName);
   const suggestedPersonaId = suggestedPersona?.id ?? personas[0]?.id ?? "";
-  const voiceModulation = deriveVoiceModulation(observedProfileContext);
   const sortedResponses = [...opportunity.responses]
     .map((response) => ({
       response,
@@ -254,7 +249,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
         </Link>
       </header>
 
-      <section className="grid gap-6 lg:grid-cols-[1fr_360px]">
+      <section className="grid gap-6">
         <div className="grid gap-5">
           <article className="rounded-lg border border-ink/10 bg-white/75 p-5 shadow-panel backdrop-blur">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -279,101 +274,8 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
           </article>
 
           <section className="rounded-lg border border-ink/10 bg-white/75 p-5 shadow-panel backdrop-blur">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="font-display text-2xl">Perfil observado</h2>
-              {observedProfileSummary ? (
-                <span className="rounded-full bg-ink/5 px-3 py-1 text-xs font-bold text-slate">
-                  {observedProfileSummary.platform} / {observedProfileSummary.externalHandle}
-                </span>
-              ) : null}
-            </div>
-            {observedProfileContext ? (
-              <div className="mt-4 grid gap-4 md:grid-cols-2">
-                <div className="rounded-md bg-paper p-4">
-                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate/60">Tema actual</p>
-                  <p className="mt-2 text-lg font-bold text-ink">{observedProfileContext.currentTopic}</p>
-                  <p className="text-sm text-slate">Confianza: {observedProfileContext.currentTopicConfidence}</p>
-                  <p className="mt-3 text-sm text-slate">Tono inferido: {observedProfileContext.toneProfile} ({observedProfileContext.toneConfidence})</p>
-                  <p className="mt-3 text-sm text-slate">Señal comercial: {observedProfileContext.commercialReadiness}/100</p>
-                </div>
-                <div className="rounded-md bg-paper p-4">
-                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate/60">Intereses históricos</p>
-                  <p className="mt-2 text-sm text-ink">{observedProfileContext.historicalPrimaryTopics.join(", ") || "Sin suficientes señales"}</p>
-                  <p className="mt-3 text-xs font-bold uppercase tracking-[0.16em] text-slate/60">Secundarios</p>
-                  <p className="mt-2 text-sm text-ink">{observedProfileContext.historicalSecondaryTopics.join(", ") || "Sin suficientes señales"}</p>
-                  <p className="mt-3 text-xs text-slate">{observedProfileContext.signalSummary}</p>
-                </div>
-                <div className="rounded-md bg-paper p-4 md:col-span-2">
-                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate/60">Cómo modula la voz</p>
-                  <p className="mt-2 text-sm font-bold text-ink">{voiceModulation.styleLabel}</p>
-                  <p className="mt-2 text-sm text-slate">{voiceModulation.introStyle}</p>
-                  <p className="mt-1 text-sm text-slate">{voiceModulation.phrasingStyle}</p>
-                  <p className="mt-1 text-sm text-slate">{voiceModulation.ctaStyle}</p>
-                  <p className="mt-2 text-xs text-slate/80">{voiceModulation.guardrail}</p>
-                </div>
-              </div>
-            ) : (
-              <p className="mt-4 rounded-md bg-paper p-4 text-sm text-slate">
-                Todavía no hay memoria acumulada suficiente para esta cuenta observada.
-              </p>
-            )}
-
-            {observedProfileSummary ? (
-              <form action={updateObservedSignals} className="mt-5 grid gap-3 rounded-md border border-ink/10 bg-paper/80 p-4 md:grid-cols-2">
-                <input type="hidden" name="opportunityId" value={opportunity.id} />
-                <label className="grid gap-2 text-sm font-semibold text-slate">
-                  Tema actual
-                  <select name="primaryTopic" defaultValue={observedProfileContext?.currentTopic ?? jsonArray<string>(opportunity.detectedTopics)[0] ?? "general"} className="rounded-md border border-ink/15 bg-white px-3 py-3 text-ink">
-                    {OBSERVED_TOPIC_KEYS.map((topicKey) => (
-                      <option key={topicKey} value={topicKey}>{topicKey}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="grid gap-2 text-sm font-semibold text-slate">
-                  Topics secundarios
-                  <input
-                    name="secondaryTopics"
-                    defaultValue={(observedProfileContext?.historicalSecondaryTopics ?? jsonArray<string>(opportunity.detectedTopics).slice(1)).join(", ")}
-                    className="rounded-md border border-ink/15 bg-white px-3 py-3 text-ink"
-                    placeholder="running, pianos"
-                  />
-                </label>
-                <label className="grid gap-2 text-sm font-semibold text-slate">
-                  Confianza del topic
-                  <select name="topicConfidence" defaultValue={observedProfileContext?.currentTopicConfidence ?? "low"} className="rounded-md border border-ink/15 bg-white px-3 py-3 text-ink">
-                    <option value="high">high</option>
-                    <option value="medium">medium</option>
-                    <option value="low">low</option>
-                  </select>
-                </label>
-                <label className="grid gap-2 text-sm font-semibold text-slate">
-                  Tono
-                  <select name="tone" defaultValue={observedProfileContext?.toneProfile ?? "mixed"} className="rounded-md border border-ink/15 bg-white px-3 py-3 text-ink">
-                    {["casual", "technical", "formal", "aspirational", "direct", "mixed"].map((tone) => (
-                      <option key={tone} value={tone}>{tone}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="grid gap-2 text-sm font-semibold text-slate">
-                  Confianza del tono
-                  <select name="toneConfidence" defaultValue={observedProfileContext?.toneConfidence ?? "low"} className="rounded-md border border-ink/15 bg-white px-3 py-3 text-ink">
-                    <option value="high">high</option>
-                    <option value="medium">medium</option>
-                    <option value="low">low</option>
-                  </select>
-                </label>
-                <div className="flex items-end">
-                  <SubmitButton loadingText="Guardando..." className="w-full rounded-full bg-ink px-5 py-3 text-sm font-bold text-paper transition hover:bg-slate disabled:opacity-50">
-                    Guardar corrección de perfil
-                  </SubmitButton>
-                </div>
-              </form>
-            ) : null}
-          </section>
-
-          <section className="rounded-lg border border-ink/10 bg-white/75 p-5 shadow-panel backdrop-blur">
             <h2 className="font-display text-2xl">Borradores</h2>
-            <div className="mt-4 grid gap-5">
+            <div className="mt-5 grid items-start gap-5 md:grid-cols-2 xl:grid-cols-3">
               {opportunity.responses.length === 0 ? (
                 <p className="rounded-md bg-paper p-4 text-sm text-slate">
                   Todavia no hay respuestas generadas para esta oportunidad.
@@ -390,7 +292,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
                     approveResponseAction={approveResponse}
                     approveAndPublishResponseAction={approveAndPublishResponse}
                     deleteResponseAction={deleteResponse}
-                    markAsPublishedAction={markAsPublished}
+                    simulateDemoPublicationAction={resolution.client.slug === "aurora-demo" ? simulateDemoPublication : undefined}
                     publishViaAgentAction={publishViaAgent}
                     agentAccounts={agentAccounts}
                     suggestedAccount={suggestedAccount?.name ?? null}
@@ -406,29 +308,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
           </section>
         </div>
 
-        <aside className="grid content-start gap-4">
-          <BrowserPreview
-            sourceUrl={opportunity.sourceUrl}
-            sourceAuthor={opportunity.sourceAuthor}
-            sourceText={opportunity.sourceText}
-            channelName={opportunity.channel.name}
-            brandName={opportunity.detectedBrand?.name ?? brands[0]?.name ?? ""}
-            brandBg={
-              (opportunity.detectedBrand?.name ?? "").toLowerCase().includes("midiplus") ? "bg-moss" :
-              (opportunity.detectedBrand?.name ?? "").toLowerCase().includes("kressmer") ? "bg-brass" :
-              (opportunity.detectedBrand?.name ?? "").toLowerCase().includes("prestige") ? "bg-ink" : "bg-slate-700"
-            }
-            brandText={
-              (opportunity.detectedBrand?.name ?? "").toLowerCase().includes("prestige") ? "text-paper" : "text-white"
-            }
-            brandLabel={
-              (opportunity.detectedBrand?.name ?? "").toLowerCase().includes("midiplus") ? "MidiPlus" :
-              (opportunity.detectedBrand?.name ?? "").toLowerCase().includes("kressmer") ? "Kressmer" :
-              (opportunity.detectedBrand?.name ?? "").toLowerCase().includes("prestige") ? "Prestige" :
-              (opportunity.detectedBrand?.name ?? brands[0]?.name ?? "XX").slice(0, 2)
-            }
-            approvedText={approvedResponse?.editedText || approvedResponse?.draftText}
-          />
+        <aside className="order-first grid content-start gap-4">
           {isAlreadyPublished ? (
             <div className="rounded-lg border border-moss/35 bg-moss/5 p-5 text-ink shadow-panel backdrop-blur">
               <h2 className="font-display text-2xl text-moss flex items-center gap-2 font-bold animate-fade-in">
@@ -467,7 +347,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
             <>
               <form
                 action={generateResponseDrafts}
-                className="rounded-lg border border-ink/10 bg-ink p-5 text-paper shadow-panel"
+                className="hidden rounded-lg border border-ink/10 bg-ink p-5 text-paper shadow-panel"
               >
                 <h2 className="font-display text-3xl">Generar respuestas</h2>
                 <input type="hidden" name="opportunityId" value={opportunity.id} />
@@ -520,42 +400,59 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
                 </SubmitButton>
               </form>
 
-              {approvedResponse ? (
-                <form id="publish-section" className="rounded-lg border border-ink/10 bg-white/75 p-5 shadow-panel backdrop-blur" action={markAsPublished}>
-                  <h2 className="font-display text-2xl">Publicacion</h2>
-                  <input type="hidden" name="opportunityId" value={opportunity.id} />
-                  <input type="hidden" name="responseId" value={approvedResponse.id} />
-                  <label className="mt-4 grid gap-2 text-sm font-semibold text-slate">
-                    URL publicada
-                    <input name="publishedUrl" type="url" placeholder="https://..." className="w-full rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink" />
-                  </label>
-                  <label className="mt-4 grid gap-2 text-sm font-semibold text-slate">
-                    Resultado
-                    <select name="result" className="w-full rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink">
-                      <option value="published">Publicado</option>
-                      <option value="reply_received">Respondio usuario</option>
-                      <option value="whatsapp">Derivo a WhatsApp</option>
-                      <option value="sale_assist">Venta asistida</option>
-                    </select>
-                  </label>
-                  <label className="mt-4 flex items-center gap-2 text-sm font-semibold text-slate">
-                    <input name="followUpNeeded" type="checkbox" className="h-4 w-4" />
-                    Necesita seguimiento
-                  </label>
-                  <CopyButton text={approvedResponse.editedText || approvedResponse.draftText} className="mt-3 w-full rounded-full border border-ink/20 bg-paper px-5 py-3 text-sm font-bold text-ink transition hover:border-ink/45 hover:bg-white" />
-                  <SubmitButton
-                    loadingText="Guardando..."
-                    className="mt-3 w-full rounded-full bg-moss px-5 py-3 text-sm font-bold text-white transition hover:bg-ink disabled:opacity-50"
-                  >
-                    Marcar publicado
-                  </SubmitButton>
-                </form>
-              ) : null}
             </>
           )}
 
         </aside>
       </section>
+
+      {!isAlreadyPublished ? (
+        <form action={generateResponseDrafts} className="mt-6 rounded-lg border border-ink/10 bg-ink p-5 text-paper shadow-panel">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h2 className="font-display text-2xl">Generar más borradores</h2>
+              <p className="mt-1 text-sm text-paper/65">Elegí el enfoque y sumá tres variantes nuevas.</p>
+            </div>
+            <SubmitButton
+              loadingText="Generando…"
+              className="rounded-full bg-paper px-5 py-3 text-sm font-bold text-ink transition hover:bg-white disabled:opacity-50"
+            >
+              Generar 3 variantes
+            </SubmitButton>
+          </div>
+          <input type="hidden" name="opportunityId" value={opportunity.id} />
+          <div className="mt-5 grid gap-4 md:grid-cols-3">
+            <label className="grid gap-2 text-sm font-semibold text-paper/80">
+              Marca
+              <select name="brandId" defaultValue={selectedBrandId} className="w-full rounded-md border border-white/15 bg-paper px-3 py-3 text-ink">
+                {brands.map((brand) => (
+                  <option key={brand.id} value={brand.id}>{brand.name}</option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-2 text-sm font-semibold text-paper/80">
+              Producto
+              <select name="productId" defaultValue={suggestedProductId} className="w-full rounded-md border border-white/15 bg-paper px-3 py-3 text-ink">
+                {productOptions.map((product) => (
+                  <option key={product.id} value={product.id}>
+                    {product.nombre}{product.id === recommendedProducts[0]?.id ? " (mejor match)" : recommendedIds.has(product.id) ? " (alternativa)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-2 text-sm font-semibold text-paper/80">
+              Voz
+              <select name="personaId" defaultValue={suggestedPersonaId} className="w-full rounded-md border border-white/15 bg-paper px-3 py-3 text-ink">
+                {personas.map((persona) => (
+                  <option key={persona.id} value={persona.id}>
+                    {getPersonaDisplayName(persona.name, resolution.client.slug)}{persona.id === suggestedPersonaId ? " (sugerida)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </form>
+      ) : null}
     </div>
   );
 }

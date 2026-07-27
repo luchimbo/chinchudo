@@ -16,6 +16,7 @@
     "db:migrate": "prisma migrate dev",
     "db:push": "node scripts/db-apply-diff.mjs",
     "db:seed": "tsx prisma/seed.ts",
+    "demo:seed-local": "tsx scripts/seed-local-demo.mts",
     "admin:register": "tsx scripts/register-platform-admin.mts",
     "db:seed-jurispedia": "tsx scripts/seed-jurispedia.mts",
     "brand:snapshots": "tsx scripts/capture-brand-snapshots.mts",

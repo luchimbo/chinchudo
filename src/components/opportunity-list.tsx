@@ -144,14 +144,6 @@ export function OpportunityList({
                 {opportunity.detectedBrand?.name ?? "Marca sin definir"}
                 {opportunity.detectedProduct ? ` / ${opportunity.detectedProduct.name}` : ""}
               </p>
-              {opportunity.observedProfile ? (
-                <p className="mt-1 text-xs text-slate/65">
-                  Perfil: {opportunity.observedProfile.externalHandle}
-                  {Array.isArray(opportunity.observedProfile.primaryTopics) && opportunity.observedProfile.primaryTopics.length > 0
-                    ? ` · ${opportunity.observedProfile.primaryTopics.slice(0, 2).join(", ")}`
-                    : ""}
-                </p>
-              ) : null}
               {recommendation ? (
                 <p className="mt-1 text-xs text-slate/60">
                   {recommendation.voiceVariant ? `${recommendation.voiceVariant} · ` : ""}

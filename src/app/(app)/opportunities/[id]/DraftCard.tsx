@@ -40,6 +40,10 @@ type OpportunityEntry = {
 
 type AgentAccount = { name: string; label: string; defaultPersona?: string };
 
+function getPersonaDisplayName(name: string, _clientSlug?: string | null) {
+  return name;
+}
+
 type DraftCardProps = {
   response: ResponseEntry;
   isTopRecommendation?: boolean;
@@ -49,7 +53,7 @@ type DraftCardProps = {
   approveResponseAction: (formData: FormData) => Promise<void>;
   approveAndPublishResponseAction?: (formData: FormData) => Promise<void>;
   deleteResponseAction: (formData: FormData) => Promise<void>;
-  markAsPublishedAction: (formData: FormData) => Promise<void>;
+  simulateDemoPublicationAction?: (formData: FormData) => Promise<void>;
   publishViaAgentAction?: (formData: FormData) => Promise<void>;
   agentAccounts?: AgentAccount[];
   suggestedAccount?: string | null;
@@ -60,18 +64,6 @@ type DraftCardProps = {
   personas: PersonaOption[];
 };
 
-function getPersonaDisplayName(name: string, _clientSlug?: string | null) {
-  return name;
-}
-
-function getBrandAvatarStyles(brandName: string) {
-  const nameLower = brandName.toLowerCase();
-  if (nameLower.includes("midiplus")) return { bg: "bg-moss", text: "text-white", label: "MidiPlus" };
-  if (nameLower.includes("kressmer")) return { bg: "bg-brass", text: "text-white", label: "Kressmer" };
-  if (nameLower.includes("prestige")) return { bg: "bg-ink", text: "text-paper", label: "Prestige" };
-  return { bg: "bg-slate-700", text: "text-white", label: brandName.slice(0, 2) };
-}
-
 export function DraftCard({
   response,
   isTopRecommendation = false,
@@ -81,7 +73,7 @@ export function DraftCard({
   approveResponseAction,
   approveAndPublishResponseAction,
   deleteResponseAction,
-  markAsPublishedAction,
+  simulateDemoPublicationAction,
   publishViaAgentAction,
   agentAccounts = [],
   suggestedAccount,
@@ -135,8 +127,6 @@ export function DraftCard({
     }
   };
 
-  const brandStyle = getBrandAvatarStyles(response.brand.name);
-
   const handleCopy = () => {
     navigator.clipboard.writeText(text);
     setIsCopied(true);
@@ -147,33 +137,9 @@ export function DraftCard({
   const publishAction = isOneStep ? approveAndPublishResponseAction : approveResponseAction;
 
   return (
-    <article className={`rounded-lg border bg-white/75 p-5 shadow-panel backdrop-blur transition-all duration-300 hover:shadow-md ${isTopRecommendation ? "border-moss/35 ring-1 ring-moss/20" : "border-ink/10"}`}>
+    <article className={`flex min-w-0 flex-col rounded-lg border bg-white/75 p-4 shadow-panel backdrop-blur transition-all duration-300 hover:shadow-md ${isTopRecommendation ? "border-moss/35 ring-1 ring-moss/20" : "border-ink/10"}`}>
       {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-ink/5 pb-4">
-        <div>
-          {isTopRecommendation ? (
-            <p className="mb-2 inline-flex rounded-full bg-moss px-3 py-1 text-[11px] font-bold uppercase tracking-[0.16em] text-white">
-              Recomendado primero
-            </p>
-          ) : null}
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate/60">
-            {response.variantType} / {getPersonaDisplayName(response.persona.name, clientSlug)}
-          </p>
-          {response.voiceVariant ? (
-            <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate/45">
-              {response.voiceVariant}
-            </p>
-          ) : null}
-          {isTopRecommendation && recommendationReason ? (
-            <p className="mt-2 text-xs text-slate/70">{recommendationReason}</p>
-          ) : null}
-          <div className="mt-1 flex items-center gap-2">
-            <span className={`inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${brandStyle.bg} ${brandStyle.text}`}>
-              {brandStyle.label[0]}
-            </span>
-            <span className="text-sm font-bold text-ink">{response.brand.name}</span>
-          </div>
-        </div>
+      <div className="flex items-center justify-end gap-2 border-b border-ink/5 pb-3">
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -190,8 +156,8 @@ export function DraftCard({
         </div>
       </div>
 
-      <div className="mt-4">
-        <form action={publishAction} className="flex flex-col justify-between gap-4">
+      <div className="mt-3">
+        <form action={publishAction} className="flex flex-col justify-between gap-3">
           <input type="hidden" name="responseId" value={response.id} />
           <input type="hidden" name="opportunityId" value={opportunity.id} />
           <input type="hidden" name="approvedBy" value="Operador" />
@@ -203,11 +169,11 @@ export function DraftCard({
             </label>
             <textarea
               name="editedText"
-              rows={8}
+              rows={6}
               value={text}
               onChange={(e) => setText(e.target.value)}
               readOnly={isAlreadyPublished}
-              className={`w-full flex-1 resize-y rounded-md border border-ink/15 px-4 py-3 text-sm leading-relaxed text-ink focus:border-ink/40 focus:ring-1 focus:ring-ink/20 focus:outline-none ${
+              className={`w-full flex-1 resize-y rounded-md border border-ink/15 px-3 py-2.5 text-sm leading-relaxed text-ink focus:border-ink/40 focus:ring-1 focus:ring-ink/20 focus:outline-none ${
                 isAlreadyPublished ? "bg-slate-50 cursor-not-allowed opacity-85" : "bg-white"
               }`}
               placeholder="Escribe la respuesta aquí..."
@@ -272,21 +238,21 @@ export function DraftCard({
           ) : null}
 
           {!isAlreadyPublished ? (
-            <div className="flex flex-col gap-3 pt-2 border-t border-ink/5 sm:flex-row sm:items-center sm:justify-between">
-              <div className="w-full sm:w-auto">
+            <div className="flex items-center justify-between gap-2 border-t border-ink/5 pt-2">
+              <div>
                 <button
                   type="button"
                   onClick={handleDelete}
                   disabled={isDeleting}
-                  className="w-full rounded-full border border-signal/20 text-signal hover:bg-signal/5 px-4 py-2.5 text-sm font-bold transition disabled:opacity-50"
+                  className="rounded-full border border-signal/20 px-3 py-2 text-xs font-bold text-signal transition hover:bg-signal/5 disabled:opacity-50"
                 >
                   {isDeleting ? "Eliminando…" : "Eliminar"}
                 </button>
               </div>
-              <div className="w-full sm:w-auto">
+              <div>
                 <SubmitButton
                   loadingText={isOneStep ? "Publicando…" : response.approvedBy ? "Actualizando…" : "Aprobando…"}
-                  className={`w-full rounded-full px-5 py-2.5 text-sm font-bold transition disabled:opacity-50 ${
+                  className={`rounded-full px-4 py-2 text-xs font-bold transition disabled:opacity-50 ${
                     isOneStep
                       ? "bg-brass text-white hover:bg-ink"
                       : "bg-ink text-paper hover:bg-slate-850"
@@ -298,6 +264,19 @@ export function DraftCard({
             </div>
           ) : null}
         </form>
+
+        {response.approvedBy && simulateDemoPublicationAction && !isAlreadyPublished ? (
+          <form action={simulateDemoPublicationAction} className="mt-3">
+            <input type="hidden" name="opportunityId" value={opportunity.id} />
+            <input type="hidden" name="responseId" value={response.id} />
+            <SubmitButton
+              loadingText="Publicando demo…"
+              className="w-full rounded-full bg-brass px-4 py-2.5 text-sm font-bold text-white transition hover:bg-ink disabled:opacity-50"
+            >
+              Publicar comentario (demo)
+            </SubmitButton>
+          </form>
+        ) : null}
 
         {response.approvedBy && canPublishViaAgent && !isOneStep && publishViaAgentAction && !isAlreadyPublished ? (
           <form action={publishViaAgentAction} className="mt-4 rounded-md border border-brass/30 bg-brass/5 p-4">
@@ -325,53 +304,6 @@ export function DraftCard({
               className="mt-3 w-full rounded-full bg-brass px-5 py-2.5 text-sm font-bold text-white transition hover:bg-ink disabled:opacity-50"
             >
               Publicar vía agente
-            </SubmitButton>
-          </form>
-        ) : null}
-
-        {response.approvedBy && !isOneStep && !isAlreadyPublished ? (
-          <form action={markAsPublishedAction} className="mt-4 rounded-md border border-moss/25 bg-moss/5 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs font-bold uppercase tracking-wider text-moss">Publicacion manual</p>
-              <button
-                type="button"
-                onClick={handleCopy}
-                className="rounded-full border border-ink/15 bg-white/80 px-3.5 py-1 text-xs font-bold text-ink transition hover:border-ink/40 hover:bg-white"
-              >
-                {isCopied ? "Copiado" : "Copiar texto"}
-              </button>
-            </div>
-            <input type="hidden" name="opportunityId" value={opportunity.id} />
-            <input type="hidden" name="responseId" value={response.id} />
-            <label className="mt-3 grid gap-1.5 text-xs font-semibold text-slate">
-              URL publicada
-              <input
-                name="publishedUrl"
-                type="url"
-                placeholder="https://..."
-                className="w-full rounded-md border border-ink/15 bg-white px-3 py-2.5 text-sm text-ink"
-              />
-            </label>
-            <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
-              <label className="grid gap-1.5 text-xs font-semibold text-slate">
-                Resultado
-                <select name="result" className="w-full rounded-md border border-ink/15 bg-white px-3 py-2.5 text-sm text-ink">
-                  <option value="published">Publicado</option>
-                  <option value="reply_received">Respondio usuario</option>
-                  <option value="whatsapp">Derivo a WhatsApp</option>
-                  <option value="sale_assist">Venta asistida</option>
-                </select>
-              </label>
-              <label className="flex items-center gap-2 rounded-md border border-ink/10 bg-white px-3 py-2.5 text-xs font-semibold text-slate">
-                <input name="followUpNeeded" type="checkbox" className="h-4 w-4" />
-                Seguimiento
-              </label>
-            </div>
-            <SubmitButton
-              loadingText="Guardando..."
-              className="mt-3 w-full rounded-full bg-moss px-5 py-2.5 text-sm font-bold text-white transition hover:bg-ink disabled:opacity-50"
-            >
-              Marcar publicado
             </SubmitButton>
           </form>
         ) : null}
