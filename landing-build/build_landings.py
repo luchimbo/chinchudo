@@ -1461,6 +1461,13 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
             blocked_items.append(blocked)
             append_generation_event(run_id, {"command": "generate", "event": "blocked", "dry_run": dry_run, **blocked})
             continue
+        if (client_slug_active() == "prestige-running" or os.environ.get("PRESTIGE_TOPIC_GUARD") == "1"):
+            output_text = " ".join(str(landing.get(key) or "") for key in ("keyword", "titulo", "seo_title", "h1")).lower()
+            if not any(term in output_text for term in prestige_terms):
+                blocked = {"keyword": topic_label, "slug": landing.get("slug"), "reason": "generated_outside_client_scope"}
+                blocked_items.append(blocked)
+                append_generation_event(run_id, {"command": "generate", "event": "blocked", "dry_run": dry_run, **blocked})
+                continue
         if landing["slug"] in existing_slugs:
             landing["slug"] = slugify(f"{landing['slug']}-{created + 1}")
         candidate_list = existing + [landing]
