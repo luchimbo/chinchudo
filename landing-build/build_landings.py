@@ -430,7 +430,10 @@ def load_seed_topics() -> list[dict]:
             if topics:
                 return topics
         except Exception as exc:
-            print(f"[build_landings] No se pudo cargar temas de DB para {slug}: {exc}. Usando CSV local.")
+            print(f"[build_landings] No se pudo cargar temas de DB para {slug}: {exc}.")
+        # Never fall back to the shared PC MIDI CSV for a different client.
+        # A client without its own topics must generate nothing, not cross-brand content.
+        return []
     if not SEED_TOPICS_PATH.exists():
         return []
     with SEED_TOPICS_PATH.open("r", encoding="utf-8", newline="") as handle:
