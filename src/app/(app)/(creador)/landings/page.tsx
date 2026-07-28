@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { getVisibleClients } from "@/lib/auth";
 import { publishLandingPreview, updateLandingStatus } from "./actions";
+import { GenerationProgressCard } from "./generation-progress-card";
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: "Borrador",
@@ -90,6 +91,8 @@ export default async function LandingsPage({
           </Link>
         ))}
       </div>
+
+      {activeClient ? <GenerationProgressCard clientSlug={activeClient.slug} /> : null}
 
       {landings.length === 0 ? (
         status === "DRAFT" && activeClient ? (
