@@ -438,6 +438,8 @@ def preview_command(landing_id: str = "", base_url: str = "") -> None:
 def load_env() -> None:
     env_path = ROOT / ".env"
     if not env_path.exists():
+        env_path = ROOT.parent / ".env"
+    if not env_path.exists():
         return
     for line in env_path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
