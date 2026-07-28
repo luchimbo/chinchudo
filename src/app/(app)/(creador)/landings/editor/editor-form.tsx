@@ -192,14 +192,6 @@ export function EditorForm({
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-8">
-      <section aria-labelledby="create-landings-heading">
-        <div className="mb-3">
-          <h2 id="create-landings-heading" className="font-display text-xl font-bold text-ink">Contenido</h2>
-          <p className="text-xs text-slate/75">Generá propuestas nuevas antes de definir cómo se verán en el sitio.</p>
-        </div>
-        <GenerateLandingsButton clientSlug={config.clientSlug} variant="editor" />
-      </section>
-
       {/* 1. SELECCIÓN DE PLANTILLA */}
       <section className="rounded-2xl border border-ink/10 bg-paper p-6 shadow-sm">
         <div className="mb-4">
@@ -408,6 +400,14 @@ export function EditorForm({
             className="h-[640px] w-full rounded-lg border border-white/10 bg-white"
           />
         </div>
+      </section>
+
+      <section aria-labelledby="create-landings-heading">
+        <div className="mb-3">
+          <h2 id="create-landings-heading" className="font-display text-xl font-bold text-ink">Contenido</h2>
+          <p className="text-xs text-slate/75">Con el diseño validado, generá propuestas nuevas para este cliente.</p>
+        </div>
+        <GenerateLandingsButton clientSlug={config.clientSlug} variant="editor" />
       </section>
     </form>
   );
