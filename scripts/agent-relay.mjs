@@ -91,12 +91,12 @@ function readBody(req) {
 }
 
 function getPythonCommand() {
-  if (process.env.AGENTS_PYTHON_BIN) return { command: process.env.AGENTS_PYTHON_BIN, argsPrefix: [] };
-
   // El runtime de agentes instalado en esta PC contiene psycopg y las
   // dependencias de generación; el Python de usuario y el .venv no siempre.
   const workspacePython = "C:\\Python313\\python.exe";
   if (process.platform === "win32" && existsSync(workspacePython)) return { command: workspacePython, argsPrefix: [] };
+
+  if (process.env.AGENTS_PYTHON_BIN) return { command: process.env.AGENTS_PYTHON_BIN, argsPrefix: [] };
 
   if (process.platform !== "win32") {
     if (process.env.PYTHON_BIN) return { command: process.env.PYTHON_BIN, argsPrefix: [] };
