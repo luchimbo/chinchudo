@@ -65,6 +65,11 @@ def load_client_config_from_env() -> dict:
     raw = os.environ.get("LANDING_CLIENT_CONFIG_JSON", "")
     if not raw:
         return {}
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
 
 
 def load_catalog_from_env() -> tuple[dict, dict] | None:
@@ -78,11 +83,6 @@ def load_catalog_from_env() -> tuple[dict, dict] | None:
         return categories, products
     except Exception:
         return None
-    try:
-        parsed = json.loads(raw)
-        return parsed if isinstance(parsed, dict) else {}
-    except Exception:
-        return {}
 LANDINGS_PATH = DATA_DIR / "landings_aprobadas.jsonl"
 OPPORTUNITIES_PATH = DATA_DIR / "oportunidades_research.jsonl"
 
