@@ -497,6 +497,7 @@ const server = http.createServer(async (req, res) => {
     catch { return json(res, 400, { error: "invalid_json" }); }
 
     const clientSlug = String(body.clientSlug || "").trim();
+    const limit = Math.min(5, Math.max(1, Number(body.limit) || 3));
     if (!clientSlug) return json(res, 400, { error: "missing_client_slug" });
     if (landingGenerationClients.has(clientSlug)) {
       return json(res, 409, { error: "generation_already_running" });
@@ -508,7 +509,7 @@ const server = http.createServer(async (req, res) => {
     console.log(`[agent-relay] landings/generate iniciado para ${clientSlug}`);
     json(res, 202, { accepted: true, clientSlug });
 
-    const child = spawn(python.command, [...python.argsPrefix, swarmPath, "generate", "--limit", "10", "--client-slug", clientSlug], {
+    const child = spawn(python.command, [...python.argsPrefix, swarmPath, "generate", "--limit", String(limit), "--client-slug", clientSlug], {
       cwd: ROOT,
       env: process.env,
       windowsHide: true,

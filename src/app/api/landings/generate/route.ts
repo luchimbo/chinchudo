@@ -6,7 +6,10 @@ import { relayFetch } from "@/lib/relay-client";
 
 export const runtime = "nodejs";
 
-const schema = z.object({ clientSlug: z.string().min(1).max(100) });
+const schema = z.object({
+  clientSlug: z.string().min(1).max(100),
+  limit: z.coerce.number().int().min(1).max(5).default(3),
+});
 
 export async function POST(request: NextRequest) {
   const parsed = schema.safeParse(await request.json().catch(() => null));
