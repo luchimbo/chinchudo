@@ -474,7 +474,13 @@ def append_landing(landing: dict) -> None:
             sys.path.insert(0, str(ROOT.parent / "agents"))
             from db_pg import upsert_landing  # type: ignore
             extra = {}
-            if _CLIENT_CONFIG.get("id"):
+            # The relay provides the intended client id. Prefer it over any
+            # inferred runtime config so a multi-client run cannot persist in
+            # another client's archive.
+            expected_client_id = os.environ.get("LANDING_EXPECTED_CLIENT_ID", "").strip()
+            if expected_client_id:
+                extra["clientId"] = expected_client_id
+            elif _CLIENT_CONFIG.get("id"):
                 extra["clientId"] = _CLIENT_CONFIG["id"]
             upsert_landing(
                 slug=landing.get("slug", ""),
