@@ -1426,6 +1426,7 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
             stopped_reason = "max_seconds_reached"
             break
         processed += 1
+        print("@@landing-progress " + json.dumps({"event": "processing", "keyword": topic.get("keyword") or topic.get("busqueda_objetivo") or "Tema sin nombre"}, ensure_ascii=False), flush=True)
         if topic_key_from_record(topic) in existing_keywords:
             skipped = {"keyword": topic.get("keyword") or topic.get("busqueda_objetivo"), "reason": "already_exists"}
             skipped_items.append(skipped)
@@ -1458,8 +1459,9 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
         existing_slugs.add(landing["slug"])
         existing_keywords.add(topic_key_from_record(landing))
         created += 1
-        created_item = {"slug": landing["slug"], "keyword": landing["keyword"]}
+        created_item = {"slug": landing["slug"], "keyword": landing["keyword"], "title": landing.get("titulo") or landing.get("seo_title") or landing["keyword"]}
         created_items.append(created_item)
+        print("@@landing-progress " + json.dumps({"event": "created", **created_item}, ensure_ascii=False), flush=True)
         append_generation_event(run_id, {"command": "generate", "event": "created", "dry_run": dry_run, **created_item})
 
     if created < limit and stopped_reason == "limit_reached":

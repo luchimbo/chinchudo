@@ -28,6 +28,7 @@ if (existsSync(envPath)) {
 const PORT = parseInt(process.env.AGENT_RELAY_PORT ?? "3099", 10);
 const TOKEN = process.env.AGENT_RELAY_TOKEN;
 const landingGenerationClients = new Set();
+const landingGenerationJobs = new Map();
 const prisma = new PrismaClient();
 
 async function runScheduledLandings() {
@@ -504,20 +505,29 @@ const server = http.createServer(async (req, res) => {
     }
 
     landingGenerationClients.add(clientSlug);
+    landingGenerationJobs.set(clientSlug, { state: "running", requested: limit, completed: 0, currentTopic: "Preparando temas…", created: [], errors: [], startedAt: new Date().toISOString() });
     const swarmPath = join(ROOT, "landing-build", "swarm.py");
     const python = getPythonCommand();
     console.log(`[agent-relay] landings/generate iniciado para ${clientSlug}`);
-    json(res, 202, { accepted: true, clientSlug });
+    json(res, 202, { accepted: true, clientSlug, limit });
 
     const child = spawn(python.command, [...python.argsPrefix, swarmPath, "generate", "--limit", String(limit), "--client-slug", clientSlug], {
       cwd: ROOT,
       env: process.env,
       windowsHide: true,
     });
-    child.stdout.on("data", (chunk) => console.log(`[agent-relay] landings/generate ${clientSlug}: ${chunk.toString().trim()}`));
+    child.stdout.on("data", (chunk) => {
+      const text = chunk.toString();
+      for (const line of text.split(/\r?\n/)) {
+        if (!line.startsWith("@@landing-progress ")) continue;
+        try { const event = JSON.parse(line.slice(19)); const job = landingGenerationJobs.get(clientSlug); if (!job) continue; if (event.event === "processing") job.currentTopic = event.keyword; if (event.event === "created") { job.completed += 1; job.created.push({ keyword: event.keyword, title: event.title }); } } catch {}
+      }
+      console.log(`[agent-relay] landings/generate ${clientSlug}: ${text.trim()}`);
+    });
     child.stderr.on("data", (chunk) => console.error(`[agent-relay] landings/generate ${clientSlug}: ${chunk.toString().trim()}`));
     child.on("close", (code) => {
       landingGenerationClients.delete(clientSlug);
+      const job = landingGenerationJobs.get(clientSlug); if (job) { job.state = code === 0 ? "completed" : "failed"; job.finishedAt = new Date().toISOString(); if (code !== 0) job.errors.push(`El generador finalizó con código ${code}.`); }
       console.log(`[agent-relay] landings/generate finalizado para ${clientSlug} (exit ${code})`);
     });
     child.on("error", (error) => {
@@ -525,6 +535,11 @@ const server = http.createServer(async (req, res) => {
       console.error(`[agent-relay] landings/generate no pudo iniciar para ${clientSlug}:`, error.message);
     });
     return;
+  }
+
+  if (method === "GET" && url.startsWith("/landings/generation-status")) {
+    const clientSlug = new URL(url, "http://localhost").searchParams.get("client") || "";
+    return json(res, 200, { job: landingGenerationJobs.get(clientSlug) || null });
   }
 
   // POST /search/run — ejecuta social-listen.py por cada canal e importa oportunidades

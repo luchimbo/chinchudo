@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -15,6 +15,12 @@ export function GenerateLandingsButton({
   const [state, setState] = useState<"idle" | "starting" | "running" | "error">("idle");
   const [message, setMessage] = useState("");
   const [limit, setLimit] = useState(3);
+  const [job, setJob] = useState<any>(null);
+
+  useEffect(() => {
+    const refresh = async () => { const response = await fetch(`/api/landings/generation-status?client=${encodeURIComponent(clientSlug)}`); if (response.ok) { const data = await response.json(); setJob(data.job); if (data.job?.state === "running") setState("running"); } };
+    void refresh(); const timer = window.setInterval(() => void refresh(), 3000); return () => window.clearInterval(timer);
+  }, [clientSlug]);
 
   async function generate() {
     setState("starting");
@@ -30,6 +36,7 @@ export function GenerateLandingsButton({
         throw new Error(data.error === "generation_already_running" ? "Ya hay una generación en curso." : data.error || "No se pudo iniciar la generación.");
       }
       setState("running");
+      setJob({ state: "running", requested: limit, completed: 0, currentTopic: "Preparando temas…", created: [] });
       setMessage("Generando borradores de landings. El archivo se actualizará automáticamente.");
       window.setTimeout(() => router.refresh(), 12_000);
     } catch (error) {
@@ -52,6 +59,12 @@ export function GenerateLandingsButton({
           Creá propuestas basadas en las oportunidades de contenido aprobadas para este cliente.
         </p>
         {message ? <p className={`mt-3 text-xs font-medium ${state === "error" ? "text-signal" : "text-moss"}`} aria-live="polite">{message}</p> : null}
+        {job ? <div className="mt-4 rounded-lg border border-white/15 bg-black/15 p-3 text-xs text-paper/80">
+          <div className="flex justify-between gap-4"><span>{job.state === "running" ? "En curso" : job.state === "completed" ? "Completada" : "Con errores"}</span><strong>{job.completed || 0}/{job.requested || limit}</strong></div>
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/15"><div className="h-full bg-paper transition-all" style={{ width: `${Math.min(100, ((job.completed || 0) / Math.max(1, job.requested || limit)) * 100)}%` }} /></div>
+          {job.currentTopic ? <p className="mt-3 text-paper/65">Tema actual: <span className="text-paper">{job.currentTopic}</span></p> : null}
+          {job.created?.length ? <ul className="mt-3 space-y-1 border-t border-white/10 pt-2">{job.created.map((item: any, index: number) => <li key={`${item.title}-${index}`}><span className="text-paper/55">{item.keyword}</span> — {item.title}</li>)}</ul> : null}
+        </div> : null}
       </div>
       <div className="flex flex-wrap items-end gap-3">
         <label className={`grid gap-1 text-xs font-semibold ${isEditor ? "text-paper/70" : "text-slate"}`}>
