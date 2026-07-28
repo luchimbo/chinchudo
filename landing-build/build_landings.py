@@ -1434,7 +1434,7 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
             break
         processed += 1
         topic_label = str(topic.get("keyword") or topic.get("busqueda_objetivo") or "")
-        if client_slug_active() == "prestige-running" and not any(term in topic_label.lower() for term in prestige_terms):
+        if (client_slug_active() == "prestige-running" or os.environ.get("PRESTIGE_TOPIC_GUARD") == "1") and not any(term in topic_label.lower() for term in prestige_terms):
             skipped = {"keyword": topic_label, "reason": "outside_client_scope"}
             skipped_items.append(skipped)
             append_generation_event(run_id, {"command": "generate", "event": "skipped", "dry_run": dry_run, **skipped})

@@ -513,7 +513,7 @@ const server = http.createServer(async (req, res) => {
 
     const child = spawn(python.command, [...python.argsPrefix, swarmPath, "generate", "--limit", String(limit), "--client-slug", clientSlug], {
       cwd: ROOT,
-      env: process.env,
+      env: { ...process.env, ...(clientSlug === "prestige-running" ? { PRESTIGE_TOPIC_GUARD: "1" } : {}) },
       windowsHide: true,
     });
     child.stdout.on("data", (chunk) => {
