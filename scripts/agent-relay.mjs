@@ -518,7 +518,7 @@ const server = http.createServer(async (req, res) => {
 
     const child = spawn(python.command, [...python.argsPrefix, swarmPath, "generate", "--limit", String(limit), "--client-slug", clientSlug], {
       cwd: ROOT,
-      env: { ...process.env, ...(clientSlug === "prestige-running" ? { PRESTIGE_TOPIC_GUARD: "1", LANDING_SEED_TOPICS_JSON: JSON.stringify(seedTopics.map((topic) => ({ keyword: topic.keyword, intencion: topic.intent, categorias_sugeridas: topic.suggestedCategories }))) } : {}) },
+      env: { ...process.env, PYTHONIOENCODING: "utf-8", ...(clientSlug === "prestige-running" ? { PRESTIGE_TOPIC_GUARD: "1", LANDING_SEED_TOPICS_JSON: JSON.stringify(seedTopics.map((topic) => ({ keyword: topic.keyword, intencion: topic.intent, categorias_sugeridas: topic.suggestedCategories }))) } : {}) },
       windowsHide: true,
     });
     child.stdout.on("data", (chunk) => {
