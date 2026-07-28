@@ -544,7 +544,12 @@ const server = http.createServer(async (req, res) => {
       }
       console.log(`[agent-relay] landings/generate ${clientSlug}: ${text.trim()}`);
     });
-    child.stderr.on("data", (chunk) => console.error(`[agent-relay] landings/generate ${clientSlug}: ${chunk.toString().trim()}`));
+    child.stderr.on("data", (chunk) => {
+      const detail = chunk.toString().trim();
+      const job = landingGenerationJobs.get(clientSlug);
+      if (detail && job) job.errors.push(detail.slice(-800));
+      console.error(`[agent-relay] landings/generate ${clientSlug}: ${detail}`);
+    });
     child.on("close", (code) => {
       clearTimeout(timeout);
       landingGenerationClients.delete(clientSlug);
