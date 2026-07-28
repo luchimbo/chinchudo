@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -16,9 +16,37 @@ export function GenerateLandingsButton({
   const [message, setMessage] = useState("");
   const [limit, setLimit] = useState(3);
   const [job, setJob] = useState<any>(null);
+  const completedJobRef = useRef("");
 
   useEffect(() => {
-    const refresh = async () => { const response = await fetch(`/api/landings/generation-status?client=${encodeURIComponent(clientSlug)}`); if (response.ok) { const data = await response.json(); setJob(data.job); if (data.job?.state === "running") setState("running"); } };
+    const refresh = async () => {
+      const response = await fetch(`/api/landings/generation-status?client=${encodeURIComponent(clientSlug)}`);
+      if (!response.ok) return;
+      const data = await response.json();
+      const nextJob = data.job;
+      setJob(nextJob);
+      if (nextJob?.state === "running") {
+        completedJobRef.current = "";
+        setState("running");
+        return;
+      }
+      if (!nextJob) {
+        setState("idle");
+        return;
+      }
+      const jobKey = `${nextJob.startedAt || ""}:${nextJob.finishedAt || ""}:${nextJob.state}`;
+      if (completedJobRef.current !== jobKey) {
+        completedJobRef.current = jobKey;
+        router.refresh();
+      }
+      if (nextJob.state === "failed") {
+        setState("error");
+        setMessage(nextJob.errors?.[0] || "La generación no pudo completarse.");
+      } else {
+        setState("idle");
+        setMessage(nextJob.completed ? `Generación completada: ${nextJob.completed} landing${nextJob.completed === 1 ? "" : "s"} creada${nextJob.completed === 1 ? "" : "s"}.` : "La generación terminó sin crear landings nuevas.");
+      }
+    };
     void refresh(); const timer = window.setInterval(() => void refresh(), 3000); return () => window.clearInterval(timer);
   }, [clientSlug]);
 
