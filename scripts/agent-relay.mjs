@@ -98,10 +98,6 @@ function getPythonCommand() {
     if (process.env.PYTHON) return { command: process.env.PYTHON, argsPrefix: [] };
   }
 
-  // On Windows, prefer the system `python` available in PATH before the repo venv.
-  // The relay needs the interpreter that already has the DB/preview deps installed.
-  if (process.platform === "win32") return { command: "python", argsPrefix: [] };
-
   const localPython =
     process.platform === "win32"
       ? join(ROOT, ".venv", "Scripts", "python.exe")
