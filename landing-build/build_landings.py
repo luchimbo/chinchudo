@@ -569,9 +569,10 @@ def validate_landings(landings: list[dict], categories: dict[str, dict], product
                 continue
             if product.get("categoria_id") not in categories:
                 errors.append(f"{label}: producto con categoria invalida: {product_id}")
-            store = client_store_url().rstrip("/")
-            product_base = f"{store}/productos/"
-            if not str(product.get("url", "")).startswith(product_base):
+            store_host = urlparse(client_store_url()).netloc.lower().removeprefix("www.")
+            product_url = urlparse(str(product.get("url", "")))
+            product_host = product_url.netloc.lower().removeprefix("www.")
+            if product_host != store_host or not product_url.path.startswith("/productos/"):
                 errors.append(f"{label}: URL de producto invalida: {product_id}")
 
         text = json.dumps(landing, ensure_ascii=False).lower()
