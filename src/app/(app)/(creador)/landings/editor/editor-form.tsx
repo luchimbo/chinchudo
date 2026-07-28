@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LogoUpload } from "@/app/(app)/configuracion/logo-upload";
+import { GenerateLandingsButton } from "../generate-landings-button";
 
 type Template = {
   id: string;
@@ -191,6 +192,14 @@ export function EditorForm({
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-8">
+      <section aria-labelledby="create-landings-heading">
+        <div className="mb-3">
+          <h2 id="create-landings-heading" className="font-display text-xl font-bold text-ink">Contenido</h2>
+          <p className="text-xs text-slate/75">Generá propuestas nuevas antes de definir cómo se verán en el sitio.</p>
+        </div>
+        <GenerateLandingsButton clientSlug={config.clientSlug} variant="editor" />
+      </section>
+
       {/* 1. SELECCIÓN DE PLANTILLA */}
       <section className="rounded-2xl border border-ink/10 bg-paper p-6 shadow-sm">
         <div className="mb-4">
