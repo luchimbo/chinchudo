@@ -53,7 +53,7 @@ async function runScheduledLandings() {
       schedule.dailyAttempts = dailyAttempts + Math.min(5, Math.max(1, Number(schedule.limit) || 3));
       await prisma.appSetting.update({ where: { key: setting.key }, data: { value: JSON.stringify(schedule) } });
       const python = getPythonCommand();
-      const child = spawn(python.command, [...python.argsPrefix, join(ROOT, "landing-build", "swarm.py"), "generate", "--limit", String(Math.min(5, Math.max(1, Number(schedule.limit) || 3))), "--client-slug", client.slug], { cwd: ROOT, env: process.env, windowsHide: true });
+      const child = spawn(python.command, [...python.argsPrefix, join(ROOT, "landing-build", "build_landings.py"), "--client-slug", client.slug, "generate", "--limit", String(Math.min(5, Math.max(1, Number(schedule.limit) || 3))), "--max-seconds", "180"], { cwd: ROOT, env: process.env, windowsHide: true });
       child.on("close", (code) => { landingGenerationClients.delete(client.slug); console.log(`[agent-relay] generación programada ${client.slug} finalizó (exit ${code})`); });
       child.on("error", (error) => { landingGenerationClients.delete(client.slug); console.error("[agent-relay] generación programada falló:", error.message); });
       console.log(`[agent-relay] generación programada iniciada para ${client.slug}`);
@@ -510,16 +510,24 @@ const server = http.createServer(async (req, res) => {
 
     landingGenerationClients.add(clientSlug);
     landingGenerationJobs.set(clientSlug, { state: "running", requested: limit, completed: 0, currentTopic: "Preparando temas…", created: [], errors: [], startedAt: new Date().toISOString() });
-    const swarmPath = join(ROOT, "landing-build", "swarm.py");
+    const generatorPath = join(ROOT, "landing-build", "build_landings.py");
     const python = getPythonCommand();
     console.log(`[agent-relay] landings/generate iniciado para ${clientSlug}`);
     json(res, 202, { accepted: true, clientSlug, limit });
 
-    const child = spawn(python.command, [...python.argsPrefix, swarmPath, "generate", "--limit", String(limit), "--client-slug", clientSlug], {
+    const child = spawn(python.command, [...python.argsPrefix, generatorPath, "--client-slug", clientSlug, "generate", "--limit", String(limit), "--max-seconds", "180"], {
       cwd: ROOT,
       env: { ...process.env, PYTHONIOENCODING: "utf-8", LANDING_EXPECTED_CLIENT_ID: client.id, LANDING_CLIENT_CONFIG_JSON: JSON.stringify(client), LANDING_SEED_TOPICS_JSON: JSON.stringify(seedTopics.map((topic) => ({ keyword: topic.keyword, intencion: topic.intent, categorias_sugeridas: topic.suggestedCategories }))) },
       windowsHide: true,
     });
+    const timeout = setTimeout(() => {
+      const job = landingGenerationJobs.get(clientSlug);
+      if (job?.state !== "running") return;
+      job.state = "failed";
+      job.finishedAt = new Date().toISOString();
+      job.errors.push("La generación superó 4 minutos y se detuvo para evitar que quede bloqueada.");
+      child.kill();
+    }, 240_000);
     child.stdout.on("data", (chunk) => {
       const text = chunk.toString();
       for (const line of text.split(/\r?\n/)) {
@@ -530,6 +538,7 @@ const server = http.createServer(async (req, res) => {
     });
     child.stderr.on("data", (chunk) => console.error(`[agent-relay] landings/generate ${clientSlug}: ${chunk.toString().trim()}`));
     child.on("close", (code) => {
+      clearTimeout(timeout);
       landingGenerationClients.delete(clientSlug);
       const job = landingGenerationJobs.get(clientSlug); if (job) { job.state = code === 0 ? "completed" : "failed"; job.finishedAt = new Date().toISOString(); if (code !== 0) job.errors.push(`El generador finalizó con código ${code}.`); }
       console.log(`[agent-relay] landings/generate finalizado para ${clientSlug} (exit ${code})`);
