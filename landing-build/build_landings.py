@@ -421,6 +421,14 @@ def load_env() -> None:
 
 
 def load_seed_topics() -> list[dict]:
+    injected = os.environ.get("LANDING_SEED_TOPICS_JSON", "")
+    if injected:
+        try:
+            parsed = json.loads(injected)
+            if isinstance(parsed, list):
+                return [item for item in parsed if isinstance(item, dict)]
+        except Exception:
+            pass
     slug = client_slug_active()
     if _CLIENT_CONFIG and slug != "pcmidi":
         try:

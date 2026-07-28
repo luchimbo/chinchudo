@@ -504,6 +504,11 @@ const server = http.createServer(async (req, res) => {
       return json(res, 409, { error: "generation_already_running" });
     }
 
+    const client = await prisma.client.findUnique({ where: { slug: clientSlug }, select: { id: true } });
+    const seedTopics = clientSlug === "prestige-running" && client
+      ? await prisma.seedTopic.findMany({ where: { clientId: client.id }, orderBy: { createdAt: "asc" }, select: { keyword: true, intent: true, suggestedCategories: true } })
+      : [];
+
     landingGenerationClients.add(clientSlug);
     landingGenerationJobs.set(clientSlug, { state: "running", requested: limit, completed: 0, currentTopic: "Preparando temas…", created: [], errors: [], startedAt: new Date().toISOString() });
     const swarmPath = join(ROOT, "landing-build", "swarm.py");
@@ -513,7 +518,7 @@ const server = http.createServer(async (req, res) => {
 
     const child = spawn(python.command, [...python.argsPrefix, swarmPath, "generate", "--limit", String(limit), "--client-slug", clientSlug], {
       cwd: ROOT,
-      env: { ...process.env, ...(clientSlug === "prestige-running" ? { PRESTIGE_TOPIC_GUARD: "1" } : {}) },
+      env: { ...process.env, ...(clientSlug === "prestige-running" ? { PRESTIGE_TOPIC_GUARD: "1", LANDING_SEED_TOPICS_JSON: JSON.stringify(seedTopics.map((topic) => ({ keyword: topic.keyword, intencion: topic.intent, categorias_sugeridas: topic.suggestedCategories }))) } : {}) },
       windowsHide: true,
     });
     child.stdout.on("data", (chunk) => {
