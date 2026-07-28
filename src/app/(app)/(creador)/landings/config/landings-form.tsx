@@ -17,7 +17,7 @@ type Config = {
   blogBaseUrl: string;
   autoApprove: boolean;
   autoPublish: boolean;
-  generationSchedule: { enabled: boolean; intervalHours: number; limit: number };
+  generationSchedule: { enabled: boolean; intervalHours: number; limit: number; weeklyTarget: number };
 };
 
 export function LandingsForm({
@@ -97,7 +97,7 @@ export function LandingsForm({
           <input type="checkbox" name="generationEnabled" defaultChecked={config.generationSchedule.enabled} className="mt-0.5" />
           <span>
             <span className="font-semibold text-ink">Generar landings automáticamente</span>
-            <span className={`block ${hintCls}`}>El relay local debe permanecer encendido. Máximo: 12 intentos por día.</span>
+            <span className={`block ${hintCls}`}>Combina ideas del conocimiento del cliente y preguntas detectadas en la web.</span>
           </span>
         </label>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -108,6 +108,10 @@ export function LandingsForm({
           <label className={labelCls}>Landings por corrida
             <input name="generationLimit" type="number" min="1" max="5" defaultValue={config.generationSchedule.limit} className={inputCls} />
             <span className={hintCls}>Entre 1 y 5 por corrida.</span>
+          </label>
+          <label className={labelCls}>Meta semanal
+            <input name="weeklyTarget" type="number" min="2" max="10" defaultValue={config.generationSchedule.weeklyTarget} className={inputCls} />
+            <span className={hintCls}>Hasta 10 por semana; el motor apunta a una mezcla 50/50 interna y externa.</span>
           </label>
         </div>
       </div>

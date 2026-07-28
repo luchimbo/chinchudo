@@ -458,7 +458,7 @@ def load_seed_topics() -> list[dict]:
         try:
             parsed = json.loads(injected)
             if isinstance(parsed, list):
-                return [item for item in parsed if isinstance(item, dict)]
+                return [{**item, "source": item.get("source") or "internal"} for item in parsed if isinstance(item, dict)]
         except Exception:
             pass
     slug = client_slug_active()
@@ -477,7 +477,7 @@ def load_seed_topics() -> list[dict]:
     if not SEED_TOPICS_PATH.exists():
         return []
     with SEED_TOPICS_PATH.open("r", encoding="utf-8", newline="") as handle:
-        return list(csv.DictReader(handle))
+        return [{**item, "source": item.get("source") or "internal"} for item in csv.DictReader(handle)]
 
 
 def load_jsonl(path: Path) -> list[dict]:
@@ -985,6 +985,20 @@ def topic_key_from_record(record: dict) -> str:
     return topic_key(record.get("keyword") or record.get("busqueda_objetivo") or record.get("h1") or "")
 
 
+def balance_topics_by_source(topics: list[dict]) -> list[dict]:
+    """Alterna conocimiento propio y señales externas without losing order."""
+    external_sources = {"external_web", "reddit", "youtube_rss", "duckduckgo"}
+    internal = [topic for topic in topics if topic.get("source") not in external_sources]
+    external = [topic for topic in topics if topic.get("source") in external_sources]
+    balanced: list[dict] = []
+    while internal or external:
+        if internal:
+            balanced.append(internal.pop(0))
+        if external:
+            balanced.append(external.pop(0))
+    return balanced
+
+
 def classify_topic(keyword: str, categories: dict[str, dict], products: dict[str, dict]) -> tuple[list[str], list[str]]:
     text = keyword.lower()
     weak_terms = {"midi", "pads", "sonidos", "kit", "hardware", "software", "home studio", "streaming", "departamento", "arturia"}
@@ -1356,33 +1370,35 @@ def research_opportunities(limit: int, use_web: bool = True) -> None:
     seen.update(topic_key_from_record(item) for item in existing_opps)
 
     opportunities: list[dict] = []
+    internal_target = (limit + 1) // 2
+    external_target = limit - internal_target
     for seed in seeds:
-        if len(opportunities) >= limit:
+        if len(opportunities) >= internal_target:
             break
         for keyword, intent in generate_keyword_variations(seed, categories):
             key = topic_key(keyword)
             if not key or key in seen:
                 continue
-            opportunity = opportunity_from_keyword(keyword, intent, "seed_variation", categories, products)
+            opportunity = opportunity_from_keyword(keyword, intent, "internal", categories, products)
             if not opportunity:
                 continue
             opportunities.append(opportunity)
             seen.add(key)
-            if len(opportunities) >= limit:
+            if len(opportunities) >= internal_target:
                 break
 
-    if use_web and len(opportunities) < limit:
+    if use_web and len(opportunities) < internal_target + external_target:
         queries = [f"{seed.get('keyword', '')} opiniones compra Argentina" for seed in seeds[:20]]
-        for keyword, evidence in ddg_research_queries(queries, limit - len(opportunities)):
+        for keyword, evidence in ddg_research_queries(queries, external_target):
             key = topic_key(keyword)
             if not key or key in seen:
                 continue
-            opportunity = opportunity_from_keyword(keyword, "busqueda detectada en web", "duckduckgo", categories, products, evidence=evidence)
+            opportunity = opportunity_from_keyword(keyword, "busqueda detectada en web", "external_web", categories, products, evidence=evidence)
             if not opportunity:
                 continue
             opportunities.append(opportunity)
             seen.add(key)
-            if len(opportunities) >= limit:
+            if len(opportunities) >= internal_target + external_target:
                 break
 
     append_jsonl(opps_path, opportunities)
@@ -1498,17 +1514,25 @@ def discover_opportunities(limit: int = 30, use_reddit: bool = True, use_youtube
     print(f"discover: {len(opportunities)} nuevas oportunidades (feedback={sum(1 for o in opportunities if o.get('source')=='content_feedback')}, reddit={sum(1 for o in opportunities if o.get('source')=='reddit')}, youtube={sum(1 for o in opportunities if o.get('source')=='youtube_rss')})")
 
 
-def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds: int = 0) -> dict:
+def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds: int = 0, research_first: bool = False) -> dict:
     requested_limit = limit
     limit = enforce_generation_limits(limit) if not dry_run else min(limit, MAX_GENERATE_PER_RUN)
     started_at = time.monotonic()
     run_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+    if research_first and not dry_run:
+        # A balanced brief gives every run a mix of first-party knowledge and
+        # externally observed questions before any landing is written.
+        research_opportunities(limit=max(10, limit * 2), use_web=True)
     categories = load_categories()
     products = load_products()
     existing = load_landings()
     existing_slugs = {item.get("slug") for item in existing}
     existing_keywords = {topic_key_from_record(item) for item in existing}
-    topics = load_seed_topics() + load_jsonl(_opportunities_path())
+    opportunities = load_jsonl(_opportunities_path())
+    # Prefer researched opportunities: they retain source/evidence and avoid
+    # repeatedly turning the same raw seed into a landing. Seeds remain a safe
+    # fallback for a newly onboarded client with no research history yet.
+    topics = balance_topics_by_source(opportunities) if opportunities else load_seed_topics()
     created = 0
     created_items = []
     skipped_items = []
@@ -1575,7 +1599,7 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
         existing_slugs.add(landing["slug"])
         existing_keywords.add(topic_key_from_record(landing))
         created += 1
-        created_item = {"slug": landing["slug"], "keyword": landing["keyword"], "title": landing.get("titulo") or landing.get("seo_title") or landing["keyword"]}
+        created_item = {"slug": landing["slug"], "keyword": landing["keyword"], "title": landing.get("titulo") or landing.get("seo_title") or landing["keyword"], "source": topic.get("source") or "internal"}
         created_items.append(created_item)
         print("@@landing-progress " + json.dumps({"event": "created", **created_item}, ensure_ascii=False), flush=True)
         append_generation_event(run_id, {"command": "generate", "event": "created", "dry_run": dry_run, **created_item})
@@ -1650,14 +1674,28 @@ def render_landing(landing: dict, categories: dict[str, dict], products: dict[st
       </div>
     </section>'''
 
+    # "Cuarto de caña" is a catalogue classification. On customer-facing
+    # landings, "medias" is the familiar wording.
+    def display_category_name(category: dict) -> str:
+        if category.get("id") == "cuarto-de-cana":
+            return "Medias"
+        return str(category["nombre"])
+
+    def landing_title(value: object) -> str:
+        """Uses the shopper-facing term in titles instead of a stock taxonomy."""
+        text = str(value or "")
+        if primary.get("id") == "cuarto-de-cana":
+            return re.sub(r"cuarto\s+de\s+caña", "medias", text, flags=re.IGNORECASE)
+        return text
+
     components = landing.get("components", [])
     components_html = []
     for index, component in enumerate(components, start=1):
         category = selected[min(index - 1, len(selected) - 1)]
         components_html.append(
             f'<article class="comp-card"><div class="comp-head"><span class="comp-num">{index:02d}</span>'
-            f'<span class="mono-label dim">{esc(component.get("shortCat", category["nombre"]))}</span></div>'
-            f'<h3 class="comp-name">{esc(component.get("cat", category["nombre"]))}</h3>'
+            f'<span class="mono-label dim">{esc(component.get("shortCat", display_category_name(category)))}</span></div>'
+            f'<h3 class="comp-name">{esc(component.get("cat", display_category_name(category)))}</h3>'
             f'<p class="comp-text"><strong>Para que sirve:</strong> {esc(component.get("why", category["descripcion"]))}</p>'
             f'<p class="comp-text"><strong>Que mirar:</strong> {esc(component.get("look", "Comparar alternativas segun tu caso de uso."))}</p>'
             f'<a class="comp-link" href="{esc(category["url"])}" target="_blank" rel="noopener"><span>Ver categoria en {esc(client_name())}</span><span>&nearr;</span></a></article>'
@@ -1693,7 +1731,7 @@ def render_landing(landing: dict, categories: dict[str, dict], products: dict[st
     logo_light_plain = f'<img src="{esc(logo_url)}" alt="{esc(brand)}" class="brand-mark-light">' if logo_url else f'<span class="brand-mark-light brand-wordmark">{esc(brand)}</span>'
     components_title = landing.get("components_title") or f"Opciones para resolver: {landing['keyword']}"
     components_subtitle = landing.get("components_subtitle") or (
-        f"Estas categorias ayudan a comparar {primary['nombre'].lower()} y alternativas relacionadas segun el uso real: "
+        f"Estas categorias ayudan a comparar {display_category_name(primary).lower()} y alternativas relacionadas segun el uso real: "
         f"que necesita la persona, donde lo va a usar y que prioridad conviene resolver primero."
     )
     product_links_html = ""
@@ -1708,20 +1746,20 @@ def render_landing(landing: dict, categories: dict[str, dict], products: dict[st
         product_links_html = '<div class="product-strip"><span class="mono-label dim">Productos mencionados</span><div class="product-strip-grid">' + "".join(product_items) + "</div></div>"
 
     values = {
-        "seo_title": esc(landing["seo_title"]),
+        "seo_title": esc(landing_title(landing["seo_title"])),
         "meta_description": esc(landing["meta_description"]),
         "canonical_url": esc(canonical_url),
         "faq_json_ld": esc(faq_json_ld).replace("&quot;", '"'),
         "primary_url": esc(primary["url"]),
-        "primary_name": esc(primary["nombre"]),
+        "primary_name": esc(display_category_name(primary)),
         "cta_text": f"Ver opciones en {brand}",
         "code": esc(brand[:12].upper() + " · " + slug[:14].upper()),
-        "eyebrow": esc("Guia tecnica · " + primary["nombre"]),
-        "h1": esc(landing["h1"]),
+        "eyebrow": esc("Guia tecnica · " + display_category_name(primary)),
+        "h1": esc(landing_title(landing["h1"])),
         "lead_magnet_html": lead_magnet_html,
-        "hero_lede": esc(landing["hero_lede"]),
+        "hero_lede": esc(landing_title(landing["hero_lede"])),
         "keyword": esc(landing["keyword"]),
-        "components_title": esc(components_title),
+        "components_title": esc(landing_title(components_title)),
         "components_subtitle": esc(components_subtitle),
         "product_links_html": product_links_html,
         "components_html": "\n".join(components_html),
@@ -2106,6 +2144,7 @@ def main() -> None:
     generate_parser.add_argument("--limit", type=int, default=50, help="Cantidad maxima de landings nuevas")
     generate_parser.add_argument("--model", default=os.environ.get("OPENROUTER_MODEL", DEFAULT_MODEL), help="Modelo OpenRouter")
     generate_parser.add_argument("--dry-run", action="store_true", help="Genera y valida sin guardar")
+    generate_parser.add_argument("--research-first", action="store_true", help="Actualiza oportunidades internas y externas antes de generar")
     generate_parser.add_argument("--max-seconds", type=int, default=0, help="Corta ordenadamente la generacion despues de N segundos")
     run_parser = sub.add_parser("run")
     run_parser.add_argument("--limit", type=int, default=50, help="Cantidad maxima de landings nuevas")
@@ -2153,7 +2192,7 @@ def main() -> None:
     elif args.command == "discover":
         discover_opportunities(limit=args.limit, use_reddit=not args.no_reddit, use_youtube=not args.no_youtube)
     elif args.command == "generate":
-        generate_landings(limit=args.limit, model=args.model, dry_run=args.dry_run, max_seconds=args.max_seconds)
+        generate_landings(limit=args.limit, model=args.model, dry_run=args.dry_run, max_seconds=args.max_seconds, research_first=args.research_first)
     elif args.command == "run":
         run_pipeline(limit=args.limit, model=args.model, base_url=args.base_url, dry_run=args.dry_run, max_seconds=args.max_seconds)
     elif args.command == "deploy":

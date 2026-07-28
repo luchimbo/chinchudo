@@ -138,6 +138,7 @@ def load_seed_topics(client_slug: str) -> list[dict]:
             "keyword": r["keyword"],
             "intencion": r["intent"],
             "categorias_sugeridas": ";".join(cats),
+            "source": "internal",
         })
     return result
 

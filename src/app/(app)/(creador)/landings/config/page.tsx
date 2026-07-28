@@ -5,14 +5,14 @@ import { updateLandingsConfig, updateEmailConfig } from "./actions";
 import { LandingsForm } from "./landings-form";
 import { EmailsForm } from "./emails-form";
 
-type GenerationSchedule = { enabled: boolean; intervalHours: number; limit: number };
+type GenerationSchedule = { enabled: boolean; intervalHours: number; limit: number; weeklyTarget: number };
 
 function parseSchedule(value: string | null): GenerationSchedule {
   try {
     const raw = JSON.parse(value || "{}");
-    return { enabled: Boolean(raw.enabled), intervalHours: Math.min(168, Math.max(1, Number(raw.intervalHours) || 24)), limit: Math.min(5, Math.max(1, Number(raw.limit) || 3)) };
+    return { enabled: Boolean(raw.enabled), intervalHours: Math.min(168, Math.max(1, Number(raw.intervalHours) || 24)), limit: Math.min(5, Math.max(1, Number(raw.limit) || 3)), weeklyTarget: Math.min(10, Math.max(2, Number(raw.weeklyTarget) || 10)) };
   } catch {
-    return { enabled: false, intervalHours: 24, limit: 3 };
+    return { enabled: false, intervalHours: 24, limit: 3, weeklyTarget: 10 };
   }
 }
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-type Job = { state: "running" | "completed" | "failed"; requested: number; completed: number; currentTopic?: string; created?: Array<{ keyword: string; title: string }> };
+type Job = { state: "running" | "completed" | "failed"; requested: number; completed: number; currentTopic?: string; created?: Array<{ keyword: string; title: string; source?: string }> };
 
 export function GenerationProgressCard({ clientSlug }: { clientSlug: string }) {
   const [job, setJob] = useState<Job | null>(null);
@@ -28,6 +28,6 @@ export function GenerationProgressCard({ clientSlug }: { clientSlug: string }) {
       <span className="rounded-full bg-sky-700 px-3 py-1 text-xs font-bold text-white">{job.completed}/{job.requested}</span>
     </div>
     <div className="mt-4 h-2 overflow-hidden rounded-full bg-sky-200"><div className="h-full bg-sky-600 transition-all duration-500" style={{ width: `${percent}%` }} /></div>
-    {job.created?.length ? <div className="mt-4 border-t border-sky-200 pt-3 text-sm text-sky-950"><p className="mb-2 text-xs font-bold uppercase tracking-wide text-sky-700">Landings creadas</p>{job.created.map((item, index) => <p key={`${item.title}-${index}`}><span className="text-sky-700">{item.keyword}</span> — {item.title}</p>)}</div> : null}
+    {job.created?.length ? <div className="mt-4 border-t border-sky-200 pt-3 text-sm text-sky-950"><p className="mb-2 text-xs font-bold uppercase tracking-wide text-sky-700">Landings creadas</p>{job.created.map((item, index) => <p key={`${item.title}-${index}`}><span className="text-sky-700">{item.keyword}</span> — {item.title}{item.source ? <small className="ml-2 text-sky-700/65">({item.source === "internal" ? "conocimiento propio" : "investigación externa"})</small> : null}</p>)}</div> : null}
   </section>;
 }

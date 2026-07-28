@@ -29,8 +29,9 @@ export async function updateLandingsConfig(formData: FormData) {
 
   const intervalHours = z.coerce.number().int().min(1).max(168).parse(formData.get("generationIntervalHours"));
   const limit = z.coerce.number().int().min(1).max(5).parse(formData.get("generationLimit"));
+  const weeklyTarget = z.coerce.number().int().min(2).max(10).parse(formData.get("weeklyTarget"));
   const enabled = formData.get("generationEnabled") === "on";
-  await setSetting(`landing_generation_schedule:${id}`, JSON.stringify({ enabled, intervalHours, limit, lastRunAt: new Date().toISOString() }));
+  await setSetting(`landing_generation_schedule:${id}`, JSON.stringify({ enabled, intervalHours, limit, weeklyTarget, lastRunAt: new Date().toISOString() }));
 
   revalidatePath("/landings/config");
 }

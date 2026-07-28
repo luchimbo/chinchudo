@@ -43,17 +43,25 @@ async function runScheduledLandings() {
       const lastRun = Date.parse(schedule.lastRunAt || "") || 0;
       const windowStart = Date.parse(schedule.dailyWindowStart || "") || now;
       const dailyAttempts = windowStart + 86_400_000 > now ? Number(schedule.dailyAttempts) || 0 : 0;
-      if (lastRun + intervalMs > now || dailyAttempts >= 12) continue;
+      const weekStart = Date.parse(schedule.weeklyWindowStart || "") || now;
+      const weeklyGenerated = weekStart + 7 * 86_400_000 > now ? Number(schedule.weeklyGenerated) || 0 : 0;
+      const weeklyTarget = Math.min(10, Math.max(2, Number(schedule.weeklyTarget) || 10));
+      const requested = Math.min(5, Math.max(1, Number(schedule.limit) || 3), weeklyTarget - weeklyGenerated);
+      if (lastRun + intervalMs > now || dailyAttempts >= 12 || requested <= 0) continue;
       const clientId = setting.key.replace("landing_generation_schedule:", "");
       const client = await prisma.client.findUnique({ where: { id: clientId }, select: { slug: true, active: true } });
       if (!client?.active || landingGenerationClients.has(client.slug)) continue;
       landingGenerationClients.add(client.slug);
       schedule.lastRunAt = new Date(now).toISOString();
       schedule.dailyWindowStart = dailyAttempts ? new Date(windowStart).toISOString() : new Date(now).toISOString();
-      schedule.dailyAttempts = dailyAttempts + Math.min(5, Math.max(1, Number(schedule.limit) || 3));
+      schedule.dailyAttempts = dailyAttempts + requested;
+      schedule.weeklyWindowStart = weeklyGenerated ? new Date(weekStart).toISOString() : new Date(now).toISOString();
+      // This is a quota reservation. It deliberately caps scheduled work even
+      // if a provider returns fewer valid landings in a particular run.
+      schedule.weeklyGenerated = weeklyGenerated + requested;
       await prisma.appSetting.update({ where: { key: setting.key }, data: { value: JSON.stringify(schedule) } });
       const python = getPythonCommand();
-      const child = spawn(python.command, [...python.argsPrefix, join(ROOT, "landing-build", "build_landings.py"), "--client-slug", client.slug, "generate", "--limit", String(Math.min(5, Math.max(1, Number(schedule.limit) || 3))), "--max-seconds", "180"], { cwd: ROOT, env: process.env, windowsHide: true });
+      const child = spawn(python.command, [...python.argsPrefix, join(ROOT, "landing-build", "build_landings.py"), "--client-slug", client.slug, "generate", "--limit", String(requested), "--research-first", "--max-seconds", "180"], { cwd: ROOT, env: process.env, windowsHide: true });
       child.on("close", (code) => { landingGenerationClients.delete(client.slug); console.log(`[agent-relay] generación programada ${client.slug} finalizó (exit ${code})`); });
       child.on("error", (error) => { landingGenerationClients.delete(client.slug); console.error("[agent-relay] generación programada falló:", error.message); });
       console.log(`[agent-relay] generación programada iniciada para ${client.slug}`);
@@ -524,7 +532,7 @@ const server = http.createServer(async (req, res) => {
     console.log(`[agent-relay] landings/generate iniciado para ${clientSlug}`);
     json(res, 202, { accepted: true, clientSlug, limit });
 
-    const child = spawn(python.command, [...python.argsPrefix, generatorPath, "--client-slug", clientSlug, "generate", "--limit", String(limit), "--max-seconds", "180"], {
+    const child = spawn(python.command, [...python.argsPrefix, generatorPath, "--client-slug", clientSlug, "generate", "--limit", String(limit), "--research-first", "--max-seconds", "180"], {
       cwd: ROOT,
       env: { ...process.env, PYTHONIOENCODING: "utf-8", LANDING_EXPECTED_CLIENT_ID: client.id, LANDING_CLIENT_CONFIG_JSON: JSON.stringify(client), LANDING_CATALOG_JSON: JSON.stringify(catalog), LANDING_SEED_TOPICS_JSON: JSON.stringify(seedTopics.map((topic) => ({ keyword: topic.keyword, intencion: topic.intent, categorias_sugeridas: topic.suggestedCategories }))) },
       windowsHide: true,
@@ -541,7 +549,7 @@ const server = http.createServer(async (req, res) => {
       const text = chunk.toString();
       for (const line of text.split(/\r?\n/)) {
         if (!line.startsWith("@@landing-progress ")) continue;
-        try { const event = JSON.parse(line.slice(19)); const job = landingGenerationJobs.get(clientSlug); if (!job) continue; if (event.event === "processing") job.currentTopic = event.keyword; if (event.event === "created") { job.completed += 1; job.created.push({ keyword: event.keyword, title: event.title }); } } catch {}
+        try { const event = JSON.parse(line.slice(19)); const job = landingGenerationJobs.get(clientSlug); if (!job) continue; if (event.event === "processing") job.currentTopic = event.keyword; if (event.event === "created") { job.completed += 1; job.created.push({ keyword: event.keyword, title: event.title, source: event.source }); } } catch {}
       }
       console.log(`[agent-relay] landings/generate ${clientSlug}: ${text.trim()}`);
     });
