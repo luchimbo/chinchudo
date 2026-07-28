@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
+import { getRelayUrl } from "@/lib/settings";
 
 const execFileAsync = promisify(execFile);
 
@@ -33,7 +34,10 @@ function pythonCommand() {
 }
 
 async function renderOnRelay(clientSlug: string, landingId: string, client: LandingClientConfig) {
-  const relayUrl = process.env.AGENT_RELAY_URL?.trim();
+  // Los túneles trycloudflare cambian cada vez que se reinicia el relay. La
+  // URL vigente se persiste en AppSetting por el script de arranque; el env
+  // queda únicamente como respaldo para instalaciones sin base compartida.
+  const relayUrl = await getRelayUrl();
   const relayToken = process.env.AGENT_RELAY_TOKEN?.trim();
 
   if (!relayUrl || !relayToken) {
