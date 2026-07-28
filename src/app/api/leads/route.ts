@@ -7,6 +7,7 @@ const LeadSchema = z.object({
   nombre: z.string().default(""),
   slug: z.string().min(1),
   keyword: z.string().default(""),
+  client_slug: z.string().max(80).optional(),
   leadMagnetSlug: z.string().optional(),
   consent: z.boolean().default(false),
 });
@@ -22,8 +23,11 @@ export async function POST(req: NextRequest) {
       leadMagnetId = lm?.id;
     }
 
-    const landing = await prisma.landing.findUnique({
-      where: { slug: data.slug },
+    const client = data.client_slug
+      ? await prisma.client.findUnique({ where: { slug: data.client_slug }, select: { id: true } })
+      : null;
+    const landing = await prisma.landing.findFirst({
+      where: { slug: data.slug, ...(client?.id ? { clientId: client.id } : {}) },
       select: { id: true, clientId: true },
     });
 

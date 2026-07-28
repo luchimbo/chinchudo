@@ -9,8 +9,9 @@ export async function GET(
   { params }: { params: { slug: string } },
 ) {
   const { slug } = params;
-  const landing = await prisma.landing.findUnique({
+  const landing = await prisma.landing.findFirst({
     where: { slug },
+    orderBy: { updatedAt: "desc" },
     include: {
       client: {
         select: {

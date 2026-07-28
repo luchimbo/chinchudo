@@ -15,11 +15,13 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const data = EventSchema.parse(body);
 
-    const landing = data.slug
-      ? await prisma.landing.findUnique({ where: { slug: data.slug } })
-      : null;
     const client = data.client_slug
       ? await prisma.client.findUnique({ where: { slug: data.client_slug }, select: { id: true } })
+      : null;
+    const landing = data.slug
+      ? await prisma.landing.findFirst({
+          where: { slug: data.slug, ...(client?.id ? { clientId: client.id } : {}) },
+        })
       : null;
 
     await prisma.trackingEvent.create({
