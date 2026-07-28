@@ -1422,6 +1422,10 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
     processed = 0
     stopped_reason = "limit_reached"
 
+    # Safety net for Prestige: never let a polluted shared source turn into
+    # PC MIDI content, even if an upstream topic file is mis-scoped.
+    prestige_terms = ("media", "running", "corred", "compresi", "trail", "maraton", "pantorr", "soquete", "calza")
+
     for topic in topics:
         if created >= limit:
             break
@@ -1429,6 +1433,12 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
             stopped_reason = "max_seconds_reached"
             break
         processed += 1
+        topic_label = str(topic.get("keyword") or topic.get("busqueda_objetivo") or "")
+        if client_slug_active() == "prestige-running" and not any(term in topic_label.lower() for term in prestige_terms):
+            skipped = {"keyword": topic_label, "reason": "outside_client_scope"}
+            skipped_items.append(skipped)
+            append_generation_event(run_id, {"command": "generate", "event": "skipped", "dry_run": dry_run, **skipped})
+            continue
         print("@@landing-progress " + json.dumps({"event": "processing", "keyword": topic.get("keyword") or topic.get("busqueda_objetivo") or "Tema sin nombre"}, ensure_ascii=False), flush=True)
         if topic_key_from_record(topic) in existing_keywords:
             skipped = {"keyword": topic.get("keyword") or topic.get("busqueda_objetivo"), "reason": "already_exists"}
