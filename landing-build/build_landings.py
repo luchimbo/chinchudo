@@ -65,6 +65,19 @@ def load_client_config_from_env() -> dict:
     raw = os.environ.get("LANDING_CLIENT_CONFIG_JSON", "")
     if not raw:
         return {}
+
+
+def load_catalog_from_env() -> tuple[dict, dict] | None:
+    raw = os.environ.get("LANDING_CATALOG_JSON", "")
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw)
+        categories = {item["id"]: item for item in payload.get("categories", []) if item.get("id")}
+        products = {item["id"]: item for item in payload.get("products", []) if item.get("id")}
+        return categories, products
+    except Exception:
+        return None
     try:
         parsed = json.loads(raw)
         return parsed if isinstance(parsed, dict) else {}
@@ -185,6 +198,9 @@ def slugify(value: str) -> str:
 
 
 def load_categories() -> dict[str, dict]:
+    injected_catalog = load_catalog_from_env()
+    if injected_catalog is not None:
+        return injected_catalog[0]
     slug = client_slug_active()
     if _CLIENT_CONFIG and slug != "pcmidi":
         try:
@@ -198,6 +214,9 @@ def load_categories() -> dict[str, dict]:
 
 
 def load_products() -> dict[str, dict]:
+    injected_catalog = load_catalog_from_env()
+    if injected_catalog is not None:
+        return injected_catalog[1]
     slug = client_slug_active()
     if _CLIENT_CONFIG and slug != "pcmidi":
         try:

@@ -507,6 +507,14 @@ const server = http.createServer(async (req, res) => {
     const client = await prisma.client.findUnique({ where: { slug: clientSlug }, select: { id: true, slug: true, name: true, storeUrl: true, blogBaseUrl: true, labName: true, logoUrl: true, landingTemplate: true, landingPrimaryColor: true, landingSecondaryColor: true } });
     if (!client) return json(res, 404, { error: "client_not_found" });
     const seedTopics = await prisma.seedTopic.findMany({ where: { clientId: client.id }, orderBy: { createdAt: "asc" }, select: { keyword: true, intent: true, suggestedCategories: true } });
+    const [landingCategories, landingProducts] = await Promise.all([
+      prisma.landingCategory.findMany({ where: { clientId: client.id }, select: { key: true, name: true, url: true, description: true, keywords: true } }),
+      prisma.landingProduct.findMany({ where: { clientId: client.id }, select: { externalId: true, name: true, brand: true, model: true, categoryKey: true, url: true, useText: true } }),
+    ]);
+    const catalog = {
+      categories: landingCategories.map((item) => ({ id: item.key, nombre: item.name, url: item.url, descripcion: item.description, keywords: item.keywords })),
+      products: landingProducts.map((item) => ({ id: item.externalId, nombre: item.name, marca: item.brand, modelo: item.model, categoria_id: item.categoryKey, url: item.url, uso: item.useText })),
+    };
 
     landingGenerationClients.add(clientSlug);
     landingGenerationJobs.set(clientSlug, { state: "running", requested: limit, completed: 0, currentTopic: "Preparando temas…", created: [], errors: [], startedAt: new Date().toISOString() });
@@ -517,7 +525,7 @@ const server = http.createServer(async (req, res) => {
 
     const child = spawn(python.command, [...python.argsPrefix, generatorPath, "--client-slug", clientSlug, "generate", "--limit", String(limit), "--max-seconds", "180"], {
       cwd: ROOT,
-      env: { ...process.env, PYTHONIOENCODING: "utf-8", LANDING_EXPECTED_CLIENT_ID: client.id, LANDING_CLIENT_CONFIG_JSON: JSON.stringify(client), LANDING_SEED_TOPICS_JSON: JSON.stringify(seedTopics.map((topic) => ({ keyword: topic.keyword, intencion: topic.intent, categorias_sugeridas: topic.suggestedCategories }))) },
+      env: { ...process.env, PYTHONIOENCODING: "utf-8", LANDING_EXPECTED_CLIENT_ID: client.id, LANDING_CLIENT_CONFIG_JSON: JSON.stringify(client), LANDING_CATALOG_JSON: JSON.stringify(catalog), LANDING_SEED_TOPICS_JSON: JSON.stringify(seedTopics.map((topic) => ({ keyword: topic.keyword, intencion: topic.intent, categorias_sugeridas: topic.suggestedCategories }))) },
       windowsHide: true,
     });
     const timeout = setTimeout(() => {
