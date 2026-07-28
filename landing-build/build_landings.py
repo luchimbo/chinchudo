@@ -191,7 +191,8 @@ def load_categories() -> dict[str, dict]:
             cats, _ = _load_catalog_from_db(slug)
             return cats
         except Exception as exc:
-            print(f"[build_landings] No se pudo cargar categorías de DB para {slug}: {exc}. Usando archivos locales.")
+            print(f"[build_landings] No se pudo cargar categorías de DB para {slug}: {exc}. No se usará el catálogo compartido.")
+            return {}
     categories = json.loads(CATEGORIES_PATH.read_text(encoding="utf-8"))
     return {item["id"]: item for item in categories}
 
@@ -203,7 +204,8 @@ def load_products() -> dict[str, dict]:
             _, prods = _load_catalog_from_db(slug)
             return prods
         except Exception as exc:
-            print(f"[build_landings] No se pudo cargar productos de DB para {slug}: {exc}. Usando archivos locales.")
+            print(f"[build_landings] No se pudo cargar productos de DB para {slug}: {exc}. No se usará el catálogo compartido.")
+            return {}
     if not PRODUCTS_PATH.exists():
         return {}
     products = json.loads(PRODUCTS_PATH.read_text(encoding="utf-8"))
