@@ -2009,7 +2009,7 @@ def main() -> None:
             db_pg.inject_openrouter_env(client_slug=args.client_slug)
             global _CLIENT_CONFIG
             _CLIENT_CONFIG = db_pg.get_client_config(args.client_slug)
-            print(f"build-landings: cliente activo → {_CLIENT_CONFIG.get('name')} ({args.client_slug})")
+            print(f"build-landings: cliente activo -> {_CLIENT_CONFIG.get('name')} ({args.client_slug})")
         except Exception as exc:
             env_config = load_client_config_from_env()
             if env_config:
