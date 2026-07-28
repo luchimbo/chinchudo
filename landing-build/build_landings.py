@@ -74,6 +74,14 @@ LANDINGS_PATH = DATA_DIR / "landings_aprobadas.jsonl"
 OPPORTUNITIES_PATH = DATA_DIR / "oportunidades_research.jsonl"
 
 
+def _landings_path() -> Path:
+    """El respaldo local se aísla por cliente, igual que Postgres."""
+    slug = client_slug_active()
+    if slug and slug != "pcmidi":
+        return DATA_DIR / f"landings_aprobadas_{slug}.jsonl"
+    return LANDINGS_PATH
+
+
 def _opportunities_path() -> Path:
     """Devuelve el archivo de oportunidades del cliente activo (uno por slug)."""
     slug = client_slug_active()
@@ -285,15 +293,16 @@ def load_landings() -> list[dict]:
         return pg_landings
     # Fallback al jsonl local
     landings = []
-    if not LANDINGS_PATH.exists():
+    landings_path = _landings_path()
+    if not landings_path.exists():
         return landings
-    for line_no, line in enumerate(LANDINGS_PATH.read_text(encoding="utf-8").splitlines(), start=1):
+    for line_no, line in enumerate(landings_path.read_text(encoding="utf-8").splitlines(), start=1):
         if not line.strip():
             continue
         try:
             landings.append(json.loads(line))
         except json.JSONDecodeError as exc:
-            raise ValueError(f"JSON invalido en {LANDINGS_PATH}:{line_no}: {exc}") from exc
+            raise ValueError(f"JSON invalido en {landings_path}:{line_no}: {exc}") from exc
     return landings
 
 
@@ -463,10 +472,14 @@ def load_jsonl(path: Path) -> list[dict]:
 
 
 def append_landing(landing: dict) -> None:
+    expected_client_id = os.environ.get("LANDING_EXPECTED_CLIENT_ID", "").strip()
+    configured_client_id = str(_CLIENT_CONFIG.get("id") or "").strip()
+    if expected_client_id and configured_client_id and expected_client_id != configured_client_id:
+        raise RuntimeError("El contexto de cliente del relay no coincide con el generador")
+    client_id = expected_client_id or configured_client_id
+    if client_id and not os.environ.get("DATABASE_URL", ""):
+        raise RuntimeError("No hay DATABASE_URL: no se puede guardar una landing de cliente")
     # Escribir al jsonl local como respaldo
-    LANDINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with LANDINGS_PATH.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(landing, ensure_ascii=False, separators=(",", ":")) + "\n")
     # Intentar persistir en Postgres también
     db_url = os.environ.get("DATABASE_URL", "")
     if db_url:
@@ -477,11 +490,8 @@ def append_landing(landing: dict) -> None:
             # The relay provides the intended client id. Prefer it over any
             # inferred runtime config so a multi-client run cannot persist in
             # another client's archive.
-            expected_client_id = os.environ.get("LANDING_EXPECTED_CLIENT_ID", "").strip()
-            if expected_client_id:
-                extra["clientId"] = expected_client_id
-            elif _CLIENT_CONFIG.get("id"):
-                extra["clientId"] = _CLIENT_CONFIG["id"]
+            if client_id:
+                extra["clientId"] = client_id
             upsert_landing(
                 slug=landing.get("slug", ""),
                 keyword=landing.get("keyword", ""),
@@ -494,7 +504,11 @@ def append_landing(landing: dict) -> None:
                 **extra,
             )
         except Exception as exc:
-            print(f"[build_landings] No se pudo persistir landing en Postgres: {exc}")
+            raise RuntimeError(f"No se pudo persistir landing en Postgres: {exc}") from exc
+    landings_path = _landings_path()
+    landings_path.parent.mkdir(parents=True, exist_ok=True)
+    with landings_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(landing, ensure_ascii=False, separators=(",", ":")) + "\n")
 
 
 def append_jsonl(path: Path, rows: list[dict]) -> None:
@@ -2002,6 +2016,7 @@ def selftest() -> None:
 
 
 def main() -> None:
+    global _CLIENT_CONFIG
     load_env()
     parser = argparse.ArgumentParser(description="Generador estatico de landings multi-cliente")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -2037,20 +2052,27 @@ def main() -> None:
     parser.add_argument("--client-slug", default="", help="Cliente cuya API key de OpenRouter usar (default: .env)")
     args = parser.parse_args()
     if getattr(args, "client_slug", ""):
-        try:
-            sys.path.insert(0, str(ROOT.parent / "agents"))
-            import db_pg
-            db_pg.inject_openrouter_env(client_slug=args.client_slug)
-            global _CLIENT_CONFIG
-            _CLIENT_CONFIG = db_pg.get_client_config(args.client_slug)
-            print(f"build-landings: cliente activo -> {_CLIENT_CONFIG.get('name')} ({args.client_slug})")
-        except Exception as exc:
-            env_config = load_client_config_from_env()
-            if env_config:
-                _CLIENT_CONFIG = env_config
-                print(f"build-landings: cliente activo desde entorno -> {_CLIENT_CONFIG.get('name')} ({args.client_slug})")
-            else:
-                print(f"build-landings: no se pudo cargar la config del cliente ({exc}); modo PC MIDI")
+        env_config = load_client_config_from_env()
+        if env_config:
+            if env_config.get("slug") != args.client_slug:
+                raise SystemExit("Contexto de cliente invalido: el slug recibido no coincide con el relay")
+            _CLIENT_CONFIG = env_config
+            print(f"build-landings: cliente activo desde relay -> {_CLIENT_CONFIG.get('name')} ({args.client_slug})")
+            try:
+                sys.path.insert(0, str(ROOT.parent / "agents"))
+                import db_pg
+                db_pg.inject_openrouter_env(client_slug=args.client_slug)
+            except Exception as exc:
+                print(f"build-landings: no se pudo cargar la key del cliente ({exc})")
+        else:
+            try:
+                sys.path.insert(0, str(ROOT.parent / "agents"))
+                import db_pg
+                db_pg.inject_openrouter_env(client_slug=args.client_slug)
+                _CLIENT_CONFIG = db_pg.get_client_config(args.client_slug)
+                print(f"build-landings: cliente activo -> {_CLIENT_CONFIG.get('name')} ({args.client_slug})")
+            except Exception as exc:
+                raise SystemExit(f"No se pudo cargar la configuracion de {args.client_slug}: {exc}")
     if args.command == "validate":
         validate_command()
     elif args.command == "build":

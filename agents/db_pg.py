@@ -203,6 +203,8 @@ def upsert_landing(slug: str, keyword: str, html_content: str, **kwargs) -> str:
     """Inserta o actualiza una landing. Devuelve el id."""
     import datetime
     fields = {"slug": slug, "keyword": keyword, "htmlContent": html_content, **kwargs}
+    if not fields.get("clientId"):
+        raise ValueError("Landing clientId is required")
     if "id" not in fields:
         fields["id"] = generate_cuid()
     if "updatedAt" not in fields:
@@ -213,7 +215,7 @@ def upsert_landing(slug: str, keyword: str, html_content: str, **kwargs) -> str:
     sql = f"""
         INSERT INTO "Landing" ({cols})
         VALUES ({vals})
-        ON CONFLICT (slug) DO UPDATE SET {update}, "updatedAt" = NOW()
+        ON CONFLICT ("clientId", slug) DO UPDATE SET {update}, "updatedAt" = NOW()
         RETURNING id
     """
     with connect() as conn:

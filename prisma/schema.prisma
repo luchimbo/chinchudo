@@ -680,8 +680,8 @@ model LeadMagnet {
 
 model Landing {
   id                 String              @id @default(cuid())
-  clientId           String?
-  slug               String              @unique
+  clientId           String
+  slug               String
   keyword            String
   intent             String              @default("")
   titulo             String              @default("")
@@ -696,13 +696,14 @@ model Landing {
   leadMagnetId       String?
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
-  client             Client?             @relation(fields: [clientId], references: [id])
+  client             Client              @relation(fields: [clientId], references: [id], onDelete: Cascade)
   opportunity        Opportunity?        @relation(fields: [opportunityId], references: [id])
   leadMagnet         LeadMagnet?         @relation(fields: [leadMagnetId], references: [id])
   leads              Lead[]
   distribution       DistributionPiece[]
   trackingEvents     TrackingEvent[]
 
+  @@unique([clientId, slug])
   @@index([clientId])
   @@index([status])
   @@index([createdAt])
