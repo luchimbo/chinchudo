@@ -912,6 +912,48 @@ def normalize_generated_landing(landing: dict) -> dict:
     return landing
 
 
+def catalogue_fallback_landing(topic: dict, categories: dict[str, dict], products: dict[str, dict]) -> dict:
+    """Crea una guía segura desde el catálogo cuando el modelo sale de marca."""
+    keyword = str(topic.get("keyword") or topic.get("busqueda_objetivo") or "guía de compra").strip()
+    suggested = str(topic.get("categorias_sugeridas") or "").split(";")
+    category_ids = [item.strip() for item in suggested if item.strip() in categories]
+    if not category_ids:
+        category_ids, _ = classify_topic(keyword, categories, products)
+    if not category_ids:
+        category_ids = list(categories)[:1]
+    primary_id = category_ids[0]
+    secondary_ids = [item for item in category_ids[1:3] if item != primary_id]
+    selected_products = [pid for pid, product in products.items() if product.get("categoria_id") in [primary_id, *secondary_ids]][:5]
+    if len(selected_products) < 2:
+        selected_products = list(products)[:5]
+    primary = categories[primary_id]
+    title_keyword = keyword[:65]
+    return {
+        "slug": slugify(keyword), "keyword": keyword, "intent": str(topic.get("intencion") or "guía de compra"),
+        "seo_title": f"{title_keyword}: guía para elegir mejor"[:65],
+        "meta_description": f"Guía para elegir {keyword.lower()} según tu uso, comodidad y el tipo de entrenamiento que hacés.",
+        "h1": f"{keyword[:90].capitalize()}: qué mirar antes de elegir",
+        "hero_lede": f"Una guía clara para comparar opciones de {primary['nombre'].lower()} según cómo y dónde entrenás.",
+        "primary_category_id": primary_id, "secondary_category_ids": secondary_ids, "product_ids": selected_products,
+        "components_title": f"Qué mirar en {primary['nombre'].lower()}",
+        "components_subtitle": "Compará el ajuste, la cobertura y el uso previsto antes de elegir una opción.",
+        "components": [
+            {"cat": categories[item]["nombre"], "shortCat": categories[item]["nombre"][:12].upper(), "why": categories[item]["descripcion"], "look": "Revisá el uso y la cobertura que necesitás."}
+            for item in [primary_id, *secondary_ids]
+        ],
+        "steps": [
+            {"n": "01", "t": "Definí el uso", "b": "Pensá si las necesitás para entrenar, correr distancias largas o usar todos los días."},
+            {"n": "02", "t": "Elegí la cobertura", "b": "La altura y el ajuste cambian la sensación durante el entrenamiento."},
+            {"n": "03", "t": "Compará opciones", "b": "Revisá modelos de la categoría que mejor acompaña tu rutina."},
+        ],
+        "faqs": [
+            {"q": "¿Cómo elijo la opción adecuada?", "a": "Partí del tipo de entrenamiento, el calzado y la cobertura que te resulte más cómoda."},
+            {"q": "¿Importa la altura de la media?", "a": "Sí. Cambia la cobertura y la protección según el uso y el terreno."},
+            {"q": "¿Conviene comparar modelos?", "a": "Sí. Mirar el uso previsto ayuda a elegir con más criterio."},
+        ],
+    }
+
+
 def topic_key(value: str) -> str:
     return slugify(value).lower()
 
@@ -1475,8 +1517,11 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
             append_generation_event(run_id, {"command": "generate", "event": "skipped", "dry_run": dry_run, **skipped})
             continue
         try:
-            system, user = generation_prompt(topic, categories, products)
-            landing = normalize_generated_landing(chat_json(system, user, model=model))
+            if client_slug_active() == "prestige-running":
+                landing = normalize_generated_landing(catalogue_fallback_landing(topic, categories, products))
+            else:
+                system, user = generation_prompt(topic, categories, products)
+                landing = normalize_generated_landing(chat_json(system, user, model=model))
         except Exception as exc:
             blocked = {"keyword": topic.get("keyword") or topic.get("busqueda_objetivo"), "reason": "generation_error", "error": str(exc)}
             blocked_items.append(blocked)
@@ -1485,10 +1530,7 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
         if (client_slug_active() == "prestige-running" or os.environ.get("PRESTIGE_TOPIC_GUARD") == "1"):
             output_text = " ".join(str(landing.get(key) or "") for key in ("keyword", "titulo", "seo_title", "h1")).lower()
             if not any(term in output_text for term in prestige_terms):
-                blocked = {"keyword": topic_label, "slug": landing.get("slug"), "reason": "generated_outside_client_scope"}
-                blocked_items.append(blocked)
-                append_generation_event(run_id, {"command": "generate", "event": "blocked", "dry_run": dry_run, **blocked})
-                continue
+                landing = normalize_generated_landing(catalogue_fallback_landing(topic, categories, products))
         if landing["slug"] in existing_slugs:
             landing["slug"] = slugify(f"{landing['slug']}-{created + 1}")
         # La propuesta se valida contra el catálogo del cliente activo. Las
