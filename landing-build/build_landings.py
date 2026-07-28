@@ -1491,8 +1491,10 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
                 continue
         if landing["slug"] in existing_slugs:
             landing["slug"] = slugify(f"{landing['slug']}-{created + 1}")
-        candidate_list = existing + [landing]
-        errors = validate_landings(candidate_list, categories, products)
+        # La propuesta se valida contra el catálogo del cliente activo. Las
+        # landings históricas ya fueron deduplicadas arriba; revalidarlas acá
+        # puede bloquear un cliente por registros viejos de otro catálogo.
+        errors = validate_landings([landing], categories, products)
         if errors:
             print("Saltada por validacion: " + landing.get("slug", topic.get("keyword", "sin-slug")))
             for error in errors:
