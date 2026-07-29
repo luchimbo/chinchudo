@@ -6,7 +6,9 @@ import { PRESTIGE_RADAR_QUERIES } from "./prestige-radar.mjs";
 loadEnv();
 
 const ACCOUNT_BY_CHANNEL: Record<string, string> = {
-  instagram: "deportista-aficionado", tiktok: "entrenador-deportivo", youtube: "deportista-aficionado",
+  // El perfil Deportista Aficionado redirige a la pantalla de cuenta suspendida
+  // en Instagram. Entrenador Deportivo conserva una sesión operativa para esta red.
+  instagram: "entrenador-deportivo", tiktok: "entrenador-deportivo", youtube: "deportista-aficionado",
   facebook: "entrenador-deportivo", x: "deportista-aficionado", reddit: "entrenador-deportivo",
 };
 

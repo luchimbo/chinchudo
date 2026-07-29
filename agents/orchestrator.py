@@ -15,7 +15,9 @@ from runtime_guard import healthcheck_errors  # noqa: E402
 
 log = get_logger("orchestrator")
 
-MAX_CONCURRENT_BROWSERS = 3
+# 0 = sin límite: la escucha puede usar todas las cuentas autorizadas.
+# Esto no modifica los permisos de publicación.
+MAX_CONCURRENT_BROWSERS = int(os.environ.get("MAX_CONCURRENT_BROWSERS", "0"))
 
 
 def resolve_bin(name: str) -> str:
@@ -265,15 +267,13 @@ def _auto_assign_account(channel: str, client_slug: str, all_sources: list[dict]
     Elige automáticamente la cuenta Dolphin más adecuada para un canal dado.
     Criterios (en orden):
       1. La cuenta debe tener el canal en allowedChannels.
-      2. Debe pertenecer al mismo clientSlug (o coincidir si no está especificado).
-      3. Entre las elegibles, prioriza la que menos se usó recientemente
+      2. Entre las elegibles, prioriza la que menos se usó recientemente
          (combinando lastRunAt de sus fuentes + corridas ya planificadas en esta vuelta).
     """
     accounts = _load_accounts()
     eligible = [
         acc_id for acc_id, cfg in accounts.items()
-        if channel in cfg.get("allowedChannels", []) and
-        (not cfg.get("clientSlug") or cfg.get("clientSlug") == client_slug)
+        if channel in cfg.get("allowedChannels", [])
     ]
     if not eligible:
         return None
@@ -326,8 +326,8 @@ def _select_accounts(sources: list[dict], max_slots: int) -> tuple[set[str], set
         return min(_parse_last_run(s.get("lastRunAt")) for s in groups[acc])
 
     sorted_accounts = sorted(groups.keys(), key=urgency)
-    selected = set(sorted_accounts[:max_slots])
-    deferred = set(sorted_accounts[max_slots:])
+    selected = set(sorted_accounts if max_slots <= 0 else sorted_accounts[:max_slots])
+    deferred = set() if max_slots <= 0 else set(sorted_accounts[max_slots:])
     sources_to_run = [s for s in resolved if s.get("account") in selected]
     return selected, deferred, sources_to_run
 
