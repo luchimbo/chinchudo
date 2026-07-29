@@ -520,7 +520,7 @@ def append_landing(landing: dict) -> None:
             upsert_landing(
                 slug=landing.get("slug", ""),
                 keyword=landing.get("keyword", ""),
-                html_content=landing.get("html_content", landing.get("htmlContent", "")),
+                html_content=json.dumps(landing, ensure_ascii=False),
                 titulo=landing.get("titulo") or landing.get("h1") or landing.get("seo_title") or "",
                 intent=landing.get("intent", ""),
                 seoTitle=landing.get("seo_title", ""),
