@@ -1567,7 +1567,7 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
     # Safety net for Prestige: never let a polluted shared source turn into
     # PC MIDI content, even if an upstream topic file is mis-scoped.
     prestige_terms = ("media", "running", "corred", "compresi", "trail", "maraton", "pantorr", "soquete", "calza")
-    prestige_blocked_terms = ("cuarto de caña", "cuarto de cana", "quarter sock")
+    prestige_blocked_terms = ("cuarto de caña", "cuarto de cana", "cuarto", "quarter", "tobillo")
 
     for topic in topics:
         if created >= limit:

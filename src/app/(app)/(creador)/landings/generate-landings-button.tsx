@@ -24,12 +24,15 @@ export function GenerateLandingsButton({
       if (!response.ok) return;
       const data = await response.json();
       const nextJob = data.job;
-      setJob(nextJob);
       if (nextJob?.state === "running") {
         completedJobRef.current = "";
+        setJob(nextJob);
         setState("running");
         return;
       }
+      // Los resultados terminados pertenecen a la corrida anterior. No se
+      // muestran al volver al editor: las landings ya están en su listado.
+      setJob(null);
       if (!nextJob) {
         setState("idle");
         return;
@@ -44,7 +47,7 @@ export function GenerateLandingsButton({
         setMessage(nextJob.errors?.[0] || "La generación no pudo completarse.");
       } else {
         setState("idle");
-        setMessage(nextJob.completed ? `Generación completada: ${nextJob.completed} landing${nextJob.completed === 1 ? "" : "s"} creada${nextJob.completed === 1 ? "" : "s"}.` : "La generación terminó sin crear landings nuevas.");
+        setMessage("");
       }
     };
     void refresh(); const timer = window.setInterval(() => void refresh(), 3000); return () => window.clearInterval(timer);
