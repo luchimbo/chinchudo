@@ -521,7 +521,7 @@ def append_landing(landing: dict) -> None:
                 slug=landing.get("slug", ""),
                 keyword=landing.get("keyword", ""),
                 html_content=landing.get("html_content", landing.get("htmlContent", "")),
-                titulo=landing.get("titulo", ""),
+                titulo=landing.get("titulo") or landing.get("h1") or landing.get("seo_title") or "",
                 intent=landing.get("intent", ""),
                 seoTitle=landing.get("seo_title", ""),
                 seoDescription=landing.get("seo_description", ""),
@@ -1553,10 +1553,9 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
     existing_slugs = {item.get("slug") for item in existing}
     existing_keywords = {topic_key_from_record(item) for item in existing}
     opportunities = load_jsonl(_opportunities_path())
-    # Prefer researched opportunities: they retain source/evidence and avoid
-    # repeatedly turning the same raw seed into a landing. Seeds remain a safe
-    # fallback for a newly onboarded client with no research history yet.
-    topics = balance_topics_by_source(opportunities) if opportunities else load_seed_topics()
+    # La base editorial del cliente define la diversidad. Las señales de redes
+    # se agregan, pero no pueden desplazarla ni repetir una sola categoría.
+    topics = balance_topics_by_source([*load_seed_topics(), *opportunities])
     created = 0
     created_items = []
     skipped_items = []
@@ -1567,7 +1566,7 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
     # Safety net for Prestige: never let a polluted shared source turn into
     # PC MIDI content, even if an upstream topic file is mis-scoped.
     prestige_terms = ("media", "running", "corred", "compresi", "trail", "maraton", "pantorr", "soquete", "calza")
-    prestige_blocked_terms = ("cuarto de caña", "cuarto de cana", "cuarto", "quarter", "tobillo")
+    prestige_blocked_terms = ("cuarto de caña", "cuarto de cana", "cuarto", "quarter", "tobillo", "media caña", "media cana", "rodilla", "para medias")
 
     for topic in topics:
         if created >= limit:

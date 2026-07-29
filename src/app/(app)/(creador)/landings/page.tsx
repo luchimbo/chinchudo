@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { getVisibleClients } from "@/lib/auth";
-import { publishAllOnlineLandings, publishLandingPreview, publishSelectedLandings, updateLandingStatus } from "./actions";
+import { deleteLanding, publishAllOnlineLandings, publishLandingPreview, publishSelectedLandings, updateLandingStatus } from "./actions";
+import { DeleteLandingButton } from "./delete-landing-button";
 import { GenerationProgressCard } from "./generation-progress-card";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -240,14 +241,17 @@ export default async function LandingsPage({
                     </>
                   )}
                   {landing.status === "ARCHIVED" && (
-                    <form action={updateLandingStatus}>
-                      <input type="hidden" name="id" value={landing.id} />
-                      <input type="hidden" name="status" value="DRAFT" />
-                      <button type="submit" className="rounded-lg border border-ink/20 px-3 py-1.5 text-xs font-semibold text-slate transition hover:border-ink/40 hover:text-ink">
-                        Restaurar a borrador
-                      </button>
-                    </form>
+                    <>
+                      <form action={updateLandingStatus}>
+                        <input type="hidden" name="id" value={landing.id} />
+                        <input type="hidden" name="status" value="DRAFT" />
+                        <button type="submit" className="rounded-lg border border-ink/20 px-3 py-1.5 text-xs font-semibold text-slate transition hover:border-ink/40 hover:text-ink">
+                          Restaurar a borrador
+                        </button>
+                      </form>
+                    </>
                   )}
+                  <DeleteLandingButton id={landing.id} action={deleteLanding} />
                 </div>
               </div>
             </div>

@@ -147,6 +147,7 @@ export function EditorForm({
   const [actionLabel, setActionLabel] = useState<"preview" | "confirm">("preview");
   const [previewVersion, setPreviewVersion] = useState(0);
   const [previewStatus, setPreviewStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [previewRequested, setPreviewRequested] = useState(false);
 
   const previewSrc = `/api/landings/preview?client=${encodeURIComponent(config.clientSlug)}&v=${previewVersion}`;
 
@@ -157,6 +158,7 @@ export function EditorForm({
     setSecondaryColor(config.landingSecondaryColor || "#F6A00C");
     setSaved(false);
     setPreviewStatus("loading");
+    setPreviewRequested(false);
     setPreviewVersion((version) => version + 1);
   }, [
     config.id,
@@ -185,6 +187,7 @@ export function EditorForm({
     setSaving(false);
     setSaved(true);
     setPreviewStatus("loading");
+    setPreviewRequested(false);
     setPreviewVersion((version) => version + 1);
     router.refresh();
     setTimeout(() => setSaved(false), 3000);
@@ -349,15 +352,21 @@ export function EditorForm({
           <button
             type="button"
             onClick={() => {
+              setPreviewRequested(true);
               setPreviewStatus("loading");
               setPreviewVersion((version) => version + 1);
             }}
             className="rounded-full border border-white/15 px-3 py-1.5 text-xs font-bold text-paper transition hover:border-white/35"
           >
-            Actualizar
+            {previewRequested ? "Actualizar" : "Cargar previsualización"}
           </button>
         </div>
-        <div className="relative bg-[#202326] p-3">
+        {!previewRequested ? (
+          <div className="flex min-h-40 flex-col items-center justify-center gap-3 bg-[#202326] p-8 text-center text-paper">
+            <p className="text-sm font-bold">La previsualización es opcional</p>
+            <p className="max-w-md text-xs leading-5 text-white/55">Podés crear landings sin esperarla. Cargala solo si querés revisar el diseño.</p>
+          </div>
+        ) : <div className="relative bg-[#202326] p-3">
           {previewStatus !== "ready" ? (
             <div className="absolute inset-3 z-10 flex items-center justify-center rounded-lg bg-[#202326] text-center text-paper">
               <div className="flex max-w-xs flex-col items-center gap-3 px-6">
@@ -394,12 +403,13 @@ export function EditorForm({
           <iframe
             key={previewSrc}
             src={previewSrc}
+            loading="lazy"
             title="Previsualización de landing"
             onLoad={() => setPreviewStatus("ready")}
             onError={() => setPreviewStatus("error")}
             className="h-[640px] w-full rounded-lg border border-white/10 bg-white"
           />
-        </div>
+        </div>}
       </section>
 
       <section aria-labelledby="create-landings-heading">

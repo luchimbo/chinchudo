@@ -79,3 +79,23 @@ export async function publishAllOnlineLandings(formData: FormData) {
   }
   revalidatePath("/landings");
 }
+
+export async function deleteLanding(formData: FormData) {
+  const id = z.string().min(1).parse(formData.get("id"));
+  const landing = await prisma.landing.findUnique({
+    where: { id },
+    select: {
+      clientId: true,
+      _count: { select: { leads: true, trackingEvents: true, distribution: true } },
+    },
+  });
+  if (!landing) return;
+
+  await assertClientAccess(prisma, landing.clientId);
+  if (landing._count.leads || landing._count.trackingEvents || landing._count.distribution) {
+    throw new Error("La landing tiene historial asociado. Archivala para conservarlo.");
+  }
+
+  await prisma.landing.delete({ where: { id } });
+  revalidatePath("/landings");
+}
