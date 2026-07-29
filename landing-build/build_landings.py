@@ -515,6 +515,8 @@ def append_landing(landing: dict) -> None:
             # another client's archive.
             if client_id:
                 extra["clientId"] = client_id
+            preview_base_url = client_blog_url().rstrip("/")
+            preview_path = f"/l/{quote(str(landing.get('slug', '')).strip())}"
             upsert_landing(
                 slug=landing.get("slug", ""),
                 keyword=landing.get("keyword", ""),
@@ -523,7 +525,9 @@ def append_landing(landing: dict) -> None:
                 intent=landing.get("intent", ""),
                 seoTitle=landing.get("seo_title", ""),
                 seoDescription=landing.get("seo_description", ""),
-                status="APPROVED",
+                status="PREVIEW_ONLINE",
+                publicPreviewUrl=f"{preview_base_url}{preview_path}",
+                previewPublishedAt=datetime.now(timezone.utc),
                 **extra,
             )
         except Exception as exc:
@@ -983,6 +987,26 @@ def topic_key(value: str) -> str:
 
 def topic_key_from_record(record: dict) -> str:
     return topic_key(record.get("keyword") or record.get("busqueda_objetivo") or record.get("h1") or "")
+
+
+def topic_terms(value: str) -> set[str]:
+    ignored = {"a", "antes", "como", "con", "cual", "de", "del", "el", "en", "la", "las", "lo", "los", "para", "por", "que", "sin", "un", "una", "usar"}
+    terms = {part.rstrip("s") for part in re.findall(r"[a-záéíóúñ]+", value.lower())}
+    return {term for term in terms if len(term) > 2 and term not in ignored}
+
+
+def is_near_duplicate_topic(candidate: str, existing: list[dict]) -> bool:
+    candidate_terms = topic_terms(candidate)
+    if not candidate_terms:
+        return False
+    for item in existing:
+        existing_terms = topic_terms(str(item.get("keyword") or item.get("h1") or ""))
+        if not existing_terms:
+            continue
+        overlap = len(candidate_terms & existing_terms) / len(candidate_terms | existing_terms)
+        if overlap >= 0.5:
+            return True
+    return False
 
 
 def balance_topics_by_source(topics: list[dict]) -> list[dict]:
@@ -1543,6 +1567,7 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
     # Safety net for Prestige: never let a polluted shared source turn into
     # PC MIDI content, even if an upstream topic file is mis-scoped.
     prestige_terms = ("media", "running", "corred", "compresi", "trail", "maraton", "pantorr", "soquete", "calza")
+    prestige_blocked_terms = ("cuarto de caña", "cuarto de cana", "quarter sock")
 
     for topic in topics:
         if created >= limit:
@@ -1552,6 +1577,11 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
             break
         processed += 1
         topic_label = str(topic.get("keyword") or topic.get("busqueda_objetivo") or "")
+        if (client_slug_active() == "prestige-running" or os.environ.get("PRESTIGE_TOPIC_GUARD") == "1") and any(term in topic_label.lower() for term in prestige_blocked_terms):
+            skipped = {"keyword": topic_label, "reason": "blocked_vocabulary"}
+            skipped_items.append(skipped)
+            append_generation_event(run_id, {"command": "generate", "event": "skipped", "dry_run": dry_run, **skipped})
+            continue
         if (client_slug_active() == "prestige-running" or os.environ.get("PRESTIGE_TOPIC_GUARD") == "1") and not any(term in topic_label.lower() for term in prestige_terms):
             skipped = {"keyword": topic_label, "reason": "outside_client_scope"}
             skipped_items.append(skipped)
@@ -1560,6 +1590,11 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
         print("@@landing-progress " + json.dumps({"event": "processing", "keyword": topic.get("keyword") or topic.get("busqueda_objetivo") or "Tema sin nombre"}, ensure_ascii=False), flush=True)
         if topic_key_from_record(topic) in existing_keywords:
             skipped = {"keyword": topic.get("keyword") or topic.get("busqueda_objetivo"), "reason": "already_exists"}
+            skipped_items.append(skipped)
+            append_generation_event(run_id, {"command": "generate", "event": "skipped", "dry_run": dry_run, **skipped})
+            continue
+        if is_near_duplicate_topic(topic_label, existing):
+            skipped = {"keyword": topic_label, "reason": "near_duplicate"}
             skipped_items.append(skipped)
             append_generation_event(run_id, {"command": "generate", "event": "skipped", "dry_run": dry_run, **skipped})
             continue
