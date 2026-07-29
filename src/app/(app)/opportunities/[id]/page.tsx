@@ -198,10 +198,13 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
       agentAccounts = Object.entries(raw)
         .filter(([, cfg]) => {
           const chanMatch = cfg.allowedChannels.includes(channelLower);
-          const clientMatch = !cfg.clientSlug || cfg.clientSlug === resolution.client.slug;
-          return chanMatch && clientMatch;
+          return chanMatch;
         })
-        .map(([name, cfg]) => ({ name, label: cfg.label, defaultPersona: cfg.defaultPersona ?? "" }));
+        .map(([name, cfg]) => ({
+          name,
+          label: cfg.label,
+          defaultPersona: cfg.defaultPersona ?? "",
+        }));
     }
   } catch {
     // accounts no disponible — publicacion via agente deshabilitada

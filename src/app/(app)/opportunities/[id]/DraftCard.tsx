@@ -164,6 +164,10 @@ export function DraftCard({
             />
           </div>
 
+          <p className="-mt-1 text-xs font-semibold text-slate/70">
+            Voz: <span className="text-ink">{response.persona.name}</span>
+          </p>
+
           {isOneStep && !isAlreadyPublished ? (
             <label className="grid gap-1.5 text-xs font-semibold text-slate">
               Cuenta / Voz de publicación

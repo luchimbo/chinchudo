@@ -332,10 +332,11 @@ const server = http.createServer(async (req, res) => {
   }
 
   // GET /accounts?channel=<canal>&client=<clientSlug>
+  // Las cuentas son compartidas entre clientes; el cliente se conserva para
+  // compatibilidad con llamadas anteriores, pero no restringe el resultado.
   if (method === "GET" && url.startsWith("/accounts")) {
     const parsedUrl = new URL(url, "http://localhost");
     const channel = parsedUrl.searchParams.get("channel") ?? "";
-    const client = parsedUrl.searchParams.get("client") ?? "";
     try {
       const accountsPath = join(ROOT, "agents", "accounts.json");
       const raw = JSON.parse(readFileSync(accountsPath, "utf-8"));
@@ -348,9 +349,6 @@ const server = http.createServer(async (req, res) => {
       }));
       if (channel) {
         entries = entries.filter((e) => e.allowedChannels.includes(channel.toLowerCase()));
-      }
-      if (client) {
-        entries = entries.filter((e) => !e.clientSlug || e.clientSlug === client);
       }
       return json(res, 200, { accounts: entries });
     } catch (err) {
