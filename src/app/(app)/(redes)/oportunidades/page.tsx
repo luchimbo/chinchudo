@@ -140,25 +140,22 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col px-5 py-8 lg:px-8">
-      <header className="mb-6">
+      <header className="mb-6 flex items-start justify-between gap-5">
         <div>
           <h1 className="font-display text-4xl leading-none text-ink md:text-5xl">Oportunidades</h1>
           <p className="mt-2 text-sm text-slate">
             Conversaciones con borrador listo para revisar, aprobar y publicar.
           </p>
         </div>
-      </header>
-
-      <section className="mb-4">
         <Link
           href={activeClient ? `/oportunidades?client=${activeClient.slug}` : "/oportunidades"}
-          className="block rounded-lg border border-ink/25 bg-white px-4 py-3 text-ink shadow-panel"
+          className="shrink-0 pt-1 text-right text-slate transition hover:text-ink"
+          aria-label={`${readyCount} listas para revisar`}
         >
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate/60">Listas para revisar</p>
-          <p className="mt-1 text-2xl font-bold">{readyCount}</p>
-          <p className="text-xs font-medium text-slate/70">con borrador listo</p>
+          <span className="block text-xs font-bold uppercase tracking-[0.12em] text-slate/60">Para revisar</span>
+          <span className="mt-0.5 block text-xl font-bold leading-none text-ink">{readyCount}</span>
         </Link>
-      </section>
+      </header>
 
       {activeClient ? (
         <ManualOpportunitySearch
