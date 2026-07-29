@@ -89,7 +89,7 @@ export function DraftCard({
     return persona ? personaAccountMap.get(persona.name) : undefined;
   }, [personas, response.personaId, personaAccountMap]);
 
-  const [selectedAccount, setSelectedAccount] = useState(initialAccountForPersona ?? suggestedAccount ?? "");
+  const publishingAccount = initialAccountForPersona ?? suggestedAccount ?? "";
 
   const handleDelete = async () => {
     if (confirm("¿Estás seguro de que querés eliminar esta respuesta/variante generada? Esta acción no se puede deshacer.")) {
@@ -145,6 +145,7 @@ export function DraftCard({
           <input type="hidden" name="opportunityId" value={opportunity.id} />
           <input type="hidden" name="approvedBy" value="Operador" />
           {clientParam ? <input type="hidden" name="client" value={clientParam} /> : null}
+          {canPublishDirectly ? <input type="hidden" name="account" value={publishingAccount} /> : null}
 
           <div className="flex flex-1 flex-col">
             <label className="mb-1 text-xs font-bold uppercase tracking-wider text-slate/50">
@@ -163,28 +164,9 @@ export function DraftCard({
             />
           </div>
 
-          {canPublishDirectly && !isAlreadyPublished ? (
-            <label className="grid gap-1.5 text-xs font-semibold text-slate">
-              Publicar con la voz de
-              <select
-                name="account"
-                value={selectedAccount}
-                onChange={(e) => setSelectedAccount(e.target.value)}
-                className="w-full rounded-md border border-ink/15 bg-white px-3 py-2.5 text-sm text-ink"
-              >
-                <option value="">— Elegir cuenta —</option>
-                {agentAccounts.map(({ name, label }) => (
-                  <option key={name} value={name}>
-                    {label}{name === suggestedAccount ? " (sugerida)" : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-
           {canPublishDirectly ? (
             <p className="rounded-md bg-paper px-3 py-2 text-xs leading-5 text-slate">
-              Se publica directamente en {opportunity.channel.name}. La respuesta queda registrada cuando el agente confirma la publicación.
+              Se publica directamente en {opportunity.channel.name} con la voz <strong className="font-bold text-ink">{response.persona.name}</strong>. Para otra voz, generá otra respuesta.
             </p>
           ) : null}
 
