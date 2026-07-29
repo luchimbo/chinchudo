@@ -95,6 +95,13 @@ const agentErrorMessages: Record<string, string> = {
   unknown: "Error desconocido. Revisá los logs del servidor.",
 };
 
+function getAiReason(notes: string | null): string | null {
+  if (!notes) return null;
+
+  const match = notes.match(/Raz[oó]n IA:\s*(.+?)(?:\s+Prioridad estrat[eé]gica:|$)/i);
+  return match?.[1]?.trim() || null;
+}
+
 export default async function OpportunityDetailPage({ params, searchParams }: PageProps) {
   const opportunity = await prisma.opportunity.findUnique({
     where: { id: params.id },
@@ -156,6 +163,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
       })),
   ];
   const approvedResponse = opportunity.responses.find((response) => response.approvedBy);
+  const aiReason = getAiReason(opportunity.notes);
   const isAlreadyPublished =
     opportunity.status === "PUBLISHED" ||
     opportunity.status === "CONVERTED" ||
@@ -224,7 +232,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
             Revision de oportunidad
           </p>
           <h1 className="mt-2 font-display text-4xl text-ink md:text-5xl break-words">
-            {opportunity.channel.name} / {opportunity.sourceAuthor || "autor sin cargar"}
+            {opportunity.channel.name}
           </h1>
           <div className="mt-4 flex flex-wrap gap-2">
             <span className={`rounded-full px-3 py-1 text-xs font-bold ${statusClass(opportunity.status)}`}>
@@ -266,10 +274,11 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
             <p className="mt-4 whitespace-pre-wrap text-base leading-7 text-ink break-words">
               {opportunity.sourceText}
             </p>
-            {opportunity.notes ? (
-              <p className="mt-4 rounded-md bg-paper p-3 text-sm leading-6 text-slate">
-                {opportunity.notes}
-              </p>
+            {aiReason ? (
+              <div className="mt-4 rounded-md bg-paper p-3 text-sm leading-6 text-slate">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate/60">Razón IA</p>
+                <p className="mt-1">{aiReason}</p>
+              </div>
             ) : null}
           </article>
 
@@ -288,7 +297,6 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
                     isTopRecommendation={index === 0}
                     recommendationReason={index === 0 ? alignment.reason : null}
                     opportunity={opportunity}
-                    clientSlug={resolution.client.slug}
                     approveResponseAction={approveResponse}
                     approveAndPublishResponseAction={approveAndPublishResponse}
                     deleteResponseAction={deleteResponse}

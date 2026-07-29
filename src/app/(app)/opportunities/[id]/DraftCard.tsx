@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import { SubmitButton } from "./SubmitButton";
 
 type PublishingLogEntry = {
@@ -40,16 +40,11 @@ type OpportunityEntry = {
 
 type AgentAccount = { name: string; label: string; defaultPersona?: string };
 
-function getPersonaDisplayName(name: string, _clientSlug?: string | null) {
-  return name;
-}
-
 type DraftCardProps = {
   response: ResponseEntry;
   isTopRecommendation?: boolean;
   recommendationReason?: string | null;
   opportunity: OpportunityEntry;
-  clientSlug?: string | null;
   approveResponseAction: (formData: FormData) => Promise<void>;
   approveAndPublishResponseAction?: (formData: FormData) => Promise<void>;
   deleteResponseAction: (formData: FormData) => Promise<void>;
@@ -69,7 +64,6 @@ export function DraftCard({
   isTopRecommendation = false,
   recommendationReason,
   opportunity,
-  clientSlug,
   approveResponseAction,
   approveAndPublishResponseAction,
   deleteResponseAction,
@@ -86,8 +80,6 @@ export function DraftCard({
   const [text, setText] = useState(response.editedText || response.draftText);
   const [isCopied, setIsCopied] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [selectedPersonaId, setSelectedPersonaId] = useState(response.personaId);
-
   const personaAccountMap = useMemo(() => {
     const map = new Map<string, string>();
     for (const acc of agentAccounts) {
@@ -102,14 +94,6 @@ export function DraftCard({
   }, [personas, response.personaId, personaAccountMap]);
 
   const [selectedAccount, setSelectedAccount] = useState(initialAccountForPersona ?? suggestedAccount ?? "");
-
-  useEffect(() => {
-    const persona = personas.find((p) => p.id === selectedPersonaId);
-    if (persona) {
-      const account = personaAccountMap.get(persona.name);
-      if (account) setSelectedAccount(account);
-    }
-  }, [selectedPersonaId, personas, personaAccountMap]);
 
   const handleDelete = async () => {
     if (confirm("¿Estás seguro de que querés eliminar esta respuesta/variante generada? Esta acción no se puede deshacer.")) {
@@ -179,24 +163,6 @@ export function DraftCard({
               placeholder="Escribe la respuesta aquí..."
             />
           </div>
-
-          {!isAlreadyPublished && personas.length > 0 ? (
-            <label className="grid gap-1.5 text-xs font-semibold text-slate">
-              Voz / Persona de publicación
-              <select
-                name="personaId"
-                value={selectedPersonaId}
-                onChange={(e) => setSelectedPersonaId(e.target.value)}
-                className="w-full rounded-md border border-ink/15 bg-white px-3 py-2.5 text-sm text-ink"
-              >
-                {personas.map((persona) => (
-                  <option key={persona.id} value={persona.id}>
-                    {getPersonaDisplayName(persona.name, clientSlug)}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
 
           {isOneStep && !isAlreadyPublished ? (
             <label className="grid gap-1.5 text-xs font-semibold text-slate">

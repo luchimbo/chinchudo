@@ -6,7 +6,6 @@ import { ManualOpportunitySearch } from "@/components/manual-opportunity-search"
 import { OpportunityList } from "@/components/opportunity-list";
 import { getVisibleClients } from "@/lib/auth";
 import { opportunityStatuses } from "@/lib/labels";
-import { suggestAllPersonasForClient } from "@/lib/persona-router";
 
 const PAGE_SIZE = 12;
 
@@ -15,7 +14,7 @@ const PAGE_SIZE = 12;
 const OPEN_STATUSES = ["NEW", "NEEDS_REVIEW", "DRAFTED", "APPROVED", "FOLLOW_UP"] as const;
 
 type PageProps = {
-  searchParams: { channel?: string; q?: string; page?: string; client?: string; sort?: string; status?: string; view?: string; brand?: string };
+  searchParams: { channel?: string; q?: string; page?: string; client?: string; sort?: string; status?: string; brand?: string };
 };
 
 function parseKeywords(value: string | null | undefined) {
@@ -54,14 +53,13 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
   const q = (searchParams.q ?? "").trim();
   const page = Math.max(1, Number(searchParams.page) || 1);
   const sort = searchParams.sort === "oldest" ? "oldest" : "newest";
-  const view = searchParams.view === "inbox" ? "inbox" : "ready";
   const validStatus = opportunityStatuses.includes(searchParams.status as any)
     ? searchParams.status
     : "";
 
   const where: Prisma.OpportunityWhereInput = {
     status: { in: [...OPEN_STATUSES] },
-    responses: view === "inbox" ? { none: {} } : { some: {} },
+    responses: { some: {} },
   };
   if (validStatus) where.status = validStatus as any;
   if (activeClient) {
@@ -79,23 +77,11 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
       : [{ opportunityScore: "desc" }, { createdAt: "desc" }];
 
   const scopedClientWhere: Prisma.OpportunityWhereInput = activeClient ? { clientId: activeClient.id } : {};
-  const [matchingOpportunities, readyCount, inboxCount, missingClientCount, products] = await Promise.all([
+  const [matchingOpportunities, readyCount, products] = await Promise.all([
     prisma.opportunity.findMany({
       where,
       include: {
         channel: true,
-        detectedBrand: true,
-        detectedProduct: true,
-        observedProfile: true,
-        observedEvent: true,
-        responses: {
-          select: {
-            id: true,
-            voiceVariant: true,
-            persona: { select: { name: true } },
-          },
-        },
-        _count: { select: { responses: true } },
       },
       orderBy,
     }),
@@ -104,19 +90,6 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
         ...scopedClientWhere,
         status: { in: [...OPEN_STATUSES] },
         responses: { some: {} },
-      },
-    }),
-    prisma.opportunity.count({
-      where: {
-        ...scopedClientWhere,
-        status: { in: ["NEW", "NEEDS_REVIEW"] },
-        responses: { none: {} },
-      },
-    }),
-    prisma.opportunity.count({
-      where: {
-        clientId: null,
-        status: { in: ["NEW", "NEEDS_REVIEW"] },
       },
     }),
     activeClient
@@ -133,10 +106,8 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
     matchingOpportunities.reduce((byUrl, opportunity) => {
       const key = canonicalOpportunityUrl(opportunity.sourceUrl);
       const current = byUrl.get(key);
-      const currentScore = current
-        ? (current._count.responses * 10) + (current.sourceAuthor ? 1 : 0)
-        : -1;
-      const nextScore = (opportunity._count.responses * 10) + (opportunity.sourceAuthor ? 1 : 0);
+      const currentScore = current?.sourceAuthor ? 1 : 0;
+      const nextScore = opportunity.sourceAuthor ? 1 : 0;
       if (!current || nextScore > currentScore) byUrl.set(key, opportunity);
       return byUrl;
     }, new Map<string, (typeof matchingOpportunities)[number]>()).values(),
@@ -148,48 +119,6 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
     ...products.map((p) => `${p.brand.name} ${p.name}`),
   ].filter(Boolean);
   const initialQuery = keywordSuggestions.slice(0, 3).join(" ") || "MidiPlus controlador MIDI";
-  const recommendationEntries = await Promise.all(opportunities.map(async (opportunity) => {
-    const clientId = activeClient?.id ?? opportunity.clientId;
-    if (!clientId) return [opportunity.id, undefined] as const;
-    const observedProfileContext = opportunity.observedProfile && opportunity.observedEvent
-      ? {
-          currentTopic: opportunity.observedEvent.primaryTopicKey,
-          currentTopicConfidence: opportunity.observedEvent.topicConfidence as "high" | "medium" | "low",
-          historicalPrimaryTopics: Array.isArray(opportunity.observedProfile.primaryTopics) ? opportunity.observedProfile.primaryTopics as string[] : [],
-          historicalSecondaryTopics: Array.isArray(opportunity.observedProfile.secondaryTopics) ? opportunity.observedProfile.secondaryTopics as string[] : [],
-          toneProfile: (opportunity.observedProfile.toneSummary || "mixed") as "casual" | "technical" | "formal" | "aspirational" | "direct" | "mixed",
-          toneConfidence: (opportunity.observedProfile.toneConfidence || "low") as "high" | "medium" | "low",
-          commercialReadiness: opportunity.observedProfile.commercialReadiness,
-          signalSummary: opportunity.observedEvent.signalSummary,
-        }
-      : null;
-    const suggestions = await suggestAllPersonasForClient(prisma, opportunity, clientId, observedProfileContext);
-    const suggestion = suggestions[0];
-    const hasAlignedDraft = !!opportunity.responses.find((response) => response.voiceVariant && response.voiceVariant === suggestion?.voiceVariant);
-    const clarity: "high" | "medium" | "low" = suggestion?.score && suggestion.score >= 8
-      ? "high"
-      : suggestion?.score && suggestion.score >= 4
-        ? "medium"
-        : "low";
-    return [opportunity.id, suggestion ? {
-      personaName: suggestion.personaName,
-      voiceVariant: suggestion.voiceVariant,
-      clarity,
-      reason: suggestion.voiceVariantReason || suggestion.reason,
-      hasAlignedDraft,
-    } : undefined] as const;
-  }));
-  const recommendationMetaById: Record<string, {
-    personaName: string;
-    voiceVariant?: string;
-    clarity: "high" | "medium" | "low";
-    reason: string;
-    hasAlignedDraft?: boolean;
-  }> = {};
-  for (const [opportunityId, recommendation] of recommendationEntries) {
-    if (recommendation) recommendationMetaById[opportunityId] = recommendation;
-  }
-
   const totalPages = Math.max(1, Math.ceil(matchingCount / PAGE_SIZE));
   const currentParams = () => {
     const params = new URLSearchParams();
@@ -198,7 +127,6 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
     if (validBrand) params.set("brand", validBrand);
     if (q) params.set("q", q);
     if (sort === "oldest") params.set("sort", "oldest");
-    if (view === "inbox") params.set("view", "inbox");
     if (validStatus) params.set("status", validStatus);
     return params;
   };
@@ -221,28 +149,15 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
         </div>
       </header>
 
-      <section className="mb-4 grid gap-3 md:grid-cols-3">
+      <section className="mb-4">
         <Link
           href={activeClient ? `/oportunidades?client=${activeClient.slug}` : "/oportunidades"}
-          className={`rounded-lg border px-4 py-3 transition ${view === "ready" ? "border-ink/25 bg-white text-ink shadow-panel" : "border-ink/10 bg-white/55 text-slate hover:bg-white"}`}
+          className="block rounded-lg border border-ink/25 bg-white px-4 py-3 text-ink shadow-panel"
         >
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate/60">Listas para revisar</p>
           <p className="mt-1 text-2xl font-bold">{readyCount}</p>
           <p className="text-xs font-medium text-slate/70">con borrador listo</p>
         </Link>
-        <Link
-          href={activeClient ? `/oportunidades?client=${activeClient.slug}&view=inbox` : "/oportunidades?view=inbox"}
-          className={`rounded-lg border px-4 py-3 transition ${view === "inbox" ? "border-ink/25 bg-white text-ink shadow-panel" : "border-ink/10 bg-white/55 text-slate hover:bg-white"}`}
-        >
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate/60">Entrada cruda</p>
-          <p className="mt-1 text-2xl font-bold">{inboxCount}</p>
-          <p className="text-xs font-medium text-slate/70">sin borrador todavia</p>
-        </Link>
-        <div className="rounded-lg border border-ink/10 bg-white/55 px-4 py-3">
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate/60">Sin cliente</p>
-          <p className="mt-1 text-2xl font-bold">{missingClientCount}</p>
-          <p className="text-xs font-medium text-slate/70">pendientes de asignar</p>
-        </div>
       </section>
 
       {activeClient ? (
@@ -272,9 +187,8 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
 
         <OpportunityList
           opportunities={opportunities}
-          recommendationMetaById={recommendationMetaById}
           clientSlug={activeClient?.slug}
-          emptyMessage={view === "inbox" ? "No hay oportunidades crudas pendientes." : "No hay oportunidades con borrador todavia."}
+          emptyMessage="No hay oportunidades con borrador todavia."
         />
 
         {totalPages > 1 ? (
