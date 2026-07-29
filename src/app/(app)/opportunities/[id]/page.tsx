@@ -4,7 +4,6 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   approveResponse,
-  approveAndPublishResponse,
   generateResponseDrafts,
   publishViaAgent,
   simulateDemoPublication,
@@ -20,7 +19,6 @@ import {
 import { suggestAllPersonasForClient } from "@/lib/persona-router";
 import { resolveOpportunityClient } from "@/lib/client-context";
 import { selectRelevantProducts } from "@/lib/catalog";
-import { getRelayUrl } from "@/lib/settings";
 import { SubmitButton } from "./SubmitButton";
 import { DraftCard } from "./DraftCard";
 import { loadObservedProfileContext } from "@/lib/observed-profiles";
@@ -210,8 +208,6 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
     // accounts no disponible — publicacion via agente deshabilitada
   }
   const canPublishViaAgent = (channelLower === "youtube" || channelLower === "reddit" || channelLower === "x" || channelLower === "facebook" || channelLower === "instagram") && agentAccounts.length > 0;
-  const relayUrl = await getRelayUrl();
-  const canPublishInOneStep = canPublishViaAgent && !relayUrl;
 
   // Cuenta sugerida: la que tiene como defaultPersona el arquetipo de la respuesta aprobada (si existe) o el sugerido originalmente
   const activePersonaName = approvedResponse ? approvedResponse.persona.name : (suggestion?.personaName ?? "");
@@ -301,14 +297,12 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
                     recommendationReason={index === 0 ? alignment.reason : null}
                     opportunity={opportunity}
                     approveResponseAction={approveResponse}
-                    approveAndPublishResponseAction={approveAndPublishResponse}
                     deleteResponseAction={deleteResponse}
                     simulateDemoPublicationAction={resolution.client.slug === "aurora-demo" ? simulateDemoPublication : undefined}
                     publishViaAgentAction={publishViaAgent}
                     agentAccounts={agentAccounts}
                     suggestedAccount={suggestedAccount?.name ?? null}
                     canPublishViaAgent={canPublishViaAgent}
-                    canPublishInOneStep={canPublishInOneStep}
                     clientParam={searchParams?.client ?? ""}
                     isAlreadyPublished={isAlreadyPublished}
                     personas={personas}

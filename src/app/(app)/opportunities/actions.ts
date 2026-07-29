@@ -9,6 +9,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { generateLocalDrafts } from "@/lib/draft-generator";
 import { generateAIDrafts } from "@/lib/ai-draft-generator";
+import { ensureRequiredBrandMention } from "@/lib/draft-output";
 import { loadRelevantKnowledge } from "@/lib/knowledge";
 import { loadActivePrompt } from "@/lib/prompts";
 import { opportunityIntents, opportunityPriorities, opportunityStatuses } from "@/lib/labels";
@@ -194,7 +195,7 @@ export async function generateResponseDrafts(formData: FormData) {
         variantType: draft.variantType,
         voiceVariant: voiceVariant.voiceVariant,
         voiceVariantReason: voiceVariant.voiceVariantReason,
-        draftText: draft.draftText,
+        draftText: ensureRequiredBrandMention(draft.draftText, resolution.client.slug),
         riskNotes: draft.riskNotes
       }))
     }),
@@ -549,23 +550,44 @@ export async function updateOpportunityStatus(formData: FormData) {
 const publishViaAgentSchema = z.object({
   opportunityId: z.string().min(1),
   responseId: z.string().min(1),
-  account: z.string().optional()
+  account: z.string().optional(),
+  editedText: z.string().min(3).max(4000).optional(),
 });
 
 export async function publishViaAgent(formData: FormData) {
   const parsed = publishViaAgentSchema.parse({
     opportunityId: formData.get("opportunityId"),
     responseId: formData.get("responseId"),
-    account: formData.get("account") || undefined
+    account: formData.get("account") || undefined,
+    editedText: formData.get("editedText") || undefined,
   });
 
-  const opportunity = await prisma.opportunity.findUniqueOrThrow({
-    where: { id: parsed.opportunityId },
-    select: { status: true }
-  });
+  const [opportunity, response] = await Promise.all([
+    prisma.opportunity.findUniqueOrThrow({
+      where: { id: parsed.opportunityId },
+      select: { status: true }
+    }),
+    prisma.response.findFirst({
+      where: { id: parsed.responseId, opportunityId: parsed.opportunityId },
+      select: { id: true },
+    }),
+  ]);
+
+  if (!response) {
+    throw new Error("La respuesta no pertenece a esta oportunidad.");
+  }
 
   if (opportunity.status === "PUBLISHED" || opportunity.status === "CONVERTED" || opportunity.status === "FOLLOW_UP") {
     throw new Error("La oportunidad ya está publicada/respondida y no se puede publicar de nuevo.");
+  }
+
+  // La publicación directa puede partir de un texto editado en la tarjeta. Se persiste
+  // antes de enviar la tarea al relay para que el agente publique exactamente ese texto.
+  if (parsed.editedText) {
+    await prisma.response.update({
+      where: { id: parsed.responseId },
+      data: { editedText: parsed.editedText },
+    });
   }
 
   const relayUrl = await getRelayUrl();

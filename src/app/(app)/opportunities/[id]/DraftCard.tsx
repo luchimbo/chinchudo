@@ -46,14 +46,12 @@ type DraftCardProps = {
   recommendationReason?: string | null;
   opportunity: OpportunityEntry;
   approveResponseAction: (formData: FormData) => Promise<void>;
-  approveAndPublishResponseAction?: (formData: FormData) => Promise<void>;
   deleteResponseAction: (formData: FormData) => Promise<void>;
   simulateDemoPublicationAction?: (formData: FormData) => Promise<void>;
   publishViaAgentAction?: (formData: FormData) => Promise<void>;
   agentAccounts?: AgentAccount[];
   suggestedAccount?: string | null;
   canPublishViaAgent?: boolean;
-  canPublishInOneStep?: boolean;
   clientParam?: string;
   isAlreadyPublished?: boolean;
   personas: PersonaOption[];
@@ -65,14 +63,12 @@ export function DraftCard({
   recommendationReason,
   opportunity,
   approveResponseAction,
-  approveAndPublishResponseAction,
   deleteResponseAction,
   simulateDemoPublicationAction,
   publishViaAgentAction,
   agentAccounts = [],
   suggestedAccount,
   canPublishViaAgent,
-  canPublishInOneStep,
   clientParam,
   isAlreadyPublished = false,
   personas,
@@ -117,8 +113,8 @@ export function DraftCard({
     setTimeout(() => setIsCopied(false), 2000);
   };
 
-  const isOneStep = canPublishInOneStep && approveAndPublishResponseAction;
-  const publishAction = isOneStep ? approveAndPublishResponseAction : approveResponseAction;
+  const canPublishDirectly = Boolean(canPublishViaAgent && publishViaAgentAction);
+  const publishAction = canPublishDirectly ? publishViaAgentAction : approveResponseAction;
 
   return (
     <article className={`flex min-w-0 flex-col rounded-lg border bg-white/75 p-4 shadow-panel backdrop-blur transition-all duration-300 hover:shadow-md ${isTopRecommendation ? "border-moss/35 ring-1 ring-moss/20" : "border-ink/10"}`}>
@@ -132,6 +128,9 @@ export function DraftCard({
           >
             {isCopied ? "¡Copiado!" : "Copiar"}
           </button>
+          <span className="rounded-full border border-ink/15 bg-paper px-3 py-1 text-xs font-bold text-ink">
+            {response.persona.name}
+          </span>
           {response.approvedBy ? (
             <span className="rounded-full bg-moss px-3 py-1 text-xs font-bold text-white shadow-sm">
               ✓ Aprobada
@@ -164,13 +163,9 @@ export function DraftCard({
             />
           </div>
 
-          <p className="-mt-1 text-xs font-semibold text-slate/70">
-            Voz: <span className="text-ink">{response.persona.name}</span>
-          </p>
-
-          {isOneStep && !isAlreadyPublished ? (
+          {canPublishDirectly && !isAlreadyPublished ? (
             <label className="grid gap-1.5 text-xs font-semibold text-slate">
-              Cuenta / Voz de publicación
+              Publicar con la voz de
               <select
                 name="account"
                 value={selectedAccount}
@@ -187,9 +182,9 @@ export function DraftCard({
             </label>
           ) : null}
 
-          {isOneStep ? (
-            <p className="rounded-md border border-signal/20 bg-signal/5 px-3 py-2 text-xs font-semibold text-signal">
-              Atención: este botón publica el comentario directamente en {opportunity.channel.name}. Si falla, no se aprueba ni se guarda.
+          {canPublishDirectly ? (
+            <p className="rounded-md bg-paper px-3 py-2 text-xs leading-5 text-slate">
+              Se publica directamente en {opportunity.channel.name}. La respuesta queda registrada cuando el agente confirma la publicación.
             </p>
           ) : null}
 
@@ -207,14 +202,14 @@ export function DraftCard({
               </div>
               <div>
                 <SubmitButton
-                  loadingText={isOneStep ? "Publicando…" : response.approvedBy ? "Actualizando…" : "Aprobando…"}
+                  loadingText={canPublishDirectly ? "Publicando…" : response.approvedBy ? "Actualizando…" : "Aprobando…"}
                   className={`rounded-full px-4 py-2 text-xs font-bold transition disabled:opacity-50 ${
-                    isOneStep
+                    canPublishDirectly
                       ? "bg-brass text-white hover:bg-ink"
                       : "bg-ink text-paper hover:bg-slate-850"
                   }`}
                 >
-                  {isOneStep ? "Publicar comentario" : response.approvedBy ? "Actualizar respuesta aprobada" : "Aprobar respuesta"}
+                  {canPublishDirectly ? "Publicar comentario" : response.approvedBy ? "Actualizar respuesta aprobada" : "Aprobar respuesta"}
                 </SubmitButton>
               </div>
             </div>
@@ -234,7 +229,7 @@ export function DraftCard({
           </form>
         ) : null}
 
-        {response.approvedBy && canPublishViaAgent && !isOneStep && publishViaAgentAction && !isAlreadyPublished ? (
+        {response.approvedBy && canPublishViaAgent && !canPublishDirectly && publishViaAgentAction && !isAlreadyPublished ? (
           <form action={publishViaAgentAction} className="mt-4 rounded-md border border-brass/30 bg-brass/5 p-4">
             <p className="text-xs font-bold uppercase tracking-wider text-brass/80 mb-3">Publicar vía agente</p>
             <input type="hidden" name="opportunityId" value={opportunity.id} />
