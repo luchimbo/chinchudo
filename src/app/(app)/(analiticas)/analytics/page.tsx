@@ -100,38 +100,6 @@ function Chip({ label, value }: { label: string; value: number }) {
   );
 }
 
-function FunnelRow({
-  label,
-  suggested,
-  approved,
-  published,
-}: {
-  label: string;
-  suggested: number;
-  approved: number;
-  published: number;
-}) {
-  return (
-    <div className="rounded-lg border border-ink/5 bg-paper px-4 py-3">
-      <p className="truncate text-xs font-bold text-ink">{label}</p>
-      <div className="mt-2 grid grid-cols-3 gap-2 text-center">
-        <div>
-          <p className="text-[10px] text-slate">Sugerida</p>
-          <p className="text-sm font-bold text-ink tabular-nums">{suggested}</p>
-        </div>
-        <div>
-          <p className="text-[10px] text-slate">Aprobada</p>
-          <p className="text-sm font-bold text-brass tabular-nums">{approved}</p>
-        </div>
-        <div>
-          <p className="text-[10px] text-slate">Publicada</p>
-          <p className="text-sm font-bold text-moss tabular-nums">{published}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Helpers y Mapeos ────────────────────────────────────────────────────────
 
 const CANAL_LABEL: Record<string, string> = {
@@ -234,8 +202,6 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
     geoAvg,
     geoRecent,
 
-    // Monitoreo
-    sources,
     systemErrors,
     errorLogs,
   ] = await Promise.all([
@@ -278,24 +244,6 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
       select: { score: true, modeloIA: true, createdAt: true, prompt: true }
     }),
 
-    // Monitoreo
-    prisma.monitoredSource.findMany({
-      where: { active: true, ...(activeClient ? { clientId: activeClient.id } : {}) },
-      orderBy: { lastRunAt: { sort: "desc", nulls: "last" } },
-      take: 8,
-      select: {
-        label: true,
-        channel: true,
-        lifecycle: true,
-        lastRunAt: true,
-        lastCount: true,
-        lastItemsRead: true,
-        lastCandidates: true,
-        lastDiscarded: true,
-        lastError: true,
-        lastDiscoveryMode: true,
-      }
-    }),
     activeClient?.slug === "pcmidi"
       ? prisma.systemLog.count({ where: { level: "error", createdAt: { gte: since7 } } })
       : Promise.resolve(0),
@@ -550,44 +498,6 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
         </div>
 
         <div className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-xl border border-ink/10 bg-white/70 p-5 shadow-panel backdrop-blur">
-            <h2 className="mb-4 text-xs font-bold uppercase tracking-[0.18em] text-slate/70">
-              Variantes de voz generadas
-            </h2>
-            {data.voiceVariantCounts.length > 0 ? (
-              <div className="flex flex-col gap-2">
-                {data.voiceVariantCounts.slice(0, 8).map((row) => (
-                  <Bar key={row.voiceVariant} label={row.voiceVariant} value={row.count} max={data.voiceVariantCounts[0].count} unit="respuestas" />
-                ))}
-              </div>
-            ) : (
-              <EmptyChart label="Sin variantes de voz registradas aún" />
-            )}
-          </div>
-
-          <div className="rounded-xl border border-ink/10 bg-white/70 p-5 shadow-panel backdrop-blur">
-            <h2 className="mb-4 text-xs font-bold uppercase tracking-[0.18em] text-slate/70">
-              Funnel por variante de voz
-            </h2>
-            {data.voiceVariantFunnel.length > 0 ? (
-              <div className="grid gap-3">
-                {data.voiceVariantFunnel.map((row) => (
-                  <FunnelRow
-                    key={row.voiceVariant}
-                    label={row.voiceVariant}
-                    suggested={row.suggested}
-                    approved={row.approved}
-                    published={row.published}
-                  />
-                ))}
-              </div>
-            ) : (
-              <EmptyChart label="Sin funnel de variantes todavía" />
-            )}
-          </div>
-        </div>
-
-        <div className="grid gap-6 lg:grid-cols-2">
           {/* Productos más consultados */}
           <div className="rounded-xl border border-ink/10 bg-white/70 p-5 shadow-panel backdrop-blur">
             <h2 className="mb-4 text-xs font-bold uppercase tracking-[0.18em] text-slate/70">
@@ -790,44 +700,6 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
           </div>
         </div>
 
-        {/* Monitoreo sources */}
-        <div className="flex flex-col gap-4">
-          <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-slate/50">5. Estado de Escucha de Fuentes</h2>
-          <div className="rounded-xl border border-ink/10 bg-white/70 p-5 shadow-panel backdrop-blur flex-1 flex flex-col justify-between">
-            <div>
-              <h3 className="text-sm font-bold text-ink border-b border-ink/5 pb-3">Fuentes de escucha del cliente</h3>
-              {sources.length > 0 ? (
-                <div className="mt-4 flex flex-col gap-3">
-                  {sources.map(s => (
-                    <div key={s.label} className="rounded-lg border border-ink/5 bg-paper px-4 py-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                        <span className="text-xs font-bold text-ink leading-tight block">{s.label}</span>
-                          <span className="text-[10px] text-slate/50 uppercase tracking-wider">
-                            {s.channel} · {s.lastDiscoveryMode || s.lifecycle}
-                          </span>
-                        </div>
-                        <p className="text-[10px] text-slate/50 font-mono">Corrida: {fmtDate(s.lastRunAt)}</p>
-                      </div>
-                      <div className="mt-2 grid grid-cols-4 gap-2 text-center">
-                        <div><p className="text-[10px] text-slate/55">Leídos</p><p className="text-xs font-bold tabular-nums">{s.lastItemsRead}</p></div>
-                        <div><p className="text-[10px] text-slate/55">Candidatos</p><p className="text-xs font-bold text-brass tabular-nums">{s.lastCandidates}</p></div>
-                        <div><p className="text-[10px] text-slate/55">Hallazgos</p><p className="text-xs font-bold text-moss tabular-nums">{s.lastCount}</p></div>
-                        <div><p className="text-[10px] text-slate/55">Descartados</p><p className="text-xs font-bold text-slate tabular-nums">{s.lastDiscarded}</p></div>
-                      </div>
-                      {s.lastError && <p className="mt-2 truncate text-[10px] text-signal" title={s.lastError}>Error: {s.lastError}</p>}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-slate italic py-4">No hay fuentes activas registradas para el monitoreo.</p>
-              )}
-            </div>
-            <p className="mt-4 text-[11px] text-slate/60 leading-normal border-t border-ink/5 pt-3">
-              Los agentes de escucha escanean de forma automatizada foros, redes y portales configurados buscando oportunidades comerciales para responder.
-            </p>
-          </div>
-        </div>
       </section>
     </div>
   );
