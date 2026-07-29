@@ -7,9 +7,10 @@ import { opportunityStatuses, statusLabels, type OpportunityStatusValue } from "
 type FilterBarProps = {
   channels: string[];
   brands?: string[];
+  variant?: "inline" | "sidebar";
 };
 
-export function FilterBar({ channels, brands = [] }: FilterBarProps) {
+export function FilterBar({ channels, brands = [], variant = "inline" }: FilterBarProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -55,14 +56,17 @@ export function FilterBar({ channels, brands = [] }: FilterBarProps) {
 
   const hasActiveFilters = Boolean((!view && status) || channel || brand || query || sort === "oldest");
 
+  const sidebar = variant === "sidebar";
+
   return (
-    <div className="flex flex-wrap items-end gap-3 border-b border-ink/10 px-5 py-4">
+    <div className={sidebar ? "flex flex-col gap-4" : "flex flex-wrap items-end gap-3 border-b border-ink/10 px-5 py-4"}>
+      {sidebar ? <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate/60">Orden y filtros</p> : null}
       <label className="grid gap-1 text-xs font-bold uppercase tracking-[0.18em] text-slate/70">
         Estado
         <select
           value={status}
           onChange={(e) => setParam("status", e.target.value)}
-          className="min-w-[150px] rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm font-semibold text-ink"
+          className={sidebar ? "w-full rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm font-semibold text-ink" : "min-w-[150px] rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm font-semibold text-ink"}
         >
           <option value="">Todos</option>
           {opportunityStatuses.map((s) => (
@@ -78,7 +82,7 @@ export function FilterBar({ channels, brands = [] }: FilterBarProps) {
         <select
           value={channel}
           onChange={(e) => setParam("channel", e.target.value)}
-          className="min-w-[150px] rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm font-semibold text-ink"
+          className={sidebar ? "w-full rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm font-semibold text-ink" : "min-w-[150px] rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm font-semibold text-ink"}
         >
           <option value="">Todos</option>
           {channels.map((c) => (
@@ -95,7 +99,7 @@ export function FilterBar({ channels, brands = [] }: FilterBarProps) {
           <select
             value={brand}
             onChange={(e) => setParam("brand", e.target.value)}
-            className="min-w-[150px] rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm font-semibold text-ink"
+            className={sidebar ? "w-full rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm font-semibold text-ink" : "min-w-[150px] rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm font-semibold text-ink"}
           >
             <option value="">Todas</option>
             {brands.map((b) => (
@@ -112,14 +116,14 @@ export function FilterBar({ channels, brands = [] }: FilterBarProps) {
         <select
           value={sort}
           onChange={(e) => setParam("sort", e.target.value)}
-          className="min-w-[170px] rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm font-semibold text-ink"
+          className={sidebar ? "w-full rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm font-semibold text-ink" : "min-w-[170px] rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm font-semibold text-ink"}
         >
           <option value="">Más nuevos primero</option>
           <option value="oldest">Más viejos primero</option>
         </select>
       </label>
 
-      <label className="grid flex-1 gap-1 text-xs font-bold uppercase tracking-[0.18em] text-slate/70">
+      <label className={`grid gap-1 text-xs font-bold uppercase tracking-[0.18em] text-slate/70 ${sidebar ? "" : "flex-1"}`}>
         Búsqueda
         <input
           type="search"
@@ -142,7 +146,7 @@ export function FilterBar({ channels, brands = [] }: FilterBarProps) {
             const qs = params.toString();
             router.replace(qs ? `${pathname}?${qs}` : pathname);
           }}
-          className="h-9 rounded-full border border-ink/15 px-4 text-sm font-bold text-ink transition hover:border-ink/40 hover:bg-paper"
+          className={sidebar ? "h-9 self-start rounded-full border border-ink/15 px-4 text-sm font-bold text-ink transition hover:border-ink/40 hover:bg-paper" : "h-9 rounded-full border border-ink/15 px-4 text-sm font-bold text-ink transition hover:border-ink/40 hover:bg-paper"}
         >
           Limpiar
         </button>

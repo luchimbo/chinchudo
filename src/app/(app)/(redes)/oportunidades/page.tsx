@@ -165,7 +165,16 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
         />
       ) : null}
 
-      <div className="overflow-hidden rounded-lg border border-ink/10 bg-white/75 shadow-panel backdrop-blur">
+      <div className="grid items-start gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
+        <aside className="rounded-lg border border-ink/10 bg-white/75 p-4 shadow-panel backdrop-blur lg:sticky lg:top-5">
+          <FilterBar
+            channels={channelsList.map((c) => c.name)}
+            brands={brandsList.map((b) => b.name)}
+            variant="sidebar"
+          />
+        </aside>
+
+        <div className="overflow-hidden rounded-lg border border-ink/10 bg-white/75 shadow-panel backdrop-blur">
         <div className="flex items-center justify-between gap-3 border-b border-ink/10 px-5 py-4">
           <p className="text-sm text-slate/75">
             {matchingCount} {matchingCount === 1 ? "oportunidad" : "oportunidades"}
@@ -179,8 +188,6 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
             Exportar CSV
           </a>
         </div>
-
-        <FilterBar channels={channelsList.map((c) => c.name)} brands={brandsList.map((b) => b.name)} />
 
         <OpportunityList
           opportunities={opportunities}
@@ -207,6 +214,7 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
             )}
           </div>
         ) : null}
+        </div>
       </div>
     </div>
   );
