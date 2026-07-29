@@ -164,12 +164,6 @@ export function DraftCard({
             />
           </div>
 
-          {canPublishDirectly ? (
-            <p className="rounded-md bg-paper px-3 py-2 text-xs leading-5 text-slate">
-              Se publica directamente en {opportunity.channel.name} con la voz <strong className="font-bold text-ink">{response.persona.name}</strong>. Para otra voz, generá otra respuesta.
-            </p>
-          ) : null}
-
           {!isAlreadyPublished ? (
             <div className="flex items-center justify-between gap-2 border-t border-ink/5 pt-2">
               <div>
