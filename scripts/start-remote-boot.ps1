@@ -118,6 +118,23 @@ if (-not $tunnelUrl) {
 }
 Log "    Tunnel URL: $tunnelUrl (PID $($tunnelProc.Id))"
 
+# Esperar a que el hostname temporal quede realmente expuesto antes de
+# reemplazar la URL que usa Vercel. Asi un tunnel a medio iniciar nunca deja
+# las previews apuntando a un endpoint que todavia no responde.
+Log "    Verificando tunnel publico..."
+$publicRelayOk = $false
+for ($i = 0; $i -lt 10; $i++) {
+    try {
+        $publicHealth = Invoke-WebRequest -Uri "$tunnelUrl/health" -UseBasicParsing -TimeoutSec 5
+        if ($publicHealth.StatusCode -eq 200) { $publicRelayOk = $true; break }
+    } catch { Start-Sleep -Seconds 2 }
+}
+if (-not $publicRelayOk) {
+    Log "ERROR: el tunnel publico no respondio. Se conserva la URL anterior en Supabase."
+    exit 1
+}
+Log "    Tunnel publico OK"
+
 # -- [5a] Actualizar AGENT_RELAY_URL en .env (lo usan los agentes locales) --
 Log "[5a] Actualizando AGENT_RELAY_URL en .env..."
 $envPath = Join-Path $Root ".env"

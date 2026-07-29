@@ -85,6 +85,25 @@ if (-not $tunnelUrl) {
 
 Write-Host "    Tunnel URL: $tunnelUrl" -ForegroundColor Green
 
+# No propagamos una URL que Cloudflare todavÃ­a no expone: Vercel la consulta
+# inmediatamente para generar previews y, con los quick tunnels, puede haber
+# unos segundos entre la URL impresa y que /health quede disponible.
+Write-Host "    Verificando tunnel publico" -NoNewline
+$publicRelayOk = $false
+for ($i = 0; $i -lt 10; $i++) {
+    try {
+        $publicHealth = Invoke-WebRequest -Uri "$tunnelUrl/health" -UseBasicParsing -TimeoutSec 5
+        if ($publicHealth.StatusCode -eq 200) { $publicRelayOk = $true; break }
+    } catch { Start-Sleep -Seconds 2 }
+    Write-Host "." -NoNewline
+}
+Write-Host ""
+if (-not $publicRelayOk) {
+    Write-Host "    ERROR: el tunnel publico no responde. No se reemplazo la URL activa en Supabase." -ForegroundColor Red
+    exit 1
+}
+Write-Host "    Tunnel publico OK" -ForegroundColor Green
+
 # -- Actualizar AGENT_RELAY_URL en .env --
 Write-Host ""
 Write-Host "[4] Actualizando AGENT_RELAY_URL en .env..." -ForegroundColor Yellow
@@ -97,9 +116,20 @@ if ($envContent -match "AGENT_RELAY_URL=.+") {
 [System.IO.File]::WriteAllText("$Root\.env", $envContent, [System.Text.Encoding]::UTF8)
 Write-Host "    OK" -ForegroundColor Green
 
+# -- Actualizar AGENT_RELAY_URL en la DB (el dashboard remoto la lee por request) --
+Write-Host ""
+Write-Host "[5] Actualizando relay en la base de datos..." -ForegroundColor Yellow
+$setRelayOutput = cmd /c "cd /d `"$Root`" && node scripts/set-relay-url.mjs `"$tunnelUrl`" 2>&1"
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "    ERROR: no se pudo actualizar la base de datos. El dashboard remoto seguira usando el tunnel anterior." -ForegroundColor Red
+    Write-Host "    $setRelayOutput" -ForegroundColor Gray
+    exit 1
+}
+Write-Host "    OK" -ForegroundColor Green
+
 # -- Actualizar AGENT_RELAY_URL en Vercel si el proyecto ya esta vinculado --
 Write-Host ""
-Write-Host "[5] Actualizando Vercel..." -ForegroundColor Yellow
+Write-Host "[6] Actualizando Vercel..." -ForegroundColor Yellow
 $vercelOk = (Get-Command "vercel" -ErrorAction SilentlyContinue) -and (Test-Path "$Root\.vercel\project.json")
 if ($vercelOk) {
     # Borrar la variable vieja (--yes para no pedir confirmacion)
