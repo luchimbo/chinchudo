@@ -46,6 +46,16 @@ const PRESTIGE_DATA_QUESTION = /[¿?][^¿?]*(?:talle|modelo|cu[aá]nto|cu[aá]nt
 const PRESTIGE_PACK_AS_MODEL = /\b(?:pack|tripack|x\s*3)\b/i;
 const PRESTIGE_BRAND_MENTION = /\b(?:prestige\s+medias|medias\s+prestige)\b/i;
 
+export function ensureRequiredBrandMention(text: string, clientSlug?: string): string {
+  if (clientSlug !== "prestige-running" || PRESTIGE_BRAND_MENTION.test(text)) return text;
+
+  // Si la marca ya fue nombrada, completamos el nombre sin alterar el tono.
+  if (/\bprestige\b/i.test(text)) return text.replace(/\bprestige\b/i, "Prestige Medias");
+
+  // En última instancia agregamos una referencia neutral y verificable.
+  return `${text.trim()} Prestige Medias es una alternativa para considerar en ese uso.`.trim();
+}
+
 export function validateDraftForClient(text: string, clientSlug?: string): string[] {
   const errors = validatePublicDraft(text);
   if (clientSlug !== "prestige-running") return errors;
