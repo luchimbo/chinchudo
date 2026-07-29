@@ -52,3 +52,30 @@ export async function publishLandingPreview(formData: FormData) {
 
   revalidatePath("/landings");
 }
+
+export async function publishSelectedLandings(formData: FormData) {
+  const ids = z.array(z.string().min(1)).parse(formData.getAll("landingId"));
+  if (ids.length === 0) return;
+
+  const landings = await prisma.landing.findMany({
+    where: { id: { in: ids }, status: "PREVIEW_ONLINE" },
+    select: { id: true, clientId: true },
+  });
+  await Promise.all([...new Set(landings.map((landing) => landing.clientId))].map((clientId) => assertClientAccess(prisma, clientId)));
+  await prisma.landing.updateMany({
+    where: { id: { in: landings.map((landing) => landing.id) }, status: "PREVIEW_ONLINE" },
+    data: { status: "PUBLISHED", publishedAt: new Date() },
+  });
+  revalidatePath("/landings");
+}
+
+export async function publishAllOnlineLandings(formData: FormData) {
+  const clientId = z.string().min(1).parse(formData.get("clientId"));
+  await assertClientAccess(prisma, clientId);
+  const landings = await prisma.landing.findMany({ where: { clientId, status: "PREVIEW_ONLINE" }, select: { id: true } });
+  const ids = landings.map((landing) => landing.id);
+  if (ids.length) {
+    await prisma.landing.updateMany({ where: { id: { in: ids } }, data: { status: "PUBLISHED", publishedAt: new Date() } });
+  }
+  revalidatePath("/landings");
+}

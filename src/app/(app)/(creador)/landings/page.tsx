@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { getVisibleClients } from "@/lib/auth";
-import { publishLandingPreview, updateLandingStatus } from "./actions";
+import { publishAllOnlineLandings, publishLandingPreview, publishSelectedLandings, updateLandingStatus } from "./actions";
 import { GenerationProgressCard } from "./generation-progress-card";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -29,7 +29,7 @@ export default async function LandingsPage({
 }: {
   searchParams: { status?: string; client?: string };
 }) {
-  const { status = "DRAFT", client: clientSlug } = searchParams;
+  const { status = "PREVIEW_ONLINE", client: clientSlug } = searchParams;
   const clients = await getVisibleClients(prisma);
   const activeClient = clients.find((c) => c.slug === clientSlug) ?? clients[0] ?? null;
 
@@ -42,7 +42,10 @@ export default async function LandingsPage({
       _count: { id: true },
     }),
     prisma.landing.findMany({
-      where: { status: status as any, ...clientFilter },
+      where: {
+        ...clientFilter,
+        status: status === "PREVIEW_ONLINE" ? { in: ["APPROVED", "PREVIEW_ONLINE"] } : status as any,
+      },
       include: { leadMagnet: true, _count: { select: { leads: true, trackingEvents: true } } },
       orderBy: { createdAt: "desc" },
       take: 50,
@@ -50,13 +53,12 @@ export default async function LandingsPage({
   ]);
 
   const countMap = Object.fromEntries(counts.map((c) => [c.status, c._count.id]));
+  const readyCount = (countMap.APPROVED || 0) + (countMap.PREVIEW_ONLINE || 0);
   const clientParam = activeClient ? `&client=${activeClient.slug}` : "";
 
   const tabs = [
-    { status: "DRAFT", label: "Borradores" },
-    { status: "APPROVED", label: "Listas para publicar" },
-    { status: "PREVIEW_ONLINE", label: "Preview online" },
-    { status: "PUBLISHED", label: "En vivo" },
+    { status: "PREVIEW_ONLINE", label: "Listas para publicar" },
+    { status: "PUBLISHED", label: "Publicadas" },
     { status: "ARCHIVED", label: "Archivadas" },
   ];
 
@@ -85,8 +87,8 @@ export default async function LandingsPage({
             }`}
           >
             {tab.label}
-            {countMap[tab.status] ? (
-              <span className="ml-2 rounded-full bg-ink/10 px-2 py-0.5 text-xs">{countMap[tab.status]}</span>
+            {(tab.status === "PREVIEW_ONLINE" ? readyCount : countMap[tab.status]) ? (
+              <span className="ml-2 rounded-full bg-ink/10 px-2 py-0.5 text-xs">{tab.status === "PREVIEW_ONLINE" ? readyCount : countMap[tab.status]}</span>
             ) : null}
           </Link>
         ))}
@@ -104,6 +106,17 @@ export default async function LandingsPage({
         )
       ) : (
         <div className="flex flex-col gap-3">
+          {status === "PREVIEW_ONLINE" && activeClient ? (
+            <div className="flex flex-wrap justify-end gap-2">
+              <form action={publishSelectedLandings} id="publish-selected-landings">
+                <button type="submit" className="rounded-lg border border-moss/40 bg-moss/10 px-3 py-1.5 text-xs font-semibold text-moss transition hover:bg-moss/20">Publicar seleccionadas</button>
+              </form>
+              <form action={publishAllOnlineLandings}>
+                <input type="hidden" name="clientId" value={activeClient.id} />
+                <button type="submit" className="rounded-lg bg-moss px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-moss/90">Publicar todas</button>
+              </form>
+            </div>
+          ) : null}
           {landings.map((landing) => (
             <div key={landing.id} className="rounded-xl border border-ink/10 bg-paper p-4 shadow-sm">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -180,6 +193,10 @@ export default async function LandingsPage({
                   )}
                   {landing.status === "PREVIEW_ONLINE" && (
                     <>
+                      <label className="flex items-center gap-2 rounded-lg border border-ink/15 px-3 py-1.5 text-xs font-semibold text-ink">
+                        <input type="checkbox" name="landingId" value={landing.id} form="publish-selected-landings" />
+                        Seleccionar
+                      </label>
                       <a
                         href={landing.publicPreviewUrl || `${blogBase.replace(/\/$/, "")}/${landing.slug}/`}
                         target="_blank"
@@ -188,11 +205,10 @@ export default async function LandingsPage({
                       >
                         Ver preview online
                       </a>
-                      <form action={updateLandingStatus}>
-                        <input type="hidden" name="id" value={landing.id} />
-                        <input type="hidden" name="status" value="PUBLISHED" />
+                      <form action={publishSelectedLandings}>
+                        <input type="hidden" name="landingId" value={landing.id} />
                         <button type="submit" className="rounded-lg border border-moss/40 bg-moss/10 px-3 py-1.5 text-xs font-semibold text-moss transition hover:bg-moss/20">
-                          Marcar como publicada
+                          Publicar landing
                         </button>
                       </form>
                       <form action={updateLandingStatus}>
