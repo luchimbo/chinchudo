@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Prisma } from "@prisma/client";
 import { updateOpportunityStatus } from "@/app/(app)/opportunities/actions";
+import { splitOpportunitySourcePreview } from "@/lib/opportunity-source-metadata";
 
 export type OpportunityRow = Prisma.OpportunityGetPayload<{
   include: { channel: true };
@@ -38,7 +39,10 @@ export function OpportunityList({
 
   return (
     <div className="divide-y divide-ink/10">
-      {opportunities.map((opportunity) => (
+      {opportunities.map((opportunity) => {
+        const preview = splitOpportunitySourcePreview(opportunity.sourceText);
+
+        return (
         <article key={opportunity.id} className="grid gap-4 px-5 py-4 transition hover:bg-paper/70 md:grid-cols-[120px_1fr_180px]">
           <div>
             <p className="text-sm font-bold text-ink">{opportunity.channel.name}</p>
@@ -50,7 +54,15 @@ export function OpportunityList({
             </div>
           </div>
 
-          <p className="min-w-0 line-clamp-2 text-sm leading-6 text-ink">{opportunity.sourceText}</p>
+          <div className="min-w-0">
+            <p className="line-clamp-2 text-sm leading-6 text-ink">{preview.text}</p>
+            {preview.commentCount || preview.publishedAgo ? (
+              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs font-medium text-slate">
+                {preview.commentCount ? <span>Comentarios: {preview.commentCount}</span> : null}
+                {preview.publishedAgo ? <span>Publicado: {preview.publishedAgo}</span> : null}
+              </div>
+            ) : null}
+          </div>
 
           <div className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
             <div className="md:hidden">
@@ -80,7 +92,8 @@ export function OpportunityList({
             </Link>
           </div>
         </article>
-      ))}
+        );
+      })}
     </div>
   );
 }

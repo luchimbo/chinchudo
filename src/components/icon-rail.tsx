@@ -69,6 +69,13 @@ const MAIN_SECTORS: Sector[] = [
     icon: <HomeIcon />,
   },
   {
+    id: "redes",
+    href: "/oportunidades",
+    label: "Publicador en Redes",
+    paths: ["/oportunidades", "/bitacora", "/historial", "/distribution", "/actividad", "/redes"],
+    icon: <ShareIcon />,
+  },
+  {
     id: "creador",
     href: "/landings/editor",
     label: "Creador de landings",
@@ -81,13 +88,6 @@ const MAIN_SECTORS: Sector[] = [
     label: "Tendencias y guiones",
     paths: ["/videos"],
     icon: <VideoIcon />,
-  },
-  {
-    id: "redes",
-    href: "/oportunidades",
-    label: "Publicador en Redes",
-    paths: ["/oportunidades", "/bitacora", "/historial", "/distribution", "/actividad", "/redes"],
-    icon: <ShareIcon />,
   },
   {
     id: "analiticas",
