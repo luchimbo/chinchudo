@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildPrompt } from "../ai-draft-generator";
-import { validateDraftForClient } from "../draft-output";
+import { ensureRequiredBrandMention, validateDraftForClient } from "../draft-output";
 
 const now = new Date();
 const prestigeClient = {
@@ -63,5 +63,11 @@ describe("prompt de Prestige", () => {
     } as any);
     expect(prompt).toContain("Prestige Medias Tech Basic");
     expect(prompt).toContain("nombrá 'Prestige Medias' una sola vez");
+  });
+
+  it("completa la mención obligatoria de Prestige Medias sin afectar otros clientes", () => {
+    expect(ensureRequiredBrandMention("Prestige tiene soquete corto.", "prestige-running")).toBe("Prestige Medias tiene soquete corto.");
+    expect(ensureRequiredBrandMention("Para fondos largos miraría media caña.", "prestige-running")).toContain("Prestige Medias");
+    expect(ensureRequiredBrandMention("Para home studio va bien.", "pcmidi")).toBe("Para home studio va bien.");
   });
 });

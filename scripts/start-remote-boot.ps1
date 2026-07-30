@@ -7,6 +7,8 @@
 #
 # Pasos: espera NSTBrowser -> abre los 5 perfiles -> relay -> túnel -> .env + DB.
 # =============================================================================
+param([int]$TunnelRetry = 0)
+
 $ErrorActionPreference = "Continue"
 $Root = Split-Path $PSScriptRoot -Parent
 $LogDir = Join-Path $Root "logs"
@@ -123,14 +125,24 @@ Log "    Tunnel URL: $tunnelUrl (PID $($tunnelProc.Id))"
 # las previews apuntando a un endpoint que todavia no responde.
 Log "    Verificando tunnel publico..."
 $publicRelayOk = $false
-for ($i = 0; $i -lt 10; $i++) {
+# Los quick tunnels pueden anunciar su URL antes de que el hostname quede
+# disponible desde Internet. En algunos arranques tarda más de los 20 segundos
+# originales; conservar la URL anterior en ese caso dejaba al dashboard remoto
+# apuntando a un relay ya cerrado.
+for ($i = 0; $i -lt 36; $i++) {
     try {
         $publicHealth = Invoke-WebRequest -Uri "$tunnelUrl/health" -UseBasicParsing -TimeoutSec 5
         if ($publicHealth.StatusCode -eq 200) { $publicRelayOk = $true; break }
-    } catch { Start-Sleep -Seconds 2 }
+    } catch { Start-Sleep -Seconds 3 }
 }
 if (-not $publicRelayOk) {
-    Log "ERROR: el tunnel publico no respondio. Se conserva la URL anterior en Supabase."
+    if ($TunnelRetry -lt 2) {
+        $nextRetry = $TunnelRetry + 1
+        Log "El tunnel no respondio; reintentando automaticamente ($nextRetry/2)..."
+        Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"", "-TunnelRetry", $nextRetry -WindowStyle Hidden
+    } else {
+        Log "ERROR: el tunnel publico no respondio tras 3 intentos."
+    }
     exit 1
 }
 Log "    Tunnel publico OK"

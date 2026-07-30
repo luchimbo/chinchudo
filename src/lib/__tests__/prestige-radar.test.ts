@@ -5,7 +5,7 @@ import { isPrestigeRadarCandidate, normalizedRadarText, PRESTIGE_RADAR_QUERIES }
 describe("Prestige radar", () => {
   it("cubre las seis redes y temas de running", () => {
     expect(new Set(PRESTIGE_RADAR_QUERIES.map((query: { channel: string }) => query.channel))).toEqual(new Set(["instagram", "tiktok", "youtube", "facebook", "x", "reddit"]));
-    expect(PRESTIGE_RADAR_QUERIES).toHaveLength(18);
+    expect(PRESTIGE_RADAR_QUERIES).toHaveLength(32);
   });
 
   it("acepta una conversación accionable y descarta venta o consulta médica", () => {

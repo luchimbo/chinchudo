@@ -90,11 +90,14 @@ Write-Host "    Tunnel URL: $tunnelUrl" -ForegroundColor Green
 # unos segundos entre la URL impresa y que /health quede disponible.
 Write-Host "    Verificando tunnel publico" -NoNewline
 $publicRelayOk = $false
-for ($i = 0; $i -lt 10; $i++) {
+# Un quick tunnel puede tardar más de 20 segundos en quedar disponible. No
+# publicamos su URL hasta verificarla, pero esperamos lo suficiente para no
+# conservar innecesariamente un endpoint anterior y ya inalcanzable.
+for ($i = 0; $i -lt 36; $i++) {
     try {
         $publicHealth = Invoke-WebRequest -Uri "$tunnelUrl/health" -UseBasicParsing -TimeoutSec 5
         if ($publicHealth.StatusCode -eq 200) { $publicRelayOk = $true; break }
-    } catch { Start-Sleep -Seconds 2 }
+    } catch { Start-Sleep -Seconds 3 }
     Write-Host "." -NoNewline
 }
 Write-Host ""

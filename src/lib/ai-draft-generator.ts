@@ -5,7 +5,7 @@ import { deriveVoiceModulation, type ProfileContextForDraft } from "./observed-p
 import { logger } from "./logger";
 import { llmHeaders, resolveLLMConfig } from "./llm-provider";
 import { policyInstructions } from "./response-policy";
-import { sanitizePublicDraft, validateDraftForClient } from "./draft-output";
+import { ensureRequiredBrandMention, sanitizePublicDraft, validateDraftForClient } from "./draft-output";
 
 type DraftContext = {
   opportunity: Opportunity & {
@@ -425,7 +425,7 @@ export async function generateAIDrafts(ctx: DraftContext): Promise<DraftVariant[
       const match = variants.find((v) => v.type === variantType);
       return {
         variantType,
-        draftText: sanitizePublicDraft(match?.text ?? ""),
+        draftText: ensureRequiredBrandMention(sanitizePublicDraft(match?.text ?? ""), ctx.client?.slug),
         riskNotes: match?.riskNotes ?? "Revisar antes de publicar.",
       };
     }).filter((v) => v.draftText.length > 0);

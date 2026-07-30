@@ -5,6 +5,7 @@ $ROOT = Split-Path -Parent $PSScriptRoot
 $LOG_DIR = Join-Path $ROOT "logs"
 $STAMP = (Get-Date -Format "yyyyMMdd-HHmmss")
 $LOG_FILE = Join-Path $LOG_DIR "scheduled-$STAMP.log"
+$DAILY_QUOTA_MARKER = Join-Path $ROOT "data\daily-opportunity-quota-last-run.txt"
 
 if (-not (Test-Path $LOG_DIR)) { New-Item -ItemType Directory -Path $LOG_DIR | Out-Null }
 
@@ -40,6 +41,26 @@ if (-not $nstReady) {
 Log "NSTBrowser API OK"
 
 Set-Location $ROOT
+
+# La cuota de oportunidades hace una pasada completa por cada cliente activo.
+# Se ejecuta una sola vez por día local: así PC MIDI Center y Prestige Running
+# reciben exactamente el mismo ciclo diario sin duplicar una búsqueda pesada en
+# cada disparo de 30 minutos del monitor.
+$today = Get-Date -Format "yyyy-MM-dd"
+$lastDailyQuotaRun = if (Test-Path $DAILY_QUOTA_MARKER) { (Get-Content -Path $DAILY_QUOTA_MARKER -Raw).Trim() } else { "" }
+if ($lastDailyQuotaRun -ne $today) {
+    Log "Corriendo cuota diaria de oportunidades para todos los clientes activos..."
+    $opportunityQuotaOut = Join-Path $LOG_DIR "opportunity-quota-$STAMP.log"
+    cmd /c "cd /d `"$ROOT`" && npm run agents:daily-quota >> `"$opportunityQuotaOut`" 2>&1"
+    if ($LASTEXITCODE -ne 0) {
+        Log "WARN: cuota diaria de oportunidades fallo (exit $LASTEXITCODE). Se reintentara en la proxima ejecucion. Ver $opportunityQuotaOut"
+    } else {
+        Set-Content -Path $DAILY_QUOTA_MARKER -Value $today -Encoding UTF8
+        Log "cuota diaria de oportunidades OK (incluye Prestige Running)"
+    }
+} else {
+    Log "Cuota diaria de oportunidades ya completada hoy ($today)."
+}
 
 Log "Corriendo agents:monitor..."
 $monitorOut = Join-Path $LOG_DIR "monitor-$STAMP.log"

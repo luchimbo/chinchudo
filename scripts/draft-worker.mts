@@ -9,6 +9,7 @@ import { loadEnv, writeReport } from "./agent-utils.mjs";
 import { suggestAllPersonasForClient } from "../src/lib/persona-router";
 import { generateAIDrafts } from "../src/lib/ai-draft-generator";
 import { generateLocalDrafts } from "../src/lib/draft-generator";
+import { ensureRequiredBrandMention } from "../src/lib/draft-output";
 import { shouldUseAi } from "../src/lib/draft-policy";
 import { loadRelevantKnowledge } from "../src/lib/knowledge";
 import { loadActivePrompt } from "../src/lib/prompts";
@@ -364,7 +365,7 @@ async function main() {
             variantType: v.variantType as any,
             voiceVariant: suggestion.voiceVariant ?? "",
             voiceVariantReason: suggestion.voiceVariantReason ?? "",
-            draftText: v.draftText,
+            draftText: ensureRequiredBrandMention(v.draftText, resolution.client.slug),
             riskNotes,
           });
         }
