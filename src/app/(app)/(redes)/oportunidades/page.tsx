@@ -71,10 +71,11 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
     where.AND = [{ OR: [{ sourceText: { contains: q } }, { sourceAuthor: { contains: q } }] }];
   }
 
-  const orderBy: Prisma.OpportunityOrderByWithRelationInput | Prisma.OpportunityOrderByWithRelationInput[] =
-    sort === "oldest"
-      ? { createdAt: "asc" }
-      : [{ opportunityScore: "desc" }, { createdAt: "desc" }];
+  // El selector de orden debe respetar la fecha de forma estricta. La prioridad
+  // comercial se muestra en el dashboard, pero no puede intercalar registros
+  // viejos cuando la persona eligió “Más nuevos primero”.
+  const orderBy: Prisma.OpportunityOrderByWithRelationInput =
+    sort === "oldest" ? { createdAt: "asc" } : { createdAt: "desc" };
 
   const scopedClientWhere: Prisma.OpportunityWhereInput = activeClient ? { clientId: activeClient.id } : {};
   const [matchingOpportunities, readyCount, products] = await Promise.all([
