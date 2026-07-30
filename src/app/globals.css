@@ -39,6 +39,29 @@ textarea {
   font: inherit;
 }
 
+/* Evita que nombres largos de producto hagan crecer la pantalla de guiones en móvil. */
+.video-studio,
+.video-studio section,
+.video-studio article,
+.video-studio label {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.video-studio select {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Las métricas deben encogerse en móvil; las tablas conservan su propio scroll interno. */
+.analytics-page,
+.analytics-page > *,
+.analytics-page section,
+.analytics-page article {
+  min-width: 0;
+  max-width: 100%;
+}
+
 /* Navegación por teclado: anillo de foco visible en todos los elementos interactivos */
 :focus-visible {
   outline: 2px solid #b8872f;
@@ -61,4 +84,3 @@ textarea {
   background-size: 42px 42px;
   mask-image: linear-gradient(to bottom, black, transparent 85%);
 }
-

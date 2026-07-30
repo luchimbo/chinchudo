@@ -82,11 +82,11 @@ function Bar({ label, value, max, unit = "ítems" }: {
   const pctW = max > 0 ? Math.round((value / max) * 100) : 0;
   return (
     <div className="flex items-center gap-3">
-      <span className="w-36 shrink-0 truncate text-right text-xs text-slate">{label}</span>
+      <span className="w-24 shrink-0 truncate text-right text-xs text-slate sm:w-36">{label}</span>
       <div className="flex-1 rounded-full bg-ink/8 h-2 overflow-hidden">
         <div className="h-full rounded-full bg-moss/50" style={{ width: `${pctW}%` }} />
       </div>
-      <span className="w-20 text-xs text-slate tabular-nums">{value} {unit}</span>
+      <span className="w-12 shrink-0 text-xs text-slate tabular-nums sm:w-20">{value} {unit}</span>
     </div>
   );
 }
@@ -265,7 +265,7 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
   const distByCanalSorted = sortCounts(distByCanal);
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-10 px-5 py-8 lg:px-8">
+    <div className="analytics-page mx-auto flex w-full max-w-7xl flex-col gap-10 px-4 py-6 sm:px-5 sm:py-8 lg:px-8">
       {/* Header unificado */}
       <header className="flex flex-wrap items-start justify-between gap-4 border-b border-ink/5 pb-6">
         <div>

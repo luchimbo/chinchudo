@@ -75,7 +75,7 @@ export default function VideosClient({ activeClient, clients, trends, products, 
     try { await post("generate_script_from_idea", { contentIdeaId: selectedIdea.id, personaId }); setSelectedIdea(null); router.refresh(); } catch (error: any) { alert(error.message); } finally { setSaving(false); }
   }
 
-  return <div className="min-h-screen overflow-x-hidden bg-paper text-ink"><main className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-5 sm:py-7">
+  return <div className="video-studio min-h-screen overflow-x-hidden bg-paper text-ink"><main className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-5 sm:py-7">
     <header className="relative overflow-hidden rounded-2xl border border-ink/10 bg-ink px-4 py-6 text-paper shadow-panel sm:px-6 sm:py-7">
       <div className="absolute -right-12 -top-16 h-52 w-52 rounded-full bg-brass/30 blur-3xl" />
       <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between"><div className="min-w-0"><p className="text-xs font-black uppercase tracking-[.16em] text-brass sm:tracking-[.22em]">Estudio editorial · {activeClient.name}</p><h1 className="mt-2 break-words font-display text-3xl font-bold sm:text-4xl">Ideas para grabar</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-paper/75">{activeClient.description || "Elegí qué producto mover. Después elegí una idea que se pueda filmar."}</p></div><select value={activeClient.slug} onChange={(event) => router.push(`/videos?client=${event.target.value}`)} className="h-10 w-full max-w-full rounded-md border border-paper/20 bg-white/10 px-3 text-sm font-bold text-paper sm:w-auto sm:min-w-48">{clients.map((client) => <option className="text-ink" key={client.id} value={client.slug}>{client.name}</option>)}</select></div>
