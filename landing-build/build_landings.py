@@ -823,6 +823,26 @@ def compact_catalog(categories: dict[str, dict], products: dict[str, dict]) -> d
     }
 
 
+def catalog_has_single_brand(products: dict[str, dict]) -> bool:
+    """Return whether the active catalogue represents a single product brand."""
+    brands = {
+        str(product.get("marca") or "").strip().casefold()
+        for product in products.values()
+        if str(product.get("marca") or "").strip()
+    }
+    return len(brands) == 1
+
+
+def product_display_name(product: dict, omit_brand: bool) -> str:
+    """Keep product labels concise when the catalogue makes the brand implicit."""
+    model = str(product.get("modelo") or "").strip()
+    name = str(product.get("nombre") or "").strip()
+    brand = str(product.get("marca") or "").strip()
+    if omit_brand:
+        return model or name
+    return " ".join(part for part in (brand, model or name) if part)
+
+
 def extract_json_object(raw: str) -> dict:
     text = raw.strip()
     if text.startswith("```"):
@@ -1770,11 +1790,12 @@ def render_landing(landing: dict, categories: dict[str, dict], products: dict[st
     )
     product_links_html = ""
     if selected_products:
+        omit_product_brand = catalog_has_single_brand(products)
         product_items = []
         for product in selected_products:
             product_items.append(
                 f'<a class="product-pill" href="{esc(product["url"])}" target="_blank" rel="noopener">'
-                f'<span>{esc(product["marca"])} {esc(product["modelo"])}</span>'
+                f'<span>{esc(product_display_name(product, omit_product_brand))}</span>'
                 f'<small>{esc(product["uso"])}</small></a>'
             )
         product_links_html = '<div class="product-strip"><span class="mono-label dim">Productos mencionados</span><div class="product-strip-grid">' + "".join(product_items) + "</div></div>"
@@ -2134,6 +2155,18 @@ def selftest() -> None:
     blocked["h1"] = "Con stock garantizado"
     if not validate_landings([blocked], categories, products):
         errors.append("validate_landings no bloquea claims prohibidos")
+    single_brand_products = {
+        "prestige-quarter": {"marca": "Prestige", "modelo": "Quarter", "nombre": "Prestige Quarter"},
+        "prestige-long": {"marca": "Prestige", "modelo": "Larga", "nombre": "Prestige Larga"},
+    }
+    if not catalog_has_single_brand(single_brand_products):
+        errors.append("catalog_has_single_brand no reconoce un catalogo de una sola marca")
+    if product_display_name(single_brand_products["prestige-quarter"], True) != "Quarter":
+        errors.append("product_display_name repite la marca en un catalogo de marca unica")
+    if catalog_has_single_brand({**single_brand_products, "other": {"marca": "Otra", "modelo": "Modelo"}}):
+        errors.append("catalog_has_single_brand confunde un catalogo multimarca")
+    if product_display_name(products["arturia-minilab-3"], False) != "Arturia MiniLab 3":
+        errors.append("product_display_name pierde la marca en un catalogo multimarca")
     known_templates = template_ids()
     if "minimalist" not in known_templates or "pro-dark" not in known_templates:
         errors.append("registry de templates no expone los presets esperados")
