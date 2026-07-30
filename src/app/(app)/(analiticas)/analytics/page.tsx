@@ -100,6 +100,14 @@ function Chip({ label, value }: { label: string; value: number }) {
   );
 }
 
+function PeriodComparison({ label, current, previous }: { label: string; current: number; previous: number }) {
+  const delta = current - previous;
+  const percentage = previous > 0 ? Math.round((delta / previous) * 100) : null;
+  const tone = delta > 0 ? "text-moss" : delta < 0 ? "text-signal" : "text-slate";
+  const detail = percentage === null ? (current > 0 ? "Sin base anterior" : "Sin cambios") : `${delta >= 0 ? "+" : ""}${percentage}%`;
+  return <div className="min-w-0 rounded-lg border border-ink/10 bg-white/60 px-3 py-2.5"><p className="truncate text-[10px] font-bold uppercase tracking-[0.14em] text-slate/60">{label}</p><div className="mt-1 flex items-baseline justify-between gap-2"><p className="font-display text-2xl leading-none text-ink">{current}</p><p className={`shrink-0 text-xs font-bold ${tone}`}>{detail}</p></div><p className="mt-1 text-[10px] text-slate/55">Antes: {previous}</p></div>;
+}
+
 // ─── Helpers y Mapeos ────────────────────────────────────────────────────────
 
 const CANAL_LABEL: Record<string, string> = {
@@ -140,6 +148,20 @@ function dateParam(value: string | undefined, endOfDay = false) {
   return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
+function priorPeriod(period: AnalyticsPeriod, range: { from?: Date; to?: Date }) {
+  if (range.from && range.to) {
+    const duration = range.to.getTime() - range.from.getTime() + 1;
+    const to = new Date(range.from.getTime() - 1);
+    return { from: new Date(to.getTime() - duration + 1), to, label: "vs. rango anterior equivalente" };
+  }
+  if (range.from || range.to) return null;
+  if (period === "all") return null;
+  const days = period === "7d" ? 7 : period === "30d" ? 30 : 90;
+  const currentStart = analyticsPeriodStart(period)!;
+  const to = new Date(currentStart.getTime() - 1);
+  return { from: new Date(currentStart.getTime() - days * 24 * 60 * 60 * 1000), to, label: `vs. ${days} días anteriores` };
+}
+
 // ─── Componente Principal ───────────────────────────────────────────────────
 
 export default async function AnalyticsPage({ searchParams }: PageProps) {
@@ -154,6 +176,8 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
   const range = { from: dateParam(searchParams.from), to: dateParam(searchParams.to, true) };
   const hasCustomRange = Boolean(range.from || range.to);
   const data = await getAnalyticsData(activeClient?.id, period, range);
+  const comparisonPeriod = priorPeriod(period, range);
+  const previousData = comparisonPeriod ? await getAnalyticsData(activeClient?.id, period, comparisonPeriod) : null;
   const brandSnapshots = await prisma.brandSnapshot.findMany({
     where: activeClient ? { clientId: activeClient.id } : { id: "__no_client__" },
     orderBy: { capturedAt: "asc" },
@@ -333,6 +357,8 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
         </form>
         <span className="ml-1 text-xs text-slate/55">Datos registrados en {hasCustomRange ? "el rango elegido" : PERIOD_LABELS[period].toLowerCase()}.</span>
       </nav>
+
+      {previousData && comparisonPeriod ? <section className="rounded-xl border border-ink/10 bg-ink/[0.02] p-4"><div className="mb-3 flex flex-wrap items-baseline justify-between gap-2"><h2 className="text-xs font-bold uppercase tracking-[0.18em] text-slate/70">Comparativa del período</h2><p className="text-xs text-slate/60">{comparisonPeriod.label}</p></div><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5"><PeriodComparison label="Oportunidades" current={data.totalOpportunities} previous={previousData.totalOpportunities}/><PeriodComparison label="Borradores" current={data.totalDrafted} previous={previousData.totalDrafted}/><PeriodComparison label="Aprobadas" current={data.totalApproved} previous={previousData.totalApproved}/><PeriodComparison label="Publicadas" current={data.totalPublished} previous={previousData.totalPublished}/><PeriodComparison label="Conversiones" current={data.totalConverted} previous={previousData.totalConverted}/></div></section> : <section className="rounded-xl border border-dashed border-ink/15 bg-white/40 px-4 py-3 text-sm text-slate/65">Elegí un período o un rango completo para ver la comparación con el período anterior.</section>}
 
       {/* ── PANEL DE DETALLE DE ERRORES (Solo si showErrors === "1") ── */}
       {activeClient?.slug === "pcmidi" && showErrors === "1" && (
