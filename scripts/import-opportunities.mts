@@ -14,7 +14,7 @@ import { classifyOpportunity } from "../src/lib/ai-opportunity-classifier";
 import { recordObservedProfileEvent } from "../src/lib/observed-profiles";
 import { calculateOpportunityScore, normalizeAssessment, prestigeFallbackAssessment, priorityFromOpportunityScore } from "../src/lib/contextual-opportunity";
 // @ts-ignore -- shared ESM helper used by operational scripts.
-import { isPrestigeRadarCandidate, normalizedRadarText } from "./prestige-radar.mjs";
+import { isPrestigeRadarCandidate, normalizedRadarText } from "../src/lib/prestige-radar.mjs";
 
 loadEnv();
 // El worker local necesita una conexión estable durante las rondas largas;

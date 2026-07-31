@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 // @ts-ignore -- operational ESM helper is exercised directly by this test.
-import { isPrestigeRadarCandidate, normalizedRadarText, PRESTIGE_RADAR_QUERIES } from "../../../scripts/prestige-radar.mjs";
+import { isPrestigeRadarCandidate, normalizedRadarText, PRESTIGE_RADAR_QUERIES } from "../prestige-radar.mjs";
 
 describe("Prestige radar", () => {
   it("cubre las seis redes y temas de running", () => {

@@ -1,7 +1,7 @@
 import { prisma } from "../src/lib/db";
 // @ts-ignore -- shared operational environment loader.
 import { loadEnv } from "./agent-utils.mjs";
-import { PRESTIGE_RADAR_QUERIES } from "./prestige-radar.mjs";
+import { PRESTIGE_RADAR_QUERIES } from "../src/lib/prestige-radar.mjs";
 
 loadEnv();
 

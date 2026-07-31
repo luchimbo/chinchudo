@@ -1,7 +1,7 @@
 import type { OpportunityIntent, OpportunityPriority } from "@prisma/client";
 import { classifyJurispediaSafety } from "./jurispedia-policy";
 // @ts-ignore -- operational radar rules are shared with the draft worker.
-import { isPrestigeRadarCandidate, isPrestigeUnsafeContent } from "../../scripts/prestige-radar.mjs";
+import { isPrestigeRadarCandidate, isPrestigeUnsafeContent } from "./prestige-radar.mjs";
 
 type TriageInput = {
   sourceText: string;
