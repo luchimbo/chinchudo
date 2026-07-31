@@ -114,7 +114,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
         include: {
           persona: true,
           brand: true,
-          publishingLog: true
+          publishingLog: true,
         },
         orderBy: { createdAt: "desc" }
       }

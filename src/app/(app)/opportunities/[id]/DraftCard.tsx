@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { SubmitButton } from "./SubmitButton";
+import { RefinementModal } from "./RefinementModal";
 
 type PublishingLogEntry = {
   id: string;
@@ -15,6 +16,8 @@ type PublishingLogEntry = {
 
 type PersonaOption = { id: string; name: string };
 
+type ChatMessage = { sender: "user" | "assistant"; text: string; timestamp?: string };
+
 type ResponseEntry = {
   id: string;
   variantType: string;
@@ -25,6 +28,7 @@ type ResponseEntry = {
   riskNotes: string;
   approvedBy: string;
   personaId: string;
+  chatHistory?: ChatMessage[] | unknown;
   brand: { name: string };
   persona: { name: string };
   publishingLog?: PublishingLogEntry | null;
@@ -76,6 +80,11 @@ export function DraftCard({
   const [text, setText] = useState(response.editedText || response.draftText);
   const [isCopied, setIsCopied] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>(
+    Array.isArray(response.chatHistory) ? (response.chatHistory as ChatMessage[]) : []
+  );
+
   const personaAccountMap = useMemo(() => {
     const map = new Map<string, string>();
     for (const acc of agentAccounts) {
@@ -121,6 +130,15 @@ export function DraftCard({
       {/* Header */}
       <div className="flex items-center justify-end gap-2 border-b border-ink/5 pb-3">
         <div className="flex items-center gap-2">
+          {!isAlreadyPublished ? (
+            <button
+              type="button"
+              onClick={() => setModalOpen(true)}
+              className="rounded-full border border-brass/30 bg-brass/5 px-3.5 py-1 text-xs font-bold text-brass transition hover:border-brass/50 hover:bg-brass/10"
+            >
+              Ajustar con IA
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={handleCopy}
@@ -268,6 +286,21 @@ export function DraftCard({
           </div>
         ) : null}
       </div>
+
+      <RefinementModal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        responseId={response.id}
+        opportunityText={opportunity.sourceText}
+        brandName={response.brand.name}
+        personaName={response.persona.name}
+        currentResponseText={text}
+        initialChatHistory={chatHistory}
+        onApplyResponse={(newText, updatedChatHistory) => {
+          setText(newText);
+          setChatHistory(updatedChatHistory);
+        }}
+      />
     </article>
   );
 }

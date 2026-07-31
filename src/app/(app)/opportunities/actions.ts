@@ -23,6 +23,8 @@ import { triageOpportunity } from "@/lib/opportunity-triage";
 import { loadObservedProfileContext, overrideObservedProfileSignals, recordObservedProfileEvent } from "@/lib/observed-profiles";
 import { loadRelevantCompetitorEvidence } from "@/lib/competitor-evidence";
 import { selectVoiceVariant } from "@/lib/persona-router";
+import { chatRefinementStep, compileResponseFromChat, type ChatMessage } from "@/lib/refine-draft";
+import { addClientMemory, deleteClientMemory, extractLearningFromChat, getClientMemories } from "@/lib/client-memory";
 
 const createOpportunitySchema = z.object({
   channelId: z.string().min(1),
@@ -137,14 +139,15 @@ export async function generateResponseDrafts(formData: FormData) {
     detectedProduct: selectedProduct ?? opportunity.detectedProduct,
   };
 
-  const [{ knowledge, objections }, activeSystemPrompt] = await Promise.all([
+  const [{ knowledge, objections }, activeSystemPrompt, clientMemories] = await Promise.all([
     loadRelevantKnowledge(prisma, {
       sourceText: opportunity.sourceText,
       clientId: resolution.client.id,
       brandId,
       productId: opportunityForDraft.detectedProductId
     }),
-    loadActivePrompt(prisma)
+    loadActivePrompt(prisma),
+    getClientMemories(prisma, resolution.client.id)
   ]);
   const [observedProfile, competitorEvidence] = await Promise.all([
     loadObservedProfileContext(prisma, opportunity.id),
@@ -163,6 +166,7 @@ export async function generateResponseDrafts(formData: FormData) {
     activeSystemPrompt,
     observedProfile,
     competitorEvidence,
+    clientMemories: clientMemories.map((m) => ({ rule: m.rule })),
   };
   const voiceVariant = selectVoiceVariant(persona.name, observedProfile);
   const drafts = (await generateAIDrafts(ctx)) ?? generateLocalDrafts(ctx);
@@ -229,15 +233,14 @@ export async function approveResponse(formData: FormData) {
     approvedBy: formData.get("approvedBy") || "Operador",
     personaId: formData.get("personaId") || undefined,
   });
-
   const [opportunity, response] = await Promise.all([
     prisma.opportunity.findUniqueOrThrow({
       where: { id: parsed.opportunityId },
-      select: { status: true, clientId: true },
+      select: { status: true, clientId: true, sourceText: true },
     }),
     prisma.response.findUniqueOrThrow({
       where: { id: parsed.responseId },
-      include: { persona: true },
+      include: { brand: true, persona: true },
     }),
   ]);
 
@@ -271,6 +274,28 @@ export async function approveResponse(formData: FormData) {
       data: { status: OpportunityStatus.APPROVED },
     }),
   ]);
+
+  // Extraer y guardar aprendizaje si hubo chat de refinimiento
+  const chatHistory = (response.chatHistory as ChatMessage[] | undefined) ?? [];
+  if (chatHistory.length > 0 && opportunity.clientId) {
+    const learning = await extractLearningFromChat({
+      opportunityText: opportunity.sourceText,
+      finalResponseText: parsed.editedText,
+      chatHistory: chatHistory.map((m) => ({ sender: m.sender, text: m.text })),
+      brandName: response.brand.name,
+    });
+    if (learning) {
+      await addClientMemory(prisma, {
+        clientId: opportunity.clientId,
+        rule: learning.rule,
+        summary: learning.summary,
+        category: learning.category,
+        source: "chat_refinement",
+        opportunityId: parsed.opportunityId,
+        responseId: parsed.responseId,
+      });
+    }
+  }
 
   revalidatePath("/");
   revalidatePath(`/opportunities/${parsed.opportunityId}`);
@@ -468,6 +493,33 @@ export async function markAsPublished(formData: FormData) {
     }),
     ...siblingUpdate
   ]);
+
+  // Extraer y guardar aprendizaje si hubo chat de refinimiento
+  const response = await prisma.response.findUniqueOrThrow({
+    where: { id: parsed.responseId },
+    include: { brand: true }
+  });
+  const chatHistory = (response.chatHistory as ChatMessage[] | undefined) ?? [];
+  if (chatHistory.length > 0 && opportunity.clientId) {
+    const finalText = response.editedText || response.draftText;
+    const learning = await extractLearningFromChat({
+      opportunityText: opportunity.sourceText,
+      finalResponseText: finalText,
+      chatHistory: chatHistory.map((m) => ({ sender: m.sender, text: m.text })),
+      brandName: response.brand.name,
+    });
+    if (learning) {
+      await addClientMemory(prisma, {
+        clientId: opportunity.clientId,
+        rule: learning.rule,
+        summary: learning.summary,
+        category: learning.category,
+        source: "chat_refinement",
+        opportunityId: parsed.opportunityId,
+        responseId: parsed.responseId,
+      });
+    }
+  }
 
   revalidatePath("/");
   revalidatePath(`/opportunities/${parsed.opportunityId}`);
@@ -884,5 +936,139 @@ function extractPostKey(channel: string, url: string): string | null {
     return null;
   }
   return null;
+}
+
+const chatMessageSchema = z.array(
+  z.object({
+    sender: z.enum(["user", "assistant"]),
+    text: z.string(),
+    timestamp: z.string().optional(),
+  })
+);
+
+const sendRefinementMessageSchema = z.object({
+  responseId: z.string().min(1),
+  userMessage: z.string().min(1).max(2000),
+  chatHistory: chatMessageSchema.default([]),
+});
+
+export async function sendRefinementMessageAction(formData: FormData) {
+  const rawHistory = formData.get("chatHistory");
+  let chatHistory: ChatMessage[] = [];
+  try {
+    chatHistory = rawHistory ? JSON.parse(rawHistory as string) : [];
+  } catch {
+    chatHistory = [];
+  }
+
+  const parsed = sendRefinementMessageSchema.parse({
+    responseId: formData.get("responseId"),
+    userMessage: formData.get("userMessage"),
+    chatHistory,
+  });
+
+  const response = await prisma.response.findUniqueOrThrow({
+    where: { id: parsed.responseId },
+    include: {
+      opportunity: { include: { channel: true } },
+      brand: true,
+      persona: true,
+    },
+  });
+
+  const resolution = await resolveOpportunityClient(prisma, response.opportunity);
+  const clientMemories = await getClientMemories(prisma, resolution.client.id);
+
+  const assistantReply = await chatRefinementStep({
+    opportunityText: response.opportunity.sourceText,
+    currentResponseText: response.editedText || response.draftText,
+    chatHistory: parsed.chatHistory,
+    userMessage: parsed.userMessage,
+    brandName: response.brand.name,
+    personaName: response.persona.name,
+    clientName: resolution.client.name,
+    clientMemories: clientMemories.map((m) => ({ rule: m.rule })),
+  });
+
+  return { success: true, reply: assistantReply };
+}
+
+const applyRefinedResponseSchema = z.object({
+  responseId: z.string().min(1),
+  chatHistory: chatMessageSchema.default([]),
+});
+
+export async function applyRefinedResponseAction(formData: FormData) {
+  const rawHistory = formData.get("chatHistory");
+  let chatHistory: ChatMessage[] = [];
+  try {
+    chatHistory = rawHistory ? JSON.parse(rawHistory as string) : [];
+  } catch {
+    chatHistory = [];
+  }
+
+  const parsed = applyRefinedResponseSchema.parse({
+    responseId: formData.get("responseId"),
+    chatHistory,
+  });
+
+  const response = await prisma.response.findUniqueOrThrow({
+    where: { id: parsed.responseId },
+    include: {
+      opportunity: { include: { channel: true } },
+      brand: true,
+      persona: true,
+    },
+  });
+
+  const resolution = await resolveOpportunityClient(prisma, response.opportunity);
+  const clientMemories = await getClientMemories(prisma, resolution.client.id);
+
+  const compiledText = await compileResponseFromChat({
+    opportunityText: response.opportunity.sourceText,
+    chatHistory: parsed.chatHistory,
+    currentResponseText: response.editedText || response.draftText,
+    brandName: response.brand.name,
+    personaName: response.persona.name,
+    clientMemories: clientMemories.map((m) => ({ rule: m.rule })),
+  });
+
+  await prisma.response.update({
+    where: { id: parsed.responseId },
+    data: {
+      editedText: compiledText,
+      chatHistory: parsed.chatHistory as unknown as any[],
+    },
+  });
+
+  revalidatePath(`/opportunities/${response.opportunityId}`);
+  return { success: true, compiledText };
+}
+
+export async function createManualClientMemoryAction(formData: FormData) {
+  const clientId = formData.get("clientId") as string;
+  const rule = formData.get("rule") as string;
+  const category = (formData.get("category") as string) || "general";
+  const summary = (formData.get("summary") as string) || "";
+
+  if (!clientId || !rule?.trim()) {
+    throw new Error("Cliente y regla son obligatorios.");
+  }
+
+  await addClientMemory(prisma, {
+    clientId,
+    rule: rule.trim(),
+    summary: summary.trim() || undefined,
+    category: category.trim(),
+    source: "manual",
+  });
+
+  revalidatePath("/aprendizaje");
+}
+
+export async function deleteClientMemoryAction(memoryId: string) {
+  if (!memoryId) throw new Error("ID de memoria requerido.");
+  await deleteClientMemory(prisma, memoryId);
+  revalidatePath("/aprendizaje");
 }
 

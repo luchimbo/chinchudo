@@ -24,6 +24,7 @@ type DraftContext = {
   observedProfile?: ProfileContextForDraft | null;
   competitorEvidence?: CompetitorEvidence[];
   avoidDrafts?: string[];
+  clientMemories?: { rule: string }[];
 };
 
 type DraftVariant = {
@@ -150,6 +151,11 @@ export function buildPrompt(ctx: DraftContext): string {
     ? `\n### Ejemplo de respuesta PROHIBIDA\n"${persona.badExamples}"\n`
     : "";
 
+  const memories = ctx.clientMemories ?? [];
+  const memoriesBlock = memories.length > 0
+    ? `\n## Reglas aprendidas de interacciones anteriores (aplicá siempre que encajen)\n${memories.map((m) => `- ${m.rule}`).join("\n")}\n`
+    : "";
+
   const knowledge = ctx.knowledge ?? [];
   const objections = ctx.objections ?? [];
   const competitorEvidence = ctx.competitorEvidence ?? [];
@@ -256,6 +262,7 @@ export function buildPrompt(ctx: DraftContext): string {
 
 ## Reglas absolutas (NUNCA romper)
 ${absoluteRules}
+${memoriesBlock}
 - **IDIOMA DE LA RESPUESTA**: Identificá el idioma del comentario al que vas a responder (Texto: "${opportunity.sourceText.slice(0, 400)}"). Debés responder en ese mismo idioma (Español, Inglés o Portugués).
   - Si el comentario está en español: Escribí la respuesta en español argentino (usá "vos", no "tú" ni modismos neutros; usá "tenés", "mirá", "comprá", etc.)${forbiddenExtra}
   - Si el comentario está en inglés: Escribí la respuesta en inglés natural, fluido y coloquial, adaptado al tono de tu perfil${forbiddenExtra}

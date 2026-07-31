@@ -114,6 +114,7 @@ model Client {
   draftJobs              DraftJob[]
   supportSessions        SupportSession[]
   adminAuditEvents       AdminAuditEvent[]
+  memories               ClientMemory[]
 }
 
 model BrandSnapshot {
@@ -343,6 +344,7 @@ model Opportunity {
   landings               Landing[]
   distribution           DistributionPiece[]
   observedEvent          ObservedEvent?
+  memories               ClientMemory[]
 
   @@index([status])
   @@index([priority])
@@ -438,6 +440,7 @@ model Response {
   editedText         String              @default("")
   riskNotes          String              @default("")
   evidence           Json                @default("[]")
+  chatHistory        Json                @default("[]")
   approvedBy         String              @default("")
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
@@ -445,10 +448,32 @@ model Response {
   brand              Brand               @relation(fields: [brandId], references: [id])
   opportunity        Opportunity         @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
   persona            Persona             @relation(fields: [personaId], references: [id])
+  memories           ClientMemory[]
 
   @@index([opportunityId])
   @@index([personaId])
   @@index([brandId])
+}
+
+model ClientMemory {
+  id            String      @id @default(cuid())
+  clientId      String
+  rule          String
+  summary       String      @default("")
+  category      String      @default("general") // tone | warranty | product | store | general
+  source        String      @default("chat_refinement") // chat_refinement | manual
+  opportunityId String?
+  responseId    String?
+  active        Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  client        Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  response      Response?    @relation(fields: [responseId], references: [id], onDelete: SetNull)
+
+  @@index([clientId])
+  @@index([opportunityId])
+  @@index([responseId])
 }
 
 model PublishingLog {

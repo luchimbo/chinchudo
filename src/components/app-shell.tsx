@@ -15,6 +15,7 @@ const SECTOR_LABEL: Array<{ paths: string[]; label: string }> = [
   { paths: ["/videos"], label: "Tendencias y guiones" },
   { paths: ["/oportunidades", "/bitacora", "/historial", "/distribution", "/actividad", "/redes"], label: "Publicador en Redes" },
   { paths: ["/analytics", "/informe", "/geo"], label: "Analíticas" },
+  { paths: ["/aprendizaje"], label: "Aprendizaje IA" },
   { paths: ["/configuracion", "/brands", "/products", "/personas", "/prompts", "/knowledge", "/clients"], label: "Configuración" },
 ];
 
@@ -33,6 +34,7 @@ const MOBILE_SECTORS = [
   { href: "/landings/editor", label: "Creador de landings" },
   { href: "/videos", label: "Tendencias y guiones" },
   { href: "/analytics", label: "Analíticas" },
+  { href: "/aprendizaje", label: "Aprendizaje IA" },
   { href: "/configuracion", label: "Configuración" },
 ];
 
