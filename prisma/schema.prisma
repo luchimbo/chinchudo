@@ -439,6 +439,7 @@ model Response {
   draftText          String
   editedText         String              @default("")
   riskNotes          String              @default("")
+  isPrimary          Boolean             @default(false)
   evidence           Json                @default("[]")
   chatHistory        Json                @default("[]")
   approvedBy         String              @default("")
@@ -474,6 +475,7 @@ model ClientMemory {
   @@index([clientId])
   @@index([opportunityId])
   @@index([responseId])
+  @@unique([responseId, source])
 }
 
 model PublishingLog {

@@ -1,6 +1,28 @@
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient, ClientMemory } from "@prisma/client";
 import { resolveLLMConfig, llmHeaders } from "./llm-provider";
 import { logger } from "./logger";
+
+function normalizeRule(rule: string): string {
+  return rule
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function findExistingMemory(
+  prisma: PrismaClient,
+  clientId: string,
+  rule: string
+): Promise<ClientMemory | null> {
+  const existing = await prisma.clientMemory.findMany({
+    where: { clientId, active: true },
+  });
+  const normalized = normalizeRule(rule);
+  return existing.find((m) => normalizeRule(m.rule) === normalized) ?? null;
+}
 
 export type ClientMemoryItem = {
   id: string;
@@ -34,9 +56,24 @@ export async function addClientMemory(
     opportunityId?: string;
     responseId?: string;
   }
-) {
+): Promise<ClientMemory | null> {
   const ruleClean = params.rule.trim();
   if (!ruleClean) return null;
+
+  // Aprobar y publicar pueden ocurrir como acciones separadas sobre la misma
+  // respuesta. Un solo aprendizaje automático por respuesta es suficiente.
+  if (params.source === "chat_refinement" && params.responseId) {
+    const existingForResponse = await prisma.clientMemory.findFirst({
+      where: {
+        responseId: params.responseId,
+        source: "chat_refinement",
+      },
+    });
+    if (existingForResponse) return existingForResponse;
+  }
+
+  const existing = await findExistingMemory(prisma, params.clientId, ruleClean);
+  if (existing) return existing;
 
   return prisma.clientMemory.create({
     data: {

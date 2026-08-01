@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { sendRefinementMessageAction, applyRefinedResponseAction } from "../actions";
+import { createPortal } from "react-dom";
+import { sendRefinementMessageAction, applyRefinedResponseAction, saveRefinementChatAction } from "../actions";
 
 type ChatMessage = {
   sender: "user" | "assistant";
@@ -53,7 +54,13 @@ export function RefinementModal({
     }
   }, [chatHistory, isLoading]);
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !isLoading && !isCompiling) onClose();
+    };
+    if (isOpen) window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [isOpen, isLoading, isCompiling, onClose]);
 
   const handleSend = async (e?: React.FormEvent) => {
     e?.preventDefault();
@@ -77,10 +84,20 @@ export function RefinementModal({
       if (!result.success) {
         throw new Error("No se pudo enviar el mensaje.");
       }
-      setChatHistory((prev) => [
-        ...prev,
-        { sender: "assistant", text: result.reply, timestamp: new Date().toISOString() },
-      ]);
+      const assistantMsg: ChatMessage = { sender: "assistant", text: result.reply, timestamp: new Date().toISOString() };
+      const completedHistory = [...updatedHistory, assistantMsg];
+      setChatHistory(completedHistory);
+
+      const saveFormData = new FormData();
+      saveFormData.append("responseId", responseId);
+      saveFormData.append("chatHistory", JSON.stringify(completedHistory));
+      // La respuesta ya se mostró: un fallo al persistir el historial no debe
+      // hacer que parezca que falló la conversación completa.
+      try {
+        await saveRefinementChatAction(saveFormData);
+      } catch {
+        // Al compilar, el historial se vuelve a enviar y se guarda igualmente.
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error de conexión con la IA.");
     } finally {
@@ -89,7 +106,7 @@ export function RefinementModal({
   };
 
   const handleCompile = async () => {
-    if (isCompiling || chatHistory.length === 0) return;
+    if (isCompiling || isLoading || chatHistory.length === 0) return;
     setIsCompiling(true);
     setError(null);
 
@@ -111,9 +128,14 @@ export function RefinementModal({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/60 p-4 backdrop-blur-sm">
-      <div className="flex h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-ink/10 bg-white shadow-2xl">
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  if (!isOpen || !mounted) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/60 p-2 backdrop-blur-sm sm:p-4">
+      <div className="flex h-[92vh] w-[95vw] min-w-[95vw] flex-col overflow-hidden rounded-2xl border border-ink/10 bg-white shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-ink/10 bg-paper px-6 py-4">
           <div>
@@ -138,7 +160,7 @@ export function RefinementModal({
 
         <div className="flex flex-1 overflow-hidden">
           {/* Left: Context */}
-          <div className="hidden w-80 flex-col border-r border-ink/10 bg-paper/50 p-5 lg:flex">
+          <div className="hidden w-96 min-w-[300px] flex-col border-r border-ink/10 bg-paper/50 p-5 lg:flex">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate/70">
               Comentario original
             </h3>
@@ -234,7 +256,7 @@ export function RefinementModal({
                 <button
                   type="button"
                   onClick={handleCompile}
-                  disabled={isCompiling || chatHistory.length === 0}
+                  disabled={isCompiling || isLoading || chatHistory.length === 0}
                   className="rounded-xl bg-brass px-5 py-2.5 text-sm font-bold text-white transition hover:bg-ink disabled:opacity-50"
                 >
                   {isCompiling ? "✨ Generando…" : "✨ Generar nueva respuesta"}
@@ -244,6 +266,7 @@ export function RefinementModal({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

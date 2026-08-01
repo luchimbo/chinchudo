@@ -334,7 +334,7 @@ export async function approveAndPublishResponse(formData: FormData) {
     }),
     prisma.response.findUniqueOrThrow({
       where: { id: parsed.responseId },
-      include: { persona: true },
+      include: { persona: true, brand: true },
     }),
   ]);
 
@@ -418,6 +418,28 @@ export async function approveAndPublishResponse(formData: FormData) {
     opportunity.sourceUrl,
     channelLower
   );
+
+  // Extraer y guardar aprendizaje si hubo chat de refinimiento
+  const chatHistory = (response.chatHistory as ChatMessage[] | undefined) ?? [];
+  if (chatHistory.length > 0 && opportunity.clientId) {
+    const learning = await extractLearningFromChat({
+      opportunityText: opportunity.sourceText,
+      finalResponseText: parsed.editedText,
+      chatHistory: chatHistory.map((m) => ({ sender: m.sender, text: m.text })),
+      brandName: response.brand.name,
+    });
+    if (learning) {
+      await addClientMemory(prisma, {
+        clientId: opportunity.clientId,
+        rule: learning.rule,
+        summary: learning.summary,
+        category: learning.category,
+        source: "chat_refinement",
+        opportunityId: parsed.opportunityId,
+        responseId: parsed.responseId,
+      });
+    }
+  }
 
   const client = parsed.client;
   const clientQuery = client ? `&client=${encodeURIComponent(client)}` : "";
@@ -676,9 +698,19 @@ export async function publishViaAgent(formData: FormData) {
         logger.warn("publishViaAgent", "Relay respondio con error", { status: resp.status, agentError }).catch(() => {});
       }
     } catch (err: unknown) {
-      agentError = err instanceof Error ? err.message : "relay_fetch_failed";
-      logger.warn("publishViaAgent", "Error conectando al relay", { error: agentError }).catch(() => {});
+      const raw = err instanceof Error ? err.message : String(err);
+      // Normalizar el error genérico de fetch de Node a un código utilizable.
+      if (/fetch\s*failed|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|network\s*error/i.test(raw)) {
+        agentError = "relay_fetch_failed";
+      } else {
+        agentError = "relay_fetch_failed";
+      }
+      logger.warn("publishViaAgent", "Error conectando al relay", { error: raw }).catch(() => {});
     }
+  } else if (process.env.VERCEL || !process.env.AGENT_RELAY_TOKEN) {
+    // En Vercel/u entorno serverless sin relay configurado no podemos spawnar el agente local.
+    agentError = "relay_not_configured";
+    logger.warn("publishViaAgent", "Relay no configurado", { relayUrl, hasToken: !!relayToken }).catch(() => {});
   } else {
     // Path local: spawn directo (desarrollo o servidor local)
     const args = [
@@ -700,6 +732,35 @@ export async function publishViaAgent(formData: FormData) {
       const match = msg.match(/"error"\s*:\s*"([^"]+)"/);
       agentError = match ? match[1] : "publish_failed";
       logger.warn("publishViaAgent", "Error al publicar via agente", { error: agentError }).catch(() => {});
+    }
+  }
+
+  // Extraer y guardar aprendizaje si hubo chat de refinimiento
+  const responseWithData = await prisma.response.findUnique({
+    where: { id: parsed.responseId },
+    include: { opportunity: true, brand: true },
+  });
+  if (responseWithData && responseWithData.opportunity?.clientId) {
+    const chatHistory = (responseWithData.chatHistory as ChatMessage[] | undefined) ?? [];
+    if (chatHistory.length > 0) {
+      const finalText = responseWithData.editedText || responseWithData.draftText;
+      const learning = await extractLearningFromChat({
+        opportunityText: responseWithData.opportunity.sourceText,
+        finalResponseText: finalText,
+        chatHistory: chatHistory.map((m) => ({ sender: m.sender, text: m.text })),
+        brandName: responseWithData.brand?.name ?? "",
+      });
+      if (learning) {
+        await addClientMemory(prisma, {
+          clientId: responseWithData.opportunity.clientId,
+          rule: learning.rule,
+          summary: learning.summary,
+          category: learning.category,
+          source: "chat_refinement",
+          opportunityId: parsed.opportunityId,
+          responseId: parsed.responseId,
+        });
+      }
     }
   }
 
@@ -993,6 +1054,34 @@ export async function sendRefinementMessageAction(formData: FormData) {
   return { success: true, reply: assistantReply };
 }
 
+const saveRefinementChatSchema = z.object({
+  responseId: z.string().min(1),
+  chatHistory: chatMessageSchema.default([]),
+});
+
+/** Guarda el hilo aun cuando el operador cierre el panel sin aplicar una versión final. */
+export async function saveRefinementChatAction(formData: FormData) {
+  const rawHistory = formData.get("chatHistory");
+  let chatHistory: ChatMessage[] = [];
+  try {
+    chatHistory = rawHistory ? JSON.parse(rawHistory as string) : [];
+  } catch {
+    chatHistory = [];
+  }
+
+  const parsed = saveRefinementChatSchema.parse({
+    responseId: formData.get("responseId"),
+    chatHistory,
+  });
+
+  await prisma.response.update({
+    where: { id: parsed.responseId },
+    data: { chatHistory: parsed.chatHistory as unknown as any[] },
+  });
+
+  return { success: true };
+}
+
 const applyRefinedResponseSchema = z.object({
   responseId: z.string().min(1),
   chatHistory: chatMessageSchema.default([]),
@@ -1033,13 +1122,20 @@ export async function applyRefinedResponseAction(formData: FormData) {
     clientMemories: clientMemories.map((m) => ({ rule: m.rule })),
   });
 
-  await prisma.response.update({
-    where: { id: parsed.responseId },
-    data: {
-      editedText: compiledText,
-      chatHistory: parsed.chatHistory as unknown as any[],
-    },
-  });
+  await prisma.$transaction([
+    prisma.response.updateMany({
+      where: { opportunityId: response.opportunityId, id: { not: parsed.responseId } },
+      data: { isPrimary: false },
+    }),
+    prisma.response.update({
+      where: { id: parsed.responseId },
+      data: {
+        editedText: compiledText,
+        isPrimary: true,
+        chatHistory: parsed.chatHistory as unknown as any[],
+      },
+    }),
+  ]);
 
   revalidatePath(`/opportunities/${response.opportunityId}`);
   return { success: true, compiledText };

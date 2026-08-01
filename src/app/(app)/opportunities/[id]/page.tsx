@@ -87,6 +87,7 @@ const agentErrorMessages: Record<string, string> = {
   not_logged_in: "El perfil no está logueado en la plataforma.",
   dolphin_not_running: "No se pudo iniciar el perfil. Asegurate de que NSTBrowser esté abierto.",
   relay_fetch_failed: "No se pudo conectar al servidor relay local. Asegurate de que el relay y el Cloudflare Tunnel estén corriendo en la PC principal.",
+  relay_not_configured: "El relay de agentes no está configurado. Asegurate de que la PC principal esté con el relay y el túnel activos, o de que la variable AGENT_RELAY_URL esté bien cargada.",
   publish_failed: "El agente falló al intentar publicar. Revisá los logs del servidor.",
   rate_limited_spacing: "Esta cuenta publicó hace menos de 10 minutos. Esperá un momento antes de reintentar.",
   rate_limited_daily: "Esta cuenta alcanzó el límite diario de publicaciones (8). Usá otra cuenta o intentá mañana.",
@@ -176,7 +177,11 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
       response,
       alignment: scoreResponseAlignment(response, suggestion, observedProfileContext),
     }))
-    .sort((a, b) => b.alignment.score - a.alignment.score || +new Date(b.response.createdAt) - +new Date(a.response.createdAt));
+    .sort((a, b) => {
+      if (a.response.isPrimary && !b.response.isPrimary) return -1;
+      if (!a.response.isPrimary && b.response.isPrimary) return 1;
+      return b.alignment.score - a.alignment.score || +new Date(b.response.createdAt) - +new Date(a.response.createdAt);
+    });
   const channelLower = opportunity.channel.name.toLowerCase();
   type AccountEntry = { label: string; allowedChannels: string[]; defaultPersona?: string; clientSlug?: string };
   let agentAccounts: { name: string; label: string; defaultPersona: string }[] = [];
@@ -283,7 +288,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
 
           <section className="rounded-lg border border-ink/10 bg-white/75 p-5 shadow-panel backdrop-blur">
             <h2 className="font-display text-2xl">Respuestas sugeridas</h2>
-            <div className="mt-5 grid items-start gap-5 md:grid-cols-2 xl:grid-cols-3">
+            <div className="mt-5 grid items-start gap-5 grid-cols-1 lg:grid-cols-2">
               {opportunity.responses.length === 0 ? (
                 <p className="rounded-md bg-paper p-4 text-sm text-slate">
                   Todavia no hay respuestas generadas para esta oportunidad.
