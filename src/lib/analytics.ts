@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { intentLabels, statusLabels, type OpportunityIntentValue, type OpportunityStatusValue } from "@/lib/labels";
-import { llmHeaders, resolveLLMConfig } from "@/lib/llm-provider";
+import { fetchChatCompletion, resolveLLMConfig } from "@/lib/llm-provider";
 
 // ─── Tipos públicos ─────────────────────────────────────────────────────────
 
@@ -336,11 +336,7 @@ ${data.weeklyTrend.map(w => `  ${w.week}: ${w.total} nuevas, ${w.publicadas} pub
     max_tokens: 400,
   };
 
-  const res = await fetch(llm.endpoint, {
-    method: "POST",
-    headers: llmHeaders(llm, "Los 5 Apostoles - Analytics"),
-    body: JSON.stringify(body),
-  });
+  const { response: res } = await fetchChatCompletion(llm, body, "Los 5 Apostoles - Analytics", { openrouterApiKey: opts?.apiKey, openrouterModel: opts?.model });
 
   if (!res.ok) return `Error al generar resumen: ${res.statusText}`;
   const json = await res.json();

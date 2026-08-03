@@ -3,7 +3,7 @@ import { selectRelevantProducts, type ScopedProduct } from "./catalog";
 import type { KnowledgeLike, ObjectionLike } from "./knowledge";
 import { deriveVoiceModulation, type ProfileContextForDraft } from "./observed-profiles";
 import { logger } from "./logger";
-import { llmHeaders, resolveLLMConfig } from "./llm-provider";
+import { fetchChatCompletion, resolveLLMConfig } from "./llm-provider";
 import { policyInstructions } from "./response-policy";
 import { ensureRequiredBrandMention, sanitizePublicDraft, validateDraftForClient } from "./draft-output";
 
@@ -385,10 +385,9 @@ export async function generateAIDrafts(ctx: DraftContext): Promise<DraftVariant[
 
   let raw: string;
   try {
-    const response = await fetchWithRetry(llm.endpoint, {
-      method: "POST",
-      headers: llmHeaders(llm, "Los 5 Apostoles - Social Listening"),
-      body: JSON.stringify({
+    const { response, config: responseConfig } = await fetchChatCompletion(
+      llm,
+      {
         model,
         messages: [
           ...(ctx.activeSystemPrompt ? [{ role: "system", content: ctx.activeSystemPrompt }] : []),
@@ -397,8 +396,10 @@ export async function generateAIDrafts(ctx: DraftContext): Promise<DraftVariant[
         response_format: { type: "json_object" },
         temperature: 0.7,
         max_tokens: 2000,
-      }),
-    });
+      },
+      "Los 5 Apostoles - Social Listening",
+      ctx.client,
+    );
 
     if (!response.ok) {
       const body = await response.text();
@@ -412,7 +413,7 @@ export async function generateAIDrafts(ctx: DraftContext): Promise<DraftVariant[
       return null;
     }
     raw = data.choices?.[0]?.message?.content ?? "";
-    logger.info("ai_request", "OpenRouter OK", { model, opportunityId: ctx.opportunity.id }).catch(() => {});
+    logger.info("ai_request", "LLM OK", { model: responseConfig.model, provider: responseConfig.provider, opportunityId: ctx.opportunity.id }).catch(() => {});
   } catch (err) {
     logAIError("OpenRouter fetch fallido tras reintentos", err);
     return null;

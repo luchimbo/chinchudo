@@ -1,10 +1,11 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { resolveLLMConfig, resolveLLMProvider } from "../llm-provider";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { fetchChatCompletion, resolveLLMConfig, resolveLLMProvider } from "../llm-provider";
 
 const ORIGINAL_ENV = { ...process.env };
 
 afterEach(() => {
   process.env = { ...ORIGINAL_ENV };
+  vi.unstubAllGlobals();
 });
 
 describe("resolveLLMConfig", () => {
@@ -40,5 +41,23 @@ describe("resolveLLMConfig", () => {
     process.env.LLM_SCHEDULE_TIMEZONE = "America/Argentina/Buenos_Aires";
     expect(resolveLLMProvider(new Date("2026-07-24T12:30:00Z"))).toBe("local"); // 09:30 ART
     expect(resolveLLMProvider(new Date("2026-07-24T20:30:00Z"))).toBe("openrouter"); // 17:30 ART
+  });
+
+  it("falls back to OpenRouter with its own model when the local provider is unavailable", async () => {
+    process.env.LLM_PROVIDER = "local";
+    process.env.LLM_LOCAL_BASE_URL = "http://local-llm/v1";
+    process.env.LLM_LOCAL_MODEL = "local-model";
+    process.env.OPENROUTER_API_KEY = "remote-key";
+    process.env.OPENROUTER_MODEL = "remote-model";
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError("network unreachable"))
+      .mockResolvedValueOnce(new Response('{"choices":[{"message":{"content":"ok"}}]}', { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchChatCompletion(resolveLLMConfig(), { messages: [] }, "test");
+
+    expect(result.usedFallback).toBe(true);
+    expect(result.config.provider).toBe("openrouter");
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).model).toBe("remote-model");
   });
 });

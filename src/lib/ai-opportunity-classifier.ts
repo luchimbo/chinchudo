@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { logger } from "./logger";
-import { llmHeaders, resolveLLMConfig } from "./llm-provider";
+import { fetchChatCompletion, resolveLLMConfig } from "./llm-provider";
 import {
   calculateOpportunityScore,
   isContextualCandidate,
@@ -197,18 +197,19 @@ Devuelve únicamente un objeto JSON con las siguientes propiedades. No agregues 
   const model = llm.model;
 
   try {
-    const response = await fetchWithRetry(llm.endpoint, {
-      method: "POST",
-      headers: llmHeaders(llm, "Los 5 Apostoles - Opportunity Classifier"),
-      body: JSON.stringify({
+    const { response } = await fetchChatCompletion(
+      llm,
+      {
         model,
         messages: [{ role: "user", content: prompt }],
         response_format: { type: "json_object" },
         temperature: 0.1, // temperatura baja para más consistencia en clasificación
         max_tokens: 1000,
-      }),
-      signal: candidate.signal,
-    });
+      },
+      "Los 5 Apostoles - Opportunity Classifier",
+      client,
+      { signal: candidate.signal },
+    );
 
     if (!response.ok) {
       const text = await response.text();

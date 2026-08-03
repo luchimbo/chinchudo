@@ -1,5 +1,5 @@
 import { prisma } from "./db";
-import { llmHeaders, resolveLLMConfig, resolveOpenRouterConfig, type LLMConfig } from "./llm-provider";
+import { fetchChatCompletion, resolveLLMConfig } from "./llm-provider";
 
 type ScriptGenerationContext = {
   contentIdeaId?: string;
@@ -90,12 +90,10 @@ ${contextDetail}
 }
 `;
 
-  async function requestCompletion(config: LLMConfig) {
-    return fetch(config.endpoint, {
-      method: "POST",
-      headers: llmHeaders(config, "Los 5 Apostoles - Editorial Video Script Generator"),
-      body: JSON.stringify({
-        model: config.model,
+  try {
+    const { response } = await fetchChatCompletion(
+      llm,
+      {
         messages: [
           {
             role: "system",
@@ -106,38 +104,15 @@ ${contextDetail}
         response_format: { type: "json_object" },
         temperature: 0.75,
         max_tokens: 1500,
-      }),
-    });
-  }
-
-  try {
-    let response: Response;
-    try {
-      response = await requestCompletion(llm);
-    } catch (error) {
-      if (llm.provider !== "local") throw error;
-      const fallback = resolveOpenRouterConfig(client);
-      if (!fallback.apiKey) throw error;
-      console.warn("[Script Generator] El LLM local no respondió; se usa OpenRouter como respaldo.");
-      response = await requestCompletion(fallback);
-    }
+      },
+      "Los 5 Apostoles - Editorial Video Script Generator",
+      client,
+    );
 
     if (!response.ok) {
       const errorText = await response.text();
-      let usedFallback = false;
-      if (llm.provider === "local") {
-        const fallback = resolveOpenRouterConfig(client);
-        if (fallback.apiKey) {
-          console.warn(`[Script Generator] LLM local HTTP ${response.status}; se usa OpenRouter como respaldo.`);
-          response = await requestCompletion(fallback);
-          usedFallback = true;
-        }
-      }
-      if (!response.ok) {
-        const fallbackErrorText = usedFallback ? await response.text() : errorText;
-        console.error(`[Script Generator] ${llm.provider} HTTP ${response.status}:`, fallbackErrorText || errorText);
-        return null;
-      }
+      console.error(`[Script Generator] ${llm.provider} HTTP ${response.status}:`, errorText);
+      return null;
     }
 
     const data = (await response.json()) as { choices?: { message?: { content?: string } }[] };

@@ -1,4 +1,4 @@
-type LegacyClientLLMConfig = {
+export type LegacyClientLLMConfig = {
   openrouterApiKey?: string | null;
   openrouterModel?: string | null;
 };
@@ -93,4 +93,35 @@ export function llmHeaders(config: LLMConfig, title: string): Record<string, str
     headers["X-Title"] = title;
   }
   return headers;
+}
+
+export async function fetchChatCompletion(
+  config: LLMConfig,
+  payload: Record<string, unknown>,
+  title: string,
+  client?: LegacyClientLLMConfig | null,
+  init?: Pick<RequestInit, "signal">,
+): Promise<{ response: Response; config: LLMConfig; usedFallback: boolean }> {
+  const request = async (activeConfig: LLMConfig) => fetch(activeConfig.endpoint, {
+    method: "POST",
+    headers: llmHeaders(activeConfig, title),
+    body: JSON.stringify({ ...payload, model: activeConfig.model }),
+    ...init,
+  });
+
+  try {
+    const response = await request(config);
+    if (response.ok || config.provider !== "local") return { response, config, usedFallback: false };
+
+    const fallback = resolveOpenRouterConfig(client);
+    if (!fallback.apiKey) return { response, config, usedFallback: false };
+    console.warn(`[LLM] Local HTTP ${response.status}; se usa OpenRouter como respaldo para ${title}.`);
+    return { response: await request(fallback), config: fallback, usedFallback: true };
+  } catch (error) {
+    if (config.provider !== "local") throw error;
+    const fallback = resolveOpenRouterConfig(client);
+    if (!fallback.apiKey) throw error;
+    console.warn(`[LLM] El proveedor local no respondió; se usa OpenRouter como respaldo para ${title}.`);
+    return { response: await request(fallback), config: fallback, usedFallback: true };
+  }
 }

@@ -1,5 +1,5 @@
 import type { PrismaClient, ClientMemory } from "@prisma/client";
-import { resolveLLMConfig, llmHeaders } from "./llm-provider";
+import { fetchChatCompletion, resolveLLMConfig } from "./llm-provider";
 import { logger } from "./logger";
 
 function normalizeRule(rule: string): string {
@@ -136,16 +136,11 @@ Formato de respuesta (JSON estricto):
 }`;
 
   try {
-    const res = await fetch(llmConfig.endpoint, {
-      method: "POST",
-      headers: llmHeaders(llmConfig, "10 Apostoles - Chat Memory Extraction"),
-      body: JSON.stringify({
-        model: llmConfig.model,
+    const { response: res } = await fetchChatCompletion(llmConfig, {
         messages: [{ role: "user", content: prompt }],
         response_format: { type: "json_object" },
         temperature: 0.2,
-      }),
-    });
+    }, "10 Apostoles - Chat Memory Extraction");
 
     if (!res.ok) {
       const errText = await res.text();

@@ -1,4 +1,4 @@
-import { resolveLLMConfig, llmHeaders } from "./llm-provider";
+import { fetchChatCompletion, resolveLLMConfig } from "./llm-provider";
 import { logger } from "./logger";
 
 export type ChatMessage = {
@@ -48,16 +48,11 @@ Tu rol en este chat es dialogar de forma clara, directa y concisa con el operado
   messages.push({ role: "user", content: params.userMessage });
 
   try {
-    const res = await fetch(llmConfig.endpoint, {
-      method: "POST",
-      headers: llmHeaders(llmConfig, "10 Apostoles - Draft Chat Refinement"),
-      body: JSON.stringify({
-        model: llmConfig.model,
+    const { response: res } = await fetchChatCompletion(llmConfig, {
         messages,
         temperature: 0.7,
         max_tokens: 1000,
-      }),
-    });
+    }, "10 Apostoles - Draft Chat Refinement");
 
     if (!res.ok) {
       const errBody = await res.text();
@@ -108,16 +103,11 @@ REGLAS ABSOLUTAS:
 Respuesta final (únicamente el texto a publicar):`;
 
   try {
-    const res = await fetch(llmConfig.endpoint, {
-      method: "POST",
-      headers: llmHeaders(llmConfig, "10 Apostoles - Compile Draft Response"),
-      body: JSON.stringify({
-        model: llmConfig.model,
+    const { response: res } = await fetchChatCompletion(llmConfig, {
         messages: [{ role: "user", content: prompt }],
         temperature: 0.5,
         max_tokens: 800,
-      }),
-    });
+    }, "10 Apostoles - Compile Draft Response");
 
     if (!res.ok) {
       return params.currentResponseText;
