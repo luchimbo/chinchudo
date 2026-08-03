@@ -30,7 +30,7 @@ export default async function VideosPage({ searchParams }: PageProps) {
   const radarPlatforms = ["TIKTOK", "TIKTOK_HASHTAG", "TIKTOK_CREATIVE_CENTER", "INSTAGRAM", "YOUTUBE", "VIRAL_MARKETING"];
 
   // Cargar datos asociados al cliente activo
-  const [trends, products, personas, scripts, ideas] = await Promise.all([
+  const [trends, products, scripts] = await Promise.all([
     prisma.trend.findMany({
       where: { clientId: activeClient.id, platform: { in: radarPlatforms }, createdAt: { gte: radarSince } },
       orderBy: { createdAt: "desc" },
@@ -38,10 +38,6 @@ export default async function VideosPage({ searchParams }: PageProps) {
     prisma.product.findMany({
       where: { brand: { clientId: activeClient.id } },
       include: { brand: true },
-      orderBy: { name: "asc" },
-    }),
-    prisma.persona.findMany({
-      where: { clientId: activeClient.id },
       orderBy: { name: "asc" },
     }),
     prisma.videoScript.findMany({
@@ -54,11 +50,6 @@ export default async function VideosPage({ searchParams }: PageProps) {
       },
       orderBy: { createdAt: "desc" },
     }),
-    prisma.contentIdea.findMany({
-      where: { clientId: activeClient.id },
-      include: { product: { include: { brand: true } }, trend: { select: { title: true } }, videoScripts: { select: { id: true } } },
-      orderBy: { createdAt: "desc" },
-    }),
   ]);
 
   return (
@@ -67,9 +58,7 @@ export default async function VideosPage({ searchParams }: PageProps) {
       clients={clients}
       trends={trends}
       products={products}
-      personas={personas}
       scripts={scripts}
-      ideas={ideas}
     />
   );
 }

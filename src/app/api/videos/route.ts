@@ -3,6 +3,7 @@ import { assertClientAccess, getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { generateVideoScript } from "@/lib/video-script-generator";
 import { analyzeTrend, generateEditorialAngles } from "@/lib/content-idea-generator";
+import { findSelectedVideoPersona } from "@/lib/video-persona-selector";
 import type { ContentIdeaStatus, ContentIntent } from "@prisma/client";
 
 const INTENTS = new Set<ContentIntent>(["SALE", "EDUCATION", "USE_CASE", "ENTERTAINMENT"]);
@@ -105,6 +106,31 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, scriptId });
     }
 
+    if (action === "generate_script") {
+      const { clientId, productId } = body;
+      if (!clientId || !productId) return NextResponse.json({ error: "El producto es obligatorio." }, { status: 400 });
+      await assertClientAccess(prisma, clientId);
+
+      const product = await prisma.product.findFirst({
+        where: { id: productId, brand: { clientId } },
+        include: { brand: { select: { name: true } } },
+      });
+      if (!product) return NextResponse.json({ error: "Producto no disponible para este cliente." }, { status: 404 });
+
+      const personas = await prisma.persona.findMany({ where: { clientId } });
+      const persona = findSelectedVideoPersona(personas, product);
+      if (!persona) return NextResponse.json({ error: "No hay una persona configurada para generar el guion de este cliente." }, { status: 422 });
+
+      const scriptId = await generateVideoScript({ productId: product.id, personaId: persona.id, clientId });
+      if (!scriptId) return NextResponse.json({ error: "No se pudo generar el guion." }, { status: 500 });
+
+      const script = await prisma.videoScript.findUnique({
+        where: { id: scriptId },
+        include: { product: true, persona: true, trend: { select: { title: true } }, contentIdea: { select: { hook: true } } },
+      });
+      return NextResponse.json({ success: true, script });
+    }
+
     if (action === "update_idea_status") {
       const { clientId, ideaId, status } = body;
       if (!clientId || !ideaId || !IDEA_STATUSES.has(status)) return NextResponse.json({ error: "Estado inválido." }, { status: 400 });
@@ -123,12 +149,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true });
     }
 
-    if (action === "generate") {
-      return NextResponse.json(
-        { error: "Los guiones ahora se generan desde una idea aprobada." },
-        { status: 410 },
-      );
-    }
 
     if (action === "create_manual_trend") {
       const { title, description, sourceUrl, platform, clientId, metadata } = body;

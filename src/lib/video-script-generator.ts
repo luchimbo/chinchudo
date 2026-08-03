@@ -142,7 +142,7 @@ ${contextDetail}
         trendId: trend?.id,
         contentIdeaId: idea?.id,
         brandId: product.brandId,
-        productId,
+        productId: product.id,
         personaId,
         hook: normalizeField(parsed.hook),
         bodyText: normalizeField(parsed.bodyText),
