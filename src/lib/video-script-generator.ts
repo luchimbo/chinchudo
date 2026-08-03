@@ -1,5 +1,5 @@
 import { prisma } from "./db";
-import { llmHeaders, resolveLLMConfig } from "./llm-provider";
+import { llmHeaders, resolveLLMConfig, resolveOpenRouterConfig, type LLMConfig } from "./llm-provider";
 
 type ScriptGenerationContext = {
   contentIdeaId?: string;
@@ -38,7 +38,6 @@ export async function generateVideoScript(ctx: ScriptGenerationContext): Promise
     return null;
   }
 
-  const model = llm.model;
   const { taskInstruction, contextDetail } = idea
     ? { taskInstruction: "Escribe el guion a partir de una idea editorial ya aprobada. Respeta su formato, gancho y direccion visual.", contextDetail: `1. Idea aprobada:\n- Formato: ${idea.format}\n- Hook: ${idea.hook}\n- Por que funciona: ${idea.rationale}\n- Direccion visual: ${idea.visualDirection}\n- Intencion: ${idea.intent}\n- Referencia: ${trend?.title || "Estructura evergreen"}` }
     : trend ? buildTrendContext(trend) : { taskInstruction: "Escribe un guion basado en el producto.", contextDetail: "1. Idea editorial: usar una estructura clara y grabable." };
@@ -91,12 +90,12 @@ ${contextDetail}
 }
 `;
 
-  try {
-    const response = await fetch(llm.endpoint, {
+  async function requestCompletion(config: LLMConfig) {
+    return fetch(config.endpoint, {
       method: "POST",
-      headers: llmHeaders(llm, "Los 5 Apostoles - Editorial Video Script Generator"),
+      headers: llmHeaders(config, "Los 5 Apostoles - Editorial Video Script Generator"),
       body: JSON.stringify({
-        model,
+        model: config.model,
         messages: [
           {
             role: "system",
@@ -109,11 +108,36 @@ ${contextDetail}
         max_tokens: 1500,
       }),
     });
+  }
+
+  try {
+    let response: Response;
+    try {
+      response = await requestCompletion(llm);
+    } catch (error) {
+      if (llm.provider !== "local") throw error;
+      const fallback = resolveOpenRouterConfig(client);
+      if (!fallback.apiKey) throw error;
+      console.warn("[Script Generator] El LLM local no respondió; se usa OpenRouter como respaldo.");
+      response = await requestCompletion(fallback);
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`[Script Generator] OpenRouter HTTP ${response.status}:`, errorText);
-      return null;
+      let usedFallback = false;
+      if (llm.provider === "local") {
+        const fallback = resolveOpenRouterConfig(client);
+        if (fallback.apiKey) {
+          console.warn(`[Script Generator] LLM local HTTP ${response.status}; se usa OpenRouter como respaldo.`);
+          response = await requestCompletion(fallback);
+          usedFallback = true;
+        }
+      }
+      if (!response.ok) {
+        const fallbackErrorText = usedFallback ? await response.text() : errorText;
+        console.error(`[Script Generator] ${llm.provider} HTTP ${response.status}:`, fallbackErrorText || errorText);
+        return null;
+      }
     }
 
     const data = (await response.json()) as { choices?: { message?: { content?: string } }[] };
@@ -155,7 +179,7 @@ ${contextDetail}
 
     return script.id;
   } catch (err) {
-    console.error("[Script Generator] Error en llamada a OpenRouter:", err);
+    console.error(`[Script Generator] Error en llamada a ${llm.provider}:`, err);
     return null;
   }
 }

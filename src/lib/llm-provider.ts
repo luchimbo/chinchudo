@@ -71,9 +71,13 @@ export function resolveLLMConfig(client?: LegacyClientLLMConfig | null, now = ne
     };
   }
 
+  return resolveOpenRouterConfig(client);
+}
+
+export function resolveOpenRouterConfig(client?: LegacyClientLLMConfig | null): LLMConfig {
   const baseUrl = normalizeBaseUrl(process.env.OPENROUTER_BASE_URL || OPENROUTER_BASE_URL);
   return {
-    provider,
+    provider: "openrouter",
     baseUrl,
     endpoint: `${baseUrl}/chat/completions`,
     model: client?.openrouterModel?.trim() || process.env.OPENROUTER_MODEL?.trim() || "google/gemini-2.0-flash-lite",
