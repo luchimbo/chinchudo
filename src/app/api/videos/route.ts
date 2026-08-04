@@ -9,6 +9,7 @@ import type { ContentIdeaStatus, ContentIntent } from "@prisma/client";
 const INTENTS = new Set<ContentIntent>(["SALE", "EDUCATION", "USE_CASE", "ENTERTAINMENT"]);
 const IDEA_STATUSES = new Set<ContentIdeaStatus>(["REVIEW", "APPROVED", "SCRIPT_READY", "READY_TO_RECORD", "RECORDED", "PUBLISHED", "DISCARDED"]);
 const RADAR_PLATFORMS = ["TIKTOK", "TIKTOK_HASHTAG", "TIKTOK_CREATIVE_CENTER", "INSTAGRAM", "YOUTUBE", "VIRAL_MARKETING"];
+const SCRIPT_FOCUSES = new Set(["Vender", "Mostrar uso", "Resolver una duda", "Inspirar"]);
 
 function isVideoReferenceUrl(platform: string, value: string) {
   try {
@@ -107,8 +108,8 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === "generate_script") {
-      const { clientId, productId } = body;
-      if (!clientId || !productId) return NextResponse.json({ error: "El producto es obligatorio." }, { status: 400 });
+      const { clientId, productId, focus } = body;
+      if (!clientId || !productId || !SCRIPT_FOCUSES.has(focus)) return NextResponse.json({ error: "Elegí un producto y un enfoque válido." }, { status: 400 });
       await assertClientAccess(prisma, clientId);
 
       const product = await prisma.product.findFirst({
@@ -121,7 +122,7 @@ export async function POST(req: NextRequest) {
       const persona = findSelectedVideoPersona(personas, product);
       if (!persona) return NextResponse.json({ error: "No hay una persona configurada para generar el guion de este cliente." }, { status: 422 });
 
-      const scriptId = await generateVideoScript({ productId: product.id, personaId: persona.id, clientId });
+      const scriptId = await generateVideoScript({ productId: product.id, personaId: persona.id, clientId, focus });
       if (!scriptId) return NextResponse.json({ error: "No se pudo generar el guion." }, { status: 500 });
 
       const script = await prisma.videoScript.findUnique({

@@ -7,10 +7,11 @@ type ScriptGenerationContext = {
   productId?: string;
   personaId: string;
   clientId: string;
+  focus?: string;
 };
 
 export async function generateVideoScript(ctx: ScriptGenerationContext): Promise<string | null> {
-  const { trendId, productId, personaId, clientId, contentIdeaId } = ctx;
+  const { trendId, productId, personaId, clientId, contentIdeaId, focus } = ctx;
 
   const idea = contentIdeaId ? await prisma.contentIdea.findUnique({ where: { id: contentIdeaId }, include: { trend: true } }) : null;
   const trend = idea?.trend ?? (trendId ? await prisma.trend.findUnique({ where: { id: trendId } }) : null);
@@ -40,7 +41,7 @@ export async function generateVideoScript(ctx: ScriptGenerationContext): Promise
 
   const { taskInstruction, contextDetail } = idea
     ? { taskInstruction: "Escribe el guion a partir de una idea editorial ya aprobada. Respeta su formato, gancho y direccion visual.", contextDetail: `1. Idea aprobada:\n- Formato: ${idea.format}\n- Hook: ${idea.hook}\n- Por que funciona: ${idea.rationale}\n- Direccion visual: ${idea.visualDirection}\n- Intencion: ${idea.intent}\n- Referencia: ${trend?.title || "Estructura evergreen"}` }
-    : trend ? buildTrendContext(trend) : { taskInstruction: "Escribe un guion basado en el producto.", contextDetail: "1. Idea editorial: usar una estructura clara y grabable." };
+    : trend ? buildTrendContext(trend) : { taskInstruction: "Escribe un guion basado en el producto.", contextDetail: `1. Enfoque editorial elegido: ${focus || "Mostrar uso"}. Desarrollalo con una estructura clara y grabable.` };
 
   const prompt = `
 Actua como redactor experto en guiones para videos cortos verticales (TikTok, Instagram Reels y YouTube Shorts) para PC MIDI Center en Argentina.
