@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { assertClientAccess } from "@/lib/auth";
 import { generateLocalDrafts } from "@/lib/draft-generator";
 import { generateAIDrafts } from "@/lib/ai-draft-generator";
 import { ensureRequiredBrandMention } from "@/lib/draft-output";
@@ -86,6 +87,199 @@ export async function createOpportunity(formData: FormData) {
 
 const idSchema = z.string().min(1);
 
+const copilotChoiceSchema = z.object({
+  opportunityId: z.string().min(1),
+  goal: z.enum(["RESPONDER", "VENDER", "CUIDAR"]),
+  style: z.enum(["NORMAL", "CON_ONDA", "CON_CUIDADO"]),
+});
+
+function pickCopilotPersona<T extends { name: string }>(
+  personas: T[],
+  goal: "RESPONDER" | "VENDER" | "CUIDAR",
+  style: "NORMAL" | "CON_ONDA" | "CON_CUIDADO",
+) {
+  const byName = (name: string) => personas.find((persona) => persona.name.toLowerCase() === name.toLowerCase());
+
+  if (goal === "VENDER") return byName("Comercial") ?? personas[0];
+  if (goal === "CUIDAR" || style === "CON_CUIDADO") return byName("Educativo") ?? personas[0];
+  if (style === "CON_ONDA") return byName("Innovación") ?? byName("Innovacion") ?? personas[0];
+  return byName("Técnico") ?? byName("Tecnico") ?? byName("Práctico") ?? byName("Practico") ?? personas[0];
+}
+
+function copilotGuidance(contextAssessment: unknown, pulse?: { title: string } | null) {
+  const context = contextAssessment && typeof contextAssessment === "object"
+    ? contextAssessment as Record<string, unknown>
+    : {};
+  const copilot = context.copilot && typeof context.copilot === "object"
+    ? context.copilot as Record<string, unknown>
+    : {};
+  const objective = copilot.goal === "VENDER"
+    ? "Objetivo: orientar hacia un producto o asesoramiento de forma natural, sin presionar ni inventar condiciones comerciales."
+    : copilot.goal === "CUIDAR"
+      ? "Objetivo: priorizar empatia, claridad y contencion. No uses humor ni referencias de actualidad."
+      : "Objetivo: responder de forma util y concreta antes que vender.";
+  const voice = copilot.style === "CON_ONDA"
+    ? "Estilo: con onda. Podes usar un remate liviano o lenguaje cercano, pero no fuerces memes, sarcasmo ni una referencia que el comentario no pide."
+    : copilot.style === "CON_CUIDADO"
+      ? "Estilo: con cuidado. Evita remates, ironias y referencias culturales."
+      : "Estilo: normal. Claro, cercano y sin buscar un chiste.";
+  const pulseNote = copilot.style === "CON_ONDA" && pulse
+    ? `Pulso opcional: "${pulse.title}". Solo podes tomarlo como guino si encaja de forma natural con el comentario; si no encaja, ignoralo por completo.`
+    : "";
+  return [objective, voice, pulseNote].filter(Boolean).join("\n");
+}
+
+/**
+ * Entrada simplificada de la beta Copiloto CM. El operador solo define el
+ * objetivo y el estilo; la marca, producto y voz se resuelven con el contexto
+ * ya existente de la oportunidad.
+ */
+export async function generateCopilotDrafts(formData: FormData) {
+  const parsed = copilotChoiceSchema.parse({
+    opportunityId: formData.get("opportunityId"),
+    goal: formData.get("goal"),
+    style: formData.get("style"),
+  });
+
+  const opportunity = await prisma.opportunity.findUniqueOrThrow({
+    where: { id: parsed.opportunityId },
+    include: { detectedBrand: true, detectedProduct: true },
+  });
+  const resolution = await resolveOpportunityClient(prisma, opportunity);
+  const [brand, personas] = await Promise.all([
+    opportunity.detectedBrandId
+      ? prisma.brand.findUnique({ where: { id: opportunity.detectedBrandId } })
+      : prisma.brand.findFirst({ where: { clientId: resolution.client.id }, orderBy: { name: "asc" } }),
+    prisma.persona.findMany({ where: { clientId: resolution.client.id }, orderBy: { name: "asc" } }),
+  ]);
+
+  if (!brand || personas.length === 0) {
+    throw new Error("Esta oportunidad necesita una marca y al menos una voz editorial para generar respuestas.");
+  }
+
+  const persona = pickCopilotPersona(personas, parsed.goal, parsed.style);
+  const delegatedFormData = new FormData();
+  delegatedFormData.set("opportunityId", opportunity.id);
+  delegatedFormData.set("brandId", brand.id);
+  delegatedFormData.set("personaId", persona.id);
+  if (opportunity.detectedProductId && opportunity.detectedProduct?.brandId === brand.id) {
+    delegatedFormData.set("productId", opportunity.detectedProductId);
+  }
+
+  const currentContext = opportunity.contextAssessment && typeof opportunity.contextAssessment === "object"
+    ? opportunity.contextAssessment as Record<string, unknown>
+    : {};
+  await prisma.opportunity.update({
+    where: { id: opportunity.id },
+    data: {
+      contextAssessment: {
+        ...currentContext,
+        copilot: {
+          goal: parsed.goal,
+          style: parsed.style,
+          generatedAt: new Date().toISOString(),
+        },
+      },
+    },
+  });
+  await generateResponseDrafts(delegatedFormData);
+
+  revalidatePath("/copiloto");
+}
+
+const copilotResponseSchema = z.object({
+  opportunityId: z.string().min(1),
+  responseId: z.string().min(1),
+  editedText: z.string().min(3).max(4000),
+  wasEdited: z.enum(["true", "false"]).default("false"),
+});
+
+export async function markCopilotResponse(formData: FormData) {
+  const parsed = copilotResponseSchema.parse({
+    opportunityId: formData.get("opportunityId"),
+    responseId: formData.get("responseId"),
+    editedText: formData.get("editedText"),
+    wasEdited: formData.get("wasEdited") || "false",
+  });
+  const response = await prisma.response.findUniqueOrThrow({
+    where: { id: parsed.responseId },
+    select: { opportunityId: true },
+  });
+  if (response.opportunityId !== parsed.opportunityId) {
+    throw new Error("La respuesta no corresponde a esta oportunidad.");
+  }
+
+  const delegatedFormData = new FormData();
+  delegatedFormData.set("opportunityId", parsed.opportunityId);
+  delegatedFormData.set("responseId", parsed.responseId);
+  delegatedFormData.set("editedText", parsed.editedText);
+  delegatedFormData.set("approvedBy", "CM");
+  await approveResponse(delegatedFormData);
+  const opportunity = await prisma.opportunity.findUniqueOrThrow({
+    where: { id: parsed.opportunityId },
+    select: { contextAssessment: true },
+  });
+  const currentContext = opportunity.contextAssessment && typeof opportunity.contextAssessment === "object"
+    ? opportunity.contextAssessment as Record<string, unknown>
+    : {};
+  const currentCopilot = currentContext.copilot && typeof currentContext.copilot === "object"
+    ? currentContext.copilot as Record<string, unknown>
+    : {};
+  await prisma.$transaction([
+    prisma.response.update({ where: { id: parsed.responseId }, data: { isPrimary: true } }),
+    prisma.opportunity.update({
+      where: { id: parsed.opportunityId },
+      data: {
+        contextAssessment: {
+          ...currentContext,
+          copilot: {
+            ...currentCopilot,
+            responseId: parsed.responseId,
+            respondedAt: new Date().toISOString(),
+            wasEdited: parsed.wasEdited === "true",
+          },
+        },
+      },
+    }),
+  ]);
+  revalidatePath("/copiloto");
+}
+
+const copilotDiscardSchema = z.object({
+  opportunityId: z.string().min(1),
+  reason: z.enum(["NO_RELEVANTE", "NO_ES_EL_TONO", "FALTA_INFO", "NO_CONVIENE"]).optional(),
+});
+
+export async function discardCopilotOpportunity(formData: FormData) {
+  const parsed = copilotDiscardSchema.parse({
+    opportunityId: formData.get("opportunityId"),
+    reason: formData.get("reason") || undefined,
+  });
+  const opportunity = await prisma.opportunity.findUniqueOrThrow({
+    where: { id: parsed.opportunityId },
+    select: { contextAssessment: true },
+  });
+  const currentContext = opportunity.contextAssessment && typeof opportunity.contextAssessment === "object"
+    ? opportunity.contextAssessment as Record<string, unknown>
+    : {};
+
+  await prisma.opportunity.update({
+    where: { id: parsed.opportunityId },
+    data: {
+      status: OpportunityStatus.DISCARDED,
+      contextAssessment: {
+        ...currentContext,
+        copilot: {
+          ...(currentContext.copilot && typeof currentContext.copilot === "object" ? currentContext.copilot : {}),
+          discardedReason: parsed.reason ?? "NO_RELEVANTE",
+          discardedAt: new Date().toISOString(),
+        },
+      },
+    },
+  });
+  revalidatePath("/copiloto");
+}
+
 export async function generateResponseDrafts(formData: FormData) {
   const rl = checkRateLimit("ai_draft_global", 20, 60_000);
   if (!rl.allowed) {
@@ -153,6 +347,23 @@ export async function generateResponseDrafts(formData: FormData) {
     loadObservedProfileContext(prisma, opportunity.id),
     loadRelevantCompetitorEvidence(prisma, resolution.client.id, opportunity.sourceText),
   ]);
+  const copilotContext = opportunity.contextAssessment && typeof opportunity.contextAssessment === "object"
+    ? opportunity.contextAssessment as Record<string, unknown>
+    : {};
+  const copilot = copilotContext.copilot && typeof copilotContext.copilot === "object"
+    ? copilotContext.copilot as Record<string, unknown>
+    : {};
+  const pulse = copilot.style === "CON_ONDA"
+    ? await prisma.trend.findFirst({
+        where: {
+          clientId: resolution.client.id,
+          platform: { in: ["GOOGLE_TRENDS", "TWITTER"] },
+          createdAt: { gte: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000) },
+        },
+        select: { title: true },
+        orderBy: { createdAt: "desc" },
+      })
+    : null;
 
   const ctx = {
     opportunity: opportunityForDraft,
@@ -167,6 +378,7 @@ export async function generateResponseDrafts(formData: FormData) {
     observedProfile,
     competitorEvidence,
     clientMemories: clientMemories.map((m) => ({ rule: m.rule })),
+    editorialGuidance: copilotGuidance(opportunity.contextAssessment, pulse),
   };
   const voiceVariant = selectVoiceVariant(persona.name, observedProfile);
   const drafts = (await generateAIDrafts(ctx)) ?? generateLocalDrafts(ctx);
@@ -1151,6 +1363,8 @@ export async function createManualClientMemoryAction(formData: FormData) {
     throw new Error("Cliente y regla son obligatorios.");
   }
 
+  await assertClientAccess(prisma, clientId);
+
   await addClientMemory(prisma, {
     clientId,
     rule: rule.trim(),
@@ -1164,6 +1378,12 @@ export async function createManualClientMemoryAction(formData: FormData) {
 
 export async function deleteClientMemoryAction(memoryId: string) {
   if (!memoryId) throw new Error("ID de memoria requerido.");
+  const memory = await prisma.clientMemory.findUnique({
+    where: { id: memoryId },
+    select: { clientId: true },
+  });
+  if (!memory) throw new Error("La regla de memoria no existe.");
+  await assertClientAccess(prisma, memory.clientId);
   await deleteClientMemory(prisma, memoryId);
   revalidatePath("/aprendizaje");
 }

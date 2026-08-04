@@ -1,12 +1,9 @@
 import React from "react";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { getVisibleClients } from "@/lib/auth";
 import { deleteClientMemoryAction, createManualClientMemoryAction } from "../opportunities/actions";
 import { SubmitButton } from "../opportunities/[id]/SubmitButton";
-
-type PageProps = {
-  searchParams?: { client?: string };
-};
 
 const CATEGORY_COLORS: Record<string, string> = {
   tone: "bg-purple-100 text-purple-800 border-purple-200",
@@ -16,14 +13,9 @@ const CATEGORY_COLORS: Record<string, string> = {
   general: "bg-slate-100 text-slate-800 border-slate-200",
 };
 
-export default async function AprendizajePage({ searchParams }: PageProps) {
-  const clients = await prisma.client.findMany({
-    where: { active: true },
-    orderBy: { name: "asc" },
-  });
-
-  const selectedSlug = searchParams?.client || clients[0]?.slug || "";
-  const activeClient = clients.find((c) => c.slug === selectedSlug) || clients[0];
+export default async function AprendizajePage() {
+  const clients = await getVisibleClients(prisma);
+  const activeClient = clients[0];
 
   const memories = activeClient
     ? await prisma.clientMemory.findMany({
@@ -55,25 +47,6 @@ export default async function AprendizajePage({ searchParams }: PageProps) {
           ← Oportunidades
         </Link>
       </header>
-
-      {/* Client Switcher Tabs */}
-      <div className="mb-8 flex flex-wrap gap-3 border-b border-ink/10 pb-4">
-        {clients.map((client) => {
-          const isActive = client.id === activeClient?.id;
-          return (
-            <Link
-              key={client.id}
-              href={`/aprendizaje?client=${client.slug}`}
-              className={`rounded-xl px-5 py-2.5 text-sm font-bold transition ${isActive
-                  ? "bg-ink text-paper shadow-md"
-                  : "border border-ink/10 bg-white/80 text-ink/80 hover:bg-white hover:text-ink"
-                }`}
-            >
-              {client.name}
-            </Link>
-          );
-        })}
-      </div>
 
       <div className="grid gap-8 lg:grid-cols-[1fr_360px]">
         {/* Main Memories List */}
