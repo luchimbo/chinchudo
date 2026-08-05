@@ -77,9 +77,9 @@ const MAIN_SECTORS: Sector[] = [
   },
   {
     id: "redes",
-    href: "/oportunidades",
-    label: "Publicador en Redes",
-    paths: ["/oportunidades", "/bitacora", "/historial", "/distribution", "/actividad", "/redes"],
+    href: "/copiloto",
+    label: "Copiloto CM",
+    paths: ["/copiloto", "/oportunidades", "/bitacora", "/historial", "/distribution", "/actividad", "/redes"],
     icon: <ShareIcon />,
   },
   {

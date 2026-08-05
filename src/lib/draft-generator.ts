@@ -3,6 +3,7 @@ import { selectRelevantProducts, type ProductEntry, type ScopedProduct } from ".
 import type { KnowledgeLike, ObjectionLike } from "./knowledge";
 import { deriveVoiceModulation, type ProfileContextForDraft } from "./observed-profiles";
 import { makeJurispediaDrafts } from "./jurispedia-policy";
+import { makeVidiaDrafts } from "./vidia-policy";
 import { sanitizePublicDraft } from "./draft-output";
 
 type DraftContext = {
@@ -493,6 +494,9 @@ export function generateLocalDrafts(ctx: DraftContext): DraftVariant[] {
       channel: ctx.opportunity.channel.name,
       opportunityId: ctx.opportunity.id,
     });
+  }
+  if (ctx.client?.slug === "programa-vidia") {
+    return makeVidiaDrafts(ctx.opportunity.sourceText, ctx.opportunity.channel.name);
   }
   const { opportunity, brand, persona, knowledge, objections, observedProfile } = ctx;
   const original = compactText(opportunity.sourceText);

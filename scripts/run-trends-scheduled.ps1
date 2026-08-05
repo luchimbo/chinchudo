@@ -20,10 +20,14 @@ Log "=== scheduled-trends inicio ==="
 Set-Location $ROOT
 
 $limit = if ($env:TRENDS_RUN_LIMIT) { $env:TRENDS_RUN_LIMIT } else { "10" }
-$env:TRENDS_TIME_BUDGET_SECONDS = if ($env:TRENDS_TIME_BUDGET_SECONDS) { $env:TRENDS_TIME_BUDGET_SECONDS } else { "600" }
+$env:TRENDS_TIME_BUDGET_SECONDS = if ($env:TRENDS_TIME_BUDGET_SECONDS) { $env:TRENDS_TIME_BUDGET_SECONDS } else { "420" }
+$env:PYTHONUTF8 = "1"
+$env:PYTHONIOENCODING = "utf-8"
 Log "Corriendo agents:trend-listen con limit=$limit..."
 
-& npm run agents:trend-listen -- --limit $limit *> $TREND_OUT
+# Evita la reinterpretación de flags de npm en Task Scheduler. El
+# orchestrator conserva el flujo completo: escucha, importación y reporte.
+& python agents/orchestrator.py trend-listen --limit $limit *> $TREND_OUT
 $exitCode = $LASTEXITCODE
 
 if ($exitCode -ne 0) {

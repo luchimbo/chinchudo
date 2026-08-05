@@ -7,7 +7,7 @@ import { PrismaClient } from "@prisma/client";
 // @ts-ignore
 import { loadEnv, writeReport } from "./agent-utils.mjs";
 import { suggestAllPersonasForClient } from "../src/lib/persona-router";
-import { generateAIDrafts } from "../src/lib/ai-draft-generator";
+import { generateAICopilotDraft, generateAIDrafts, shortenCopilotText } from "../src/lib/ai-draft-generator";
 import { generateLocalDrafts } from "../src/lib/draft-generator";
 import { ensureRequiredBrandMention } from "../src/lib/draft-output";
 import { shouldUseAi } from "../src/lib/draft-policy";
@@ -35,6 +35,7 @@ function parseArgs() {
     allPersonas: process.argv.includes("--all-personas") || process.env.npm_config_all_personas === "true",
     draftOnly: process.argv.includes("--draft-only"),
     replacePending: process.argv.includes("--replace-pending"),
+    copilot: process.argv.includes("--copilot"),
     limit: limitIndex >= 0 ? Number(process.argv[limitIndex + 1] || 50) : Number(process.env.npm_config_limit || 50),
     clientSlug: clientIndex >= 0 ? process.argv[clientIndex + 1] : process.env.npm_config_client || null,
     opportunityId: opportunityIndex >= 0 ? process.argv[opportunityIndex + 1] : null,
@@ -146,7 +147,7 @@ async function main() {
               { status: "QUEUED" },
               { status: "FAILED", attempts: { lt: 3 } },
               { status: "PROCESSING", leaseUntil: { lt: new Date() } },
-              ...(args.replacePending ? [{ status: "COMPLETED" as const }] : []),
+              ...(args.replacePending || args.copilot ? [{ status: "COMPLETED" as const }] : []),
             ],
           },
           data: {
@@ -327,12 +328,24 @@ async function main() {
           }
           for (const variant of variants) knownDrafts.add(variant.draftText);
           source = "ai-unique";
+        } else if (args.copilot) {
+          const automaticGuidance = /\b(reclamo|queja|garant[ií]a|no funciona|problema|estafa|tragedia|violencia)\b/i.test(opportunity.sourceText) || opportunity.detectedIntent === "WARRANTY_QUESTION"
+            ? "Estilo: con cuidado. Es un tema sensible o un reclamo: priorizá empatía y claridad. No uses humor ni referencias de actualidad."
+            : /(?:\bjaja(?:ja)?\b|\bmeme\b|😂|🤣|😅|🔥)/i.test(opportunity.sourceText)
+              ? "Estilo: con onda. Podés usar un guiño liviano solo si nace del comentario; no fuerces un meme."
+              : opportunity.detectedIntent === "PURCHASE_QUESTION" || opportunity.detectedIntent === "PRICE_QUESTION"
+                ? "Objetivo: orientar la compra de forma breve, específica y sin presión."
+                : "Estilo: natural y directo. Respondé primero a lo que plantea el comentario.";
+          const proposal = (allowAi ? await generateAICopilotDraft({ ...ctx, editorialGuidance: automaticGuidance }) : null)
+            ?? { ...(generateLocalDrafts(ctx).find((draft) => draft.variantType === "SHORT") ?? generateLocalDrafts(ctx)[0]), draftText: shortenCopilotText((generateLocalDrafts(ctx).find((draft) => draft.variantType === "SHORT") ?? generateLocalDrafts(ctx)[0]).draftText) };
+          variants = [{ ...proposal, variantType: "SHORT" as const }];
+          source = allowAi ? "ai-copilot" : "local-copilot";
         } else {
           variants = resolution.client.slug === "jurispedia" ? null : (allowAi ? await generateAIDrafts(ctx) : null);
           if (variants && variants.length > 0) source = "ai";
           else variants = generateLocalDrafts(ctx);
         }
-        if (source === "ai" || source === "ai-unique") aiUsed++;
+        if (source === "ai" || source === "ai-unique" || source === "ai-copilot") aiUsed++;
         else localUsed++;
 
         routing.push({
@@ -397,8 +410,8 @@ async function main() {
       channelEnabled: channelSetting?.value === "true",
     });
     const contextualPresence = opportunity.signalType === "contextual_presence";
-    const autoApprove = !args.draftOnly && !args.replacePending && !contextualPresence && resolution.client.autoApprove && !opportunityHadError && resolution.confidence === "high" && legalPublish.allowed;
-    const autoPublish = !args.draftOnly && !args.replacePending && !contextualPresence && resolution.client.autoPublish && !opportunityHadError && resolution.confidence === "high" && legalPublish.allowed;
+    const autoApprove = !args.copilot && !args.draftOnly && !args.replacePending && !contextualPresence && resolution.client.autoApprove && !opportunityHadError && resolution.confidence === "high" && legalPublish.allowed;
+    const autoPublish = !args.copilot && !args.draftOnly && !args.replacePending && !contextualPresence && resolution.client.autoPublish && !opportunityHadError && resolution.confidence === "high" && legalPublish.allowed;
 
     if (autoApprove || autoPublish) {
       const bestPersonaName = suggestions[0]?.personaName;

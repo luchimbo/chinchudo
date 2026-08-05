@@ -25,6 +25,7 @@ type DraftContext = {
   competitorEvidence?: CompetitorEvidence[];
   avoidDrafts?: string[];
   clientMemories?: { rule: string }[];
+  editorialGuidance?: string;
 };
 
 type DraftVariant = {
@@ -32,6 +33,18 @@ type DraftVariant = {
   draftText: string;
   riskNotes: string;
 };
+
+export const COPILOT_MAX_CHARACTERS = 280;
+
+/** Last-resort guardrail: preserve whole words and never return more than the Copilot limit. */
+export function shortenCopilotText(text: string, maxLength = COPILOT_MAX_CHARACTERS): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  const limit = Math.max(1, maxLength - 1);
+  const candidate = normalized.slice(0, limit);
+  const lastSpace = candidate.lastIndexOf(" ");
+  return `${(lastSpace > 20 ? candidate.slice(0, lastSpace) : candidate).trim()}…`;
+}
 
 const INTENT_LABELS: Record<string, string> = {
   TECHNICAL_QUESTION: "pregunta técnica (driver, compatibilidad, configuración)",
@@ -173,6 +186,9 @@ export function buildPrompt(ctx: DraftContext): string {
     ? `\n## Perfil observado de la cuenta externa\n- Tema actual detectado: ${ctx.observedProfile.currentTopic} (confianza ${ctx.observedProfile.currentTopicConfidence})\n- Intereses históricos: ${ctx.observedProfile.historicalPrimaryTopics.join(", ") || "sin suficientes datos"}\n- Tono histórico: ${ctx.observedProfile.toneProfile} (confianza ${ctx.observedProfile.toneConfidence})\n- Señal comercial acumulada: ${ctx.observedProfile.commercialReadiness}/100\n`
     : "";
   const voiceModulationBlock = `\n## Modulación de voz para esta respuesta\n- Estilo aplicado: ${modulation.styleLabel}\n- Entrada: ${modulation.introStyle}\n- Fraseo: ${modulation.phrasingStyle}\n- Cierre: ${modulation.ctaStyle}\n- Guardrail: ${modulation.guardrail}\n`;
+  const editorialGuidanceBlock = ctx.editorialGuidance
+    ? `\n## Direccion editorial elegida por el community manager\n${ctx.editorialGuidance}\n`
+    : "";
   const avoidDrafts = (ctx.avoidDrafts ?? []).filter(Boolean).slice(-30);
   const uniquenessBlock = avoidDrafts.length > 0
     ? `\n## Borradores ya utilizados o rechazados\nNo copies, parafrasees de cerca ni reutilices la estructura de estos textos. Redacta desde cero usando detalles concretos del comentario actual:\n${avoidDrafts.map((text, index) => `${index + 1}. "${text.slice(0, 350)}"`).join("\n")}\n`
@@ -276,7 +292,7 @@ ${productList}
 - Marca: ${brand.name}
 - Fortalezas (tu valor diferenciador): ${brand.strengths || "No especificadas"}
 - Debilidades de la competencia (para argumentar por qué eres mejor): ${brand.competitorWeaknesses || "No especificadas"}
-${knowledgeBlock}${objectionsBlock}${competitorEvidenceBlock}${observedProfileBlock}${voiceModulationBlock}${uniquenessBlock}
+${knowledgeBlock}${objectionsBlock}${competitorEvidenceBlock}${observedProfileBlock}${voiceModulationBlock}${editorialGuidanceBlock}${uniquenessBlock}
 ## Comentario al que vas a responder
 Canal: ${opportunity.channel.name}
 Intención: ${intent}
@@ -319,6 +335,28 @@ ${pcmidiComparisonRule}
       "riskNotes": "nota interna sobre qué verificar antes de publicar"
     }
   ]
+}`;
+}
+
+/** A focused prompt for the Copilot: one editable answer, never a set of variants. */
+export function buildCopilotPrompt(ctx: DraftContext, condensationOf?: string): string {
+  const shared = buildPrompt(ctx);
+  const beforeFormat = shared.split("## Formato de respuesta (JSON estricto)")[0]
+    .replace(/- Cada variante debe sonar diferente en estilo, no solo en palabras\n/g, "")
+    .replace(/- Cada variante debe ser Ãºnica/g, "- La respuesta debe ser única");
+  const condensation = condensationOf
+    ? `\n## Texto a condensar\n"${condensationOf}"\nConservá solo lo útil y específico; no agregues información nueva.\n`
+    : "";
+  return `${beforeFormat}
+## Instrucciones de respuesta del Copiloto
+- Devolvé UNA sola propuesta breve, directa, natural y específica a este comentario.
+- Máximo ${COPILOT_MAX_CHARACTERS} caracteres, idealmente una o dos oraciones.
+- No expliques tu razonamiento ni ofrezcas alternativas.
+${condensation}
+## Formato de respuesta (JSON estricto)
+{
+  "text": "una única respuesta publicable de hasta ${COPILOT_MAX_CHARACTERS} caracteres",
+  "riskNotes": "nota interna breve sobre qué verificar antes de publicar"
 }`;
 }
 
@@ -452,4 +490,42 @@ export async function generateAIDrafts(ctx: DraftContext): Promise<DraftVariant[
     logAIError("No se pudo parsear JSON de OpenRouter", raw.slice(0, 300));
     return null;
   }
+}
+
+async function requestCopilotDraft(ctx: DraftContext, condensationOf?: string): Promise<DraftVariant | null> {
+  const llm = resolveLLMConfig(ctx.client);
+  if (!llm.apiKey) return null;
+  try {
+    const { response, config } = await fetchChatCompletion(llm, {
+      model: llm.model,
+      messages: [
+        ...(ctx.activeSystemPrompt ? [{ role: "system", content: ctx.activeSystemPrompt }] : []),
+        { role: "user", content: buildCopilotPrompt(ctx, condensationOf) },
+      ],
+      response_format: { type: "json_object" },
+      temperature: condensationOf ? 0.2 : 0.65,
+      max_tokens: condensationOf ? 180 : 360,
+    }, "Los 5 Apostoles - Copiloto CM", ctx.client);
+    if (!response.ok) return null;
+    const data = await response.json() as { choices?: { message?: { content?: string } }[] };
+    const raw = data.choices?.[0]?.message?.content ?? "";
+    const parsed = JSON.parse(raw) as { text?: string; riskNotes?: string };
+    const text = ensureRequiredBrandMention(sanitizePublicDraft(parsed.text ?? ""), ctx.client?.slug);
+    if (!text || hasUncataloguedProductCode(text, ctx) || validateDraftForClient(text, ctx.client?.slug).length > 0) return null;
+    logger.info("ai_request", "LLM Copiloto OK", { model: config.model, provider: config.provider, opportunityId: ctx.opportunity.id }).catch(() => {});
+    return { variantType: "SHORT", draftText: text, riskNotes: parsed.riskNotes ?? "Revisar antes de publicar." };
+  } catch (err) {
+    logAIError("No se pudo generar propuesta del Copiloto", err);
+    return null;
+  }
+}
+
+/** Generates one short Copilot response. If needed, the model gets one chance to condense it before deterministic truncation. */
+export async function generateAICopilotDraft(ctx: DraftContext): Promise<DraftVariant | null> {
+  const initial = await requestCopilotDraft(ctx);
+  if (!initial) return null;
+  if (initial.draftText.length <= COPILOT_MAX_CHARACTERS) return initial;
+  const condensed = await requestCopilotDraft(ctx, initial.draftText);
+  const best = condensed?.draftText ? condensed : initial;
+  return { ...best, draftText: shortenCopilotText(best.draftText) };
 }
