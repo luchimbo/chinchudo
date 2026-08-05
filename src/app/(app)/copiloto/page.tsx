@@ -6,7 +6,7 @@ import { CopilotWorkspace } from "./workspace";
 
 const COPILOT_OPEN_STATUSES: OpportunityStatus[] = ["NEW", "NEEDS_REVIEW", "DRAFTED"];
 type PageProps = {
-  searchParams: { client?: string; view?: string; brand?: string; channel?: string };
+  searchParams: { client?: string; view?: string; brand?: string; channel?: string; response?: string };
 };
 
 export default async function CopilotoPage({ searchParams }: PageProps) {
@@ -21,12 +21,14 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
     : [];
   const selectedBrand = brands.find((brand) => brand.id === searchParams.brand)?.id;
   const selectedChannel = channels.find((channel) => channel.id === searchParams.channel)?.id;
+  const selectedResponse = searchParams.response === "generated" ? "generated" : "";
 
   const where: Prisma.OpportunityWhereInput = {
     clientId: activeClient?.id,
     status: { in: COPILOT_OPEN_STATUSES },
     ...(selectedBrand ? { detectedBrandId: selectedBrand } : {}),
     ...(selectedChannel ? { channelId: selectedChannel } : {}),
+    ...(selectedResponse ? { responses: { some: {} } } : {}),
   };
 
   const [opportunities, pulse, twitterConversations] = await Promise.all([
@@ -101,7 +103,7 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
     <CopilotWorkspace
       activeClient={activeClient ? { slug: activeClient.slug, name: activeClient.name } : null}
       activeView={activeView}
-      filters={{ brands: brands.map((brand) => ({ id: brand.id, name: brand.name })), channels: channels.map((channel) => ({ id: channel.id, name: channel.name })), selectedBrand: selectedBrand ?? "", selectedChannel: selectedChannel ?? "" }}
+      filters={{ brands: brands.map((brand) => ({ id: brand.id, name: brand.name })), channels: channels.map((channel) => ({ id: channel.id, name: channel.name })), selectedBrand: selectedBrand ?? "", selectedChannel: selectedChannel ?? "", selectedResponse }}
       pulse={pulseSignals}
       opportunities={opportunities.map((opportunity) => ({
         id: opportunity.id,
