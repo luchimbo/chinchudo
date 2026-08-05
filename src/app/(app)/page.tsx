@@ -46,8 +46,8 @@ export default async function HomePage({ searchParams }: PageProps) {
             <h1 className="font-display text-4xl leading-none text-ink md:text-5xl">Dashboard</h1>
             <p className="mt-2 max-w-2xl text-sm text-slate">La vista general para decidir qué atender, publicar y medir hoy.</p>
           </div>
-          <Link href={withClient("/copiloto")} className="rounded-full bg-ink px-5 py-3 text-sm font-bold text-paper transition hover:bg-moss">
-            Abrir Copiloto CM →
+          <Link href={withClient("/oportunidades")} className="rounded-full bg-ink px-5 py-3 text-sm font-bold text-paper transition hover:bg-moss">
+            Revisar oportunidades →
           </Link>
         </div>
       </header>
@@ -67,7 +67,7 @@ export default async function HomePage({ searchParams }: PageProps) {
               <h2 className="font-display text-2xl text-ink">Prioridad de hoy</h2>
               <p className="mt-1 text-xs text-slate/65">Oportunidades con mayor señal comercial.</p>
             </div>
-            <Link href={withClient("/copiloto")} className="text-xs font-bold text-moss hover:text-ink">Abrir Copiloto</Link>
+            <Link href={withClient("/oportunidades")} className="text-xs font-bold text-moss hover:text-ink">Ver todas</Link>
           </div>
           {recent.length ? (
             <div className="divide-y divide-ink/8">
@@ -88,7 +88,7 @@ export default async function HomePage({ searchParams }: PageProps) {
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-paper/55">Atajos operativos</p>
           <div className="mt-4 flex flex-col gap-2">
             {[
-              ["Copiloto CM", "/copiloto"],
+              ["Publicador en redes", "/oportunidades"],
               ["Crear landing", "/landings/editor"],
               ["Tendencias y guiones", "/videos"],
               ["Analíticas detalladas", "/analytics"],

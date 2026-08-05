@@ -111,19 +111,7 @@ def run_step(step: str, command: list[str]) -> dict:
     log.info("step_start", step=step, cmd=" ".join(command))
     print(f"agents: running {step}: {' '.join(command)}")
     try:
-        # Las fuentes editoriales devuelven texto público en UTF-8. En Windows,
-        # dejar que subprocess use cp1252 puede romper el hilo lector ante un
-        # emoji o un carácter de noticias y dejar la corrida a medias.
-        result = subprocess.run(
-            command,
-            cwd=ROOT,
-            timeout=1800,
-            env=env,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
+        result = subprocess.run(command, cwd=ROOT, timeout=1800, env=env, capture_output=True, text=True)
         if result.stdout:
             print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
         if result.stderr:

@@ -118,10 +118,6 @@ export async function fetchChatCompletion(
     console.warn(`[LLM] Local HTTP ${response.status}; se usa OpenRouter como respaldo para ${title}.`);
     return { response: await request(fallback), config: fallback, usedFallback: true };
   } catch (error) {
-    // Una cancelacion expresa del operador no es una falla del proveedor local.
-    // Reintentar contra OpenRouter ignora la intencion de cancelar y duplica la
-    // solicitud, incluso cuando el request original ya recibio la signal.
-    if (init?.signal?.aborted) throw error;
     if (config.provider !== "local") throw error;
     const fallback = resolveOpenRouterConfig(client);
     if (!fallback.apiKey) throw error;

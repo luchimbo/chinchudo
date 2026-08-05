@@ -45,7 +45,6 @@ const PRESTIGE_DATA_QUESTION = /[¿?][^¿?]*(?:talle|modelo|cu[aá]nto|cu[aá]nt
 
 const PRESTIGE_PACK_AS_MODEL = /\b(?:pack|tripack|x\s*3)\b/i;
 const PRESTIGE_BRAND_MENTION = /\b(?:prestige\s+medias|medias\s+prestige)\b/i;
-const VIDIA_CLINICAL_CLAIM = /\b(?:diagnostic[a-záéíóú]*|recet[a-záéíóú]*|medicaci[oó]n|tratamiento garantizado|cura(?:r|do)?|recuperaci[oó]n garantizada|internaci[oó]n necesaria)\b/i;
 
 export function ensureRequiredBrandMention(text: string, clientSlug?: string): string {
   if (clientSlug !== "prestige-running" || PRESTIGE_BRAND_MENTION.test(text)) return text;
@@ -59,9 +58,6 @@ export function ensureRequiredBrandMention(text: string, clientSlug?: string): s
 
 export function validateDraftForClient(text: string, clientSlug?: string): string[] {
   const errors = validatePublicDraft(text);
-  if (clientSlug === "programa-vidia" && VIDIA_CLINICAL_CLAIM.test(text)) {
-    errors.push("vidia_clinical_or_guaranteed_claim");
-  }
   if (clientSlug !== "prestige-running") return errors;
 
   if (PRESTIGE_MEDICAL_CLAIM.test(text)) errors.push("prestige_medical_claim");

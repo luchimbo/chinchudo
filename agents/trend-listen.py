@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Radares editoriales para Los 5 Apostoles.
+"""Radar de videos y formatos para Los 5 Apostoles.
 
-Recolecta senales publicas de tendencia, contexto y referencias audiovisuales.
-Es solo lectura: no publica, no comenta ni interactua con redes.
+Recolecta solamente referencias audiovisuales publicas de TikTok, Instagram y
+YouTube. Es solo lectura: no publica, no comenta ni interactua con redes.
 """
 import argparse
 import json
@@ -11,7 +11,6 @@ import re
 import sys
 import time
 import urllib.parse
-import unicodedata
 from pathlib import Path
 
 import feedparser
@@ -36,23 +35,7 @@ DEFAULT_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept-Language": "es-419,es;q=0.9,en;q=0.8",
 }
-# Mantiene acotada una corrida programada: la frescura vale más que recorrer
-# una lista completa de keywords y demorar el siguiente corte editorial.
-MAX_KEYWORDS_PER_SOURCE = int(os.environ.get("TRENDS_KEYWORDS_PER_SOURCE", "3"))
-# Las búsquedas web abiertas sirven para ampliar referencias, pero no son parte
-# del pulso diario: sus proveedores pueden demorar o bloquear una corrida.
-ENABLE_WEB_SEARCH_FALLBACK = os.environ.get("TRENDS_ENABLE_WEB_SEARCH", "false").strip().lower() in {"1", "true", "yes"}
-ARGENTINE_MEDIA_OUTLETS = (
-    ("Luzu TV", "Luzu TV"),
-    ("Olga", "OLGA Argentina"),
-    ("Carajo", "Carajo Stream Argentina"),
-    ("Blender", "Blender Argentina streaming"),
-    ("Vorterix", "Vorterix"),
-)
-ARGENTINE_PRESS_OUTLETS = {
-    "clarin", "la nacion", "lanacion com ar", "infobae", "perfil", "pagina 12",
-    "ambito", "ambito financiero", "el cronista", "c5n", "el destape",
-}
+MAX_KEYWORDS_PER_SOURCE = int(os.environ.get("TRENDS_KEYWORDS_PER_SOURCE", "8"))
 
 
 def is_audiovisual_reference(trend: dict) -> bool:
@@ -77,13 +60,6 @@ def is_audiovisual_reference(trend: dict) -> bool:
     if platform == "VIRAL_MARKETING":
         return (host.endswith("tiktok.com") or host.endswith("instagram.com") or host.endswith("youtube.com"))
     return False
-
-
-def normalize_outlet_name(value: str) -> str:
-    """Normaliza la firma del medio sin depender de acentos o separadores."""
-    decomposed = unicodedata.normalize("NFKD", value or "")
-    without_accents = "".join(char for char in decomposed if not unicodedata.combining(char))
-    return re.sub(r"[^a-z0-9]+", " ", without_accents.lower()).strip()
 
 
 def load_client_keywords() -> list[dict]:
@@ -167,7 +143,7 @@ def get_google_trends_ar(keywords: list[str]) -> list[dict]:
     log.info("google_trends_start", details="Google Trends RSS AR")
     trends = []
     try:
-        response = requests.get("https://trends.google.com/trending/rss?geo=AR", headers=DEFAULT_HEADERS, timeout=6)
+        response = requests.get("https://trends.google.com/trending/rss?geo=AR", headers=DEFAULT_HEADERS, timeout=15)
         if response.status_code != 200:
             log.warning("google_trends_http", status=response.status_code)
             return []
@@ -203,7 +179,7 @@ def get_twitter_trends_ar(keywords: list[str]) -> list[dict]:
     log.info("twitter_trends_start", details="Trends24 Argentina")
     trends = []
     try:
-        response = requests.get("https://trends24.in/argentina/", headers=DEFAULT_HEADERS, timeout=6)
+        response = requests.get("https://trends24.in/argentina/", headers=DEFAULT_HEADERS, timeout=15)
         if response.status_code != 200:
             log.warning("twitter_trends_http", status=response.status_code)
             return []
@@ -231,153 +207,6 @@ def get_twitter_trends_ar(keywords: list[str]) -> list[dict]:
         log.error("twitter_trends_failed", error=str(exc))
     log.info("twitter_trends_done", found=len(trends))
     return trends
-
-
-def get_google_news_context(keywords: list[str], limit: int = 2) -> list[dict]:
-    """Busca coyuntura reciente en Google News Argentina por termino de cliente."""
-    log.info("google_news_context_start", details="Google News RSS AR")
-    signals = []
-    for keyword in keywords[:2]:
-        if len(keyword) < 3 or len(signals) >= limit:
-            continue
-        query = urllib.parse.quote(f"{keyword} Argentina")
-        url = f"https://news.google.com/rss/search?q={query}&hl=es-419&gl=AR&ceid=AR:es-419"
-        try:
-            response = requests.get(url, headers=DEFAULT_HEADERS, timeout=5)
-            if response.status_code != 200:
-                continue
-            feed = feedparser.parse(response.content)
-            entry = next(iter(feed.entries), None)
-            if not entry:
-                continue
-            title = getattr(entry, "title", "").strip()
-            description = re.sub(r"<[^>]+>", "", getattr(entry, "description", "")).strip()
-            link = getattr(entry, "link", "")
-            if not title or not link:
-                continue
-            signals.append({
-                "title": f"Coyuntura: {title}",
-                "description": f"Noticia reciente vinculada a {keyword}. Revisar sensibilidad antes de usarla en una respuesta de marca. {description}",
-                "source_url": link,
-                "platform": "GOOGLE_NEWS",
-                "query_used": keyword,
-                "metadata": {
-                    "source": "google_news_rss",
-                    "country": "AR",
-                    "radar_kind": "context",
-                    "sensitivity": "needs_review",
-                    "published": getattr(entry, "published", ""),
-                },
-            })
-        except Exception as exc:
-            log.warning("google_news_context_failed", keyword=keyword, error=str(exc))
-    log.info("google_news_context_done", found=len(signals))
-    return signals
-
-
-def get_argentine_press_agenda(limit: int = 5) -> list[dict]:
-    """Selecciona titulares nacionales de diarios desde el RSS público de Google News.
-
-    Google News da una única interfaz estable y conserva el medio que publicó
-    la nota; no se scrapean portadas ni se reproduce contenido periodístico.
-    """
-    log.info("argentine_press_agenda_start", details="Google News top stories AR")
-    url = "https://news.google.com/rss?hl=es-419&gl=AR&ceid=AR:es-419"
-    signals = []
-    try:
-        response = requests.get(url, headers=DEFAULT_HEADERS, timeout=6)
-        if response.status_code != 200:
-            return []
-        feed = feedparser.parse(response.content)
-        for entry in feed.entries:
-            if len(signals) >= limit:
-                break
-            source = getattr(entry, "source", {})
-            outlet = getattr(source, "title", "") if source else ""
-            normalized_outlet = normalize_outlet_name(str(outlet))
-            if normalized_outlet not in ARGENTINE_PRESS_OUTLETS:
-                continue
-            title = getattr(entry, "title", "").strip()
-            link = getattr(entry, "link", "")
-            if not title or not link:
-                continue
-            signals.append({
-                "title": f"{outlet}: {title}",
-                "description": f"Titular reciente de {outlet}. Contexto para revisar antes de asociarlo a una conversación de marca.",
-                "source_url": link,
-                "platform": "ARGENTINE_PRESS",
-                "query_used": outlet,
-                "metadata": {
-                    "source": "google_news_rss_top_stories",
-                    "radar_kind": "context",
-                    "outlet": outlet,
-                    "sensitivity": "needs_review",
-                },
-            })
-    except Exception as exc:
-        log.warning("argentine_press_agenda_failed", error=str(exc))
-    log.info("argentine_press_agenda_done", found=len(signals))
-    return signals
-
-
-def get_argentina_data_context() -> list[dict]:
-    """Incorpora pocos datos públicos útiles para leer la jornada argentina.
-
-    No reemplaza fuentes oficiales ni autoriza claims comerciales: solo deja una
-    señal fechada para que el CM pueda decidir si el contexto es pertinente.
-    """
-    log.info("argentina_data_start", details="ArgentinaDatos API")
-    base = "https://api.argentinadatos.com/v1"
-    signals = []
-    try:
-        inflation = requests.get(f"{base}/finanzas/indices/inflacion", headers=DEFAULT_HEADERS, timeout=5)
-        inflation_rows = inflation.json() if inflation.status_code == 200 else None
-        if isinstance(inflation_rows, list) and inflation_rows:
-            latest = inflation_rows[-1]
-            signals.append({
-                "title": "Dato económico: inflación mensual",
-                "description": f"Último valor disponible: {latest.get('valor')}% ({latest.get('fecha', 'sin fecha')}). Usar solo como contexto, no como asesoramiento financiero.",
-                "source_url": "https://argentinadatos.com/docs/operations/get-finanzas-indices-inflacion",
-                "platform": "ARGENTINA_DATA",
-                "query_used": "inflacion",
-                "metadata": {"source": "argentinadatos", "radar_kind": "context", "metric": "inflacion", "sensitivity": "needs_review"},
-            })
-    except Exception as exc:
-        log.warning("argentina_data_inflation_failed", error=str(exc))
-    try:
-        risk = requests.get(f"{base}/finanzas/indices/riesgo-pais/ultimo", headers=DEFAULT_HEADERS, timeout=5)
-        risk_row = risk.json() if risk.status_code == 200 else None
-        if isinstance(risk_row, dict):
-            latest = risk_row
-            signals.append({
-                "title": "Dato económico: riesgo país",
-                "description": f"Último valor disponible: {latest.get('valor')} ({latest.get('fecha', 'sin fecha')}). Contexto económico; no usar para asesoramiento financiero.",
-                "source_url": "https://argentinadatos.com/docs/operations/get-finanzas-indices-riesgo-pais-ultimo",
-                "platform": "ARGENTINA_DATA",
-                "query_used": "riesgo-pais",
-                "metadata": {"source": "argentinadatos", "radar_kind": "context", "metric": "riesgo_pais", "sensitivity": "needs_review"},
-            })
-    except Exception as exc:
-        log.warning("argentina_data_risk_failed", error=str(exc))
-    try:
-        holidays = requests.get(f"{base}/feriados/{time.localtime().tm_year}", headers=DEFAULT_HEADERS, timeout=5)
-        holiday_rows = holidays.json() if holidays.status_code == 200 else None
-        if isinstance(holiday_rows, list):
-            today = time.strftime("%Y-%m-%d")
-            upcoming = next((item for item in holiday_rows if str(item.get("fecha", "")) >= today), None)
-            if upcoming:
-                signals.append({
-                    "title": f"Calendario: {upcoming.get('nombre', 'Próximo feriado')}",
-                    "description": f"Feriado próximo: {upcoming.get('fecha', 'sin fecha')}. Puede afectar horarios, atención y planificación de contenido.",
-                    "source_url": "https://argentinadatos.com/docs/operations/get-feriados",
-                    "platform": "ARGENTINA_DATA",
-                    "query_used": "feriados",
-                    "metadata": {"source": "argentinadatos", "radar_kind": "context", "metric": "feriado", "sensitivity": "needs_review"},
-                })
-    except Exception as exc:
-        log.warning("argentina_data_holidays_failed", error=str(exc))
-    log.info("argentina_data_done", found=len(signals))
-    return signals
 
 
 def get_youtube_videos_direct(query: str, limit: int = 3) -> list[dict]:
@@ -434,38 +263,6 @@ def get_youtube_trends(keywords: list[str]) -> list[dict]:
             })
     log.info("youtube_trends_done", found=len(trends))
     return trends
-
-
-def get_argentine_media_agenda(limit: int = 5) -> list[dict]:
-    """Trae la agenda reciente de los medios de streaming argentinos elegidos.
-
-    Es una señal editorial, no una invitación a repetir un chiste: toda pieza
-    queda marcada para revisión humana antes de que el Copiloto la sugiera.
-    """
-    log.info("argentine_media_agenda_start", outlets=len(ARGENTINE_MEDIA_OUTLETS))
-    signals = []
-    for outlet, query in ARGENTINE_MEDIA_OUTLETS:
-        if len(signals) >= limit:
-            break
-        for video in get_youtube_videos_direct(f"{query} hoy", limit=1):
-            title = video["title"].strip()
-            if not title:
-                continue
-            signals.append({
-                "title": f"{outlet}: {title}",
-                "description": f"Tema reciente detectado en {outlet}. Revisar el video y su sensibilidad antes de usarlo como guiño de marca.",
-                "source_url": video["url"],
-                "platform": "ARGENTINE_STREAMING_MEDIA",
-                "query_used": outlet,
-                "metadata": {
-                    "source": "youtube_html_search",
-                    "radar_kind": "context",
-                    "outlet": outlet,
-                    "sensitivity": "needs_review",
-                },
-            })
-    log.info("argentine_media_agenda_done", found=len(signals))
-    return signals
 
 
 def get_tiktok_creative_center_trends(keywords: list[str], limit: int = 6) -> list[dict]:
@@ -554,7 +351,7 @@ def search_with_duckduckgo(query: str, max_results: int = 1) -> list[dict]:
             return []
 
     try:
-        with DDGS(timeout=5) as ddgs:
+        with DDGS(timeout=8) as ddgs:
             return list(ddgs.text(query, max_results=max_results))
     except Exception as exc:
         log.warning("duckduckgo_search_failed", query=query, error=str(exc))
@@ -748,9 +545,9 @@ def write_jsonl(rows: list[dict]) -> None:
             handle.write(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n")
 
 
-def add_unique_records(collected: list[dict], client_id: str, seen: set[str], target: int, bucket: list[dict], all_trends: list[dict], audiovisual_only: bool = False) -> None:
+def add_unique_trends(collected: list[dict], client_id: str, seen: set[str], target: int, bucket: list[dict], all_trends: list[dict]) -> None:
     for trend in collected:
-        if audiovisual_only and not is_audiovisual_reference(trend):
+        if not is_audiovisual_reference(trend):
             log.info("trend_discarded", reason="not_audiovisual_reference", platform=trend.get("platform", ""), title=trend.get("title", ""))
             continue
         trend["clientId"] = client_id
@@ -765,15 +562,14 @@ def add_unique_records(collected: list[dict], client_id: str, seen: set[str], ta
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Radares de tendencias, coyuntura y formatos para Los 5 Apostoles")
-    parser.add_argument("--limit", type=int, default=10, help="Cantidad de referencias nuevas a guardar por radar")
-    parser.add_argument("--time-budget-seconds", type=int, default=int(os.environ.get("TRENDS_TIME_BUDGET_SECONDS", "420")), help="Presupuesto maximo de la corrida completa")
+    parser = argparse.ArgumentParser(description="Radar de videos y formatos para Los 5 Apostoles")
+    parser.add_argument("--limit", type=int, default=10, help="Cantidad de referencias nuevas a guardar")
     parser.add_argument("--dry-run", action="store_true", help="No guardar en JSONL ni importar")
     args = parser.parse_args()
 
     log.info("start", limit=args.limit, dry_run=args.dry_run)
     started_at = time.monotonic()
-    budget_seconds = max(10, args.time_budget_seconds)
+    budget_seconds = int(os.environ.get("TRENDS_TIME_BUDGET_SECONDS", "600"))
 
     try:
         clients = load_client_keywords()
@@ -786,29 +582,11 @@ def main() -> None:
     seen = set(existing_keys)
     for client in clients:
         client_trends = []
-        client_context = []
         keywords = client["keywords"]
         log.info("process_client", client=client["name"], keywords_count=len(keywords))
         if not keywords:
             log.warning("no_keywords", client=client["name"])
             keywords = []
-
-        # El radar de tendencias y coyuntura no depende de que exista un video.
-        # Conserva la fuente y obliga revision editorial antes de que el Copiloto
-        # la use como guiño o referencia de actualidad.
-        context_collected = []
-        for context_source in (get_google_trends_ar, get_twitter_trends_ar, get_google_news_context):
-            if time.monotonic() - started_at > budget_seconds:
-                log.warning("time_budget_reached", seconds=budget_seconds)
-                break
-            context_collected.extend(context_source(keywords))
-        if time.monotonic() - started_at <= budget_seconds:
-            context_collected.extend(get_argentine_media_agenda(limit=min(5, args.limit)))
-        if time.monotonic() - started_at <= budget_seconds:
-            context_collected.extend(get_argentine_press_agenda(limit=min(5, args.limit)))
-        if time.monotonic() - started_at <= budget_seconds:
-            context_collected.extend(get_argentina_data_context())
-        add_unique_records(context_collected, client["id"], seen, args.limit, client_context, all_trends)
 
         for offset in range(0, len(keywords), MAX_KEYWORDS_PER_SOURCE):
             if time.monotonic() - started_at > budget_seconds:
@@ -821,10 +599,10 @@ def main() -> None:
             collected = []
             source_runners = [
                 lambda kws: get_tiktok_creative_center_trends(kws, limit=max(2, min(6, args.limit))),
+                get_tiktok_public_search_trends,
+                get_instagram_public_search_trends,
                 get_youtube_trends,
             ]
-            if ENABLE_WEB_SEARCH_FALLBACK:
-                source_runners[1:1] = [get_tiktok_public_search_trends, get_instagram_public_search_trends]
             log.info("keyword_batch_start", client=client["name"], offset=offset, batch_size=len(keyword_batch), new_count=len(client_trends))
             for runner in source_runners:
                 if time.monotonic() - started_at > budget_seconds:
@@ -832,17 +610,16 @@ def main() -> None:
                     break
                 collected.extend(runner(keyword_batch))
 
-            add_unique_records(collected, client["id"], seen, args.limit, client_trends, all_trends, audiovisual_only=True)
+            add_unique_trends(collected, client["id"], seen, args.limit, client_trends, all_trends)
 
-        if ENABLE_WEB_SEARCH_FALLBACK and len(client_trends) < args.limit and time.monotonic() - started_at <= budget_seconds:
+        if len(client_trends) < args.limit:
             collected = get_client_format_trends(keywords, client["name"])
-            add_unique_records(collected, client["id"], seen, args.limit, client_trends, all_trends, audiovisual_only=True)
+            add_unique_trends(collected, client["id"], seen, args.limit, client_trends, all_trends)
 
         log.info(
             "client_done",
             client=client["name"],
             domain_new_count=len(client_trends),
-            context_new_count=len(client_context),
             target=args.limit,
         )
 

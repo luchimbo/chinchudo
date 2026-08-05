@@ -111,9 +111,9 @@ Argumentos: /c cd /d D:\pcmidi-suite && npm run agents:monitor
 
 Cada corrida deja un reporte JSON en `reports/`.
 
-## Radar de tendencias 4 veces al día
+## Radar de tendencias 2 veces al día
 
-El radar reúne cinco lecturas separadas: tendencias (Google Trends, X/Twitter y TikTok), conversaciones detectadas en X, agenda de streaming argentino (Luzu, Olga, Carajo, Blender y Vorterix), titulares de diarios nacionales (Clarín, La Nación, Infobae, Perfil, Página/12, Ámbito, El Cronista, C5N y El Destape) y datos públicos de ArgentinaDatos (inflación, riesgo país y feriados). Deduplica por URL e importa los hallazgos a la tabla `Trend`. La coyuntura es siempre una sugerencia con revisión humana: no se publica ni se agrega sola a una respuesta.
+El radar de tendencias busca señales nuevas en Google Trends, X/Twitter, TikTok, Instagram/Reels y YouTube/Shorts, deduplica por URL e importa los hallazgos a la tabla `Trend`. También suma ideas virales generales de marketing para adaptar a guiones.
 
 ```bash
 npm run agents:trend-listen -- --dry-run  # revisar sin importar
@@ -126,7 +126,7 @@ Para dejarlo automático en Windows, ejecutar PowerShell como Administrador:
 npm run agents:trends:install
 ```
 
-Esto registra la tarea `Los5Apostoles-Tendencias` todos los días a las 00:00, 06:00, 12:00 y 18:00. Los logs quedan en `logs/trends-scheduled-*.log` y `logs/trend-listen-*.log`.
+Esto registra la tarea `Los5Apostoles-Tendencias` todos los días a las 10:00 y 16:00. Los logs quedan en `logs/trends-scheduled-*.log` y `logs/trend-listen-*.log`.
 
 Opcional: `TRENDS_RUN_LIMIT` cambia el objetivo de tendencias de rubro y virales por cliente activo; `TRENDS_TIME_BUDGET_SECONDS` cambia el tiempo máximo del radar.
 

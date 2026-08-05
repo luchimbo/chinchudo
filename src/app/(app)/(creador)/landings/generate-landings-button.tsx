@@ -51,7 +51,7 @@ export function GenerateLandingsButton({
       }
     };
     void refresh(); const timer = window.setInterval(() => void refresh(), 3000); return () => window.clearInterval(timer);
-  }, [clientSlug, router]);
+  }, [clientSlug]);
 
   async function generate() {
     setState("starting");

@@ -20,7 +20,6 @@ const CLIENT_DEFAULTS: Record<string, Partial<ResponsePolicy>> = {
   pcmidi: { competitorTone: "critical_colloquial" },
   "prestige-running": { competitorMention: "never" },
   jurispedia: { inferenceMode: "literal", competitorMention: "never" },
-  "programa-vidia": { inferenceMode: "literal", competitorMention: "never" },
 };
 
 export function resolveResponsePolicy(client?: (Pick<Client, "slug"> & { responsePolicy?: unknown }) | null): ResponsePolicy {
