@@ -42,6 +42,7 @@ tsconfig.tsbuildinfo
 
 # Browser profiles and runtime data
 data/embedded-browser-profile/
+data/daily-opportunity-quota-last-run.txt
 output/
 scratch/
 tmp/
