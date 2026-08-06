@@ -9,7 +9,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { assertClientAccess } from "@/lib/auth";
 import { generateLocalDrafts } from "@/lib/draft-generator";
-import { generateAIDrafts } from "@/lib/ai-draft-generator";
+import { COPILOT_MAX_CHARACTERS, generateAICopilotDraft, generateAIDrafts, shortenCopilotText } from "@/lib/ai-draft-generator";
+import { selectHumorSignal } from "@/lib/radar-editorial";
 import { ensureRequiredBrandMention } from "@/lib/draft-output";
 import { loadRelevantKnowledge } from "@/lib/knowledge";
 import { loadActivePrompt } from "@/lib/prompts";
@@ -87,16 +88,29 @@ export async function createOpportunity(formData: FormData) {
 
 const idSchema = z.string().min(1);
 
-const copilotChoiceSchema = z.object({
-  opportunityId: z.string().min(1),
-  goal: z.enum(["RESPONDER", "VENDER", "CUIDAR"]),
-  style: z.enum(["NORMAL", "CON_ONDA", "CON_CUIDADO"]),
-});
+const copilotChoiceSchema = z.object({ opportunityId: z.string().min(1) });
+type CopilotGoal = "RESPONDER" | "VENDER" | "CUIDAR";
+type CopilotStyle = "NORMAL" | "CON_ONDA" | "CON_CUIDADO";
+
+const COPILOT_SENSITIVE_TEXT = /\b(muert[oe]s?|falleci(?:o|ó|eron)|tragedia|accidente|violencia|crimen|asesin|abuso|denuncia|estafa|reclamo|queja|devoluci[oó]n|garant[ií]a|no funciona|fall[ao]|problema|verg[üu]enza|indign)/i;
+const COPILOT_LIGHT_TEXT = /(?:\bjaja(?:ja)?\b|\blol\b|\bmeme\b|\bbanco\b|\bme encanta\b|\bamo\b|😂|🤣|😅|😎|🔥|✨)/i;
+
+/** Safety-first editorial reading: serious topics never receive humour or a trend reference. */
+function deriveCopilotApproach(opportunity: { sourceText: string; detectedIntent: OpportunityIntent }): { goal: CopilotGoal; style: CopilotStyle } {
+  const text = opportunity.sourceText;
+  const sensitive = COPILOT_SENSITIVE_TEXT.test(text) || opportunity.detectedIntent === "WARRANTY_QUESTION";
+  if (sensitive) return { goal: "CUIDAR", style: "CON_CUIDADO" };
+  if (opportunity.detectedIntent === "PURCHASE_QUESTION" || opportunity.detectedIntent === "PRICE_QUESTION") {
+    return { goal: "VENDER", style: "NORMAL" };
+  }
+  if (COPILOT_LIGHT_TEXT.test(text)) return { goal: "RESPONDER", style: "CON_ONDA" };
+  return { goal: "RESPONDER", style: "NORMAL" };
+}
 
 function pickCopilotPersona<T extends { name: string }>(
   personas: T[],
-  goal: "RESPONDER" | "VENDER" | "CUIDAR",
-  style: "NORMAL" | "CON_ONDA" | "CON_CUIDADO",
+  goal: CopilotGoal,
+  style: CopilotStyle,
 ) {
   const byName = (name: string) => personas.find((persona) => persona.name.toLowerCase() === name.toLowerCase());
 
@@ -130,15 +144,12 @@ function copilotGuidance(contextAssessment: unknown, pulse?: { title: string } |
 }
 
 /**
- * Entrada simplificada de la beta Copiloto CM. El operador solo define el
- * objetivo y el estilo; la marca, producto y voz se resuelven con el contexto
- * ya existente de la oportunidad.
+ * Entrada de acción rápida: el servidor lee la oportunidad y resuelve el
+ * objetivo y estilo antes de elegir la voz editorial.
  */
 export async function generateCopilotDrafts(formData: FormData) {
   const parsed = copilotChoiceSchema.parse({
     opportunityId: formData.get("opportunityId"),
-    goal: formData.get("goal"),
-    style: formData.get("style"),
   });
 
   const opportunity = await prisma.opportunity.findUniqueOrThrow({
@@ -157,7 +168,8 @@ export async function generateCopilotDrafts(formData: FormData) {
     throw new Error("Esta oportunidad necesita una marca y al menos una voz editorial para generar respuestas.");
   }
 
-  const persona = pickCopilotPersona(personas, parsed.goal, parsed.style);
+  const approach = deriveCopilotApproach(opportunity);
+  const persona = pickCopilotPersona(personas, approach.goal, approach.style);
   const delegatedFormData = new FormData();
   delegatedFormData.set("opportunityId", opportunity.id);
   delegatedFormData.set("brandId", brand.id);
@@ -175,8 +187,8 @@ export async function generateCopilotDrafts(formData: FormData) {
       contextAssessment: {
         ...currentContext,
         copilot: {
-          goal: parsed.goal,
-          style: parsed.style,
+          goal: approach.goal,
+          style: approach.style,
           generatedAt: new Date().toISOString(),
         },
       },
@@ -190,7 +202,7 @@ export async function generateCopilotDrafts(formData: FormData) {
 const copilotResponseSchema = z.object({
   opportunityId: z.string().min(1),
   responseId: z.string().min(1),
-  editedText: z.string().min(3).max(4000),
+  editedText: z.string().min(3).max(COPILOT_MAX_CHARACTERS),
   wasEdited: z.enum(["true", "false"]).default("false"),
 });
 
@@ -249,6 +261,64 @@ const copilotDiscardSchema = z.object({
   opportunityId: z.string().min(1),
   reason: z.enum(["NO_RELEVANTE", "NO_ES_EL_TONO", "FALTA_INFO", "NO_CONVIENE"]).optional(),
 });
+
+const copilotFeedbackSchema = z.object({
+  opportunityId: z.string().min(1),
+  responseId: z.string().min(1),
+  feedback: z.enum(["SIRVIO", "MAS_DIRECTO", "MENOS_VENTA", "MENOS_HUMOR", "TEMA_SENSIBLE", "NO_APORTO"]),
+});
+
+const feedbackRules: Partial<Record<z.infer<typeof copilotFeedbackSchema>["feedback"], { rule: string; category: string }>> = {
+  SIRVIO: { rule: "Mantener el tono y nivel de cercanía de las respuestas que el CM marca como útiles.", category: "tone" },
+  MAS_DIRECTO: { rule: "Preferir respuestas más directas y breves; evitar rodeos antes de resolver la consulta.", category: "tone" },
+  MENOS_VENTA: { rule: "Resolver la duda antes de ofrecer productos; evitar empujar la venta cuando no aporta.", category: "tone" },
+  MENOS_HUMOR: { rule: "Usar humor solo si encaja claramente; priorizar una voz natural y sin remates forzados.", category: "tone" },
+  TEMA_SENSIBLE: { rule: "En temas sensibles, no usar humor, guiños de actualidad ni presión comercial.", category: "general" },
+};
+
+/** Feedback explícito del CM: aprende solo para el cliente de esa respuesta. */
+export async function teachCopilotFromResponse(formData: FormData) {
+  const parsed = copilotFeedbackSchema.parse({
+    opportunityId: formData.get("opportunityId"),
+    responseId: formData.get("responseId"),
+    feedback: formData.get("feedback"),
+  });
+  const response = await prisma.response.findUniqueOrThrow({
+    where: { id: parsed.responseId },
+    include: { opportunity: { select: { id: true, clientId: true, contextAssessment: true } } },
+  });
+  if (response.opportunityId !== parsed.opportunityId || !response.opportunity.clientId) {
+    throw new Error("El feedback no corresponde a una respuesta de este cliente.");
+  }
+  await assertClientAccess(prisma, response.opportunity.clientId);
+
+  const context = response.opportunity.contextAssessment && typeof response.opportunity.contextAssessment === "object"
+    ? response.opportunity.contextAssessment as Record<string, unknown>
+    : {};
+  const copilot = context.copilot && typeof context.copilot === "object"
+    ? context.copilot as Record<string, unknown>
+    : {};
+  const previousFeedback = Array.isArray(copilot.feedback) ? copilot.feedback : [];
+  const event = { responseId: parsed.responseId, type: parsed.feedback, at: new Date().toISOString() };
+  await prisma.opportunity.update({
+    where: { id: parsed.opportunityId },
+    data: { contextAssessment: { ...context, copilot: { ...copilot, feedback: [...previousFeedback, event].slice(-12) } } },
+  });
+
+  const learning = feedbackRules[parsed.feedback];
+  if (learning) {
+    await addClientMemory(prisma, {
+      clientId: response.opportunity.clientId,
+      rule: learning.rule,
+      category: learning.category,
+      source: `copilot_feedback_${parsed.feedback.toLowerCase()}`,
+      opportunityId: parsed.opportunityId,
+      responseId: parsed.responseId,
+    });
+  }
+  revalidatePath("/copiloto");
+  revalidatePath("/aprendizaje");
+}
 
 export async function discardCopilotOpportunity(formData: FormData) {
   const parsed = copilotDiscardSchema.parse({
@@ -354,16 +424,28 @@ export async function generateResponseDrafts(formData: FormData) {
     ? copilotContext.copilot as Record<string, unknown>
     : {};
   const pulse = copilot.style === "CON_ONDA"
-    ? await prisma.trend.findFirst({
+    ? selectHumorSignal(await prisma.trend.findMany({
         where: {
           clientId: resolution.client.id,
           platform: { in: ["GOOGLE_TRENDS", "TWITTER"] },
           createdAt: { gte: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000) },
         },
-        select: { title: true },
+        select: { id: true, title: true, description: true, sourceUrl: true, platform: true, createdAt: true, metadata: true },
         orderBy: { createdAt: "desc" },
-      })
+        take: 12,
+      }))
     : null;
+  if (pulse) {
+    await prisma.opportunity.update({
+      where: { id: opportunity.id },
+      data: {
+        contextAssessment: {
+          ...copilotContext,
+          copilot: { ...copilot, pulse: { title: pulse.title, platform: pulse.platform, selectedAt: new Date().toISOString() } },
+        },
+      },
+    });
+  }
 
   const ctx = {
     opportunity: opportunityForDraft,
@@ -378,10 +460,19 @@ export async function generateResponseDrafts(formData: FormData) {
     observedProfile,
     competitorEvidence,
     clientMemories: clientMemories.map((m) => ({ rule: m.rule })),
-    editorialGuidance: copilotGuidance(opportunity.contextAssessment, pulse),
+    editorialGuidance: copilotGuidance(opportunity.contextAssessment, pulse ? { title: pulse.title } : null),
   };
   const voiceVariant = selectVoiceVariant(persona.name, observedProfile);
-  const drafts = (await generateAIDrafts(ctx)) ?? generateLocalDrafts(ctx);
+  const isCopilotRequest = Boolean(copilot.goal && copilot.style);
+  const localDrafts = generateLocalDrafts(ctx);
+  const localShort = localDrafts.find((draft) => draft.variantType === "SHORT") ?? localDrafts[0];
+  if (!localShort) throw new Error("No se pudo preparar una propuesta local segura.");
+  // El Copiloto es una herramienta de acción: presenta una propuesta principal
+  // editable, no obliga al CM a comparar variantes antes de responder.
+  const copilotDraft = isCopilotRequest ? await generateAICopilotDraft(ctx) : null;
+  const drafts = isCopilotRequest
+    ? [{ ...(copilotDraft ?? localShort), draftText: shortenCopilotText((copilotDraft ?? localShort).draftText) }]
+    : ((await generateAIDrafts(ctx)) ?? localDrafts);
   const draftsWithRisks = await Promise.all(drafts.map(async (draft) => {
     const crossClientHits = await detectCrossClientTerms(prisma, resolution.client.id, draft.draftText);
     return {
@@ -1385,6 +1476,16 @@ export async function deleteClientMemoryAction(memoryId: string) {
   if (!memory) throw new Error("La regla de memoria no existe.");
   await assertClientAccess(prisma, memory.clientId);
   await deleteClientMemory(prisma, memoryId);
+  revalidatePath("/aprendizaje");
+}
+
+export async function updateClientMemoryAction(formData: FormData) {
+  const memoryId = String(formData.get("memoryId") || "");
+  const rule = String(formData.get("rule") || "").trim();
+  if (!memoryId || rule.length < 5 || rule.length > 800) throw new Error("La regla debe tener entre 5 y 800 caracteres.");
+  const memory = await prisma.clientMemory.findUniqueOrThrow({ where: { id: memoryId }, select: { clientId: true } });
+  await assertClientAccess(prisma, memory.clientId);
+  await prisma.clientMemory.update({ where: { id: memoryId }, data: { rule, summary: rule.slice(0, 80) } });
   revalidatePath("/aprendizaje");
 }
 

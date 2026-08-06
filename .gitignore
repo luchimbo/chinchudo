@@ -40,6 +40,12 @@ tsconfig.tsbuildinfo
 
 .vercel
 
+# Browser profiles and runtime data
+data/embedded-browser-profile/
+output/
+scratch/
+tmp/
+
 # Skills instaladas (se rehidratan desde skills-lock.json)
 .agents/
 .claude/skills/

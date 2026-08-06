@@ -32,7 +32,12 @@ def _release_runtime_lock() -> None:
 def load_runtime() -> dict:
     if not RUNTIME_PATH.exists():
         return {}
-    return json.loads(RUNTIME_PATH.read_text(encoding="utf-8"))
+    try:
+        return json.loads(RUNTIME_PATH.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        # Archivo corrupto (ej: corte durante escritura): se descarta y se reparte de cero.
+        _log.warning("browser-runtime.json corrupto; se reinicia vacío", path=str(RUNTIME_PATH))
+        return {}
 
 
 def save_runtime(data: dict) -> None:

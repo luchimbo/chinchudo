@@ -3,6 +3,11 @@ const INTERNAL_INSTRUCTION_PATTERNS = [
   /\bcierre simple y util[^.!?]*(?:[.!?]|$)/gi,
   /\bsin mezclar intereses historicos[^.!?]*(?:[.!?]|$)/gi,
   /\bmodulaci[oó]n aplicada[^.!?]*(?:[.!?]|$)/gi,
+  /\bsin forzar una recomendaci[oó]n(?:\s+de\s+\w+)?\b/gi,
+  /\bsin forzar (?:una )?venta\b/gi,
+  /\bsin mencionar ni inventar[^.!?,:]*(?:[.!?,;:]|$)/gi,
+  /\bsin inventar(?:es)? (?:un )?modelo\b/gi,
+  /\bsin forzar(?:le)? una recomendaci[oó]n\b/gi,
 ];
 
 const PUBLIC_BLOCKLIST = [
@@ -16,6 +21,7 @@ export function sanitizePublicDraft(text: string): string {
   let clean = text;
   for (const pattern of INTERNAL_INSTRUCTION_PATTERNS) clean = clean.replace(pattern, " ");
   clean = clean
+    .replace(/[¡¿]/g, "")
     .replace(/\bantes de cerrar\b/gi, "antes de elegir")
     .replace(/\bcerrar bien\b/gi, "elegir bien")
     .replace(/\bsi ocup[aá]s (\d+) teclas\b/gi, "si necesitás $1 teclas")
@@ -45,6 +51,7 @@ const PRESTIGE_DATA_QUESTION = /[¿?][^¿?]*(?:talle|modelo|cu[aá]nto|cu[aá]nt
 
 const PRESTIGE_PACK_AS_MODEL = /\b(?:pack|tripack|x\s*3)\b/i;
 const PRESTIGE_BRAND_MENTION = /\b(?:prestige\s+medias|medias\s+prestige)\b/i;
+const VIDIA_CLINICAL_CLAIM = /\b(?:diagnostic[a-záéíóú]*|recet[a-záéíóú]*|medicaci[oó]n|tratamiento garantizado|cura(?:r|do)?|recuperaci[oó]n garantizada|internaci[oó]n necesaria)\b/i;
 
 export function ensureRequiredBrandMention(text: string, clientSlug?: string): string {
   if (clientSlug !== "prestige-running" || PRESTIGE_BRAND_MENTION.test(text)) return text;
@@ -52,12 +59,16 @@ export function ensureRequiredBrandMention(text: string, clientSlug?: string): s
   // Si la marca ya fue nombrada, completamos el nombre sin alterar el tono.
   if (/\bprestige\b/i.test(text)) return text.replace(/\bprestige\b/i, "Prestige Medias");
 
-  // En última instancia agregamos una referencia neutral y verificable.
-  return `${text.trim()} Prestige Medias es una alternativa para considerar en ese uso.`.trim();
+  // No pegamos una frase enlatada: si falta la marca, la validación lo detecta
+  // y el borrador se regenera o cae al fallback en vez de sonar clonado.
+  return text;
 }
 
 export function validateDraftForClient(text: string, clientSlug?: string): string[] {
   const errors = validatePublicDraft(text);
+  if (clientSlug === "programa-vidia" && VIDIA_CLINICAL_CLAIM.test(text)) {
+    errors.push("vidia_clinical_or_guaranteed_claim");
+  }
   if (clientSlug !== "prestige-running") return errors;
 
   if (PRESTIGE_MEDICAL_CLAIM.test(text)) errors.push("prestige_medical_claim");

@@ -3,7 +3,7 @@ import { selectRelevantProducts, type ScopedProduct } from "./catalog";
 import type { KnowledgeLike, ObjectionLike } from "./knowledge";
 import { deriveVoiceModulation, type ProfileContextForDraft } from "./observed-profiles";
 import { logger } from "./logger";
-import { fetchChatCompletion, resolveLLMConfig } from "./llm-provider";
+import { fetchChatCompletion, resolveLLMConfig, resolveOpenRouterConfig, type LLMConfig } from "./llm-provider";
 import { policyInstructions } from "./response-policy";
 import { ensureRequiredBrandMention, sanitizePublicDraft, validateDraftForClient } from "./draft-output";
 
@@ -25,6 +25,8 @@ type DraftContext = {
   competitorEvidence?: CompetitorEvidence[];
   avoidDrafts?: string[];
   clientMemories?: { rule: string }[];
+  editorialGuidance?: string;
+  styleCorrection?: string;
 };
 
 type DraftVariant = {
@@ -32,6 +34,18 @@ type DraftVariant = {
   draftText: string;
   riskNotes: string;
 };
+
+export const COPILOT_MAX_CHARACTERS = 280;
+
+/** Last-resort guardrail: preserve whole words and never return more than the Copilot limit. */
+export function shortenCopilotText(text: string, maxLength = COPILOT_MAX_CHARACTERS): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  const limit = Math.max(1, maxLength - 1);
+  const candidate = normalized.slice(0, limit);
+  const lastSpace = candidate.lastIndexOf(" ");
+  return `${(lastSpace > 20 ? candidate.slice(0, lastSpace) : candidate).trim()}…`;
+}
 
 const INTENT_LABELS: Record<string, string> = {
   TECHNICAL_QUESTION: "pregunta técnica (driver, compatibilidad, configuración)",
@@ -173,6 +187,12 @@ export function buildPrompt(ctx: DraftContext): string {
     ? `\n## Perfil observado de la cuenta externa\n- Tema actual detectado: ${ctx.observedProfile.currentTopic} (confianza ${ctx.observedProfile.currentTopicConfidence})\n- Intereses históricos: ${ctx.observedProfile.historicalPrimaryTopics.join(", ") || "sin suficientes datos"}\n- Tono histórico: ${ctx.observedProfile.toneProfile} (confianza ${ctx.observedProfile.toneConfidence})\n- Señal comercial acumulada: ${ctx.observedProfile.commercialReadiness}/100\n`
     : "";
   const voiceModulationBlock = `\n## Modulación de voz para esta respuesta\n- Estilo aplicado: ${modulation.styleLabel}\n- Entrada: ${modulation.introStyle}\n- Fraseo: ${modulation.phrasingStyle}\n- Cierre: ${modulation.ctaStyle}\n- Guardrail: ${modulation.guardrail}\n`;
+  const editorialGuidanceBlock = ctx.editorialGuidance
+    ? `\n## Direccion editorial elegida por el community manager\n${ctx.editorialGuidance}\n`
+    : "";
+  const styleCorrectionBlock = ctx.styleCorrection
+    ? `\n## Corrección de estilo requerida\nEl intento anterior fue descartado por este motivo: ${ctx.styleCorrection}. Corregilo sin cambiar el sentido ni agregar información nueva.\n`
+    : "";
   const avoidDrafts = (ctx.avoidDrafts ?? []).filter(Boolean).slice(-30);
   const uniquenessBlock = avoidDrafts.length > 0
     ? `\n## Borradores ya utilizados o rechazados\nNo copies, parafrasees de cerca ni reutilices la estructura de estos textos. Redacta desde cero usando detalles concretos del comentario actual:\n${avoidDrafts.map((text, index) => `${index + 1}. "${text.slice(0, 350)}"`).join("\n")}\n`
@@ -208,7 +228,7 @@ export function buildPrompt(ctx: DraftContext): string {
       ? "- No menciones tiendas, locales, comercios ni sitios web específicos."
     : "- NUNCA menciones nombres de tiendas, locales, comercios ni sitios web específicos (ej: no nombres a PC MIDI Center ni a ningún otro local) para que la respuesta suene como una recomendación de usuario 100% independiente y orgánica.";
   const prestigeRecommendationRule = client?.slug === "prestige-running"
-    ? "- Para Prestige Medias, validá primero la duda, experiencia, queja, emoción o curiosidad del comentario. Recomendá solo cuando el producto autorizado encaje de forma clara; si no encaja, aportá un consejo útil sin forzar una venta. Si recomendás un producto, nombrá 'Prestige Medias' una sola vez de forma natural, por ejemplo 'las Prestige Medias Tech Basic'. Nunca uses el modelo aislado."
+    ? "- Para Prestige Medias, validá primero la duda, experiencia, queja, emoción o curiosidad del comentario. Recomendá solo cuando el producto autorizado encaje de forma clara; si no encaja, aportá un consejo útil sin forzar una venta. Si recomendás un producto, nombrá 'Prestige Medias' una sola vez de forma natural, por ejemplo 'las Prestige Medias Tech Basic'. Nunca uses el modelo aislado. La mención de la marca debe quedar integrada al flujo de la respuesta (experiencia o dato concreto); nunca como oración final desconectada tipo 'es una alternativa para considerar'."
     : "";
 
   const absoluteRules = [
@@ -276,7 +296,17 @@ ${productList}
 - Marca: ${brand.name}
 - Fortalezas (tu valor diferenciador): ${brand.strengths || "No especificadas"}
 - Debilidades de la competencia (para argumentar por qué eres mejor): ${brand.competitorWeaknesses || "No especificadas"}
-${knowledgeBlock}${objectionsBlock}${competitorEvidenceBlock}${observedProfileBlock}${voiceModulationBlock}${uniquenessBlock}
+${knowledgeBlock}${objectionsBlock}${competitorEvidenceBlock}${observedProfileBlock}${voiceModulationBlock}${editorialGuidanceBlock}${styleCorrectionBlock}${uniquenessBlock}
+## Registro de escritura de internet (obligatorio)
+- Escribí como escribe la gente en comentarios reales de redes en Argentina, no como un texto editorial ni un post de LinkedIn.
+- NUNCA uses signos de apertura (¡ ni ¿). Solo signos de cierre, y con moderación: como máximo un signo de exclamación o pregunta por respuesta.
+- Arrancá respondiendo al punto concreto del comentario. Prohibido arrancar con celebraciones genéricas como "¡Qué bueno que...!", "Felicitaciones por...", "Me encanta que...".
+- Prohibidas las moralejas y frases de coach motivacional: "el progreso se construye paso a paso", "lo importante es", "al final del día", "no te olvides de", "escuchá a tu cuerpo", salvo que el comentario pida puntualmente ese consejo.
+- Nada de estructura de ficha técnica: no uses dos puntos para introducir enumeraciones ni listes prestaciones ("buen ajuste, secan rápido, no se mueven"). Una idea por oración, como en un comentario real.
+- Espejá el registro del comentario: si escriben corto y directo, respondé corto y directo.
+- Muletillas rioplatenses con moderación ("mirá", "posta", "che", "igual", "o sea", "yo que vos"): como máximo una por respuesta; mayúsculas y tildes correctas.
+- NUNCA copies literalmente frases de estas instrucciones al texto público (ejemplos de frases prohibidas por ser internas: "sin forzar una recomendación", "sin mencionar ni inventar un producto", "sin inventar un modelo").
+
 ## Comentario al que vas a responder
 Canal: ${opportunity.channel.name}
 Intención: ${intent}
@@ -285,7 +315,7 @@ Texto: "${opportunity.sourceText.slice(0, 800)}"
 ## Instrucciones de respuesta
 - ${channelStyle}
 ${questionInstruction}
-- Cerrá siempre con una afirmación, recomendación o dato útil.
+- Cerrá de forma natural, como cerraría un comentario real: sin moraleja, sin frase de coach y sin remate de venta.
 - Si es TECHNICAL_QUESTION: dá la información técnica directamente a partir de los datos confirmados, sin inventar experiencia personal.
 - Si es PURCHASE_QUESTION o PRICE_QUESTION: respondé solo con información confirmada y respetá las reglas de nombres de tiendas indicadas en las Reglas absolutas.
 - Si es COMPARISON o se menciona un competidor: compará objetivamente desde la experiencia de usuario utilizando los puntos de "Debilidades de la competencia" para argumentar de forma sutil por qué tu producto es mejor, apoyándote en las "Fortalezas" sin hablar de forma destructiva o artificial.
@@ -319,6 +349,28 @@ ${pcmidiComparisonRule}
       "riskNotes": "nota interna sobre qué verificar antes de publicar"
     }
   ]
+}`;
+}
+
+/** A focused prompt for the Copilot: one editable answer, never a set of variants. */
+export function buildCopilotPrompt(ctx: DraftContext, condensationOf?: string): string {
+  const shared = buildPrompt(ctx);
+  const beforeFormat = shared.split("## Formato de respuesta (JSON estricto)")[0]
+    .replace(/- Cada variante debe sonar diferente en estilo, no solo en palabras\n/g, "")
+    .replace(/- Cada variante debe ser Ãºnica/g, "- La respuesta debe ser única");
+  const condensation = condensationOf
+    ? `\n## Texto a condensar\n"${condensationOf}"\nConservá solo lo útil y específico; no agregues información nueva.\n`
+    : "";
+  return `${beforeFormat}
+## Instrucciones de respuesta del Copiloto
+- Devolvé UNA sola propuesta breve, directa, natural y específica a este comentario.
+- Máximo ${COPILOT_MAX_CHARACTERS} caracteres, idealmente una o dos oraciones.
+- No expliques tu razonamiento ni ofrezcas alternativas.
+${condensation}
+## Formato de respuesta (JSON estricto)
+{
+  "text": "una única respuesta publicable de hasta ${COPILOT_MAX_CHARACTERS} caracteres",
+  "riskNotes": "nota interna breve sobre qué verificar antes de publicar"
 }`;
 }
 
@@ -363,7 +415,78 @@ async function fetchWithRetry(
   throw new Error("fetchWithRetry: no debería llegar aquí");
 }
 
-export async function generateAIDrafts(ctx: DraftContext): Promise<DraftVariant[] | null> {
+async function fetchRawCompletion(
+  llm: LLMConfig,
+  payload: Record<string, unknown>,
+  title: string,
+  client?: Client,
+): Promise<{ raw: string; model: string; provider: string } | null> {
+  const extract = (data: unknown) =>
+    (data as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message?.content ?? "";
+
+  const first = await fetchChatCompletion(llm, payload, title, client);
+  if (!first.response.ok) {
+    const body = await first.response.text();
+    logAIError(`LLM HTTP ${first.response.status}`, body.slice(0, 300));
+    return null;
+  }
+  const firstData = await first.response.json() as { error?: { message?: string } };
+  if (firstData.error) {
+    logAIError("LLM devolvió error en body", firstData.error.message);
+    return null;
+  }
+  let raw = extract(firstData);
+  let used = { model: first.config.model, provider: first.config.provider };
+
+  // Ollama "razonador" puede responder 200 con content vacío (se gastó los tokens
+  // pensando): en ese caso reintentamos una sola vez con OpenRouter.
+  if (!raw && llm.provider === "local") {
+    const fallback = resolveOpenRouterConfig(client);
+    if (fallback.apiKey) {
+      logAIError("Proveedor local devolvió content vacío; reintentando con OpenRouter", null);
+      const second = await fetchChatCompletion(fallback, payload, title, client);
+      if (second.response.ok) {
+        const secondData = await second.response.json() as { error?: { message?: string } };
+        if (!secondData.error) {
+          raw = extract(secondData);
+          used = { model: second.config.model, provider: second.config.provider };
+        } else {
+          logAIError("OpenRouter devolvió error en body (fallback)", secondData.error.message);
+        }
+      } else {
+        const body = await second.response.text();
+        logAIError(`OpenRouter HTTP ${second.response.status} (fallback)`, body.slice(0, 300));
+      }
+    }
+  }
+  if (!raw) return null;
+  return { raw, ...used };
+}
+
+class ValidationRetryError extends Error {
+  constructor(public readonly correction: string) {
+    super(correction);
+  }
+}
+
+function buildStyleCorrection(errors: string[]): string {
+  const notes: string[] = [];
+  if (errors.includes("prestige_missing_brand_mention")) {
+    notes.push("Falta integrar la marca Prestige Medias de forma natural dentro del flujo de la respuesta (experiencia o dato concreto en primera persona). No la agregues como oración de cierre desconectada ni como remate de venta.");
+  }
+  if (errors.includes("internal_instruction")) {
+    notes.push("El texto anterior copió frases de las instrucciones internas (por ejemplo 'sin forzar una recomendación'). Las instrucciones son guía para vos, nunca texto visible: reescribí desde cero.");
+  }
+  if (errors.includes("blocked_language") || errors.includes("unverified_commercial_claim")) {
+    notes.push("El texto anterior incluyó lenguaje no permitido o claims comerciales no verificados. Usá solo afirmaciones verificables y lenguaje natural.");
+  }
+  if (notes.length === 0) {
+    notes.push("El texto anterior fue rechazado por las reglas de calidad. Reescribí desde cero con lenguaje natural y específico al comentario.");
+  }
+  return notes.join(" ");
+}
+
+async function attemptAIDrafts(ctx: DraftContext): Promise<DraftVariant[] | null> {
   // La API key y el modelo se resuelven por cliente: lo que cargó el cliente en su
   // configuración tiene prioridad; si está vacío se cae al .env global (compat).
   const llm = resolveLLMConfig(ctx.client);
@@ -385,42 +508,29 @@ export async function generateAIDrafts(ctx: DraftContext): Promise<DraftVariant[
 
   let raw: string;
   try {
-    const { response, config: responseConfig } = await fetchChatCompletion(
+    const completion = await fetchRawCompletion(
       llm,
       {
-        model,
+        model: llm.model,
         messages: [
           ...(ctx.activeSystemPrompt ? [{ role: "system", content: ctx.activeSystemPrompt }] : []),
           { role: "user", content: buildPrompt(ctx) }
         ],
         response_format: { type: "json_object" },
         temperature: 0.7,
-        max_tokens: 2000,
+        max_tokens: llm.provider === "local" ? 4000 : 2000,
+        // Modelos locales "razonadores" (gemma/qwen) gastan el presupuesto pensando
+        // y devuelven content vacío; desactivamos el thinking en Ollama.
+        ...(llm.provider === "local" ? { think: false } : {}),
       },
       "Los 5 Apostoles - Social Listening",
       ctx.client,
     );
-
-    if (!response.ok) {
-      const body = await response.text();
-      logAIError(`OpenRouter HTTP ${response.status}`, body.slice(0, 300));
-      return null;
-    }
-
-    const data = await response.json() as { choices?: { message?: { content?: string } }[]; error?: { message?: string } };
-    if (data.error) {
-      logAIError("OpenRouter devolvió error en body", data.error.message);
-      return null;
-    }
-    raw = data.choices?.[0]?.message?.content ?? "";
-    logger.info("ai_request", "LLM OK", { model: responseConfig.model, provider: responseConfig.provider, opportunityId: ctx.opportunity.id }).catch(() => {});
+    if (!completion) return null;
+    raw = completion.raw;
+    logger.info("ai_request", "LLM OK", { model: completion.model, provider: completion.provider, opportunityId: ctx.opportunity.id }).catch(() => {});
   } catch (err) {
-    logAIError("OpenRouter fetch fallido tras reintentos", err);
-    return null;
-  }
-
-  if (!raw) {
-    logAIError("OpenRouter devolvió respuesta vacía", null);
+    logAIError("LLM fetch fallido tras reintentos", err);
     return null;
   }
 
@@ -439,17 +549,95 @@ export async function generateAIDrafts(ctx: DraftContext): Promise<DraftVariant[
     }).filter((v) => v.draftText.length > 0);
 
     const hasInvalidProduct = drafts.some((draft) => hasUncataloguedProductCode(draft.draftText, ctx));
-    const invalidPublicOutput = drafts.some((draft) => validateDraftForClient(draft.draftText, ctx.client?.slug).length > 0);
-    if (hasInvalidProduct || invalidPublicOutput) {
+    const validationErrors = [...new Set(drafts.flatMap((draft) => validateDraftForClient(draft.draftText, ctx.client?.slug)))];
+    if (hasInvalidProduct) {
       logAIError("OpenRouter menciono un codigo de producto fuera del catalogo; usando fallback local", {
         opportunityId: ctx.opportunity.id,
       });
       return null;
     }
+    if (validationErrors.length > 0) throw new ValidationRetryError(buildStyleCorrection(validationErrors));
 
     return drafts;
-  } catch {
+  } catch (err) {
+    if (err instanceof ValidationRetryError) throw err;
     logAIError("No se pudo parsear JSON de OpenRouter", raw.slice(0, 300));
     return null;
   }
+}
+
+export async function generateAIDrafts(ctx: DraftContext): Promise<DraftVariant[] | null> {
+  try {
+    return await attemptAIDrafts(ctx);
+  } catch (err) {
+    if (!(err instanceof ValidationRetryError)) throw err;
+    try {
+      return await attemptAIDrafts({ ...ctx, styleCorrection: err.correction });
+    } catch (retryErr) {
+      if (retryErr instanceof ValidationRetryError) return null;
+      throw retryErr;
+    }
+  }
+}
+
+async function requestCopilotDraft(ctx: DraftContext, condensationOf?: string): Promise<DraftVariant | null> {
+  const llm = resolveLLMConfig(ctx.client);
+  if (!llm.apiKey) return null;
+  try {
+    const completion = await fetchRawCompletion(llm, {
+      model: llm.model,
+      messages: [
+        ...(ctx.activeSystemPrompt ? [{ role: "system", content: ctx.activeSystemPrompt }] : []),
+        { role: "user", content: buildCopilotPrompt(ctx, condensationOf) },
+      ],
+      response_format: { type: "json_object" },
+      temperature: condensationOf ? 0.2 : 0.65,
+      max_tokens: llm.provider === "local" ? (condensationOf ? 1000 : 1500) : (condensationOf ? 180 : 360),
+      ...(llm.provider === "local" ? { think: false } : {}),
+    }, "Los 5 Apostoles - Copiloto CM", ctx.client);
+    if (!completion) return null;
+    const parsed = JSON.parse(completion.raw) as { text?: string; riskNotes?: string };
+    const text = ensureRequiredBrandMention(sanitizePublicDraft(parsed.text ?? ""), ctx.client?.slug);
+    if (!text || hasUncataloguedProductCode(text, ctx)) return null;
+    const validationErrors = validateDraftForClient(text, ctx.client?.slug);
+    if (validationErrors.length > 0) throw new ValidationRetryError(buildStyleCorrection(validationErrors));
+    logger.info("ai_request", "LLM Copiloto OK", { model: completion.model, provider: completion.provider, opportunityId: ctx.opportunity.id }).catch(() => {});
+    return { variantType: "SHORT", draftText: text, riskNotes: parsed.riskNotes ?? "Revisar antes de publicar." };
+  } catch (err) {
+    if (err instanceof ValidationRetryError) throw err;
+    logAIError("No se pudo generar propuesta del Copiloto", err);
+    return null;
+  }
+}
+
+/** Generates one short Copilot response. If needed, the model gets one chance to condense it before deterministic truncation. */
+export async function generateAICopilotDraft(ctx: DraftContext): Promise<DraftVariant | null> {
+  let initial: DraftVariant | null;
+  let lastCorrection = "";
+  try {
+    initial = await requestCopilotDraft(ctx);
+  } catch (err) {
+    if (!(err instanceof ValidationRetryError)) throw err;
+    lastCorrection = err.correction;
+    try {
+      initial = await requestCopilotDraft({ ...ctx, styleCorrection: err.correction });
+    } catch (retryErr) {
+      if (retryErr instanceof ValidationRetryError) {
+        lastCorrection = `${lastCorrection} | reintento: ${retryErr.correction}`;
+        initial = null;
+      } else {
+        throw retryErr;
+      }
+    }
+  }
+  if (!initial) {
+    logAIError("Copiloto sin propuesta de IA tras reintento; se usará fallback local", { opportunityId: ctx.opportunity.id, correccion: lastCorrection });
+    return null;
+  }
+  if (initial.draftText.length <= COPILOT_MAX_CHARACTERS) return initial;  const condensed = await requestCopilotDraft(ctx, initial.draftText).catch((err: unknown) => {
+    if (err instanceof ValidationRetryError) return null;
+    throw err;
+  });
+  const best = condensed?.draftText ? condensed : initial;
+  return { ...best, draftText: shortenCopilotText(best.draftText) };
 }
