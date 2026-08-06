@@ -71,7 +71,9 @@ tunnel.stdout.on("data", (data) => process.stdout.write(data));
 tunnel.stderr.on("data", async (data) => {
   const text = data.toString();
   process.stderr.write(text);
-  const match = text.match(/https:\/\/[a-z0-9\-]+\.trycloudflare\.com/);
+  // api.trycloudflare.com aparece en los logs de registro/errores de cloudflared
+  // y NO es la URL del túnel: hay que descartarla explícitamente.
+  const match = text.match(/https:\/\/(?!api\.)[a-z0-9\-]+\.trycloudflare\.com/);
   if (match) {
     await updateRelayUrl(match[0]);
   }

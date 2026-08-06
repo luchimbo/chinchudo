@@ -68,8 +68,11 @@ for ($i = 0; $i -lt 35; $i++) {
     Write-Host "." -NoNewline
     if (Test-Path $TunnelLog) {
         $content = Get-Content $TunnelLog -Raw -ErrorAction SilentlyContinue
-        if ($content -match "https://[a-z0-9-]+\.trycloudflare\.com") {
-            $tunnelUrl = $matches[0]
+        # api.trycloudflare.com aparece en logs de registro/errores de cloudflared
+        # y NO es la URL del tunnel: hay que descartarla explicitamente.
+        $urls = [regex]::Matches($content, "https://[a-z0-9-]+\.trycloudflare\.com") | ForEach-Object { $_.Value } | Where-Object { $_ -notlike "*api.trycloudflare.com*" }
+        if ($urls) {
+            $tunnelUrl = $urls[0]
             break
         }
     }
