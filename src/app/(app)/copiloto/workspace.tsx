@@ -43,7 +43,6 @@ function ResponseCard({ response, opportunityId, sourceUrl }: { response: Respon
   const [text, setText] = useState(response.text);
   const [copied, setCopied] = useState(false);
   const [openingSource, setOpeningSource] = useState(false);
-  const [popupBlocked, setPopupBlocked] = useState(false);
 
   async function copy() {
     await copyToClipboard(text);
@@ -53,7 +52,6 @@ function ResponseCard({ response, opportunityId, sourceUrl }: { response: Respon
 
   async function openForPublishing() {
     setOpeningSource(true);
-    setPopupBlocked(false);
     // Copiar primero (dentro del gesto del click) evita el cartel de permiso de portapapeles;
     // si la pestaña se abre antes, Chrome pierde la activación de usuario y lo pide cada vez.
     await copyToClipboard(text);
@@ -61,8 +59,7 @@ function ResponseCard({ response, opportunityId, sourceUrl }: { response: Respon
     window.setTimeout(() => setCopied(false), 2200);
     const target = window.open(sourceUrl, "_blank", "noopener,noreferrer");
     setOpeningSource(false);
-    // Nunca navegar la pestaña actual: si el popup se bloquea, se muestra un link manual.
-    if (!target) setPopupBlocked(true);
+    if (!target) window.location.assign(sourceUrl);
   }
 
   return <div className={`rounded-xl border p-4 ${response.isPrimary ? "border-moss/45 bg-moss/[0.05]" : "border-ink/10 bg-white"}`}>
@@ -78,7 +75,6 @@ function ResponseCard({ response, opportunityId, sourceUrl }: { response: Respon
         <PendingSubmit pendingLabel="Guardando..." className="rounded-full bg-ink px-3 py-2 text-xs font-bold text-paper transition hover:bg-slate">Guardar como respondida</PendingSubmit>
         <button type="button" onClick={openForPublishing} disabled={openingSource} className="rounded-full bg-moss px-3 py-2 text-xs font-bold text-white transition hover:bg-moss/85 disabled:cursor-wait disabled:opacity-60">{openingSource ? "Copiando y abriendo..." : "Abrir para publicar"}</button>
       </div>
-      {popupBlocked ? <p className="mt-3 rounded-lg border border-brass/30 bg-brass/10 px-3 py-2 text-xs text-ink">El navegador bloqueó la pestaña nueva. La respuesta ya quedó copiada: <a href={sourceUrl} target="_blank" rel="noreferrer" className="font-bold underline underline-offset-4">abrí el post desde acá</a>.</p> : null}
     </form>
     <div className="mt-4 border-t border-ink/10 pt-3"><p className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate/60">Enseñarle a esta marca</p><div className="mt-2 flex flex-wrap gap-1.5">
       {[['SIRVIO', 'Sirvió'], ['MAS_DIRECTO', 'Más directo'], ['MENOS_VENTA', 'Menos venta'], ['MENOS_HUMOR', 'Menos humor'], ['TEMA_SENSIBLE', 'Tema sensible'], ['NO_APORTO', 'No aportó']].map(([feedback, label]) => <form key={feedback} action={teachCopilotFromResponse}><input type="hidden" name="opportunityId" value={opportunityId} /><input type="hidden" name="responseId" value={response.id} /><input type="hidden" name="feedback" value={feedback} /><PendingSubmit pendingLabel="Guardando..." className="rounded-full border border-ink/12 bg-paper px-2.5 py-1.5 text-[11px] font-semibold text-slate transition hover:border-ink/40 hover:text-ink">{label}</PendingSubmit></form>)}

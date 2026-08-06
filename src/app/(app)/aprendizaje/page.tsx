@@ -2,7 +2,7 @@ import React from "react";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { getVisibleClients } from "@/lib/auth";
-import { deleteClientMemoryAction, createManualClientMemoryAction } from "../opportunities/actions";
+import { deleteClientMemoryAction, createManualClientMemoryAction, updateClientMemoryAction } from "../opportunities/actions";
 import { SubmitButton } from "../opportunities/[id]/SubmitButton";
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -13,16 +13,30 @@ const CATEGORY_COLORS: Record<string, string> = {
   general: "bg-slate-100 text-slate-800 border-slate-200",
 };
 
-export default async function AprendizajePage() {
-  const clients = await getVisibleClients(prisma);
-  const activeClient = clients[0];
+type PageProps = { searchParams: { client?: string } };
 
-  const memories = activeClient
-    ? await prisma.clientMemory.findMany({
+export default async function AprendizajePage({ searchParams }: PageProps) {
+  const clients = await getVisibleClients(prisma);
+  const activeClient = clients.find((client) => client.slug === searchParams.client) ?? clients[0];
+
+  const [memories, learningRows] = activeClient
+    ? await Promise.all([
+      prisma.clientMemory.findMany({
       where: { clientId: activeClient.id, active: true },
       orderBy: { createdAt: "desc" },
-    })
-    : [];
+      }),
+      prisma.opportunity.findMany({ where: { clientId: activeClient.id }, select: { contextAssessment: true }, orderBy: { updatedAt: "desc" }, take: 500 }),
+    ])
+    : [[], []];
+  const feedbackEvents = learningRows.flatMap((row) => {
+    const context = row.contextAssessment && typeof row.contextAssessment === "object" ? row.contextAssessment as Record<string, unknown> : {};
+    const copilot = context.copilot && typeof context.copilot === "object" ? context.copilot as Record<string, unknown> : {};
+    const feedback = Array.isArray(copilot.feedback) ? copilot.feedback as { type?: string }[] : [];
+    const pulse = copilot.pulse && typeof copilot.pulse === "object" ? copilot.pulse as { platform?: string } : null;
+    return feedback.map((event) => ({ type: event.type || "SIN_TIPO", platform: pulse?.platform || "SIN_CONTEXTO" }));
+  });
+  const feedbackCount = (type: string) => feedbackEvents.filter((event) => event.type === type).length;
+  const contextUsage = Object.entries(feedbackEvents.reduce<Record<string, number>>((acc, event) => ({ ...acc, [event.platform]: (acc[event.platform] || 0) + 1 }), {}));
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col px-5 py-8 lg:px-8">
@@ -47,6 +61,14 @@ export default async function AprendizajePage() {
           ← Oportunidades
         </Link>
       </header>
+
+      {clients.length > 1 ? <nav className="mb-6 flex flex-wrap gap-2" aria-label="Cliente a entrenar">
+        {clients.map((client) => <Link key={client.id} href={`/aprendizaje?client=${encodeURIComponent(client.slug)}`} className={`rounded-full border px-3 py-1.5 text-xs font-bold transition ${client.id === activeClient?.id ? "border-ink bg-ink text-paper" : "border-ink/15 bg-white text-slate hover:border-ink/40"}`}>{client.name}</Link>)}
+      </nav> : null}
+
+      <section className="mb-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {[['Feedback recibido', feedbackEvents.length], ['Sirvió', feedbackCount('SIRVIO')], ['Ajustes de tono', feedbackCount('MAS_DIRECTO') + feedbackCount('MENOS_VENTA') + feedbackCount('MENOS_HUMOR')], ['Tema sensible / no aportó', feedbackCount('TEMA_SENSIBLE') + feedbackCount('NO_APORTO')]].map(([label, value]) => <div key={String(label)} className="rounded-2xl border border-ink/10 bg-white/75 p-4 shadow-panel"><p className="text-[10px] font-bold uppercase tracking-[0.13em] text-slate/60">{label}</p><p className="mt-2 font-display text-3xl text-ink">{value}</p></div>)}
+      </section>
 
       <div className="grid gap-8 lg:grid-cols-[1fr_360px]">
         {/* Main Memories List */}
@@ -84,16 +106,18 @@ export default async function AprendizajePage() {
                           {mem.category}
                         </span>
                         <span className="text-[11px] text-slate/60">
-                          {mem.source === "chat_refinement" ? "🤖 Chat de refinamiento" : "✍️ Carga manual"}
+                          {mem.source.startsWith("copilot_feedback_") ? "Feedback del Copiloto" : mem.source === "chat_refinement" ? "Chat de refinamiento" : "Carga manual"}
                         </span>
                         <span className="text-[11px] text-slate/40">
                           • {new Date(mem.createdAt).toLocaleDateString("es-AR")}
                         </span>
                       </div>
 
-                      <p className="break-words text-sm font-semibold leading-relaxed text-ink">
-                        `{mem.rule}`
-                      </p>
+                      <form action={updateClientMemoryAction} className="space-y-2">
+                        <input type="hidden" name="memoryId" value={mem.id} />
+                        <textarea name="rule" defaultValue={mem.rule} rows={3} className="w-full resize-y rounded-lg border border-ink/10 bg-paper/60 px-3 py-2 text-sm font-semibold leading-relaxed text-ink outline-none focus:border-ink" />
+                        <button type="submit" className="rounded-full border border-ink/15 px-3 py-1.5 text-xs font-bold text-ink hover:border-ink/40">Guardar cambio</button>
+                      </form>
 
                       {mem.summary && mem.summary !== mem.rule ? (
                         <p className="text-xs italic text-slate/70">
@@ -125,6 +149,11 @@ export default async function AprendizajePage() {
 
         {/* Sidebar: Add Manual Rule */}
         <aside>
+          <div className="mb-5 rounded-2xl border border-ink/10 bg-paper/70 p-5">
+            <h3 className="font-display text-xl text-ink">Contexto que generó feedback</h3>
+            <p className="mt-1 text-xs leading-5 text-slate">Mide qué contexto estaba activo cuando el CM dio feedback; no mide alcance ni ventas.</p>
+            <div className="mt-4 space-y-2">{contextUsage.length ? contextUsage.map(([platform, count]) => <div key={platform} className="flex items-center justify-between rounded-lg bg-white px-3 py-2 text-xs"><span className="font-semibold text-ink">{platform.replaceAll('_', ' ')}</span><span className="text-slate">{count}</span></div>) : <p className="text-xs text-slate">Todavía no hay feedback asociado a contexto.</p>}</div>
+          </div>
           <div className="rounded-2xl border border-ink/10 bg-white p-6 shadow-panel">
             <h3 className="font-display text-xl text-ink">Agregar Regla Manual</h3>
             <p className="mt-1 text-xs text-slate">

@@ -24,7 +24,7 @@ function option(name: string) {
 
 function runDraft(client: string, limit: number, dryRun: boolean) {
   return new Promise<{ code: number | null; output: string }>((resolve) => {
-    const args = [join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs"), "scripts/draft-worker.mts", "--client", client, "--limit", String(limit)];
+    const args = [join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs"), "scripts/draft-worker.mts", "--client", client, "--limit", String(limit), "--copilot"];
     if (dryRun) args.push("--dry-run");
     const child = spawn(process.execPath, args, { cwd: process.cwd(), env: process.env, shell: false, windowsHide: true });
     let output = "";
