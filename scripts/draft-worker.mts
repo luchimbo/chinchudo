@@ -36,6 +36,7 @@ function parseArgs() {
     draftOnly: process.argv.includes("--draft-only"),
     replacePending: process.argv.includes("--replace-pending"),
     copilot: process.argv.includes("--copilot"),
+    recent: process.argv.includes("--order") && process.argv[process.argv.indexOf("--order") + 1] === "recent",
     limit: limitIndex >= 0 ? Number(process.argv[limitIndex + 1] || 50) : Number(process.env.npm_config_limit || 50),
     clientSlug: clientIndex >= 0 ? process.argv[clientIndex + 1] : process.env.npm_config_client || null,
     opportunityId: opportunityIndex >= 0 ? process.argv[opportunityIndex + 1] : null,
@@ -85,7 +86,7 @@ async function main() {
       monitoredSource: { include: { client: true } },
       client: { select: { slug: true } },
     },
-    orderBy: [{ opportunityScore: "desc" }, { createdAt: "desc" }],
+    orderBy: args.recent ? [{ createdAt: "desc" as const }] : [{ opportunityScore: "desc" as const }, { createdAt: "desc" as const }],
     take: args.limit * 4,
   });
 
@@ -336,10 +337,11 @@ async function main() {
               : opportunity.detectedIntent === "PURCHASE_QUESTION" || opportunity.detectedIntent === "PRICE_QUESTION"
                 ? "Objetivo: orientar la compra de forma breve, específica y sin presión."
                 : "Estilo: natural y directo. Respondé primero a lo que plantea el comentario.";
-          const proposal = (allowAi ? await generateAICopilotDraft({ ...ctx, editorialGuidance: automaticGuidance }) : null)
+            const aiProposal = allowAi ? await generateAICopilotDraft({ ...ctx, editorialGuidance: automaticGuidance }) : null;
+            const proposal = aiProposal
             ?? { ...(generateLocalDrafts(ctx).find((draft) => draft.variantType === "SHORT") ?? generateLocalDrafts(ctx)[0]), draftText: shortenCopilotText((generateLocalDrafts(ctx).find((draft) => draft.variantType === "SHORT") ?? generateLocalDrafts(ctx)[0]).draftText) };
           variants = [{ ...proposal, variantType: "SHORT" as const }];
-          source = allowAi ? "ai-copilot" : "local-copilot";
+            source = aiProposal ? "ai-copilot" : "local-copilot";
         } else {
           variants = resolution.client.slug === "jurispedia" ? null : (allowAi ? await generateAIDrafts(ctx) : null);
           if (variants && variants.length > 0) source = "ai";

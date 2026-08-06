@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildPrompt } from "../ai-draft-generator";
-import { ensureRequiredBrandMention, validateDraftForClient } from "../draft-output";
+import { ensureRequiredBrandMention, sanitizePublicDraft, validateDraftForClient } from "../draft-output";
 
 const now = new Date();
 const prestigeClient = {
@@ -67,7 +67,34 @@ describe("prompt de Prestige", () => {
 
   it("completa la mención obligatoria de Prestige Medias sin afectar otros clientes", () => {
     expect(ensureRequiredBrandMention("Prestige tiene soquete corto.", "prestige-running")).toBe("Prestige Medias tiene soquete corto.");
-    expect(ensureRequiredBrandMention("Para fondos largos miraría media caña.", "prestige-running")).toContain("Prestige Medias");
+    expect(ensureRequiredBrandMention("Para fondos largos miraría media caña.", "prestige-running")).toBe("Para fondos largos miraría media caña.");
     expect(ensureRequiredBrandMention("Para home studio va bien.", "pcmidi")).toBe("Para home studio va bien.");
+  });
+
+  it("no pega una frase enlatada cuando falta la marca: la validación lo detecta", () => {
+    const draft = "Yo que vos probaría media caña para los fondos largos.";
+    expect(ensureRequiredBrandMention(draft, "prestige-running")).toBe(draft);
+    expect(validateDraftForClient(draft, "prestige-running")).toContain("prestige_missing_brand_mention");
+  });
+
+  it("elimina los signos de apertura para que no suene a texto editorial", () => {
+    expect(sanitizePublicDraft("¡Qué bueno que te animes! ¿Viste las Tech Basic?")).toBe("Qué bueno que te animes! Viste las Tech Basic?");
+  });
+
+  it("detecta y limpia instrucciones internas filtradas al texto público", () => {
+    const leaked = "Por lo que comentás, sin forzar una recomendación de modelo puede encajar bien: hay modelos cortos y media caña.";
+    expect(validateDraftForClient(leaked, "prestige-running")).toContain("internal_instruction");
+    expect(sanitizePublicDraft(leaked)).toBe("Por lo que comentás, puede encajar bien: hay modelos cortos y media caña.");
+    expect(sanitizePublicDraft("Aportá valor sin mencionar ni inventar un producto.")).toBe("Aportá valor");
+  });
+
+  it("pide registro de internet en el prompt", () => {
+    const prompt = buildPrompt(context());
+    expect(prompt).toContain("Registro de escritura de internet");
+    expect(prompt).toContain("comentarios reales de redes en Argentina");
+    expect(prompt).toContain("NUNCA uses signos de apertura");
+    expect(prompt).toContain("moralejas y frases de coach");
+    expect(prompt).toContain("NUNCA copies literalmente frases de estas instrucciones");
+    expect(prompt).not.toContain("Cerrá siempre con una afirmación");
   });
 });
