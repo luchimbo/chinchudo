@@ -46,7 +46,14 @@ def client_store_url() -> str:
 
 
 def client_blog_url() -> str:
-    return _CLIENT_CONFIG.get("blogBaseUrl") or "https://blog.pcmidicenter.com"
+    configured = _CLIENT_CONFIG.get("blogBaseUrl")
+    if configured:
+        return configured
+    slug = client_slug_active()
+    if _CLIENT_CONFIG and slug != "pcmidi":
+        # Un cliente sin blog no debe heredar el blog de PC MIDI en sus landings.
+        return _CLIENT_CONFIG.get("storeUrl") or ""
+    return "https://blog.pcmidicenter.com"
 
 
 def client_lab_name() -> str:
@@ -423,15 +430,59 @@ def demo_landing(categories: dict[str, dict], products: dict[str, dict]) -> dict
     }
 
 
+def placeholder_preview_landing() -> tuple[dict[str, dict], dict[str, dict], dict]:
+    """Preview de diseño cuando el cliente aún no tiene catálogo cargado.
+    Usa contenido neutro de ejemplo; no inventa categorías ni productos reales del cliente."""
+    category_id = "preview-placeholder"
+    category = {
+        "id": category_id,
+        "nombre": "Contenido de ejemplo",
+        "url": client_store_url().rstrip("/") or "#",
+        "descripcion": "Categoría de ejemplo para previsualizar el diseño del cliente.",
+        "keywords": [],
+    }
+    categories = {category_id: category}
+    landing = {
+        "slug": "preview-diseno-landing",
+        "keyword": "preview de diseño",
+        "intent": "preview",
+        "titulo": f"Preview de landing {client_name()}",
+        "seo_title": f"Preview de landing {client_name()}",
+        "meta_description": f"Vista previa de una landing comercial para {client_name()} con el diseño y branding del cliente.",
+        "h1": "Vista previa del diseño de tu landing.",
+        "hero_lede": f"Esta es una vista previa de cómo se verá una landing de {client_name()}. Todavía no hay categorías cargadas para este cliente.",
+        "primary_category_id": category_id,
+        "secondary_category_ids": [],
+        "product_ids": [],
+        "components_title": "Así se mostrarán tus categorías",
+        "components_subtitle": "Cuando cargues el catálogo del cliente, aquí aparecerán las categorías reales y sus descripciones.",
+        "components": [
+            {"cat": category["nombre"], "shortCat": "EJEMPLO", "why": category["descripcion"], "look": "Acá se mostrará qué mirar al elegir dentro de la categoría real."},
+        ],
+        "steps": [
+            {"n": "01", "t": "Definir el caso", "b": "Ordenar qué necesidad concreta tiene la persona antes de mirar opciones."},
+            {"n": "02", "t": "Comparar alternativas", "b": "Cruzar categorías y productos reales del cliente cuando estén cargados."},
+            {"n": "03", "t": "Llamar a la acción", "b": "Usar el CTA para pasar a la tienda o pedir asesoramiento."},
+        ],
+        "faqs": [
+            {"q": "Esta es una landing publicada?", "a": "No. Es una vista previa generada para validar el diseño antes de publicar."},
+            {"q": "Usa datos del cliente?", "a": "Este cliente todavía no tiene categorías cargadas. La preview muestra contenido de ejemplo; cuando cargues el catálogo, usará los datos reales."},
+            {"q": "El diseño se aplica a futuras landings?", "a": "Sí. El template elegido queda guardado a nivel cliente y se usa en el build."},
+        ],
+    }
+    return categories, {}, landing
+
+
 def preview_command(landing_id: str = "", base_url: str = "") -> None:
     categories = load_categories()
     products = load_products()
     if not categories:
-        raise SystemExit("Preview bloqueada: no hay categorias cargadas.")
-    landing = load_preview_landing(landing_id) or demo_landing(categories, products)
-    errors = validate_landings([landing], categories, products)
-    if errors:
-        landing = demo_landing(categories, products)
+        categories, products, landing = placeholder_preview_landing()
+    else:
+        landing = load_preview_landing(landing_id) or demo_landing(categories, products)
+        errors = validate_landings([landing], categories, products)
+        if errors:
+            landing = demo_landing(categories, products)
     sys.stdout.buffer.write(render_landing(landing, categories, products, base_url, load_lead_magnets()).encode("utf-8"))
 
 
@@ -599,7 +650,10 @@ def validate_landings(landings: list[dict], categories: dict[str, dict], product
             store_host = urlparse(client_store_url()).netloc.lower().removeprefix("www.")
             product_url = urlparse(str(product.get("url", "")))
             product_host = product_url.netloc.lower().removeprefix("www.")
-            if product_host != store_host or not product_url.path.startswith("/productos/"):
+            # La URL del producto debe apuntar al dominio propio del cliente.
+            # Se admite cualquier ruta del dominio (no solo /productos/) para
+            # clientes de servicios que enlazan a secciones del sitio.
+            if product_url.scheme not in ("http", "https") or product_host != store_host:
                 errors.append(f"{label}: URL de producto invalida: {product_id}")
 
         text = json.dumps(landing, ensure_ascii=False).lower()
@@ -892,14 +946,29 @@ def chat_json(system: str, user: str, model: str, temperature: float = 0.35) -> 
 def generation_prompt(topic: dict, categories: dict[str, dict], products: dict[str, dict]) -> tuple[str, str]:
     catalog = compact_catalog(categories, products)
     brand = client_name()
-    system = f"""Sos estratega SEO y especialista en landings comerciales para {brand}.
+    has_products = bool(catalog["productos"])
+    if has_products:
+        system = f"""Sos estratega SEO y especialista en landings comerciales para {brand}.
 Devolves solo JSON valido, sin markdown ni explicaciones.
 La landing debe ser unica, concreta, util para un posible comprador y relacionada con productos vendidos por {brand}.
 No inventes categorias, productos, marcas, modelos ni URLs. Solo usa IDs del catalogo recibido.
 No menciones precios, stock, disponibilidad, distribuidor oficial, soporte tecnico oficial, exclusividad, reparaciones, alquileres, clases formales, grabacion, mezcla ni mastering.
 No incluyas software Arturia tipo Modular V, CS-80 V, CMI V, Synclavier V ni packs de plugins.
 Usa español rioplatense claro y humano."""
-    brand = client_name()
+        product_ids_template = '"product_ids": ["id_producto", "id_producto", "id_producto"],'
+        product_rules = "- product_ids debe contener 2 a 5 productos reales del catalogo, todos hardware.\n- Si un producto no ayuda al tema, no lo uses."
+        components_subtitle_hint = "parrafo que mencione productos/modelos reales si ayudan"
+    else:
+        system = f"""Sos estratega SEO y especialista en contenido util para {brand}.
+Devolves solo JSON valido, sin markdown ni explicaciones.
+La landing debe ser unica, concreta y util para la persona que busca esa informacion, siempre dentro del ambito de {brand}.
+No inventes categorias, productos, marcas, modelos ni URLs. Solo usa IDs del catalogo recibido.
+No prometas resultados, precios, stock, disponibilidad, diagnósticos ni asesoramiento personalizado.
+No incluyas afirmaciones que requieran validacion profesional.
+Usa español rioplatense claro y humano."""
+        product_ids_template = '"product_ids": [],'
+        product_rules = "- El catalogo no tiene productos: product_ids debe ser una lista vacia: []."
+        components_subtitle_hint = "parrafo que mencione categorias reales si ayudan"
     user = f"""Tema semilla:
 - keyword: {topic.get('keyword', '')}
 - intencion: {topic.get('intencion', '')}
@@ -918,10 +987,10 @@ Genera una landing JSON con exactamente esta forma:
   "h1": "H1 unico y natural",
   "hero_lede": "subtitulo humano de 1 a 2 frases",
   "components_title": "titulo humano y especifico para la seccion de opciones",
-  "components_subtitle": "parrafo que mencione productos/modelos reales si ayudan",
+  "components_subtitle": "{components_subtitle_hint}",
   "primary_category_id": "id_categoria",
   "secondary_category_ids": ["id_categoria", "id_categoria"],
-  "product_ids": ["id_producto", "id_producto", "id_producto"],
+  {product_ids_template}
   "components": [
     {{"cat":"Categoria o parte del setup", "shortCat":"ETIQUETA", "why":"para que sirve", "look":"que mirar al elegir"}},
     {{"cat":"Categoria o parte del setup", "shortCat":"ETIQUETA", "why":"para que sirve", "look":"que mirar al elegir"}},
@@ -941,11 +1010,10 @@ Genera una landing JSON con exactamente esta forma:
 
 Reglas:
 - El primary_category_id y secondary_category_ids deben existir en el catalogo.
-- product_ids debe contener 2 a 5 productos reales del catalogo, todos hardware.
-- Si un producto no ayuda al tema, no lo uses.
+{product_rules}
 - No uses frases genericas como "lo que entra en juego".
 - No afirmes que {brand} tiene stock ni disponibilidad.
-- La landing debe responder una busqueda o problema real de comprador."""
+- La landing debe responder una busqueda o problema real de la persona."""
     return system, user
 
 

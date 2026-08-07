@@ -20,6 +20,8 @@
     "admin:register": "tsx scripts/register-platform-admin.mts",
     "db:seed-jurispedia": "tsx scripts/seed-jurispedia.mts",
     "db:seed-programa-vidia": "tsx scripts/seed-programa-vidia.mts",
+    "db:seed-catalog-jurispedia": "tsx scripts/import-catalog-jurispedia.mts",
+    "db:seed-catalog-vidia": "tsx scripts/import-catalog-vidia.mts",
     "brand:snapshots": "tsx scripts/capture-brand-snapshots.mts",
     "brand:snapshots:install": "powershell -ExecutionPolicy Bypass -File scripts/registrar-brand-snapshots-admin.ps1",
     "agents:jurispedia:publish": "tsx scripts/configure-jurispedia-autopublish.mts",
