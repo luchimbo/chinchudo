@@ -9,6 +9,7 @@ import {
   simulateDemoPublication,
   updateOpportunityStatus,
   deleteResponse
+  ,createManualResponse
 } from "../actions";
 import { prisma } from "@/lib/db";
 import { StatusBanner } from "./StatusBanner";
@@ -22,6 +23,7 @@ import { selectRelevantProducts } from "@/lib/catalog";
 import { SubmitButton } from "./SubmitButton";
 import { DraftCard } from "./DraftCard";
 import { loadObservedProfileContext } from "@/lib/observed-profiles";
+import { BrandProductFields } from "./BrandProductFields";
 
 type PageProps = {
   params: { id: string };
@@ -315,6 +317,19 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
                 ))
               )}
             </div>
+            {!isAlreadyPublished ? (
+              <form action={createManualResponse} className="mt-5 rounded-lg border border-brass/25 bg-brass/[0.06] p-4">
+                <h3 className="font-display text-xl text-ink">Redactar manualmente</h3>
+                <p className="mt-1 text-sm text-slate">Podés responder aunque la generación automática no esté disponible.</p>
+                <input type="hidden" name="opportunityId" value={opportunity.id} />
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <BrandProductFields brands={brands} products={products} brandId={selectedBrandId} productId={suggestedProductId} />
+                  <label className="grid gap-2 text-sm font-semibold text-slate">Voz<select name="personaId" defaultValue={suggestedPersonaId} className="w-full rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink">{personas.map((persona) => <option key={persona.id} value={persona.id}>{persona.name}</option>)}</select></label>
+                </div>
+                <textarea name="editedText" rows={5} required className="mt-4 w-full rounded-md border border-ink/15 bg-white px-3 py-3 text-sm text-ink" placeholder="Escribí la respuesta…" />
+                <SubmitButton loadingText="Guardando…" className="mt-3 rounded-full bg-ink px-5 py-3 text-sm font-bold text-paper">Guardar respuesta</SubmitButton>
+              </form>
+            ) : null}
           </section>
         </div>
 
@@ -432,24 +447,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
           </div>
           <input type="hidden" name="opportunityId" value={opportunity.id} />
           <div className="mt-5 grid gap-4 md:grid-cols-3">
-            <label className="grid gap-2 text-sm font-semibold text-paper/80">
-              Marca
-              <select name="brandId" defaultValue={selectedBrandId} className="w-full rounded-md border border-white/15 bg-paper px-3 py-3 text-ink">
-                {brands.map((brand) => (
-                  <option key={brand.id} value={brand.id}>{brand.name}</option>
-                ))}
-              </select>
-            </label>
-            <label className="grid gap-2 text-sm font-semibold text-paper/80">
-              Producto
-              <select name="productId" defaultValue={suggestedProductId} className="w-full rounded-md border border-white/15 bg-paper px-3 py-3 text-ink">
-                {productOptions.map((product) => (
-                  <option key={product.id} value={product.id}>
-                    {product.nombre}{product.id === recommendedProducts[0]?.id ? " (mejor match)" : recommendedIds.has(product.id) ? " (alternativa)" : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <BrandProductFields brands={brands} products={products} brandId={selectedBrandId} productId={suggestedProductId} dark />
             <label className="grid gap-2 text-sm font-semibold text-paper/80">
               Voz
               <select name="personaId" defaultValue={suggestedPersonaId} className="w-full rounded-md border border-white/15 bg-paper px-3 py-3 text-ink">

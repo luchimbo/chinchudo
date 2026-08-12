@@ -520,6 +520,27 @@ export async function generateResponseDrafts(formData: FormData) {
   revalidatePath(`/opportunities/${opportunityId}`);
 }
 
+const manualResponseSchema = z.object({
+  opportunityId: z.string().min(1), brandId: z.string().min(1), productId: z.string().optional(),
+  personaId: z.string().min(1), editedText: z.string().trim().min(3).max(4000),
+});
+
+export async function createManualResponse(formData: FormData) {
+  const parsed = manualResponseSchema.parse({ opportunityId: formData.get("opportunityId"), brandId: formData.get("brandId"), productId: formData.get("productId") || undefined, personaId: formData.get("personaId"), editedText: formData.get("editedText") });
+  const opportunity = await prisma.opportunity.findUniqueOrThrow({ where: { id: parsed.opportunityId }, include: { channel: true, detectedBrand: { include: { client: true } }, detectedProduct: true, monitoredSource: { include: { client: true } } } });
+  if (["PUBLISHED", "CONVERTED", "FOLLOW_UP"].includes(opportunity.status)) throw new Error("Esta oportunidad ya fue respondida.");
+  const resolution = await resolveOpportunityClient(prisma, opportunity);
+  const [brand, persona, product] = await Promise.all([
+    prisma.brand.findUniqueOrThrow({ where: { id: parsed.brandId } }),
+    prisma.persona.findUniqueOrThrow({ where: { id: parsed.personaId } }),
+    parsed.productId ? prisma.product.findUnique({ where: { id: parsed.productId } }) : Promise.resolve(null),
+  ]);
+  if ((brand.clientId && brand.clientId !== resolution.client.id) || (persona.clientId && persona.clientId !== resolution.client.id) || (product && product.brandId !== brand.id)) throw new Error("Marca, producto y voz no pertenecen al cliente seleccionado.");
+  await prisma.response.create({ data: { opportunityId: opportunity.id, brandId: brand.id, personaId: persona.id, variantType: "CONVERSATIONAL", draftText: parsed.editedText, editedText: parsed.editedText, approvedBy: "" } });
+  await prisma.opportunity.update({ where: { id: opportunity.id }, data: { detectedBrandId: brand.id, detectedProductId: product?.id ?? null, status: OpportunityStatus.DRAFTED } });
+  revalidatePath(`/opportunities/${opportunity.id}`);
+}
+
 const approveResponseSchema = z.object({
   responseId: z.string().min(1),
   opportunityId: z.string().min(1),
