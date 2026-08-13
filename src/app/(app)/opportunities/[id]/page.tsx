@@ -79,6 +79,7 @@ function getPersonaDisplayName(name: string, _clientSlug?: string | null) {
 }
 
 const agentErrorMessages: Record<string, string> = {
+  thread_archived: "El post esta archivado y Reddit ya no permite publicar nuevos comentarios en este hilo. Busca una publicacion activa o descarta esta oportunidad.",
   no_comment_box: "No se encontró el cuadro de comentario. Asegurate de que YouTube esté logueado en el perfil y que los comentarios estén habilitados en ese video.",
   no_input_box: "No se pudo activar el campo de texto del comentario.",
   no_submit_button: "Se escribió el comentario pero no se encontró el botón de enviar.",
