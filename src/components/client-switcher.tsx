@@ -41,7 +41,7 @@ export function ClientSwitcher({ clients }: { clients: ClientOption[] }) {
           className="h-2.5 w-2.5 rounded-full"
           style={{ backgroundColor: colorFor(active.slug) }}
         />
-        <span className="hidden text-[10px] font-bold uppercase tracking-[0.18em] text-slate/60 sm:inline">Cliente</span>
+        <span className="hidden text-[10px] font-bold uppercase tracking-[0.18em] text-slate/60 sm:inline">Usuario</span>
         <select
           value={active.slug}
           onChange={(e) => switchClient(e.target.value)}
