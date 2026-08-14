@@ -226,6 +226,31 @@ def start_nstbrowser_profile(config: dict) -> dict:
         launch_config["config"]["headless"] = True
 
     try:
+        # NSTBrowser devuelve WinError 10054 si se intenta iniciar de nuevo
+        # un perfil que ya está corriendo. Reutilizar la sesión existente evita
+        # cortar el CDP que usan otros agentes.
+        running_response = nstbrowser_request(f"{base}/browsers", method="GET")
+        running_items = running_response.get("data", []) if isinstance(running_response, dict) else []
+        running = next(
+            (item for item in running_items if item.get("profileId") == profile_id and item.get("running")),
+            None,
+        )
+        if running and running.get("remoteDebuggingPort"):
+            port = int(running["remoteDebuggingPort"])
+            version = json_get(f"http://127.0.0.1:{port}/json/version")
+            ws_endpoint = version.get("webSocketDebuggerUrl", "") if isinstance(version, dict) else ""
+            save_runtime_for(config["id"], {
+                "provider": "nstbrowser", "profile_id": profile_id,
+                "port": port, "wsEndpoint": ws_endpoint, "api_base": base,
+            })
+            return {
+                "account": config["id"], "label": config.get("label", config["id"]),
+                "browser_provider": "nstbrowser", "nstbrowser_profile_id": profile_id,
+                "nstbrowser_api_base": base,
+                "reused": True,
+                "automation": {"port": port, "wsEndpoint": ws_endpoint},
+                "cdp_url": f"http://127.0.0.1:{port}",
+            }
         response = nstbrowser_request(f"{base}/browsers/{profile_id}", method="POST", data=launch_config)
     except Exception as err:
         raise RuntimeError(
