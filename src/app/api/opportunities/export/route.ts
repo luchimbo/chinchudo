@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { getVisibleClients } from "@/lib/auth";
 import { opportunityStatuses } from "@/lib/labels";
 
-const OPEN_STATUSES = ["NEW", "NEEDS_REVIEW", "DRAFTED", "APPROVED", "FOLLOW_UP"] as const;
+const OPEN_STATUSES = ["NEW", "NEEDS_REVIEW", "DRAFTED", "APPROVED"] as const;
 const MAX_ROWS = 5000;
 
 function csvCell(value: unknown): string {

@@ -8,7 +8,7 @@ import { getVisibleClients } from "@/lib/auth";
 const PAGE_SIZE = 12;
 
 // "Historial" = todo lo que ya fue respondido (publicado o convertido).
-const RESPONDED_STATUSES = ["PUBLISHED", "CONVERTED"] as const;
+const RESPONDED_STATUSES = ["PUBLISHED", "FOLLOW_UP", "CONVERTED"] as const;
 
 type PageProps = {
   searchParams: { channel?: string; q?: string; page?: string; client?: string; sort?: string };

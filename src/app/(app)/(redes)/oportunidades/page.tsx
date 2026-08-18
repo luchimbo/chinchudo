@@ -11,7 +11,7 @@ const PAGE_SIZE = 12;
 
 // "Oportunidades" = tienen al menos un borrador de respuesta generado y siguen abiertas
 // (no publicadas / convertidas / descartadas). Es el trabajo del día.
-const OPEN_STATUSES = ["NEW", "NEEDS_REVIEW", "DRAFTED", "APPROVED", "FOLLOW_UP"] as const;
+const OPEN_STATUSES = ["NEW", "NEEDS_REVIEW", "DRAFTED", "APPROVED"] as const;
 
 type PageProps = {
   searchParams: { channel?: string; q?: string; page?: string; client?: string; sort?: string; status?: string; brand?: string };
