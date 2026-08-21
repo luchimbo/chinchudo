@@ -9,6 +9,7 @@ export function getIssueSector(originPath: string): string {
   if (pathname === "/") return "Inicio";
   if (pathname.startsWith("/landings") || pathname.startsWith("/leads")) return "Creador de landings";
   if (pathname.startsWith("/videos")) return "Tendencias y guiones";
+  if (pathname.startsWith("/tendencias")) return "Tendencias";
   if (["/oportunidades", "/bitacora", "/historial", "/distribution", "/actividad", "/redes"].some((path) => pathname.startsWith(path))) return "Publicador en Redes";
   if (["/analytics", "/informe", "/geo"].some((path) => pathname.startsWith(path))) return "Analíticas";
   if (["/configuracion", "/brands", "/products", "/personas", "/prompts", "/knowledge", "/clients"].some((path) => pathname.startsWith(path))) return "Configuración";

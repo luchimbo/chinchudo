@@ -91,6 +91,7 @@ export default async function HomePage({ searchParams }: PageProps) {
               ["Copiloto CM", "/copiloto"],
               ["Crear landing", "/landings/editor"],
               ["Tendencias y guiones", "/videos"],
+              ["Tendencias", "/tendencias"],
               ["Analíticas detalladas", "/analytics"],
             ].map(([label, href]) => (
               <Link key={href} href={withClient(href)} className="flex items-center justify-between rounded-lg border border-paper/15 px-3 py-3 text-sm font-semibold transition hover:border-brass hover:bg-paper/10">
