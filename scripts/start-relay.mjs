@@ -58,41 +58,79 @@ relay.on("error", (err) => {
 // Esperar que el relay levante
 await new Promise((r) => setTimeout(r, 1500));
 
-// 2) Arrancar cloudflared tunnel y detectar URL automáticamente
-console.log(`[start-relay] Arrancando cloudflared tunnel...`);
-const tunnel = spawn(
-  "cloudflared",
-  ["tunnel", "--url", `http://127.0.0.1:${PORT}`],
-  { cwd: ROOT, env: process.env }
-);
+// 2) Arrancar cloudflared tunnel y detectar URL automáticamente.
+// Si cloudflared termina (por ejemplo, por un fallo DNS), se relanza
+// automáticamente sin tener que reiniciar el relay.
+let tunnel = null;
+let shuttingDown = false;
+let retryTimer = null;
+let retryDelayMs = 5_000;
 
-tunnel.stdout.on("data", (data) => process.stdout.write(data));
+function startTunnel() {
+  if (shuttingDown || tunnel) return;
 
-tunnel.stderr.on("data", async (data) => {
-  const text = data.toString();
-  process.stderr.write(text);
-  // api.trycloudflare.com aparece en los logs de registro/errores de cloudflared
-  // y NO es la URL del túnel: hay que descartarla explícitamente.
-  const match = text.match(/https:\/\/(?!api\.)[a-z0-9\-]+\.trycloudflare\.com/);
-  if (match) {
-    await updateRelayUrl(match[0]);
-  }
-});
+  console.log(`[start-relay] Arrancando cloudflared tunnel...`);
+  const child = spawn(
+    "cloudflared",
+    ["tunnel", "--url", `http://127.0.0.1:${PORT}`],
+    { cwd: ROOT, env: process.env }
+  );
+  tunnel = child;
 
-tunnel.on("error", (err) => {
-  console.error("[start-relay] Error arrancando tunnel:", err.message);
-});
+  child.stdout.on("data", (data) => process.stdout.write(data));
+
+  child.stderr.on("data", async (data) => {
+    const text = data.toString();
+    process.stderr.write(text);
+    // api.trycloudflare.com aparece en los logs de registro/errores de
+    // cloudflared y NO es la URL pública del túnel.
+    const match = text.match(/https:\/\/(?!api\.)[a-z0-9\-]+\.trycloudflare\.com/);
+    if (match) {
+      retryDelayMs = 5_000;
+      try {
+        await updateRelayUrl(match[0]);
+      } catch (err) {
+        console.error("[start-relay] No se pudo actualizar la URL en DB:", err.message);
+      }
+    }
+  });
+
+  child.on("error", (err) => {
+    console.error("[start-relay] Error arrancando tunnel:", err.message);
+  });
+
+  child.on("exit", (code, signal) => {
+    tunnel = null;
+    if (shuttingDown) return;
+
+    console.error(
+      `[start-relay] cloudflared terminó (code=${code ?? "n/a"}, signal=${signal ?? "n/a"}). ` +
+        `Reintentando en ${retryDelayMs / 1000}s...`
+    );
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      startTunnel();
+    }, retryDelayMs);
+    retryDelayMs = Math.min(retryDelayMs * 2, 30_000);
+  });
+}
+
+startTunnel();
 
 // Apagar todo junto al salir
 process.on("SIGINT", () => {
   console.log("\n[start-relay] Cerrando relay y tunnel...");
+  shuttingDown = true;
+  if (retryTimer) clearTimeout(retryTimer);
   relay.kill();
-  tunnel.kill();
+  tunnel?.kill();
   process.exit(0);
 });
 
 process.on("SIGTERM", () => {
+  shuttingDown = true;
+  if (retryTimer) clearTimeout(retryTimer);
   relay.kill();
-  tunnel.kill();
+  tunnel?.kill();
   process.exit(0);
 });
