@@ -160,6 +160,12 @@ function selectScopedProducts(
   });
 
   const sorted = scored.sort((a, b) => {
+    // Cuando existe un producto detectado/elegido, es el ancla del contexto.
+    // Sus coincidencias con el texto no deben ser desplazadas por otro modelo
+    // que el comentario pueda mencionar al pasar.
+    const aIsDetected = a.product.id === detectedProduct?.id;
+    const bIsDetected = b.product.id === detectedProduct?.id;
+    if (aIsDetected !== bIsDetected) return aIsDetected ? -1 : 1;
     if (b.score !== a.score) return b.score - a.score;
     return a.product.name.localeCompare(b.product.name);
   });

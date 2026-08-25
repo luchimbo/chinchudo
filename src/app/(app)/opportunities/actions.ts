@@ -360,6 +360,10 @@ export async function generateResponseDrafts(formData: FormData) {
   const opportunityId = idSchema.parse(formData.get("opportunityId"));
   const personaId = idSchema.parse(formData.get("personaId"));
   const brandId = idSchema.parse(formData.get("brandId"));
+  // Los formularios de la pantalla de oportunidad siempre envían este campo,
+  // incluso si se eligió "Sin producto específico". Las acciones internas
+  // (por ejemplo Copiloto) pueden omitirlo para conservar el producto detectado.
+  const hasExplicitProductSelection = formData.has("productId");
   const productId = (formData.get("productId") || "") as string;
 
   const [opportunity, persona, brand, selectedProduct] = await Promise.all([
@@ -399,8 +403,12 @@ export async function generateResponseDrafts(formData: FormData) {
     ...opportunity,
     detectedBrandId: brandId,
     detectedBrand: brand,
-    detectedProductId: selectedProduct?.id ?? opportunity.detectedProductId,
-    detectedProduct: selectedProduct ?? opportunity.detectedProduct,
+    detectedProductId: hasExplicitProductSelection
+      ? (selectedProduct?.id ?? null)
+      : (selectedProduct?.id ?? opportunity.detectedProductId),
+    detectedProduct: hasExplicitProductSelection
+      ? selectedProduct
+      : (selectedProduct ?? opportunity.detectedProduct),
   };
 
   const [{ knowledge, objections }, activeSystemPrompt, clientMemories] = await Promise.all([
@@ -452,7 +460,13 @@ export async function generateResponseDrafts(formData: FormData) {
     persona,
     brand,
     client: resolution.client,
-    catalogProducts: clientContext.catalogProducts.filter((p) => p.brandId === brandId),
+    // Una elección manual es autoritativa: no volvemos a rankear el catálogo
+    // con el texto original, porque podría imponerse un producto mencionado
+    // previamente (por ejemplo KeyLab) sobre el que eligió el operador
+    // (por ejemplo MiniFuse).
+    catalogProducts: hasExplicitProductSelection
+      ? (selectedProduct ? [selectedProduct] : [])
+      : clientContext.catalogProducts.filter((p) => p.brandId === brandId),
     catalogRules: clientContext.catalogRules,
     knowledge,
     objections,

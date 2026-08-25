@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { catalogRuleMatches, resolveOpportunityClient } from "../client-context";
+import { selectRelevantProducts } from "../catalog";
 import { detectCrossClientTerms, validateClientScopedActors } from "../guardrails";
 import { generateLocalDrafts } from "../draft-generator";
 
@@ -74,6 +75,20 @@ describe("catalogRuleMatches", () => {
       { category: "compresion", keywords: JSON.stringify(["compresion", "15-20"]) },
     ]);
     expect(matches).toEqual(["running", "compresion"]);
+  });
+});
+
+describe("selección explícita de producto", () => {
+  it("mantiene el producto elegido primero aunque el comentario nombre otro modelo", () => {
+    const minifuse = { id: "minifuse-4", name: "MiniFuse 4", category: "interfaces-audio", description: "Interfaz de audio", useCases: "Grabación", technicalSpecs: "", brand: { name: "Arturia" } } as any;
+    const keylab = { id: "keylab-49", name: "KeyLab Essential 49", category: "controladores-midi", description: "Controlador MIDI", useCases: "Ableton", technicalSpecs: "", brand: { name: "Arturia" } } as any;
+
+    const products = selectRelevantProducts("Busco un KeyLab Essential 49 para Ableton", minifuse, 5, {
+      catalogProducts: [minifuse, keylab],
+      scoped: true,
+    });
+
+    expect(products[0]?.id).toBe("minifuse-4");
   });
 });
 

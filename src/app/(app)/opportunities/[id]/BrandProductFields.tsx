@@ -20,7 +20,11 @@ export function BrandProductFields({ brands, products, brandId, productId, dark 
   return <>
     <label className={`grid gap-2 text-sm font-semibold ${label}`}>
       Marca
-      <select name="brandId" value={selectedBrand} onChange={(event) => { setSelectedBrand(event.target.value); setSelectedProduct(""); }} className="w-full rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink">
+      <select name="brandId" value={selectedBrand} onChange={(event) => {
+        const nextBrandId = event.target.value;
+        setSelectedBrand(nextBrandId);
+        setSelectedProduct(products.find((product) => product.brandId === nextBrandId)?.id ?? "");
+      }} className="w-full rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink">
         {brands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
       </select>
     </label>
