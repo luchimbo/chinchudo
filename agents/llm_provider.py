@@ -14,7 +14,9 @@ from pathlib import Path
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 LOCAL_DEFAULT_BASE_URL = "http://127.0.0.1:11434/v1"
-LOCAL_DEFAULT_MODEL = "qwen2.5:32b"
+# Modelo disponible en el servidor Ollama compartido. El entorno puede
+# reemplazarlo para una instalación local diferente.
+LOCAL_DEFAULT_MODEL = "qwen3.8:latest"
 
 
 def load_env() -> None:
@@ -95,6 +97,10 @@ def chat(system: str, user: str, requested_model: str = "", temperature: float =
     }
     if max_tokens:
         payload["max_tokens"] = max_tokens
+    # Qwen/Gemma pueden consumir la respuesta completa en razonamiento y dejar
+    # `content` vacío. Los agentes requieren texto o JSON publicable.
+    if settings["provider"] == "local":
+        payload["think"] = False
     headers = {
         "Authorization": f"Bearer {settings['api_key']}",
         "Content-Type": "application/json",

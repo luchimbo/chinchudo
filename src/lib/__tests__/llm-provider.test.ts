@@ -11,15 +11,15 @@ afterEach(() => {
 describe("resolveLLMConfig", () => {
   it("uses the local OpenAI-compatible endpoint without client OpenRouter overrides", () => {
     process.env.LLM_PROVIDER = "local";
-    process.env.LLM_BASE_URL = "http://192.168.1.200:11434/v1/";
-    process.env.LLM_MODEL = "qwen2.5:32b";
+    process.env.LLM_BASE_URL = "http://192.168.1.104:11434/v1/";
+    process.env.LLM_MODEL = "qwen3.8:latest";
     process.env.LLM_API_KEY = "ollama";
 
     expect(resolveLLMConfig({ openrouterModel: "remote/model", openrouterApiKey: "remote-key" })).toEqual({
       provider: "local",
-      baseUrl: "http://192.168.1.200:11434/v1",
-      endpoint: "http://192.168.1.200:11434/v1/chat/completions",
-      model: "qwen2.5:32b",
+      baseUrl: "http://192.168.1.104:11434/v1",
+      endpoint: "http://192.168.1.104:11434/v1/chat/completions",
+      model: "qwen3.8:latest",
       apiKey: "ollama",
     });
   });

@@ -15,7 +15,9 @@ export type LLMConfig = {
 
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const LOCAL_DEFAULT_BASE_URL = "http://127.0.0.1:11434/v1";
-const LOCAL_DEFAULT_MODEL = "qwen2.5:32b";
+// Modelo disponible en el servidor Ollama compartido. Se puede sobrescribir
+// por entorno para otra instalación compatible con OpenAI.
+const LOCAL_DEFAULT_MODEL = "qwen3.8:latest";
 
 type ProviderMode = LLMProvider | "schedule";
 
