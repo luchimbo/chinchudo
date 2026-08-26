@@ -115,6 +115,7 @@ model Client {
   supportSessions        SupportSession[]
   adminAuditEvents       AdminAuditEvent[]
   memories               ClientMemory[]
+  onboarding             ClientOnboarding?
 }
 
 model BrandSnapshot {
@@ -140,6 +141,7 @@ model User {
   id           String   @id @default(cuid())
   email        String   @unique
   passwordHash String
+  authUserId   String?  @unique @db.Uuid
   name         String
   role         String   @default("operator") // "admin" | "operator"
   clientId     String
@@ -476,6 +478,32 @@ model ClientMemory {
   @@index([opportunityId])
   @@index([responseId])
   @@unique([responseId, source])
+}
+
+enum OnboardingStatus {
+  NOT_STARTED
+  ANALYZING
+  IN_REVIEW
+  COMPLETED
+}
+
+/// Estado durable del alta autoservicio. `draft` conserva propuestas de IA
+/// hasta que el administrador las revisa y confirma.
+model ClientOnboarding {
+  id            String           @id @default(cuid())
+  clientId      String           @unique
+  status        OnboardingStatus @default(NOT_STARTED)
+  currentStep   Int              @default(1)
+  sourceUrl     String           @default("")
+  businessType  String           @default("")
+  draft         Json             @default("{}")
+  analysisError String           @default("")
+  completedAt   DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  client        Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([status])
 }
 
 model PublishingLog {

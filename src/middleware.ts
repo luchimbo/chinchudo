@@ -87,6 +87,12 @@ async function supportSessionIsActive(id: string, clientId: string): Promise<boo
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // Muestra el recorrido sin datos persistentes exclusivamente durante el
+  // desarrollo local. En producción la ruta queda protegida por sesión.
+  if (pathname === "/onboarding" && process.env.NODE_ENV !== "production") {
+    return NextResponse.next();
+  }
+
   // Rutas públicas: login, registro y APIs de auth
   if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
     return NextResponse.next();

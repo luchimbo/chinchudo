@@ -31,7 +31,7 @@ export default function RegisterPage() {
       }
 
       // Registro exitoso, redirigir al onboarding de configuración
-      router.push("/configuracion");
+      router.push("/onboarding");
       router.refresh();
     } catch (err) {
       setError((err as Error).message);

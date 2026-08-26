@@ -11,6 +11,7 @@ const GROUPS: Group[] = [
   {
     title: "Negocio",
     cards: [
+      { href: "/onboarding", title: "Revisar configuración inicial", desc: "Actualizar la marca, el tono, los conocimientos y las redes elegidas." },
       { href: "/configuracion/identidad", title: "Identidad e IA", desc: "Nombre, descripción, temas del negocio y modelo de IA." },
       { href: "/brands", title: "Marcas", desc: "Posicionamiento, tono y claims permitidos/prohibidos." },
       { href: "/products", title: "Productos", desc: "Catálogo: specs, garantía, stock y precio." },
@@ -55,7 +56,7 @@ export default async function ConfiguracionPage({
               {group.cards.map((card) => (
                 <Link
                   key={card.href}
-                  href={`${card.href}${q}`}
+                  href={card.href === "/onboarding" ? card.href : `${card.href}${q}`}
                   className="group flex flex-col gap-2 rounded-xl border border-ink/10 bg-paper p-5 transition hover:border-ink/25 hover:shadow-sm"
                 >
                   <h2 className="font-semibold text-ink">{card.title}</h2>
