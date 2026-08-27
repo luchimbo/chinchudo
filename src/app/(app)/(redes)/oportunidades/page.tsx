@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { FilterBar } from "@/components/filter-bar";
@@ -39,6 +40,12 @@ function canonicalOpportunityUrl(sourceUrl: string) {
 }
 
 export default async function OportunidadesPage({ searchParams }: PageProps) {
+  // La vista operativa vive en Copiloto: muestra cada oportunidad junto a su
+  // borrador y evita el paso intermedio "Ver post". Conservamos este endpoint
+  // para que bookmarks y enlaces internos existentes sigan funcionando.
+  const clientQuery = searchParams.client ? `?client=${encodeURIComponent(searchParams.client)}` : "";
+  redirect(`/copiloto${clientQuery}`);
+
   const [channelsList, clients] = await Promise.all([
     prisma.channel.findMany({ orderBy: { name: "asc" } }),
     getVisibleClients(prisma),
@@ -54,7 +61,7 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
   const page = Math.max(1, Number(searchParams.page) || 1);
   const sort = searchParams.sort === "oldest" ? "oldest" : "newest";
   const validStatus = opportunityStatuses.includes(searchParams.status as any)
-    ? searchParams.status
+    ? (searchParams.status ?? "")
     : "";
 
   const where: Prisma.OpportunityWhereInput = {
