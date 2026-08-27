@@ -37,7 +37,7 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
     ...(selectedResponse ? { responses: { some: {} } } : {}),
   };
 
-  const [opportunities, pulse, twitterConversations] = await Promise.all([
+  const [opportunities, pulse, twitterConversations, youtubeConnection] = await Promise.all([
     activeClient
       ? prisma.opportunity.findMany({
           where,
@@ -76,6 +76,9 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
           take: 3,
         })
       : Promise.resolve([]),
+    activeClient
+      ? prisma.youTubeConnection.findFirst({ where: { clientId: activeClient.id }, select: { account: true, channelTitle: true } })
+      : Promise.resolve(null),
   ]);
   const pulseSignals = selectCopilotPulse([
     ...pulse.map((signal) => ({
@@ -108,6 +111,11 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
   return (
     <CopilotWorkspace
       activeClient={activeClient ? { slug: activeClient.slug, name: activeClient.name } : null}
+      youtube={activeClient ? {
+        account: youtubeConnection?.account ?? "youtube-principal",
+        connected: Boolean(youtubeConnection),
+        channelTitle: youtubeConnection?.channelTitle ?? "",
+      } : null}
       activeView={activeView}
       filters={{ brands: brands.map((brand) => ({ id: brand.id, name: brand.name })), channels: channels.map((channel) => ({ id: channel.id, name: channel.name })), selectedBrand: selectedBrand ?? "", selectedChannel: selectedChannel ?? "", selectedResponse, selectedSort }}
       pulse={pulseSignals}

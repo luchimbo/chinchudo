@@ -2,7 +2,6 @@
 
 import { checkPublishRateLimits, closeSiblingOpportunities, runPublisher } from "@/lib/publish-agent";
 import { execFileSync } from "child_process";
-import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -27,6 +26,7 @@ import { loadRelevantCompetitorEvidence } from "@/lib/competitor-evidence";
 import { selectVoiceVariant } from "@/lib/persona-router";
 import { chatRefinementStep, compileResponseFromChat, type ChatMessage } from "@/lib/refine-draft";
 import { addClientMemory, deleteClientMemory, extractLearningFromChat, getClientMemories } from "@/lib/client-memory";
+import { publishYouTubeComment } from "@/lib/youtube-publisher";
 
 const createOpportunitySchema = z.object({
   channelId: z.string().min(1),
@@ -255,6 +255,80 @@ export async function markCopilotResponse(formData: FormData) {
     }),
   ]);
   revalidatePath("/copiloto");
+}
+
+const copilotYouTubePublishSchema = z.object({
+  opportunityId: z.string().min(1),
+  responseId: z.string().min(1),
+  editedText: z.string().min(3).max(COPILOT_MAX_CHARACTERS),
+  account: z.string().min(1).max(120),
+  wasEdited: z.enum(["true", "false"]).default("false"),
+});
+
+/** Publicación oficial desde el Copiloto: aprueba y publica en una sola acción. */
+export async function publishCopilotYouTubeResponse(formData: FormData) {
+  const parsed = copilotYouTubePublishSchema.parse({
+    opportunityId: formData.get("opportunityId"),
+    responseId: formData.get("responseId"),
+    editedText: formData.get("editedText"),
+    account: formData.get("account"),
+    wasEdited: formData.get("wasEdited") || "false",
+  });
+
+  const [opportunity, response] = await Promise.all([
+    prisma.opportunity.findUniqueOrThrow({
+      where: { id: parsed.opportunityId },
+      include: { channel: true },
+    }),
+    prisma.response.findUniqueOrThrow({ where: { id: parsed.responseId } }),
+  ]);
+  if (response.opportunityId !== opportunity.id) throw new Error("La respuesta no corresponde a esta oportunidad.");
+  if (!opportunity.clientId) throw new Error("La oportunidad debe pertenecer a un cliente antes de publicar.");
+  await assertClientAccess(prisma, opportunity.clientId);
+  if (opportunity.channel.name.toLowerCase() !== "youtube") throw new Error("Este botón solo publica oportunidades de YouTube.");
+  if (["PUBLISHED", "CONVERTED", "FOLLOW_UP"].includes(opportunity.status)) throw new Error("Esta oportunidad ya fue publicada.");
+
+  const rateLimit = await checkPublishRateLimits(prisma, parsed.account);
+  if (!rateLimit.ok) {
+    throw new Error(rateLimit.error === "rate_limited_daily" ? "Límite diario alcanzado para esta cuenta." : "Esperá antes de volver a publicar con esta cuenta.");
+  }
+  const result = await publishYouTubeComment({
+    prisma,
+    clientId: opportunity.clientId,
+    account: parsed.account,
+    sourceUrl: opportunity.sourceUrl,
+    text: parsed.editedText,
+  });
+  if (!result.success) throw new Error(`No se pudo publicar en YouTube: ${result.error}`);
+
+  const currentContext = opportunity.contextAssessment && typeof opportunity.contextAssessment === "object"
+    ? opportunity.contextAssessment as Record<string, unknown>
+    : {};
+  const currentCopilot = currentContext.copilot && typeof currentContext.copilot === "object"
+    ? currentContext.copilot as Record<string, unknown>
+    : {};
+  await prisma.$transaction([
+    prisma.response.updateMany({ where: { opportunityId: opportunity.id, id: { not: response.id } }, data: { isPrimary: false } }),
+    prisma.response.update({ where: { id: response.id }, data: { editedText: parsed.editedText, approvedBy: "CM", isPrimary: true } }),
+    prisma.publishingLog.upsert({
+      where: { responseId: response.id },
+      update: { account: parsed.account, publishedUrl: result.url, remoteId: result.remoteId, publishMethod: result.method, result: result.method, followUpNeeded: false },
+      create: { opportunityId: opportunity.id, responseId: response.id, account: parsed.account, publishedUrl: result.url, remoteId: result.remoteId, publishMethod: result.method, result: result.method, followUpNeeded: false },
+    }),
+    prisma.opportunity.update({
+      where: { id: opportunity.id },
+      data: {
+        status: OpportunityStatus.PUBLISHED,
+        contextAssessment: {
+          ...currentContext,
+          copilot: { ...currentCopilot, responseId: response.id, respondedAt: new Date().toISOString(), wasEdited: parsed.wasEdited === "true" },
+        },
+      },
+    }),
+  ]);
+  await closeSiblingOpportunities(prisma, opportunity.id, opportunity.channelId, opportunity.sourceUrl, "youtube");
+  revalidatePath("/copiloto");
+  revalidatePath(`/opportunities/${opportunity.id}`);
 }
 
 const copilotDiscardSchema = z.object({
@@ -790,7 +864,8 @@ const publishSchema = z.object({
   opportunityId: z.string().min(1),
   responseId: z.string().min(1),
   publishedUrl: z.string().url().optional().or(z.literal("")),
-  result: z.string().min(1).max(80).default("published"),
+  result: z.enum(["manual_meta", "manual", "published"]).default("manual"),
+  account: z.string().max(120).optional(),
   followUpNeeded: z.string().optional()
 });
 
@@ -799,7 +874,8 @@ export async function markAsPublished(formData: FormData) {
     opportunityId: formData.get("opportunityId"),
     responseId: formData.get("responseId"),
     publishedUrl: formData.get("publishedUrl") || "",
-    result: formData.get("result") || "published",
+    result: formData.get("result") || "manual",
+    account: formData.get("account") || "",
     followUpNeeded: formData.get("followUpNeeded") || ""
   });
 
@@ -837,6 +913,8 @@ export async function markAsPublished(formData: FormData) {
       update: {
         publishedUrl: parsed.publishedUrl,
         result: parsed.result,
+        publishMethod: parsed.result === "manual_meta" ? "manual_meta" : "manual",
+        account: parsed.account || undefined,
         followUpNeeded: parsed.followUpNeeded === "on"
       },
       create: {
@@ -844,6 +922,8 @@ export async function markAsPublished(formData: FormData) {
         responseId: parsed.responseId,
         publishedUrl: parsed.publishedUrl,
         result: parsed.result,
+        publishMethod: parsed.result === "manual_meta" ? "manual_meta" : "manual",
+        account: parsed.account,
         followUpNeeded: parsed.followUpNeeded === "on"
       }
     }),
@@ -977,11 +1057,11 @@ export async function publishViaAgent(formData: FormData) {
   const [opportunity, response] = await Promise.all([
     prisma.opportunity.findUniqueOrThrow({
       where: { id: parsed.opportunityId },
-      select: { status: true }
+      select: { status: true, clientId: true, channelId: true, sourceUrl: true, channel: { select: { name: true } } }
     }),
     prisma.response.findFirst({
       where: { id: parsed.responseId, opportunityId: parsed.opportunityId },
-      select: { id: true },
+      select: { id: true, approvedBy: true, editedText: true, draftText: true },
     }),
   ]);
 
@@ -993,6 +1073,24 @@ export async function publishViaAgent(formData: FormData) {
     throw new Error("La oportunidad ya está publicada/respondida y no se puede publicar de nuevo.");
   }
 
+  if (!response.approvedBy) {
+    throw new Error("Aprobá el borrador antes de publicarlo.");
+  }
+
+  const channel = opportunity.channel.name.toLowerCase();
+  if (channel === "facebook" || channel === "instagram") {
+    throw new Error("Meta requiere publicación manual asistida: copiá el texto, abrí el post y confirmá después de publicarlo.");
+  }
+  if (channel !== "youtube") {
+    throw new Error("La publicación automática oficial está habilitada únicamente para YouTube.");
+  }
+  if (!opportunity.clientId) {
+    throw new Error("La oportunidad debe pertenecer a un cliente antes de publicar.");
+  }
+  if (!parsed.account) {
+    throw new Error("Elegí la cuenta de YouTube autorizada para publicar.");
+  }
+
   // La publicación directa puede partir de un texto editado en la tarjeta. Se persiste
   // antes de enviar la tarea al relay para que el agente publique exactamente ese texto.
   if (parsed.editedText) {
@@ -1002,120 +1100,36 @@ export async function publishViaAgent(formData: FormData) {
     });
   }
 
-  const relayUrl = await getRelayUrl();
-  const relayToken = process.env.AGENT_RELAY_TOKEN;
-
-  let agentError: string | null = null;
-
-  let agentPending = false;
-  const attemptId = randomUUID();
-
-  if (relayUrl && relayToken) {
-    // Path remoto: fire-and-forget al relay (Vercel tiene timeout corto, el relay procesa en background)
-    try {
-      const resp = await fetch(`${relayUrl.trim()}/publish`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${relayToken.trim()}`, // trim() por si tiene \r\n del echo de Windows
-          "Bypass-Tunnel-Reminder": "true"
-        },
-        body: JSON.stringify({
-          opportunityId: parsed.opportunityId,
-          responseId: parsed.responseId,
-          account: parsed.account ?? "",
-          attemptId,
-        }),
-        signal: AbortSignal.timeout(10_000)
-      });
-      if (resp.status === 202) {
-        agentPending = true; // flag fuera del try para que redirect() no quede dentro del catch
-      } else if (!resp.ok) {
-        const body = await resp.json().catch(() => ({}));
-        agentError = (body as { error?: string }).error ?? `relay_http_${resp.status}`;
-        logger.warn("publishViaAgent", "Relay respondio con error", { status: resp.status, agentError }).catch(() => {});
-      }
-    } catch (err: unknown) {
-      const raw = err instanceof Error ? err.message : String(err);
-      // Normalizar el error genérico de fetch de Node a un código utilizable.
-      if (/fetch\s*failed|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|network\s*error/i.test(raw)) {
-        agentError = "relay_fetch_failed";
-      } else {
-        agentError = "relay_fetch_failed";
-      }
-      logger.warn("publishViaAgent", "Error conectando al relay", { error: raw }).catch(() => {});
-    }
-  } else if (process.env.VERCEL || !process.env.AGENT_RELAY_TOKEN) {
-    // En Vercel/u entorno serverless sin relay configurado no podemos spawnar el agente local.
-    agentError = "relay_not_configured";
-    logger.warn("publishViaAgent", "Relay no configurado", { relayUrl, hasToken: !!relayToken }).catch(() => {});
-  } else {
-    // Path local: spawn directo (desarrollo o servidor local)
-    const args = [
-      "scripts/publish-response.mjs",
-      "--opportunity-id", parsed.opportunityId,
-      "--response-id", parsed.responseId
-    ];
-    if (parsed.account) args.push("--account", parsed.account);
-
-    try {
-      const raw = execFileSync("node", args, { cwd: process.cwd(), encoding: "utf-8" });
-      const result = JSON.parse(raw.trim().split("\n").pop() ?? "{}");
-      if (!result.success) {
-        agentError = result.error ?? "unknown";
-      }
-    } catch (err: unknown) {
-      const stdout = (err as { stdout?: string }).stdout ?? "";
-      const msg = (err instanceof Error ? err.message : String(err)) + "\n" + stdout;
-      const match = msg.match(/"error"\s*:\s*"([^"]+)"/);
-      agentError = match ? match[1] : "publish_failed";
-      logger.warn("publishViaAgent", "Error al publicar via agente", { error: agentError }).catch(() => {});
-    }
+  const rateLimit = await checkPublishRateLimits(prisma, parsed.account);
+  if (!rateLimit.ok) {
+    throw new Error(rateLimit.error === "rate_limited_daily" ? "Límite diario alcanzado para esta cuenta." : "Esperá antes de volver a publicar con esta cuenta.");
   }
 
-  // Extraer y guardar aprendizaje si hubo chat de refinimiento
-  const responseWithData = await prisma.response.findUnique({
-    where: { id: parsed.responseId },
-    include: { opportunity: true, brand: true },
+  const publishedText = parsed.editedText || response.editedText || response.draftText;
+  const officialResult = await publishYouTubeComment({
+    prisma,
+    clientId: opportunity.clientId,
+    account: parsed.account,
+    sourceUrl: opportunity.sourceUrl,
+    text: publishedText,
   });
-  if (responseWithData && responseWithData.opportunity?.clientId) {
-    const chatHistory = (responseWithData.chatHistory as ChatMessage[] | undefined) ?? [];
-    if (chatHistory.length > 0) {
-      const finalText = responseWithData.editedText || responseWithData.draftText;
-      const learning = await extractLearningFromChat({
-        opportunityText: responseWithData.opportunity.sourceText,
-        finalResponseText: finalText,
-        chatHistory: chatHistory.map((m) => ({ sender: m.sender, text: m.text })),
-        brandName: responseWithData.brand?.name ?? "",
-      });
-      if (learning) {
-        await addClientMemory(prisma, {
-          clientId: responseWithData.opportunity.clientId,
-          rule: learning.rule,
-          summary: learning.summary,
-          category: learning.category,
-          source: "chat_refinement",
-          opportunityId: parsed.opportunityId,
-          responseId: parsed.responseId,
-        });
-      }
-    }
+  if (!officialResult.success) {
+    throw new Error(`No se pudo publicar en YouTube: ${officialResult.error}`);
   }
 
+  await prisma.$transaction([
+    prisma.publishingLog.upsert({
+      where: { responseId: parsed.responseId },
+      update: { account: parsed.account, publishedUrl: officialResult.url, remoteId: officialResult.remoteId, publishMethod: officialResult.method, result: officialResult.method, followUpNeeded: false },
+      create: { opportunityId: parsed.opportunityId, responseId: parsed.responseId, account: parsed.account, publishedUrl: officialResult.url, remoteId: officialResult.remoteId, publishMethod: officialResult.method, result: officialResult.method, followUpNeeded: false },
+    }),
+    prisma.opportunity.update({ where: { id: parsed.opportunityId }, data: { status: OpportunityStatus.PUBLISHED } }),
+  ]);
+  await closeSiblingOpportunities(prisma, parsed.opportunityId, opportunity.channelId, opportunity.sourceUrl, channel);
   revalidatePath("/");
   revalidatePath(`/opportunities/${parsed.opportunityId}`);
-
-  const client = formData.get("client") as string | null;
-  const clientQuery = client ? `&client=${encodeURIComponent(client)}` : "";
-  const base = `/opportunities/${parsed.opportunityId}`;
-  // redirect() debe estar FUERA de cualquier try/catch (Next.js lo implementa con throw interno)
-  if (agentPending) {
-    redirect(`${base}?agentPending=1&attemptId=${encodeURIComponent(attemptId)}${clientQuery}`);
-  }
-  if (agentError) {
-    redirect(`${base}?agentError=${encodeURIComponent(agentError)}${clientQuery}`);
-  }
-  redirect(`${base}?agentOk=1${clientQuery}`);
+  const clientParam = formData.get("client") as string | null;
+  redirect(`/opportunities/${parsed.opportunityId}?agentOk=1${clientParam ? `&client=${encodeURIComponent(clientParam)}` : ""}`);
 }
 
 export async function updateClientAutoSettings(clientId: string, autoApprove: boolean, autoPublish: boolean) {

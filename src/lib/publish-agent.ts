@@ -58,6 +58,13 @@ export function runPublisher({
   account: string;
   dryRun?: boolean;
 }): PublishResult {
+  const normalizedChannel = channel.toLowerCase();
+  if (normalizedChannel === "youtube") {
+    return { success: false, error: "official_youtube_api_required" };
+  }
+  if (normalizedChannel === "facebook" || normalizedChannel === "instagram") {
+    return { success: false, error: "human_handoff_required" };
+  }
   const pyArgs = [
     "agents/publisher.py",
     "--channel", channel,

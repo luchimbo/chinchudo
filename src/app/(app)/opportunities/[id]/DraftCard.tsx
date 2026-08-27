@@ -53,9 +53,13 @@ type DraftCardProps = {
   deleteResponseAction: (formData: FormData) => Promise<void>;
   simulateDemoPublicationAction?: (formData: FormData) => Promise<void>;
   publishViaAgentAction?: (formData: FormData) => Promise<void>;
+  markAsPublishedAction?: (formData: FormData) => Promise<void>;
   agentAccounts?: AgentAccount[];
   suggestedAccount?: string | null;
   canPublishViaAgent?: boolean;
+  publicationMode?: "youtube_api" | "youtube_setup" | "human_handoff" | "none";
+  youtubeConnectUrl?: string;
+  youtubeRevokeUrl?: string;
   clientParam?: string;
   isAlreadyPublished?: boolean;
   personas: PersonaOption[];
@@ -70,9 +74,13 @@ export function DraftCard({
   deleteResponseAction,
   simulateDemoPublicationAction,
   publishViaAgentAction,
+  markAsPublishedAction,
   agentAccounts = [],
   suggestedAccount,
   canPublishViaAgent,
+  publicationMode = "none",
+  youtubeConnectUrl,
+  youtubeRevokeUrl,
   clientParam,
   isAlreadyPublished = false,
   personas,
@@ -81,6 +89,7 @@ export function DraftCard({
   const [isCopied, setIsCopied] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  const [isRevokingYouTube, setIsRevokingYouTube] = useState(false);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>(
     Array.isArray(response.chatHistory) ? (response.chatHistory as ChatMessage[]) : []
   );
@@ -122,8 +131,29 @@ export function DraftCard({
     setTimeout(() => setIsCopied(false), 2000);
   };
 
-  const canPublishDirectly = Boolean(canPublishViaAgent && publishViaAgentAction);
-  const publishAction = canPublishDirectly ? publishViaAgentAction : approveResponseAction;
+  const handleManualHandoff = async () => {
+    await navigator.clipboard.writeText(text);
+    setIsCopied(true);
+    window.open(opportunity.sourceUrl, "_blank", "noopener,noreferrer");
+    setTimeout(() => setIsCopied(false), 2000);
+  };
+
+  const handleRevokeYouTube = async () => {
+    if (!youtubeRevokeUrl || !confirm("¿Revocar esta conexión de YouTube? Dejará de poder publicar hasta que la conectes de nuevo.")) return;
+    setIsRevokingYouTube(true);
+    try {
+      const response = await fetch(youtubeRevokeUrl, { method: "DELETE" });
+      if (!response.ok) throw new Error("No se pudo revocar la conexión.");
+      window.location.reload();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "No se pudo revocar la conexión.");
+      setIsRevokingYouTube(false);
+    }
+  };
+
+  // Aprobar nunca publica: la API oficial y la entrega manual son pasos separados.
+  const canPublishDirectly = false;
+  const publishAction = approveResponseAction;
 
   return (
     <article className={`flex min-w-0 flex-col rounded-lg border bg-white/75 p-4 shadow-panel backdrop-blur transition-all duration-300 hover:shadow-md ${isTopRecommendation ? "border-moss/35 ring-1 ring-moss/20" : "border-ink/10"}`}>
@@ -223,9 +253,9 @@ export function DraftCard({
           </form>
         ) : null}
 
-        {response.approvedBy && canPublishViaAgent && !canPublishDirectly && publishViaAgentAction && !isAlreadyPublished ? (
+        {response.approvedBy && publicationMode === "youtube_api" && publishViaAgentAction && !isAlreadyPublished ? (
           <form action={publishViaAgentAction} className="mt-4 rounded-md border border-brass/30 bg-brass/5 p-4">
-            <p className="text-xs font-bold uppercase tracking-wider text-brass/80 mb-3">Publicar vía agente</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-brass/80 mb-3">Publicar en YouTube por API oficial</p>
             <input type="hidden" name="opportunityId" value={opportunity.id} />
             <input type="hidden" name="responseId" value={response.id} />
             <input type="hidden" name="client" value={clientParam ?? ""} />
@@ -248,9 +278,44 @@ export function DraftCard({
               loadingText="⏳ Publicando… (puede tardar 1-2 min)"
               className="mt-3 w-full rounded-full bg-brass px-5 py-2.5 text-sm font-bold text-white transition hover:bg-ink disabled:opacity-50"
             >
-              Publicar vía agente
+              Publicar comentario en YouTube
             </SubmitButton>
+            {youtubeRevokeUrl ? (
+              <button type="button" onClick={handleRevokeYouTube} disabled={isRevokingYouTube} className="mt-2 w-full text-xs font-semibold text-slate underline disabled:opacity-50">
+                {isRevokingYouTube ? "Revocando conexión…" : "Revocar conexión de YouTube"}
+              </button>
+            ) : null}
           </form>
+        ) : null}
+
+        {response.approvedBy && publicationMode === "youtube_setup" && youtubeConnectUrl && !isAlreadyPublished ? (
+          <div className="mt-4 rounded-md border border-brass/30 bg-brass/5 p-4 text-sm text-slate">
+            <p className="font-semibold text-ink">Conectá la cuenta de YouTube antes de publicar.</p>
+            <p className="mt-1 text-xs leading-5">La autorización abre Google; la aplicación no recibe ni guarda tu contraseña.</p>
+            <a href={youtubeConnectUrl} className="mt-3 inline-flex rounded-full bg-brass px-4 py-2 text-xs font-bold text-white transition hover:bg-ink">
+              Conectar cuenta de YouTube
+            </a>
+          </div>
+        ) : null}
+
+        {response.approvedBy && publicationMode === "human_handoff" && markAsPublishedAction && !isAlreadyPublished ? (
+          <div className="mt-4 rounded-md border border-brass/30 bg-brass/5 p-4">
+            <p className="text-xs font-bold uppercase tracking-wider text-brass/80">Publicación manual asistida</p>
+            <p className="mt-1 text-xs leading-5 text-slate">Se copia el texto y se abre el post. El envío queda exclusivamente a cargo del operador en Meta.</p>
+            <button type="button" onClick={handleManualHandoff} className="mt-3 w-full rounded-full border border-brass/40 bg-white px-5 py-2.5 text-sm font-bold text-brass transition hover:bg-paper">
+              Copiar y abrir publicación
+            </button>
+            <form action={markAsPublishedAction} className="mt-3">
+              <input type="hidden" name="opportunityId" value={opportunity.id} />
+              <input type="hidden" name="responseId" value={response.id} />
+              <input type="hidden" name="publishedUrl" value={opportunity.sourceUrl} />
+              <input type="hidden" name="result" value="manual_meta" />
+              <input type="hidden" name="account" value={publishingAccount} />
+              <SubmitButton loadingText="Registrando…" className="w-full rounded-full bg-ink px-5 py-2.5 text-sm font-bold text-paper transition hover:bg-slate-850">
+                Confirmar publicación manual
+              </SubmitButton>
+            </form>
+          </div>
         ) : null}
 
         {response.publishingLog ? (

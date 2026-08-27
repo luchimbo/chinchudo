@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { loadEnv, writeReport, extractPostKey } from "./agent-utils.mjs";
-import { checkPublishRateLimits, runPublisher } from "./publish-utils.mjs";
+import { checkPublishRateLimits } from "./publish-utils.mjs";
+import { publishYouTubeComment } from "../src/lib/youtube-publisher.ts";
 
 loadEnv();
 const prisma = new PrismaClient();
@@ -41,6 +42,25 @@ async function main() {
   const channel = opportunity.channel.name.toLowerCase();
   const sourceUrl = opportunity.sourceUrl;
 
+  if (!response.approvedBy) {
+    throw new Error("La respuesta debe estar aprobada antes de publicar.");
+  }
+  if (channel === "facebook" || channel === "instagram") {
+    process.stdout.write(JSON.stringify({ success: false, error: "human_handoff_required", method: "failed" }) + "\n");
+    await prisma.$disconnect();
+    process.exit(1);
+  }
+  if (channel !== "youtube") {
+    process.stdout.write(JSON.stringify({ success: false, error: "official_publish_only_available_for_youtube", method: "failed" }) + "\n");
+    await prisma.$disconnect();
+    process.exit(1);
+  }
+  if (!opportunity.clientId || !account) {
+    process.stdout.write(JSON.stringify({ success: false, error: "youtube_client_or_account_required", method: "failed" }) + "\n");
+    await prisma.$disconnect();
+    process.exit(1);
+  }
+
   // --- Anti-spam: cap diario por cuenta + separación mínima entre comentarios ---
   if (account && !dryRun) {
     const rateLimit = await checkPublishRateLimits(prisma, account);
@@ -54,7 +74,14 @@ async function main() {
     }
   }
 
-  const result = runPublisher({ channel, sourceUrl, text, account, dryRun });
+  const result = await publishYouTubeComment({
+    prisma,
+    clientId: opportunity.clientId,
+    account,
+    sourceUrl,
+    text,
+    dryRun,
+  });
 
   if (result.success && !dryRun) {
     await prisma.$transaction([
@@ -63,7 +90,9 @@ async function main() {
         update: {
           account,
           publishedUrl: result.url || sourceUrl,
-          result: "published_via_agent",
+          result: result.method,
+          publishMethod: result.method,
+          remoteId: result.remoteId,
           followUpNeeded: false,
         },
         create: {
@@ -71,7 +100,9 @@ async function main() {
           responseId,
           account,
           publishedUrl: result.url || sourceUrl,
-          result: "published_via_agent",
+          result: result.method,
+          publishMethod: result.method,
+          remoteId: result.remoteId,
           followUpNeeded: false,
         },
       }),

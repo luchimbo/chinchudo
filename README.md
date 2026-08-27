@@ -86,6 +86,12 @@ queda reservado para iteración local o recuperación controlada.
 7. Volver al sistema → **Marcar como publicada** + cargar URL y resultado.
 8. Revisar los **follow-ups** pendientes.
 
+## Publicación compatible con plataformas
+
+- **YouTube:** la respuesta aprobada se publica con YouTube Data API y OAuth de la cuenta autorizada. Configurar `YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET` y `SOCIAL_TOKEN_ENCRYPTION_KEY`; desde una oportunidad de YouTube, elegir **Conectar cuenta de YouTube** y aceptar el permiso. Los tokens se guardan cifrados en la base.
+- **Instagram/Facebook (posteos ajenos):** el panel copia el borrador y abre la publicación, pero no automatiza el navegador ni presiona publicar. Después de comentar desde la cuenta comercial, Fede selecciona **Confirmar publicación manual** para registrar el resultado.
+- Para revocar una conexión de YouTube, enviar `DELETE /api/integrations/youtube?client=<slug>&account=<cuenta>` con una sesión del cliente; también se revoca el token de Google cuando está disponible.
+
 ## Rutina semanal de Fede (45–60 min)
 
 1. Abrir `/analytics` → revisar tendencias y conversiones.

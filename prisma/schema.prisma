@@ -103,6 +103,7 @@ model Client {
   geoAudits              GeoAudit[]
   aiPresenceResults      AIPresenceResult[]
   trackingEvents         TrackingEvent[]
+  youtubeConnections     YouTubeConnection[]
   users                  User[]
   opportunities          Opportunity[]
   observedProfiles       ObservedProfile[]
@@ -516,11 +517,33 @@ model PublishingLog {
   result         String      @default("no_reply")
   followUpNeeded Boolean     @default(false)
   createdAt      DateTime    @default(now())
+  publishMethod  String      @default("manual")
+  remoteId       String      @default("")
   account        String      @default("")
   opportunity    Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
   response       Response    @relation(fields: [responseId], references: [id], onDelete: Cascade)
 
   @@index([opportunityId])
+}
+
+// Credencial OAuth de una cuenta YouTube autorizada por un cliente. Los tokens
+// se guardan cifrados por la aplicación y nunca se exponen al navegador.
+model YouTubeConnection {
+  id             String   @id @default(cuid())
+  clientId       String
+  account        String
+  accessToken    String
+  refreshToken   String
+  expiresAt      DateTime?
+  channelId      String   @default("")
+  channelTitle   String   @default("")
+  scopes         String   @default("")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  client         Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, account])
+  @@index([clientId])
 }
 
 model KnowledgeBase {

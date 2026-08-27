@@ -6,6 +6,7 @@ import {
   approveResponse,
   generateResponseDrafts,
   publishViaAgent,
+  markAsPublished,
   simulateDemoPublication,
   updateOpportunityStatus,
   deleteResponse
@@ -215,11 +216,21 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
   } catch {
     // accounts no disponible — publicacion via agente deshabilitada
   }
-  const canPublishViaAgent = (channelLower === "youtube" || channelLower === "reddit" || channelLower === "x" || channelLower === "facebook" || channelLower === "instagram") && agentAccounts.length > 0;
-
   // Cuenta sugerida: la que tiene como defaultPersona el arquetipo de la respuesta aprobada (si existe) o el sugerido originalmente
   const activePersonaName = approvedResponse ? approvedResponse.persona.name : (suggestion?.personaName ?? "");
   const suggestedAccount = agentAccounts.find((a) => a.defaultPersona === activePersonaName);
+  const youtubeAccount = suggestedAccount?.name ?? agentAccounts[0]?.name ?? "youtube-principal";
+  const youtubeConnection = channelLower === "youtube"
+    ? await prisma.youTubeConnection.findUnique({
+        where: { clientId_account: { clientId: resolution.client.id, account: youtubeAccount } },
+        select: { id: true },
+      })
+    : null;
+  const publicationMode = channelLower === "youtube"
+    ? (youtubeConnection ? "youtube_api" : "youtube_setup")
+    : (channelLower === "facebook" || channelLower === "instagram" ? "human_handoff" : "none");
+  const youtubeConnectUrl = `/api/integrations/youtube/connect?client=${encodeURIComponent(resolution.client.slug)}&account=${encodeURIComponent(youtubeAccount)}`;
+  const youtubeRevokeUrl = `/api/integrations/youtube?client=${encodeURIComponent(resolution.client.slug)}&account=${encodeURIComponent(youtubeAccount)}`;
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col px-5 py-8 lg:px-8">
@@ -308,9 +319,13 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
                     deleteResponseAction={deleteResponse}
                     simulateDemoPublicationAction={resolution.client.slug === "aurora-demo" ? simulateDemoPublication : undefined}
                     publishViaAgentAction={publishViaAgent}
+                    markAsPublishedAction={markAsPublished}
                     agentAccounts={agentAccounts}
                     suggestedAccount={suggestedAccount?.name ?? null}
-                    canPublishViaAgent={canPublishViaAgent}
+                    canPublishViaAgent={Boolean(youtubeConnection)}
+                    publicationMode={publicationMode}
+                    youtubeConnectUrl={youtubeConnectUrl}
+                    youtubeRevokeUrl={youtubeRevokeUrl}
                     clientParam={searchParams?.client ?? ""}
                     isAlreadyPublished={isAlreadyPublished}
                     personas={personas}

@@ -6,6 +6,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import publisher
 
 
+def test_meta_publish_uses_human_handoff_without_opening_browser(monkeypatch):
+    monkeypatch.setattr(
+        publisher.browser_cdp,
+        "open_new_tab",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("No debe abrir navegador")),
+    )
+
+    result = publisher.publish_comment(
+        "instagram",
+        "cuenta-autorizada",
+        "https://www.instagram.com/p/example/",
+        "Respuesta aprobada",
+        dry_run=False,
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "human_handoff_required"
+
+
 class FakeClient:
     def send(self, method, params=None):
         assert method == "Page.navigate"

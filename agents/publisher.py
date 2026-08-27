@@ -991,6 +991,10 @@ def post_instagram_comment(client, post_url: str, text: str, dry_run: bool) -> d
 
 def publish_comment(channel: str, account: str | None, source_url: str, text: str, dry_run: bool) -> dict:
     log.info("publish_comment inicio", channel=channel, account=account or "default", dry_run=dry_run, url=source_url)
+    if channel in {"facebook", "instagram"}:
+        # Meta no ofrece una vía general para comentar posteos de terceros.
+        # El panel entrega texto y URL al operador; no controla el navegador.
+        return {"success": False, "error": "human_handoff_required", "method": "failed"}
     # Use a fresh dedicated tab so we don't hijack a tab that belongs to another platform.
     client, tab_id = browser_cdp.open_new_tab(account, timeout=30.0)
     try:
@@ -1002,10 +1006,6 @@ def publish_comment(channel: str, account: str | None, source_url: str, text: st
             result = post_reddit_reply(client, source_url, text, dry_run)
         elif channel == "x":
             result = post_x_reply(client, source_url, text, dry_run)
-        elif channel == "facebook":
-            result = post_facebook_comment(client, source_url, text, dry_run)
-        elif channel == "instagram":
-            result = post_instagram_comment(client, source_url, text, dry_run)
         else:
             result = {"success": False, "error": f"channel_not_supported:{channel}"}
 
