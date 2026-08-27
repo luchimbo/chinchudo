@@ -3,7 +3,7 @@ import { assertClientAccess } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { encryptSocialToken } from "@/lib/social-token-crypto";
 import { exchangeYouTubeCode, getAuthorizedYouTubeChannel } from "@/lib/youtube-publisher";
-import { verifyYouTubeOAuthState } from "../connect/route";
+import { verifyYouTubeOAuthState } from "@/lib/youtube-oauth-state";
 
 const STATE_COOKIE = "youtube_oauth_state";
 
