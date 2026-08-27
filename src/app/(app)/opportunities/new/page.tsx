@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createOpportunity } from "../actions";
 import { prisma } from "@/lib/db";
 import { getVisibleClients } from "@/lib/auth";
+import { OPPORTUNITY_CHANNEL_NAMES } from "@/lib/opportunity-channels";
 import {
   intentLabels,
   opportunityIntents,
@@ -11,13 +12,14 @@ import {
 
 const fieldCls = "min-w-0 w-full rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink";
 const labelCls = "grid min-w-0 gap-2 text-sm font-semibold text-slate";
-const MANUAL_CHANNELS = new Set(["YouTube", "TikTok", "Instagram", "Facebook", "X", "Reddit", "LinkedIn"]);
-
 export default async function NewOpportunityPage({ searchParams }: { searchParams: { client?: string } }) {
   const clients = await getVisibleClients(prisma);
   const activeClient = clients.find((client) => client.slug === searchParams.client) ?? clients[0] ?? null;
   const [channels, brands, products] = await Promise.all([
-    prisma.channel.findMany({ where: { name: { in: [...MANUAL_CHANNELS] } }, orderBy: { name: "asc" } }),
+    prisma.channel.findMany({
+      where: { name: { in: [...OPPORTUNITY_CHANNEL_NAMES] } },
+      orderBy: { name: "asc" },
+    }),
     prisma.brand.findMany({ where: activeClient ? { clientId: activeClient.id } : undefined, orderBy: { name: "asc" } }),
     prisma.product.findMany({
       where: activeClient ? { brand: { clientId: activeClient.id } } : undefined,

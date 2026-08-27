@@ -7,6 +7,7 @@ import { ManualOpportunitySearch } from "@/components/manual-opportunity-search"
 import { OpportunityList } from "@/components/opportunity-list";
 import { getVisibleClients } from "@/lib/auth";
 import { opportunityStatuses } from "@/lib/labels";
+import { OPPORTUNITY_CHANNEL_NAMES } from "@/lib/opportunity-channels";
 
 const PAGE_SIZE = 12;
 
@@ -47,7 +48,10 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
   redirect(`/copiloto${clientQuery}`);
 
   const [channelsList, clients] = await Promise.all([
-    prisma.channel.findMany({ orderBy: { name: "asc" } }),
+    prisma.channel.findMany({
+      where: { name: { in: [...OPPORTUNITY_CHANNEL_NAMES] } },
+      orderBy: { name: "asc" },
+    }),
     getVisibleClients(prisma),
   ]);
   const activeClient = clients.find((c) => c.slug === searchParams.client) ?? clients[0] ?? null;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 // detectIntent/detectPriority viven en el script de import; se exportan para testearlos.
-import { detectIntent, detectPriority } from "../../../scripts/import-opportunities.mjs";
+import { channelDefaultsFor, detectIntent, detectPriority } from "../../../scripts/import-opportunities.mjs";
 // @ts-ignore -- utilidad ESM compartida sin declaraciones TypeScript.
 import { extractPostKey } from "../../../scripts/agent-utils.mjs";
 
@@ -50,6 +50,17 @@ describe("detectPriority", () => {
 
   it("general con 'urgente' → HIGH", () => {
     expect(detectPriority("GENERAL_DISCUSSION", "lo necesito urgente")).toBe("HIGH");
+  });
+});
+
+describe("channelDefaultsFor", () => {
+  it("normaliza TikTok con la capitalización y metadatos canónicos", () => {
+    expect(channelDefaultsFor("tiktok")).toEqual({
+      name: "TikTok",
+      type: "short_video_comments",
+      baseUrl: "https://www.tiktok.com",
+    });
+    expect(channelDefaultsFor("TikTok").name).toBe("TikTok");
   });
 });
 

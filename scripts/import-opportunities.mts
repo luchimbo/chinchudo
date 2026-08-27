@@ -43,6 +43,7 @@ const channelDefaults: Record<string, { name: string; type: string; baseUrl: str
   instagram: { name: "Instagram", type: "reels_comments", baseUrl: "https://www.instagram.com" },
   x: { name: "X", type: "threads", baseUrl: "https://x.com" },
   reddit: { name: "Reddit", type: "public_threads", baseUrl: "https://www.reddit.com" },
+  tiktok: { name: "TikTok", type: "short_video_comments", baseUrl: "https://www.tiktok.com" },
 };
 
 function parseArgs() {
@@ -56,7 +57,7 @@ function parseArgs() {
   };
 }
 
-function channelDefaultsFor(value: string) {
+export function channelDefaultsFor(value: string) {
   const key = String(value || "youtube").toLowerCase();
   return channelDefaults[key] ?? {
     name: key.charAt(0).toUpperCase() + key.slice(1),

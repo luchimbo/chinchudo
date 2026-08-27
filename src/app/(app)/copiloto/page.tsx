@@ -1,6 +1,7 @@
 import { OpportunityStatus, Prisma } from "@prisma/client";
 import { getVisibleClients } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { OPPORTUNITY_CHANNEL_NAMES } from "@/lib/opportunity-channels";
 import { selectCopilotPulse } from "@/lib/radar-editorial";
 import { CopilotWorkspace } from "./workspace";
 
@@ -12,7 +13,10 @@ type PageProps = {
 export default async function CopilotoPage({ searchParams }: PageProps) {
   const [clients, channels] = await Promise.all([
     getVisibleClients(prisma),
-    prisma.channel.findMany({ orderBy: { name: "asc" } }),
+    prisma.channel.findMany({
+      where: { name: { in: [...OPPORTUNITY_CHANNEL_NAMES] } },
+      orderBy: { name: "asc" },
+    }),
   ]);
   const activeClient = clients.find((client) => client.slug === searchParams.client) ?? clients[0] ?? null;
   const activeView = searchParams.view === "pulse" ? "pulse" : "opportunities";
