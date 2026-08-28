@@ -52,7 +52,7 @@ export default async function LoginPage({ searchParams }: Props) {
                 required
                 autoFocus
                 autoComplete="email"
-                className="w-full rounded-xl border border-ink/15 bg-paper/35 px-4 py-2.5 text-sm text-ink placeholder:text-slate/55 transition-all focus:border-ink focus:bg-white focus:outline-none focus:ring-4 focus:ring-ink/10"
+                className="w-full rounded-xl border border-ink/15 bg-paper/35 px-4 py-2.5 text-sm text-ink placeholder:text-slate/70 transition-all focus:border-ink focus:bg-white focus:outline-none focus:ring-4 focus:ring-ink/10"
                 placeholder="tu@email.com"
               />
             </label>
@@ -67,7 +67,7 @@ export default async function LoginPage({ searchParams }: Props) {
                 name="password"
                 required
                 autoComplete="current-password"
-                className="w-full rounded-xl border border-ink/15 bg-paper/35 px-4 py-2.5 text-sm text-ink placeholder:text-slate/55 transition-all focus:border-ink focus:bg-white focus:outline-none focus:ring-4 focus:ring-ink/10"
+                className="w-full rounded-xl border border-ink/15 bg-paper/35 px-4 py-2.5 text-sm text-ink placeholder:text-slate/70 transition-all focus:border-ink focus:bg-white focus:outline-none focus:ring-4 focus:ring-ink/10"
                 placeholder="********"
               />
             </label>
@@ -80,7 +80,7 @@ export default async function LoginPage({ searchParams }: Props) {
             </button>
           </form>
 
-          <div className="mt-6 text-center text-xs text-slate/70">
+          <div className="mt-6 text-center text-xs text-slate">
             &iquest;Nuevo aqu&iacute;?{" "}
             <Link href="/registro" className="font-semibold text-ink hover:underline">
               Crear espacio (Onboarding)

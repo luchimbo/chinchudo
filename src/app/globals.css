@@ -39,6 +39,15 @@ textarea {
   font: inherit;
 }
 
+/* Windows "modo oscuro forzado" puede pintar inputs/selects/textarea con fondo
+   oscuro, dejando el texto del sitio (oscuro) casi invisible.
+   Forzamos que el SO los renderice en tema claro, sin cambiar los estilos del sitio. */
+input,
+select,
+textarea {
+  color-scheme: light;
+}
+
 /* Evita que nombres largos de producto hagan crecer la pantalla de guiones en móvil. */
 .video-studio,
 .video-studio section,

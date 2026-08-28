@@ -48,7 +48,7 @@ export default function RegisterPage() {
           <h1 className="mt-3 font-display text-4xl text-slate-900 tracking-tight font-extrabold">
             Comenzar de Cero
           </h1>
-          <p className="mt-2 text-sm text-slate-500">
+          <p className="mt-2 text-sm text-slate-700">
             Creá tu cuenta de administrador y tu espacio de trabajo
           </p>
         </div>
@@ -62,7 +62,7 @@ export default function RegisterPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <label htmlFor="name" className="block">
-              <span className="text-xs font-bold uppercase tracking-[0.15em] text-slate-500 block mb-1.5">
+              <span className="text-xs font-bold uppercase tracking-[0.15em] text-slate-700 block mb-1.5">
                 Tu Nombre Completo
               </span>
               <input
@@ -71,13 +71,13 @@ export default function RegisterPage() {
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full rounded-xl border border-slate-250 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-800 focus:bg-white focus:outline-none focus:ring-4 focus:ring-slate-800/5 transition-all"
+                className="w-full rounded-xl border border-slate-250 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-600 focus:border-slate-800 focus:bg-white focus:outline-none focus:ring-4 focus:ring-slate-800/5 transition-all"
                 placeholder="Juan Pérez"
               />
             </label>
 
             <label htmlFor="email" className="block">
-              <span className="text-xs font-bold uppercase tracking-[0.15em] text-slate-500 block mb-1.5">
+              <span className="text-xs font-bold uppercase tracking-[0.15em] text-slate-700 block mb-1.5">
                 Email / Usuario
               </span>
               <input
@@ -86,13 +86,13 @@ export default function RegisterPage() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded-xl border border-slate-250 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-800 focus:bg-white focus:outline-none focus:ring-4 focus:ring-slate-800/5 transition-all"
+                className="w-full rounded-xl border border-slate-250 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-600 focus:border-slate-800 focus:bg-white focus:outline-none focus:ring-4 focus:ring-slate-800/5 transition-all"
                 placeholder="juan@empresa.com"
               />
             </label>
 
             <label htmlFor="clientName" className="block">
-              <span className="text-xs font-bold uppercase tracking-[0.15em] text-slate-500 block mb-1.5">
+              <span className="text-xs font-bold uppercase tracking-[0.15em] text-slate-700 block mb-1.5">
                 Nombre de tu Negocio / Marca
               </span>
               <input
@@ -101,13 +101,13 @@ export default function RegisterPage() {
                 required
                 value={clientName}
                 onChange={(e) => setClientName(e.target.value)}
-                className="w-full rounded-xl border border-slate-250 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-800 focus:bg-white focus:outline-none focus:ring-4 focus:ring-slate-800/5 transition-all"
+                className="w-full rounded-xl border border-slate-250 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-600 focus:border-slate-800 focus:bg-white focus:outline-none focus:ring-4 focus:ring-slate-800/5 transition-all"
                 placeholder="Mi Tienda de Ropa"
               />
             </label>
 
             <label htmlFor="password" className="block">
-              <span className="text-xs font-bold uppercase tracking-[0.15em] text-slate-500 block mb-1.5">
+              <span className="text-xs font-bold uppercase tracking-[0.15em] text-slate-700 block mb-1.5">
                 Contraseña
               </span>
               <input
@@ -116,7 +116,7 @@ export default function RegisterPage() {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-xl border border-slate-250 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-800 focus:bg-white focus:outline-none focus:ring-4 focus:ring-slate-800/5 transition-all"
+                className="w-full rounded-xl border border-slate-250 bg-slate-50/50 px-4 py-2.5 text-sm text-slate-900 placeholder:text-slate-600 focus:border-slate-800 focus:bg-white focus:outline-none focus:ring-4 focus:ring-slate-800/5 transition-all"
                 placeholder="••••••••"
               />
             </label>
@@ -130,9 +130,9 @@ export default function RegisterPage() {
             </button>
           </form>
 
-          <div className="mt-6 text-center text-xs text-slate-400">
+          <div className="mt-6 text-center text-xs text-slate-600">
             ¿Ya tenés una cuenta?{" "}
-            <Link href="/login" className="text-slate-600 font-semibold hover:underline">
+            <Link href="/login" className="text-slate-900 font-semibold hover:underline">
               Iniciar Sesión
             </Link>
           </div>
