@@ -2,15 +2,9 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 
-const CHANNELS = ["instagram", "tiktok", "youtube", "facebook", "reddit", "x", "linkedin"] as const;
+const CHANNELS = ["youtube"] as const;
 const CHANNEL_LABELS: Record<(typeof CHANNELS)[number], string> = {
   youtube: "YouTube",
-  reddit: "Reddit",
-  facebook: "Facebook",
-  instagram: "Instagram",
-  x: "X / Twitter",
-  tiktok: "TikTok",
-  linkedin: "LinkedIn",
 };
 const LANGUAGES = [
   { value: "es", label: "Espanol" },
@@ -52,7 +46,7 @@ export function ManualOpportunitySearch({ clientId, initialQuery }: Props) {
   ));
   const [language, setLanguage] = useState("es");
   const [limit, setLimit] = useState(5);
-  const [channels, setChannels] = useState<string[]>(["instagram"]);
+  const [channels, setChannels] = useState<string[]>(["youtube"]);
   const [events, setEvents] = useState<SearchEvent[]>([]);
   const [jobId, setJobId] = useState("");
   const [open, setOpen] = useState(false);
@@ -212,7 +206,7 @@ export function ManualOpportunitySearch({ clientId, initialQuery }: Props) {
         <div className="min-w-0">
           <h2 className="font-display text-2xl text-ink">Nuevas oportunidades...</h2>
           <p className="mt-1 text-sm text-slate">
-            {running ? "Busqueda corriendo en segundo plano." : "Toca para buscar oportunidades en redes."}
+            {running ? "Búsqueda corriendo en segundo plano." : "Buscá oportunidades para responder en YouTube."}
           </p>
         </div>
         <span className="flex shrink-0 items-center gap-3">
@@ -301,7 +295,7 @@ export function ManualOpportunitySearch({ clientId, initialQuery }: Props) {
 
       <div className="mt-4">
         <div className="mb-2 flex items-center justify-between gap-3">
-          <p className="text-xs font-semibold text-slate">Redes donde buscar</p>
+          <p className="text-xs font-semibold text-slate">Canal de búsqueda</p>
           <p className="text-xs font-semibold text-slate/70">{channels.length} seleccionada{channels.length === 1 ? "" : "s"}</p>
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">

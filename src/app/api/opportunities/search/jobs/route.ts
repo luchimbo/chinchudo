@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 
 const searchSchema = z.object({
   clientId: z.string().min(1),
-  channels: z.array(z.enum(SEARCH_CHANNELS)).min(1).max(SEARCH_CHANNELS.length),
+  channels: z.array(z.enum(SEARCH_CHANNELS)).length(1).refine((channels) => channels[0] === "youtube", "Solo YouTube está disponible."),
   query: z.string().max(400).default(""),
   queries: z.array(z.string().min(1).max(120)).max(100).optional(),
   language: z.enum(SEARCH_LANGUAGES).default("es"),

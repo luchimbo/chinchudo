@@ -3,6 +3,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getVisibleClients } from "@/lib/auth";
 import { opportunityStatuses } from "@/lib/labels";
+import { operationalOpportunityWhere } from "@/lib/opportunity-channels";
 
 const OPEN_STATUSES = ["NEW", "NEEDS_REVIEW", "DRAFTED", "APPROVED"] as const;
 const MAX_ROWS = 5000;
@@ -20,18 +21,17 @@ export async function GET(request: NextRequest) {
 
   const statusParam = sp.get("status") ?? "";
   const validStatus = (opportunityStatuses as readonly string[]).includes(statusParam) ? statusParam : "";
-  const channel = (sp.get("channel") ?? "").trim();
   const brand = (sp.get("brand") ?? "").trim();
   const q = (sp.get("q") ?? "").trim();
   const view = sp.get("view") === "inbox" ? "inbox" : "ready";
 
   const where: Prisma.OpportunityWhereInput = {
+    ...operationalOpportunityWhere(),
     status: { in: [...OPEN_STATUSES] },
     responses: view === "inbox" ? { none: {} } : { some: {} },
   };
   if (validStatus) where.status = validStatus as any;
   if (activeClient) where.clientId = activeClient.id;
-  if (channel) where.channel = { name: channel };
   if (brand) where.detectedBrand = { name: brand };
   if (q) {
     where.AND = [{ OR: [{ sourceText: { contains: q } }, { sourceAuthor: { contains: q } }] }];

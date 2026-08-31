@@ -1,4 +1,5 @@
 import { Prisma, PrismaClient } from "@prisma/client";
+import { operationalOpportunityWhere } from "./opportunity-channels";
 
 export const SNAPSHOT_CLIENT_SLUGS = ["jurispedia", "prestige-running"] as const;
 export const SNAPSHOT_MILESTONES = ["D0", "D30", "D60", "D90", "D180", "D365"] as const;
@@ -38,12 +39,12 @@ export async function collectSnapshotMetrics(prisma: PrismaClient, clientId: str
   const [brands, personas, products, knowledge, objections, activeSources, inactiveSources, opportunities, responses, approvedResponses, publishedResponses, landings, leads, events] = await Promise.all([
     prisma.brand.count({ where: { clientId } }), prisma.persona.count({ where: { clientId } }),
     prisma.product.count({ where: { brand: { clientId } } }), prisma.knowledgeBase.count({ where: { clientId } }),
-    prisma.objection.count({ where: { clientId } }), prisma.monitoredSource.count({ where: { clientId, active: true } }),
-    prisma.monitoredSource.count({ where: { clientId, active: false } }),
-    prisma.opportunity.groupBy({ by: ["status"], where: { clientId }, _count: { id: true } }),
-    prisma.response.count({ where: { opportunity: { clientId } } }),
-    prisma.response.count({ where: { opportunity: { clientId }, approvedBy: { not: "" } } }),
-    prisma.publishingLog.count({ where: { opportunity: { clientId } } }),
+    prisma.objection.count({ where: { clientId } }), prisma.monitoredSource.count({ where: { clientId, channel: "youtube", active: true } }),
+    prisma.monitoredSource.count({ where: { clientId, channel: "youtube", active: false } }),
+    prisma.opportunity.groupBy({ by: ["status"], where: { clientId, ...operationalOpportunityWhere() }, _count: { id: true } }),
+    prisma.response.count({ where: { opportunity: { clientId, ...operationalOpportunityWhere() } } }),
+    prisma.response.count({ where: { opportunity: { clientId, ...operationalOpportunityWhere() }, approvedBy: { not: "" } } }),
+    prisma.publishingLog.count({ where: { opportunity: { clientId, ...operationalOpportunityWhere() } } }),
     prisma.landing.groupBy({ by: ["status"], where: { clientId }, _count: { id: true } }),
     prisma.lead.count({ where: { clientId } }),
     prisma.trackingEvent.groupBy({ by: ["eventType"], where: { clientId }, _count: { id: true } }),

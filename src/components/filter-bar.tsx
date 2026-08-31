@@ -77,7 +77,7 @@ export function FilterBar({ channels, brands = [], variant = "inline" }: FilterB
         </select>
       </label>
 
-      <label className="grid gap-1 text-xs font-bold uppercase tracking-[0.18em] text-slate/70">
+      {channels.length > 1 ? <label className="grid gap-1 text-xs font-bold uppercase tracking-[0.18em] text-slate/70">
         Canal
         <select
           value={channel}
@@ -92,6 +92,7 @@ export function FilterBar({ channels, brands = [], variant = "inline" }: FilterB
           ))}
         </select>
       </label>
+      : null}
 
       {brands.length > 0 ? (
         <label className="grid gap-1 text-xs font-bold uppercase tracking-[0.18em] text-slate/70">

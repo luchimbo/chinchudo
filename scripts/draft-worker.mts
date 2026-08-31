@@ -20,6 +20,7 @@ import { loadObservedProfileContext, recordObservedProfileEvent } from "../src/l
 import { classifyJurispediaSafety, isJurispediaAutoPublishAllowed } from "../src/lib/jurispedia-policy";
 import { loadRelevantCompetitorEvidence } from "../src/lib/competitor-evidence";
 import { findSimilarDraft } from "../src/lib/draft-uniqueness";
+import { operationalOpportunityWhere } from "../src/lib/opportunity-channels";
 
 loadEnv();
 
@@ -59,6 +60,7 @@ async function main() {
   }
 
   const whereClause: any = {
+    ...operationalOpportunityWhere(),
     status: { in: args.opportunityId ? ["NEW", "NEEDS_REVIEW", "DRAFTED"] : ["NEW", "NEEDS_REVIEW"] },
     OR: [
       { priority: { in: ["URGENT", "HIGH", "MEDIUM"] } },

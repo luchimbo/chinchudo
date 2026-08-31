@@ -27,6 +27,7 @@ import { selectVoiceVariant } from "@/lib/persona-router";
 import { chatRefinementStep, compileResponseFromChat, type ChatMessage } from "@/lib/refine-draft";
 import { addClientMemory, deleteClientMemory, extractLearningFromChat, getClientMemories } from "@/lib/client-memory";
 import { publishYouTubeComment } from "@/lib/youtube-publisher";
+import { assertOperationalOpportunityChannel } from "@/lib/opportunity-channels";
 
 const createOpportunitySchema = z.object({
   channelId: z.string().min(1),
@@ -58,6 +59,8 @@ export async function createOpportunity(formData: FormData) {
   if (clientSlug) {
     clientObj = await prisma.client.findUnique({ where: { slug: clientSlug } });
   }
+  const channel = await prisma.channel.findUniqueOrThrow({ where: { id: parsed.channelId }, select: { name: true } });
+  assertOperationalOpportunityChannel(channel.name);
 
   await prisma.opportunity.create({
     data: {
@@ -154,8 +157,9 @@ export async function generateCopilotDrafts(formData: FormData) {
 
   const opportunity = await prisma.opportunity.findUniqueOrThrow({
     where: { id: parsed.opportunityId },
-    include: { detectedBrand: true, detectedProduct: true },
+    include: { channel: true, detectedBrand: true, detectedProduct: true },
   });
+  assertOperationalOpportunityChannel(opportunity.channel.name);
   const resolution = await resolveOpportunityClient(prisma, opportunity);
   const [brand, personas] = await Promise.all([
     opportunity.detectedBrandId
@@ -283,6 +287,7 @@ export async function publishCopilotYouTubeResponse(formData: FormData) {
     prisma.response.findUniqueOrThrow({ where: { id: parsed.responseId } }),
   ]);
   if (response.opportunityId !== opportunity.id) throw new Error("La respuesta no corresponde a esta oportunidad.");
+  assertOperationalOpportunityChannel(opportunity.channel.name);
   if (!opportunity.clientId) throw new Error("La oportunidad debe pertenecer a un cliente antes de publicar.");
   await assertClientAccess(prisma, opportunity.clientId);
   if (opportunity.channel.name.toLowerCase() !== "youtube") throw new Error("Este botón solo publica oportunidades de YouTube.");
@@ -458,6 +463,7 @@ export async function generateResponseDrafts(formData: FormData) {
   if (opportunity.status === "PUBLISHED" || opportunity.status === "CONVERTED" || opportunity.status === "FOLLOW_UP") {
     throw new Error("Esta oportunidad ya fue respondida/publicada y no se pueden generar más borradores.");
   }
+  assertOperationalOpportunityChannel(opportunity.channel.name);
 
   const resolution = await resolveOpportunityClient(prisma, opportunity);
   const clientContext = await loadClientContext(prisma, resolution.client.id, opportunity);
@@ -616,6 +622,7 @@ const manualResponseSchema = z.object({
 export async function createManualResponse(formData: FormData) {
   const parsed = manualResponseSchema.parse({ opportunityId: formData.get("opportunityId"), brandId: formData.get("brandId"), productId: formData.get("productId") || undefined, personaId: formData.get("personaId"), editedText: formData.get("editedText") });
   const opportunity = await prisma.opportunity.findUniqueOrThrow({ where: { id: parsed.opportunityId }, include: { channel: true, detectedBrand: { include: { client: true } }, detectedProduct: true, monitoredSource: { include: { client: true } } } });
+  assertOperationalOpportunityChannel(opportunity.channel.name);
   if (["PUBLISHED", "CONVERTED", "FOLLOW_UP"].includes(opportunity.status)) throw new Error("Esta oportunidad ya fue respondida.");
   const resolution = await resolveOpportunityClient(prisma, opportunity);
   const [brand, persona, product] = await Promise.all([
@@ -648,13 +655,14 @@ export async function approveResponse(formData: FormData) {
   const [opportunity, response] = await Promise.all([
     prisma.opportunity.findUniqueOrThrow({
       where: { id: parsed.opportunityId },
-      select: { status: true, clientId: true, sourceText: true },
+      select: { status: true, clientId: true, sourceText: true, channel: { select: { name: true } } },
     }),
     prisma.response.findUniqueOrThrow({
       where: { id: parsed.responseId },
       include: { brand: true, persona: true },
     }),
   ]);
+  assertOperationalOpportunityChannel(opportunity.channel.name);
 
   if (opportunity.status === "PUBLISHED" || opportunity.status === "CONVERTED" || opportunity.status === "FOLLOW_UP") {
     throw new Error("La oportunidad ya está publicada/respondida y no se puede modificar la aprobación.");
@@ -755,10 +763,7 @@ export async function approveAndPublishResponse(formData: FormData) {
   }
 
   const channelLower = opportunity.channel.name.toLowerCase();
-  const supportedChannels = ["youtube", "reddit", "x", "facebook", "instagram"];
-  if (!supportedChannels.includes(channelLower)) {
-    throw new Error(`El canal ${opportunity.channel.name} no soporta publicación automática.`);
-  }
+  assertOperationalOpportunityChannel(opportunity.channel.name);
 
   const data: { editedText: string; approvedBy: string; personaId?: string } = {
     editedText: parsed.editedText,
@@ -883,6 +888,7 @@ export async function markAsPublished(formData: FormData) {
     where: { id: parsed.opportunityId },
     include: { channel: true }
   });
+  assertOperationalOpportunityChannel(opportunity.channel.name);
 
   if (opportunity.status === "PUBLISHED" || opportunity.status === "CONVERTED" || opportunity.status === "FOLLOW_UP") {
     throw new Error("Esta oportunidad ya fue respondida/publicada.");
@@ -1064,6 +1070,7 @@ export async function publishViaAgent(formData: FormData) {
       select: { id: true, approvedBy: true, editedText: true, draftText: true },
     }),
   ]);
+  assertOperationalOpportunityChannel(opportunity.channel.name);
 
   if (!response) {
     throw new Error("La respuesta no pertenece a esta oportunidad.");

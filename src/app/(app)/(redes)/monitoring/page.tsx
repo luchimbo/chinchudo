@@ -4,10 +4,11 @@ import { join } from "node:path";
 import { prisma } from "@/lib/db";
 import { getVisibleClients } from "@/lib/auth";
 import { createSource, updateSource, deleteSource } from "./actions";
+import { operationalOpportunityWhere } from "@/lib/opportunity-channels";
 
 const inputCls = "min-w-0 w-full rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm text-ink";
 const labelCls = "grid min-w-0 gap-1 text-xs font-semibold text-slate";
-const CHANNELS = ["youtube", "reddit", "facebook", "instagram", "x", "tiktok", "linkedin"];
+const CHANNELS = ["youtube"];
 
 async function loadAccounts(): Promise<{ id: string; label: string; clientSlug?: string }[]> {
   try {
@@ -30,9 +31,10 @@ export default async function MonitoringPage({ searchParams }: { searchParams: {
   const clients = await getVisibleClients(prisma);
   const activeClient = clients.find((client) => client.slug === searchParams.client) ?? clients[0] ?? null;
   const [sources, recent, accounts, todayCount] = await Promise.all([
-    prisma.monitoredSource.findMany({ where: activeClient ? { clientId: activeClient.id } : undefined, orderBy: { label: "asc" } }),
+    prisma.monitoredSource.findMany({ where: { ...(activeClient ? { clientId: activeClient.id } : {}), channel: "youtube" }, orderBy: { label: "asc" } }),
     prisma.opportunity.findMany({
       where: {
+        ...operationalOpportunityWhere(),
         monitoredSourceId: { not: null },
         createdAt: { gte: since },
         ...(activeClient ? { clientId: activeClient.id } : {}),
@@ -42,7 +44,7 @@ export default async function MonitoringPage({ searchParams }: { searchParams: {
       take: 30
     }),
     loadAccounts(),
-    activeClient ? prisma.opportunity.count({ where: { clientId: activeClient.id, createdAt: { gte: todayArgentina }, status: { not: "DISCARDED" } } }) : 0,
+    activeClient ? prisma.opportunity.count({ where: { clientId: activeClient.id, ...operationalOpportunityWhere(), createdAt: { gte: todayArgentina }, status: { not: "DISCARDED" } } }) : 0,
   ]);
 
   return (

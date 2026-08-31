@@ -1,7 +1,7 @@
 import { OpportunityStatus, Prisma } from "@prisma/client";
 import { getVisibleClients } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { OPPORTUNITY_CHANNEL_NAMES } from "@/lib/opportunity-channels";
+import { OPPORTUNITY_CHANNEL_NAMES, operationalOpportunityWhere } from "@/lib/opportunity-channels";
 import { selectCopilotPulse } from "@/lib/radar-editorial";
 import { CopilotWorkspace } from "./workspace";
 
@@ -34,6 +34,7 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
       : [{ opportunityScore: "desc" }, { createdAt: "desc" }];
 
   const where: Prisma.OpportunityWhereInput = {
+    ...operationalOpportunityWhere(),
     clientId: activeClient?.id,
     status: { in: COPILOT_OPEN_STATUSES },
     ...(selectedBrand ? { detectedBrandId: selectedBrand } : {}),
@@ -41,7 +42,7 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
     ...(selectedResponse ? { responses: { some: {} } } : {}),
   };
 
-  const [opportunities, pulse, twitterConversations, youtubeConnection] = await Promise.all([
+  const [opportunities, pulse, youtubeConnection] = await Promise.all([
     activeClient
       ? prisma.opportunity.findMany({
           where,
@@ -68,19 +69,6 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
         })
       : Promise.resolve([]),
     activeClient
-      ? prisma.opportunity.findMany({
-          where: {
-            clientId: activeClient.id,
-            channel: { OR: [{ name: { contains: "X", mode: "insensitive" } }, { name: { contains: "Twitter", mode: "insensitive" } }] },
-            createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
-            status: { not: "DISCARDED" },
-          },
-          select: { id: true, sourceText: true, sourceUrl: true, sourceAuthor: true, createdAt: true },
-          orderBy: [{ opportunityScore: "desc" }, { createdAt: "desc" }],
-          take: 3,
-        })
-      : Promise.resolve([]),
-    activeClient
       ? prisma.youTubeConnection.findFirst({ where: { clientId: activeClient.id }, select: { account: true, channelTitle: true } })
       : Promise.resolve(null),
   ]);
@@ -92,14 +80,6 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
       sourceUrl: signal.sourceUrl,
       platform: signal.platform,
       createdAt: signal.createdAt.toISOString(),
-    })),
-    ...twitterConversations.map((opportunity) => ({
-      id: `x-conversation-${opportunity.id}`,
-      title: opportunity.sourceAuthor ? `X: ${opportunity.sourceAuthor}` : "Conversación en X",
-      description: opportunity.sourceText,
-      sourceUrl: opportunity.sourceUrl,
-      platform: "X_CONVERSATION",
-      createdAt: opportunity.createdAt.toISOString(),
     })),
   ]).map((signal) => ({
     id: signal.id,

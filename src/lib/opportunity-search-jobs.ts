@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { prisma } from "@/lib/db";
 
-export const SEARCH_CHANNELS = ["instagram", "tiktok", "youtube", "facebook", "reddit", "x", "linkedin"] as const;
+export const SEARCH_CHANNELS = ["youtube"] as const;
 export const SEARCH_LANGUAGES = ["es", "en", "pt", "any"] as const;
 export const SEARCH_CHANNEL_TIMEOUT_MS = 20_000;
 

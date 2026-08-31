@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { intentLabels, statusLabels, type OpportunityIntentValue, type OpportunityStatusValue } from "@/lib/labels";
 import { fetchChatCompletion, resolveLLMConfig } from "@/lib/llm-provider";
+import { operationalOpportunityWhere } from "@/lib/opportunity-channels";
 
 // ─── Tipos públicos ─────────────────────────────────────────────────────────
 
@@ -112,10 +113,10 @@ export async function getAnalyticsData(clientId?: string, period: AnalyticsPerio
   const clientWhere: Prisma.OpportunityWhereInput = clientId
     ? { OR: [{ clientId }, { detectedBrand: { clientId } }, { monitoredSource: { clientId } }] }
     : {};
-  const oppWhere: Prisma.OpportunityWhereInput = { ...clientWhere, ...createdDuringPeriod };
+  const oppWhere: Prisma.OpportunityWhereInput = { ...clientWhere, ...createdDuringPeriod, ...operationalOpportunityWhere() };
   const responseWhere: Prisma.ResponseWhereInput = { opportunity: oppWhere, ...createdDuringPeriod };
   const publishingWhere: Prisma.PublishingLogWhereInput = {
-    opportunity: clientWhere,
+    opportunity: { ...clientWhere, ...operationalOpportunityWhere() },
     ...(Object.keys(dateRange).length ? { publishedAt: dateRange } : {}),
   };
 

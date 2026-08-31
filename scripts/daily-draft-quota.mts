@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { prisma } from "../src/lib/db";
+import { operationalOpportunityWhere } from "../src/lib/opportunity-channels";
 // @ts-ignore -- shared ESM helper used by operational scripts.
 import { loadEnv } from "./agent-utils.mjs";
 
@@ -44,7 +45,7 @@ async function main() {
   const results = await Promise.all(clients.map(async (client) => {
     const clientTarget = Math.max(1, Number(option("--target")) || client.dailyDraftTarget || target);
     const draftedToday = await prisma.response.findMany({
-      where: { createdAt: { gte: since }, opportunity: { clientId: client.id } },
+      where: { createdAt: { gte: since }, opportunity: { clientId: client.id, ...operationalOpportunityWhere() } },
       distinct: ["opportunityId"],
       select: { opportunityId: true },
     });

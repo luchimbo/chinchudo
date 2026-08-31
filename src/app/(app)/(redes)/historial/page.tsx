@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { FilterBar } from "@/components/filter-bar";
 import { OpportunityList } from "@/components/opportunity-list";
 import { getVisibleClients } from "@/lib/auth";
-import { OPPORTUNITY_CHANNEL_NAMES } from "@/lib/opportunity-channels";
+import { OPPORTUNITY_CHANNEL_NAMES, operationalOpportunityWhere } from "@/lib/opportunity-channels";
 
 const PAGE_SIZE = 12;
 
@@ -31,6 +31,7 @@ export default async function HistorialPage({ searchParams }: PageProps) {
   const sort = searchParams.sort === "oldest" ? "oldest" : "newest";
 
   const where: Prisma.OpportunityWhereInput = {
+    ...operationalOpportunityWhere(),
     status: { in: [...RESPONDED_STATUSES] },
   };
   if (activeClient) {

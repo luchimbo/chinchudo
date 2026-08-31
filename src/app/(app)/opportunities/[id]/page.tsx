@@ -25,6 +25,7 @@ import { SubmitButton } from "./SubmitButton";
 import { DraftCard } from "./DraftCard";
 import { loadObservedProfileContext } from "@/lib/observed-profiles";
 import { BrandProductFields } from "./BrandProductFields";
+import { isOperationalOpportunityChannel } from "@/lib/opportunity-channels";
 
 type PageProps = {
   params: { id: string };
@@ -126,7 +127,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
     }
   });
 
-  if (!opportunity) {
+  if (!opportunity || !isOperationalOpportunityChannel(opportunity.channel.name)) {
     notFound();
   }
 

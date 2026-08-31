@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { getVisibleClients } from "@/lib/auth";
+import { operationalOpportunityWhere } from "@/lib/opportunity-channels";
 
 type PageProps = { searchParams: { client?: string } };
 
@@ -19,16 +20,17 @@ export default async function HomePage({ searchParams }: PageProps) {
   const clients = await getVisibleClients(prisma);
   const client = clients.find((item) => item.slug === searchParams.client) ?? clients[0] ?? null;
   const clientWhere = client ? { clientId: client.id } : {};
+  const opportunityWhere = { ...clientWhere, ...operationalOpportunityWhere() };
   const workStatuses = ["NEW", "NEEDS_REVIEW", "DRAFTED", "APPROVED", "FOLLOW_UP"] as const;
 
   const [pending, published, converted, landings, leads, recent] = await Promise.all([
-    prisma.opportunity.count({ where: { ...clientWhere, status: { in: [...workStatuses] } } }),
-    prisma.opportunity.count({ where: { ...clientWhere, status: "PUBLISHED" } }),
-    prisma.opportunity.count({ where: { ...clientWhere, status: "CONVERTED" } }),
+    prisma.opportunity.count({ where: { ...opportunityWhere, status: { in: [...workStatuses] } } }),
+    prisma.opportunity.count({ where: { ...opportunityWhere, status: "PUBLISHED" } }),
+    prisma.opportunity.count({ where: { ...opportunityWhere, status: "CONVERTED" } }),
     prisma.landing.count({ where: clientWhere }),
     prisma.lead.count({ where: clientWhere }),
     prisma.opportunity.findMany({
-      where: clientWhere,
+      where: opportunityWhere,
       select: { id: true, sourceText: true, sourceAuthor: true, status: true, channel: { select: { name: true } } },
       orderBy: [{ opportunityScore: "desc" }, { createdAt: "desc" }],
       take: 4,

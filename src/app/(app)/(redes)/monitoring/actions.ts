@@ -8,7 +8,7 @@ import { assertClientAccess } from "@/lib/auth";
 const sourceSchema = z.object({
   clientId: z.string().min(1),
   label: z.string().min(2).max(160),
-  channel: z.string().min(2).max(40),
+  channel: z.literal("youtube"),
   query: z.string().min(1).max(400),
   account: z.string().max(120).optional().transform((v) => v ?? ""),
   limit: z.coerce.number().int().min(1).max(50).default(5),

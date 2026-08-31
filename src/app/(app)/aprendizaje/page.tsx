@@ -2,6 +2,7 @@ import React from "react";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { getVisibleClients } from "@/lib/auth";
+import { operationalOpportunityWhere } from "@/lib/opportunity-channels";
 import { deleteClientMemoryAction, createManualClientMemoryAction, updateClientMemoryAction } from "../opportunities/actions";
 import { SubmitButton } from "../opportunities/[id]/SubmitButton";
 
@@ -25,7 +26,7 @@ export default async function AprendizajePage({ searchParams }: PageProps) {
       where: { clientId: activeClient.id, active: true },
       orderBy: { createdAt: "desc" },
       }),
-      prisma.opportunity.findMany({ where: { clientId: activeClient.id }, select: { contextAssessment: true }, orderBy: { updatedAt: "desc" }, take: 500 }),
+      prisma.opportunity.findMany({ where: { clientId: activeClient.id, ...operationalOpportunityWhere() }, select: { contextAssessment: true }, orderBy: { updatedAt: "desc" }, take: 500 }),
     ])
     : [[], []];
   const feedbackEvents = learningRows.flatMap((row) => {

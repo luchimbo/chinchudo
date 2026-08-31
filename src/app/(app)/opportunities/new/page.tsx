@@ -2,7 +2,7 @@ import Link from "next/link";
 import { createOpportunity } from "../actions";
 import { prisma } from "@/lib/db";
 import { getVisibleClients } from "@/lib/auth";
-import { OPPORTUNITY_CHANNEL_NAMES } from "@/lib/opportunity-channels";
+import { OPPORTUNITY_CHANNEL_NAMES, YOUTUBE_OPPORTUNITY_CHANNEL_NAME } from "@/lib/opportunity-channels";
 import {
   intentLabels,
   opportunityIntents,
@@ -52,13 +52,8 @@ export default async function NewOpportunityPage({ searchParams }: { searchParam
         <input type="hidden" name="client" value={activeClient?.slug ?? ""} />
         <label className={labelCls}>
           Red
-          <select name="channelId" required className={fieldCls}>
-            {channels.map((channel) => (
-              <option key={channel.id} value={channel.id}>
-                {channel.name}
-              </option>
-            ))}
-          </select>
+          <input type="hidden" name="channelId" value={channels[0]?.id ?? ""} />
+          <div className={`${fieldCls} bg-ink/5 font-semibold`}>{YOUTUBE_OPPORTUNITY_CHANNEL_NAME}</div>
         </label>
 
         <label className={labelCls}>
