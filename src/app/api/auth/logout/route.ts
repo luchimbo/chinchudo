@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authUserCookieName } from "@/lib/auth";
 import { verifyJwt } from "@/lib/auth-crypto";
 import { prisma } from "@/lib/db";
 
@@ -35,6 +34,5 @@ export async function POST(req: NextRequest) {
   const response = NextResponse.redirect(redirectUrl, 303);
   response.cookies.set("auth_session", "", { maxAge: 0, path: "/" });
   response.cookies.set("support_session", "", { maxAge: 0, path: "/" });
-  response.cookies.set(authUserCookieName(), "", { maxAge: 0, path: "/" });
   return response;
 }

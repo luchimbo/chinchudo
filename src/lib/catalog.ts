@@ -14,7 +14,9 @@ export type ProductEntry = {
   especificaciones?: string;
 };
 
-export type ScopedProduct = Product & { brand?: Brand | null };
+// El catálogo sólo necesita estas columnas. Mantenerlo explícito evita que una
+// nueva columna de procedencia obligue a actualizar fixtures de recomendación.
+export type ScopedProduct = Pick<Product, "id" | "brandId" | "name" | "category" | "description" | "technicalSpecs" | "useCases" | "warrantyNotes" | "stockStatus" | "priceRange" | "createdAt" | "updatedAt"> & { brand?: Brand | null };
 
 let cached: ProductEntry[] | null = null;
 

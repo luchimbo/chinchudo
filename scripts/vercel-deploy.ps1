@@ -107,7 +107,7 @@ Write-Host "[5] Configurando variables de entorno en Vercel..." -ForegroundColor
 
 $varsToSet = @(
     "DATABASE_URL", "DIRECT_URL",
-    "AUTH_PASSWORD", "AUTH_SECRET",
+    "AUTH_SECRET",
     "OPENROUTER_API_KEY", "OPENROUTER_MODEL",
     "AGENT_RELAY_URL", "AGENT_RELAY_TOKEN",
     "ACCOUNTS_JSON"

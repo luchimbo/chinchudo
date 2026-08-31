@@ -2,371 +2,842 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { OnboardingDraft } from "@/lib/onboarding";
+import type {
+  OnboardingDraft,
+  OnboardingEvidence,
+  OnboardingOffering,
+} from "@/lib/onboarding";
 
-type Step = {
-  title: string;
-  eyebrow: string;
-  description: string;
+const NETWORKS = [
+  "Instagram",
+  "Facebook",
+  "YouTube",
+  "TikTok",
+  "X",
+  "LinkedIn",
+  "Reddit",
+  "Google",
+];
+const STEPS = [
+  ["01", "Analizar", "Pegá la página de tu negocio."],
+  ["02", "Revisar", "Corregí sólo lo que haga falta."],
+  ["03", "Activar", "Confirmá y abrí tu espacio."],
+] as const;
+type Initial = {
+  draft: Required<OnboardingDraft>;
+  step: number;
+  sourceUrl: string;
+  businessType: string;
+  status: string;
+  analysisError: string;
 };
+type SaveState = "saved" | "saving" | "error";
 
-const STEPS: Step[] = [
-  { eyebrow: "01 · Contexto", title: "Conozcamos tu negocio", description: "Una URL alcanza para empezar. Después revisás cada propuesta." },
-  { eyebrow: "02 · Revisión", title: "Lo que entendimos", description: "Confirmá identidad, temas, tono y límites de comunicación." },
-  { eyebrow: "03 · Oferta", title: "Qué ayudás a resolver", description: "Cargá la oferta principal, sea producto, servicio o ambos." },
-  { eyebrow: "04 · Conocimiento", title: "Respuestas con fundamento", description: "Las respuestas se apoyarán solo en información que apruebes." },
-  { eyebrow: "05 · Escucha", title: "Dónde empezar a mirar", description: "Cafishia propone búsquedas públicas para detectar oportunidades." },
-  { eyebrow: "06 · Listo", title: "Tu espacio está preparado", description: "Revisá lo esencial antes de abrir la suite." },
-];
+function clientDraft(value?: OnboardingDraft): Required<OnboardingDraft> {
+  const raw = value ?? {};
+  return {
+    name: raw.name || "",
+    description: raw.description || "",
+    brand: raw.brand || "",
+    tone: raw.tone || "Claro y cercano",
+    offer: raw.offer || "",
+    topics: raw.topics || [],
+    claims: raw.claims || [],
+    limits: raw.limits || [],
+    knowledge: [...(raw.knowledge || []), "", "", ""].slice(0, 3),
+    knowledgePrompts: [
+      ...(raw.knowledgePrompts || []),
+      "Problema que resolvemos",
+      "Cómo elegir una opción",
+      "Pregunta frecuente",
+    ].slice(0, 3),
+    knowledgeApproved: raw.knowledgeApproved === true,
+    selectedNetworks: raw.selectedNetworks || [],
+    unsureConfirmed: raw.unsureConfirmed === true,
+    detectedBusinessType: raw.detectedBusinessType || "mixed",
+    detectedPlatform: raw.detectedPlatform || "Sitio web",
+    offerings: raw.offerings || [],
+    evidence: raw.evidence || {},
+    manualFields: raw.manualFields || [],
+    warnings: raw.warnings || [],
+    stats: raw.stats || {
+      pagesRead: 0,
+      pagesDiscarded: 0,
+      products: 0,
+      services: 0,
+      durationMs: 0,
+    },
+  };
+}
 
-const STARTING_KNOWLEDGE = [
-  "Qué problema resuelve nuestra oferta principal.",
-  "Qué podemos prometer con seguridad y qué nunca debemos inventar.",
-  "La pregunta que más se repite antes de contratar o comprar.",
-];
-
-const NETWORK_OPTIONS = ["YouTube", "Reddit", "Instagram", "TikTok", "Facebook", "X", "LinkedIn", "Google"] as const;
-type Network = typeof NETWORK_OPTIONS[number];
-
-const TOPIC_OPTIONS = [
-  ["compra informada", "Compra informada", "Ayudar a decidir con criterio"],
-  ["asesoramiento personalizado", "Asesoramiento", "Orientación según cada caso"],
-  ["soluciones prácticas", "Uso práctico", "Problemas del día a día"],
-  ["precio y conveniencia", "Precio y conveniencia", "Valor, planes y presupuesto"],
-  ["comparativas", "Comparativas", "Diferencias entre alternativas"],
-  ["soporte y confianza", "Soporte y confianza", "Garantía, respaldo y posventa"],
-  ["educación", "Educación", "Guías para empezar o aprender"],
-  ["novedades", "Novedades", "Lanzamientos y tendencias"],
-] as const;
-
-const TONE_OPTIONS = [
-  ["Claro y cercano", "Habla simple, humano y sin vueltas."],
-  ["Técnico simple", "Preciso, pero explica cada concepto."],
-  ["Cálido y empático", "Primero entiende la situación de la persona."],
-  ["Directo y comercial", "Va a la solución y facilita el próximo paso."],
-  ["Moderno y aspiracional", "Transmite novedad sin exagerar promesas."],
-  ["Institucional y sereno", "Prioriza respaldo, orden y confianza."],
-] as const;
-
-const CLAIM_OPTIONS = [
-  "Asesoramiento personalizado",
-  "Atención cercana",
-  "Información clara",
-  "Acompañamiento posventa",
-  "Soluciones para distintos presupuestos",
-] as const;
-
-const LIMIT_OPTIONS = [
-  "No inventar precios o stock",
-  "No prometer resultados garantizados",
-  "No afirmar especificaciones sin fuente",
-  "No atacar a competidores",
-  "No presionar para cerrar una venta",
-] as const;
-
-const KNOWLEDGE_SUGGESTIONS = [
-  "Problema que resolvemos",
-  "Pregunta frecuente",
-  "Garantía o alcance",
-  "Cómo elegir una opción",
-  "Objeción habitual",
-  "Próximo paso recomendado",
-] as const;
-
-function StepDot({ active, complete, index }: { active: boolean; complete: boolean; index: number }) {
+const input =
+  "w-full rounded-xl border border-ink/15 bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition placeholder:text-slate/35 focus:border-moss focus:ring-4 focus:ring-moss/10";
+function Badge({ evidence }: { evidence?: OnboardingEvidence }) {
+  const item = evidence || {
+    status: "needs_confirmation",
+    confidence: "low",
+    url: "",
+  };
+  const labels = {
+    extracted: "Extraído",
+    suggested: "Sugerido",
+    manual: "Manual",
+    needs_confirmation: "Falta confirmar",
+  } as const;
+  const styles = {
+    extracted: "bg-moss/10 text-moss",
+    suggested: "bg-brass/15 text-brass",
+    manual: "bg-ink/10 text-ink",
+    needs_confirmation: "bg-signal/10 text-signal",
+  } as const;
   return (
-    <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-[11px] font-bold transition ${
-      complete ? "border-moss bg-moss text-paper" : active ? "border-ink bg-paper text-ink shadow-sm" : "border-ink/15 text-slate/45"
-    }`}>
-      {complete ? "✓" : String(index + 1).padStart(2, "0")}
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${styles[item.status]}`}
+    >
+      {labels[item.status]} ·{" "}
+      {item.confidence === "high"
+        ? "alta"
+        : item.confidence === "medium"
+          ? "media"
+          : "baja"}
+      {item.url ? (
+        <a
+          href={item.url}
+          target="_blank"
+          rel="noreferrer"
+          className="ml-1 underline"
+        >
+          Fuente ↗
+        </a>
+      ) : null}
     </span>
   );
 }
-
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+function Field({
+  label,
+  evidence,
+  children,
+}: {
+  label: string;
+  evidence?: OnboardingEvidence;
+  children: React.ReactNode;
+}) {
   return (
     <label className="grid gap-1.5">
-      <span className="text-xs font-bold uppercase tracking-[0.13em] text-slate/70">{label}</span>
+      <span className="flex flex-wrap items-center justify-between gap-2 text-xs font-bold uppercase tracking-[0.13em] text-slate/70">
+        {label}
+        <Badge evidence={evidence} />
+      </span>
       {children}
-      {hint ? <span className="text-xs leading-relaxed text-slate/55">{hint}</span> : null}
     </label>
   );
 }
-
-function ChoiceButton({ selected, title, description, onClick }: { selected: boolean; title: string; description?: string; onClick: () => void }) {
+function OfferingCard({
+  item,
+  update,
+  remove,
+}: {
+  item: OnboardingOffering;
+  update: (next: Partial<OnboardingOffering>) => void;
+  remove: () => void;
+}) {
   return (
-    <button
-      type="button"
-      aria-pressed={selected}
-      onClick={onClick}
-      className={`group flex min-h-[74px] items-start gap-3 rounded-xl border p-3.5 text-left transition ${selected ? "border-moss/50 bg-moss/[0.09] shadow-sm" : "border-ink/10 bg-white hover:border-ink/30"}`}
+    <article
+      className={`rounded-2xl border p-4 ${item.selected ? "border-ink/10 bg-white" : "border-ink/10 bg-ink/[0.02] opacity-60"}`}
     >
-      <span className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-md border text-[11px] font-bold ${selected ? "border-moss bg-moss text-paper" : "border-ink/20 text-transparent group-hover:text-ink/25"}`}>✓</span>
-      <span><span className="block text-sm font-bold text-ink">{title}</span>{description ? <span className="mt-1 block text-xs leading-snug text-slate/55">{description}</span> : null}</span>
-    </button>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => update({ selected: !item.selected })}
+            className={`grid h-6 w-6 place-items-center rounded border text-xs font-bold ${item.selected ? "border-moss bg-moss text-paper" : "border-ink/20 bg-white text-transparent"}`}
+          >
+            ✓
+          </button>
+          <span className="rounded-full bg-ink/5 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-slate">
+            {item.kind === "product" ? "Producto" : "Servicio"}
+          </span>
+          <Badge evidence={item.evidence} />
+        </div>
+        <button
+          type="button"
+          onClick={remove}
+          className="text-xs font-bold text-slate/55 hover:text-signal"
+        >
+          Quitar
+        </button>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <Field label="Nombre" evidence={item.evidence}>
+          <input
+            className={input}
+            value={item.name}
+            onChange={(event) => update({ name: event.target.value })}
+          />
+        </Field>
+        <Field label="Categoría">
+          <input
+            className={input}
+            value={item.category}
+            onChange={(event) => update({ category: event.target.value })}
+            placeholder="Sin categoría"
+          />
+        </Field>
+      </div>
+      <div className="mt-3">
+        <Field label="Descripción">
+          <textarea
+            className={`${input} min-h-20 resize-y`}
+            value={item.description}
+            onChange={(event) => update({ description: event.target.value })}
+          />
+        </Field>
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        {item.kind === "product" ? (
+          <Field label="Especificaciones">
+            <input
+              className={input}
+              value={item.specs}
+              onChange={(event) => update({ specs: event.target.value })}
+            />
+          </Field>
+        ) : (
+          <Field label="Alcance">
+            <input
+              className={input}
+              value={item.scope}
+              onChange={(event) => update({ scope: event.target.value })}
+            />
+          </Field>
+        )}
+        <Field label="Precio publicado">
+          <input
+            className={input}
+            value={item.price}
+            onChange={(event) => update({ price: event.target.value })}
+          />
+        </Field>
+      </div>
+    </article>
   );
 }
 
-const inputClass = "w-full rounded-xl border border-ink/15 bg-white/70 px-3.5 py-3 text-sm text-ink outline-none transition placeholder:text-slate/35 focus:border-ink/50 focus:bg-white";
-
-type Initial = { draft: Required<OnboardingDraft>; step: number; sourceUrl: string; businessType: string; status: string; analysisError: string };
-
-export function OnboardingWizard({ initial, preview = false }: { initial?: Initial; preview?: boolean }) {
-  const router = useRouter(); const draft = initial?.draft;
-  const [step, setStep] = useState(initial?.step ?? 0);
-  const [url, setUrl] = useState(initial?.sourceUrl || "https://www.tunegocio.com.ar");
-  const [businessType, setBusinessType] = useState<"products" | "services" | "mixed">(initial?.businessType === "products" || initial?.businessType === "services" ? initial.businessType : "mixed");
-  const [analysed, setAnalysed] = useState(Boolean(initial && initial.status !== "NOT_STARTED"));
-  const [name, setName] = useState(draft?.name || "Casa Norte");
-  const [description, setDescription] = useState(draft?.description || "Una marca cercana que ayuda a elegir soluciones simples para el día a día.");
-  const [topics, setTopics] = useState<string[]>(draft?.topics?.length ? draft.topics : ["asesoramiento personalizado", "soluciones prácticas", "compra informada"]);
-  const [customTopic, setCustomTopic] = useState("");
-  const [brand, setBrand] = useState(draft?.brand || "Casa Norte");
-  const [tone, setTone] = useState(draft?.tone || "Claro y cercano");
-  const [claims, setClaims] = useState<string[]>(draft?.claims?.length ? draft.claims : ["Asesoramiento personalizado", "Atención cercana", "Información clara"]);
-  const [limits, setLimits] = useState<string[]>(draft?.limits?.length ? draft.limits : ["No inventar precios o stock", "No prometer resultados garantizados", "No afirmar especificaciones sin fuente"]);
-  const [offer, setOffer] = useState(draft?.offer || "Asesoramiento y selección de productos para cada necesidad");
-  const [knowledgePrompts, setKnowledgePrompts] = useState<string[]>(draft?.knowledgePrompts?.length ? draft.knowledgePrompts : STARTING_KNOWLEDGE);
-  const [knowledge, setKnowledge] = useState<string[]>(draft?.knowledge ?? ["", "", ""]);
-  const [knowledgeTarget, setKnowledgeTarget] = useState(0);
-  const [knowledgeApproved, setKnowledgeApproved] = useState(draft?.knowledgeApproved ?? false);
-  const [selectedNetworks, setSelectedNetworks] = useState<Network[]>((draft?.selectedNetworks ?? []).filter((n): n is Network => NETWORK_OPTIONS.includes(n as Network)));
-  const [saveState, setSaveState] = useState<"saved" | "saving" | "error">(preview ? "saved" : "saving");
+export function OnboardingWizard({
+  initial,
+  preview = false,
+}: {
+  initial?: Initial;
+  preview?: boolean;
+}) {
+  const router = useRouter();
+  const [step, setStep] = useState(Math.min(initial?.step ?? 0, 2));
+  const [url, setUrl] = useState(initial?.sourceUrl || "");
+  const [draft, setDraft] = useState<Required<OnboardingDraft>>(() =>
+    clientDraft(initial?.draft),
+  );
+  const [saveState, setSaveState] = useState<SaveState>("saved");
   const [notice, setNotice] = useState(initial?.analysisError || "");
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisStages, setAnalysisStages] = useState<string[]>([]);
   const firstSave = useRef(true);
-  const checklist = useMemo(() => [
-    { label: "Identidad y tipo de negocio", done: Boolean(name.trim() && description.trim() && businessType) },
-    { label: "Tres temas relevantes", done: topics.length >= 3 },
-    { label: "Marca y oferta principal", done: Boolean(brand.trim() && offer.trim()) },
-    { label: "Tono y límites seguros", done: Boolean(tone.trim() && limits.length) },
-    { label: "Tres conocimientos aprobados", done: knowledgeApproved && knowledge.filter((item) => item.trim()).length >= 3 },
-    { label: "Cinco voces estándar creadas", done: true },
-    { label: "Redes para consultar elegidas", done: selectedNetworks.length > 0 },
-  ], [brand, businessType, description, knowledge, knowledgeApproved, limits.length, name, offer, selectedNetworks, tone, topics]);
-
-  const ready = checklist.every((item) => item.done);
-  const stepValid = [
-    /^https?:\/\//i.test(url.trim()) && Boolean(businessType),
-    Boolean(name.trim() && description.trim() && brand.trim() && topics.length >= 3 && tone.trim()),
-    Boolean(offer.trim() && claims.length > 0 && limits.length > 0),
-    knowledgeApproved && knowledge.every((item) => item.trim().length > 0),
-    selectedNetworks.length > 0,
-    ready,
-  ];
-  const firstBlockedStep = stepValid.findIndex((valid) => !valid);
-  const furthestAllowedStep = analysed ? (firstBlockedStep === -1 ? STEPS.length - 1 : firstBlockedStep) : 0;
-  const buildKnowledgeText = (kind: string) => {
-    const company = brand.trim() || name.trim() || "La marca";
-    const mainOffer = offer.trim() || "su oferta principal";
-    const primaryTopic = topics[0] || "la necesidad de cada persona";
-    const secondaryTopic = topics[1] || "una compra informada";
-    const safeClaim = claims[0] || "información clara";
-    const safetyLimit = limits[0] || "no afirmar datos no confirmados";
-    const generated: Record<string, string> = {
-      "Problema que resolvemos": `${company} ayuda a quienes buscan ${primaryTopic} mediante ${mainOffer}. La prioridad es entender la necesidad concreta y orientar una solución práctica, sin empujar una venta innecesaria.`,
-      "Pregunta frecuente": `Una consulta frecuente es cómo saber si ${mainOffer} resulta adecuado para cada caso. ${company} debe preguntar primero por el objetivo, el contexto de uso y el presupuesto antes de recomendar una alternativa.`,
-      "Garantía o alcance": `${company} puede destacar ${safeClaim.toLowerCase()}, pero debe ${safetyLimit.toLowerCase()}. Cualquier condición de garantía, disponibilidad o alcance se confirma antes de comunicarla como definitiva.`,
-      "Cómo elegir una opción": `Para elegir una opción conviene evaluar primero ${primaryTopic}, luego ${secondaryTopic} y finalmente comparar qué alternativa resuelve mejor el uso real. ${company} acompaña esa decisión con ${mainOffer}.`,
-      "Objeción habitual": `Si una persona duda por precio o por no saber qué opción elegir, ${company} debe explicar las diferencias relevantes y el valor práctico de ${mainOffer}, evitando promesas absolutas o presión comercial.`,
-      "Próximo paso recomendado": `Después de resolver la duda inicial, el próximo paso es pedir un dato concreto sobre el uso esperado y ofrecer una recomendación de ${company} basada en ${primaryTopic}.`,
-    };
-    return generated[kind] ?? `${company} debe responder sobre ${kind.toLowerCase()} usando la información confirmada de ${mainOffer}.`;
+  const markManual = (field: string) =>
+    setDraft((current) => ({
+      ...current,
+      manualFields: [...new Set([...current.manualFields, field])],
+      evidence: {
+        ...current.evidence,
+        [field]: {
+          url: current.evidence[field]?.url || url,
+          status: "manual",
+          confidence: "high",
+        },
+      },
+    }));
+  const setField = <K extends keyof Required<OnboardingDraft>>(
+    field: K,
+    value: Required<OnboardingDraft>[K],
+  ) => {
+    setDraft((current) => ({ ...current, [field]: value }));
+    markManual(String(field));
   };
-  const prepareKnowledge = () => {
-    const kinds = ["Problema que resolvemos", "Cómo elegir una opción", "Pregunta frecuente"];
-    setKnowledgePrompts(kinds);
-    setKnowledge(kinds.map(buildKnowledgeText));
-    setKnowledgeApproved(false);
-    setKnowledgeTarget(0);
+  const updateOffering = (
+    index: number,
+    id: string,
+    value: Partial<OnboardingOffering>,
+  ) => {
+    setDraft((current) => ({
+      ...current,
+      offerings: current.offerings.map((item, position) =>
+        position === index
+          ? {
+              ...item,
+              ...value,
+              evidence: {
+                ...item.evidence,
+                status: "manual",
+                confidence: "high",
+              },
+            }
+          : item,
+      ),
+      manualFields: [...new Set([...current.manualFields, `offering:${id}`])],
+    }));
   };
-  const goNext = () => {
-    if (!stepValid[step]) return;
-    if (step === 2 && knowledge.every((item) => !item.trim())) prepareKnowledge();
-    setStep((current) => Math.min(current + 1, STEPS.length - 1));
-  };
-  const goBack = () => setStep((current) => Math.max(current - 1, 0));
-  const toggle = (value: string, values: string[], setValues: (next: string[]) => void) => setValues(values.includes(value) ? values.filter((item) => item !== value) : [...values, value]);
-  const addCustomTopic = () => {
-    const value = customTopic.trim();
-    if (!value || topics.includes(value)) return;
-    setTopics([...topics, value]);
-    setCustomTopic("");
-  };
-  const applyKnowledgeSuggestion = (suggestion: string) => {
-    setKnowledgePrompts((current) => current.map((item, position) => position === knowledgeTarget ? suggestion : item));
-    setKnowledge((current) => current.map((item, position) => position === knowledgeTarget ? buildKnowledgeText(suggestion) : item));
-    setKnowledgeApproved(false);
-    setKnowledgeTarget((current) => (current + 1) % 3);
-  };
-  const toggleNetwork = (network: Network) => setSelectedNetworks((current) => current.includes(network) ? current.filter((item) => item !== network) : [...current, network]);
-  const currentDraft = useMemo(() => ({ name, description, brand, tone, offer, topics, claims, limits, knowledge, knowledgePrompts, knowledgeApproved, selectedNetworks, unsureConfirmed: true }), [name, description, brand, tone, offer, topics, claims, limits, knowledge, knowledgePrompts, knowledgeApproved, selectedNetworks]);
+  const addOffering = (kind: "product" | "service") =>
+    setDraft((current) => ({
+      ...current,
+      offerings: [
+        ...current.offerings,
+        {
+          id: `manual-${Date.now()}`,
+          kind,
+          name: kind === "product" ? "Nuevo producto" : "Nuevo servicio",
+          category: "",
+          description: "",
+          specs: "",
+          scope: "",
+          modality: "",
+          audience: "",
+          price: "Por confirmar",
+          availability: "Por confirmar",
+          url: "",
+          selected: true,
+          evidence: { url, status: "manual", confidence: "high" },
+        },
+      ],
+    }));
   useEffect(() => {
-    if (preview) return;
-    if (firstSave.current) { firstSave.current = false; setSaveState("saved"); return; }
-    const controller = new AbortController(); setSaveState("saving");
+    if (preview || firstSave.current) {
+      firstSave.current = false;
+      return;
+    }
+    const controller = new AbortController();
+    setSaveState("saving");
     const timer = window.setTimeout(async () => {
-      try { const response = await fetch("/api/onboarding", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ draft: currentDraft, sourceUrl: url, businessType, currentStep: step + 1 }), signal: controller.signal }); if (!response.ok) throw new Error(); setSaveState("saved"); }
-      catch { if (!controller.signal.aborted) setSaveState("error"); }
-    }, 600);
-    return () => { controller.abort(); window.clearTimeout(timer); };
-  }, [businessType, currentDraft, preview, step, url]);
+      try {
+        const response = await fetch("/api/onboarding", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            draft,
+            sourceUrl: url,
+            businessType: draft.detectedBusinessType,
+            currentStep: step + 1,
+          }),
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error();
+        setSaveState("saved");
+      } catch {
+        if (!controller.signal.aborted) setSaveState("error");
+      }
+    }, 700);
+    return () => {
+      controller.abort();
+      window.clearTimeout(timer);
+    };
+  }, [draft, preview, step, url]);
   const analyze = async () => {
-    if (preview) { setAnalysed(true); goNext(); return; }
-    setSaveState("saving"); setNotice("");
-    try { const response = await fetch("/api/onboarding", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "analyze", url }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error); if (data.warning) setNotice(data.warning); setAnalysed(true); setSaveState("saved"); goNext(); }
-    catch (error) { setNotice(error instanceof Error ? error.message : "No se pudo analizar el sitio."); setAnalysed(true); setSaveState("error"); }
+    if (!/^https?:\/\//i.test(url.trim())) {
+      setNotice("Ingresá una URL que comience con http:// o https://.");
+      return;
+    }
+    setIsAnalyzing(true);
+    setNotice("");
+    setAnalysisStages(["Leyendo el sitio…"]);
+    const progress = window.setInterval(
+      () =>
+        setAnalysisStages((current) =>
+          current.length === 1
+            ? [...current, "Buscando secciones y ofertas…"]
+            : current.length === 2
+              ? [...current, "Preparando conocimiento y tono…"]
+              : current,
+        ),
+      1000,
+    );
+    try {
+      const endpoint = preview ? "/api/onboarding/preview" : "/api/onboarding";
+      const body = preview ? { url } : { action: "analyze", url };
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await response.json();
+      if (!response.ok)
+        throw new Error(data.error || "No se pudo analizar el sitio.");
+      const next = clientDraft(data.draft || data.onboarding?.draft);
+      setDraft(next);
+      setNotice(data.warning || "");
+      setStep(1);
+      setSaveState("saved");
+    } catch (error) {
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : "No se pudo analizar el sitio.",
+      );
+      setSaveState("error");
+    } finally {
+      window.clearInterval(progress);
+      setIsAnalyzing(false);
+    }
   };
-  const complete = async () => { if (preview) return window.alert("Vista local: la configuración se guardará al activar el onboarding real."); setSaveState("saving"); try { const response = await fetch("/api/onboarding", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "complete" }) }); if (!response.ok) throw new Error(); router.push("/"); router.refresh(); } catch { setSaveState("error"); setNotice("No se pudo finalizar. Intentá de nuevo."); } };
-
+  const complete = async () => {
+    if (preview) {
+      window.alert(
+        "Vista local: los datos no se guardan. Registrá un espacio para activar esta configuración.",
+      );
+      return;
+    }
+    setSaveState("saving");
+    try {
+      const response = await fetch("/api/onboarding", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "complete" }),
+      });
+      if (!response.ok) throw new Error();
+      router.push("/");
+      router.refresh();
+    } catch {
+      setSaveState("error");
+      setNotice("No se pudo finalizar. Intentá de nuevo.");
+    }
+  };
+  const selectedOffers = draft.offerings.filter((item) => item.selected),
+    productCount = selectedOffers.filter(
+      (item) => item.kind === "product",
+    ).length,
+    serviceCount = selectedOffers.filter(
+      (item) => item.kind === "service",
+    ).length;
+  const canContinue =
+    step === 0
+      ? /^https?:\/\//i.test(url.trim())
+      : step === 1
+        ? Boolean(draft.name.trim() && draft.brand.trim())
+        : true;
+  const detected = useMemo(
+    () => draft.stats.pagesRead > 0,
+    [draft.stats.pagesRead],
+  );
   return (
     <main className="min-h-screen bg-[#f5f1e8] px-4 py-5 sm:px-8 sm:py-9">
-      <div className="mx-auto grid w-full max-w-6xl overflow-hidden rounded-[2rem] border border-ink/10 bg-paper shadow-[0_30px_100px_rgba(37,31,19,0.12)] lg:grid-cols-[290px_minmax(0,1fr)]">
-        <aside className="relative overflow-hidden border-b border-ink/10 bg-[#17231e] px-6 py-7 text-[#eff3e8] lg:border-b-0 lg:border-r lg:px-7 lg:py-9">
+      <div className="mx-auto grid max-w-6xl overflow-hidden rounded-[2rem] border border-ink/10 bg-paper shadow-[0_30px_100px_rgba(37,31,19,0.12)] lg:grid-cols-[275px_minmax(0,1fr)]">
+        <aside className="relative overflow-hidden bg-[#17231e] px-6 py-7 text-[#eff3e8] lg:px-7 lg:py-9">
           <div className="absolute -right-20 -top-20 h-52 w-52 rounded-full bg-[#b9872f]/35 blur-3xl" />
           <div className="relative">
             <div className="mb-12 flex items-center gap-3">
-              <span className="grid h-9 w-9 place-items-center rounded-xl bg-[#d8b465] font-display text-xl text-[#17231e]">C</span>
+              <span className="grid h-9 w-9 place-items-center rounded-xl bg-[#d8b465] font-display text-xl text-[#17231e]">
+                C
+              </span>
               <div>
                 <p className="font-display text-xl tracking-tight">Cafishia</p>
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#eff3e8]/55">Configuración inicial</p>
+                <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#eff3e8]/55">
+                  Configuración inicial
+                </p>
               </div>
             </div>
-
-            <div className="mb-7 rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-xs leading-relaxed text-[#eff3e8]/70">
-              {preview ? "Vista local: este recorrido no guarda información." : saveState === "saving" ? "Guardando cambios…" : saveState === "error" ? "No se pudo guardar. Cambiá un campo para reintentar." : "Cambios guardados automáticamente."}
+            <div className="mb-8 rounded-xl border border-white/10 bg-white/[.06] px-3 py-2 text-xs leading-relaxed text-[#eff3e8]/70">
+              {preview
+                ? "Vista local: no se guarda información."
+                : saveState === "saving"
+                  ? "Guardando cambios…"
+                  : saveState === "error"
+                    ? "No se pudo guardar todavía."
+                    : "Cambios guardados automáticamente."}
             </div>
-
-            <ol className="grid gap-1">
-              {STEPS.map((item, index) => (
-                <li key={item.title}>
+            <ol className="grid gap-2">
+              {STEPS.map(([number, title, description], index) => (
+                <li key={title}>
                   <button
                     type="button"
-                    onClick={() => {
-                      if (index > furthestAllowedStep) return;
-                      if (index === 3 && knowledge.every((item) => !item.trim())) prepareKnowledge();
-                      setStep(index);
-                    }}
-                    disabled={index > furthestAllowedStep}
-                    title={index > furthestAllowedStep ? "Completá los pasos anteriores para continuar" : undefined}
-                    className={`flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition ${index === step ? "bg-white/10" : index > furthestAllowedStep ? "cursor-not-allowed opacity-35" : "hover:bg-white/[0.05]"}`}
+                    onClick={() => index <= step && setStep(index)}
+                    className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition ${step === index ? "bg-white/12" : index < step ? "opacity-85 hover:bg-white/8" : "cursor-default opacity-35"}`}
                   >
-                    <StepDot index={index} active={index === step} complete={index < step || (index === step && index === STEPS.length - 1 && ready)} />
-                    <span className={`text-sm font-semibold ${index === step ? "text-white" : "text-[#eff3e8]/65"}`}>{item.title}</span>
+                    <span
+                      className={`grid h-7 w-7 place-items-center rounded-full border text-[10px] font-bold ${index < step ? "border-[#d8b465] bg-[#d8b465] text-[#17231e]" : "border-white/25"}`}
+                    >
+                      {index < step ? "✓" : number}
+                    </span>
+                    <span>
+                      <span className="block text-sm font-bold">{title}</span>
+                      <span className="mt-0.5 block text-[11px] leading-snug text-[#eff3e8]/55">
+                        {description}
+                      </span>
+                    </span>
                   </button>
                 </li>
               ))}
             </ol>
-
-            <div className="mt-12 border-t border-white/10 pt-5 text-xs leading-relaxed text-[#eff3e8]/60">
-              ¿Necesitás ayuda? Podés continuar con lo que sabés y revisar esta configuración más adelante.
-            </div>
           </div>
         </aside>
-
-        <section className="min-w-0 bg-[#fbfaf6] px-5 py-7 sm:px-10 sm:py-10 lg:px-14">
-          <header className="mb-8 flex items-start justify-between gap-5">
-            <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-brass">{STEPS[step].eyebrow}</p>
-              <h1 className="mt-2 font-display text-4xl leading-[0.95] tracking-tight text-ink sm:text-5xl">{STEPS[step].title}</h1>
-              <p className="mt-3 max-w-xl text-sm leading-relaxed text-slate/75">{STEPS[step].description}</p>
-            </div>
-            <span className="hidden rounded-full border border-ink/10 bg-paper px-3 py-1 text-xs font-bold text-slate/60 sm:inline">{step + 1} / {STEPS.length}</span>
+        <section className="min-w-0 px-5 py-7 sm:px-9 sm:py-10">
+          <header className="mb-8 max-w-3xl">
+            <p className="text-xs font-bold uppercase tracking-[.18em] text-moss">
+              {STEPS[step][0]} · {STEPS[step][1]}
+            </p>
+            <h1 className="mt-2 font-display text-4xl tracking-tight text-ink">
+              {step === 0
+                ? "Tu página ya sabe bastante de vos."
+                : step === 1
+                  ? "Esto fue lo que encontramos."
+                  : "Tu espacio está listo para arrancar."}
+            </h1>
+            <p className="mt-3 text-sm leading-relaxed text-slate/70">
+              {step === 0
+                ? "Pegá la web y Cafishia preparará una propuesta. Después sólo revisás lo necesario."
+                : step === 1
+                  ? "Todo es editable. Las etiquetas indican de dónde salió cada dato."
+                  : "Confirmá qué información se importará y en qué redes querés empezar a escuchar."}
+            </p>
           </header>
-          {notice ? <div role="status" className="mb-5 rounded-xl border border-brass/30 bg-brass/[0.07] px-4 py-3 text-sm text-ink">{notice}</div> : null}
-
+          {notice ? (
+            <div className="mb-6 rounded-xl border border-brass/25 bg-brass/[.08] px-4 py-3 text-sm text-ink">
+              {notice}
+            </div>
+          ) : null}
           {step === 0 ? (
-            <div className="grid max-w-2xl gap-6">
-              <div className="rounded-2xl border border-brass/25 bg-brass/[0.07] p-5">
-                <p className="font-display text-xl text-ink">Empezamos con una sola página.</p>
-                <p className="mt-1 text-sm leading-relaxed text-slate/70">Cafishia prepara una propuesta para revisar. No publica ni usa información sin tu confirmación.</p>
+            <div className="max-w-2xl">
+              <div className="rounded-3xl border border-ink/10 bg-white p-5 shadow-sm">
+                <Field label="URL pública del negocio">
+                  <input
+                    className={input}
+                    value={url}
+                    onChange={(event) => setUrl(event.target.value)}
+                    placeholder="https://www.tunegocio.com.ar"
+                  />
+                </Field>
+                <button
+                  type="button"
+                  onClick={analyze}
+                  disabled={isAnalyzing}
+                  className="mt-5 rounded-full bg-ink px-5 py-3 text-sm font-bold text-paper transition hover:bg-moss disabled:opacity-50"
+                >
+                  {isAnalyzing
+                    ? "Analizando…"
+                    : detected
+                      ? "Volver a analizar"
+                      : "Analizar mi página →"}
+                </button>
               </div>
-              <Field label="Sitio web" hint="Puede ser la página principal de tu negocio.">
-                <input value={url} onChange={(event) => setUrl(event.target.value)} className={inputClass} placeholder="https://www.tunegocio.com" />
-              </Field>
-              <div>
-                <p className="mb-2 text-xs font-bold uppercase tracking-[0.13em] text-slate/70">Tu negocio combina</p>
-                <div className="grid gap-2 sm:grid-cols-3">
-                  {[
-                    ["products", "Productos", "Vendemos cosas"],
-                    ["services", "Servicios", "Vendemos tiempo"],
-                    ["mixed", "Ambos", "Una combinación"],
-                  ].map(([value, label, help]) => (
-                    <button key={value} type="button" onClick={() => setBusinessType(value as typeof businessType)} className={`rounded-xl border p-4 text-left transition ${businessType === value ? "border-ink bg-ink text-paper shadow-lg" : "border-ink/12 bg-white hover:border-ink/30"}`}>
-                      <span className="block text-sm font-bold">{label}</span><span className={`mt-1 block text-xs ${businessType === value ? "text-paper/65" : "text-slate/55"}`}>{help}</span>
-                    </button>
+              {isAnalyzing ? (
+                <div className="mt-5 rounded-2xl border border-moss/20 bg-moss/[.06] p-5">
+                  {analysisStages.map((stage, index) => (
+                    <p
+                      className="mb-2 flex items-center gap-2 text-sm font-medium text-ink"
+                      key={stage}
+                    >
+                      <span className="grid h-5 w-5 place-items-center rounded-full bg-moss text-[10px] text-paper">
+                        {index < analysisStages.length - 1 ? "✓" : "…"}
+                      </span>
+                      {stage}
+                    </p>
                   ))}
                 </div>
+              ) : null}
+              <p className="mt-5 text-xs leading-relaxed text-slate/55">
+                Sólo leemos páginas públicas del mismo dominio. No accedemos a
+                cuentas, carritos, pedidos ni áreas privadas.
+              </p>
+            </div>
+          ) : null}
+          {step === 1 ? (
+            <div className="grid max-w-4xl gap-6">
+              <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-ink/10 bg-ink/[.025] px-4 py-3 text-sm">
+                <span className="font-bold text-ink">
+                  {draft.detectedPlatform}
+                </span>
+                <span className="text-slate/55">
+                  · {draft.stats.pagesRead} páginas leídas ·{" "}
+                  {draft.stats.products} productos · {draft.stats.services}{" "}
+                  servicios
+                </span>
+                {draft.warnings.map((warning) => (
+                  <span key={warning} className="text-signal">
+                    · {warning}
+                  </span>
+                ))}
               </div>
-              <button type="button" disabled={!stepValid[0] || saveState === "saving"} onClick={analyze} className="mt-2 w-fit rounded-full bg-ink px-6 py-3 text-sm font-bold text-paper shadow-lg shadow-ink/15 transition hover:-translate-y-0.5 hover:bg-slate disabled:cursor-not-allowed disabled:opacity-40">
-                {analysed ? "Revisar propuesta" : "Analizar y preparar propuesta"}
+              <div className="grid gap-4 rounded-2xl border border-ink/10 bg-white p-5">
+                <p className="text-xs font-bold uppercase tracking-[.14em] text-slate/60">
+                  Identidad
+                </p>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field
+                    label="Nombre del negocio"
+                    evidence={draft.evidence.name}
+                  >
+                    <input
+                      className={input}
+                      value={draft.name}
+                      onChange={(event) => setField("name", event.target.value)}
+                    />
+                  </Field>
+                  <Field label="Marca" evidence={draft.evidence.brand}>
+                    <input
+                      className={input}
+                      value={draft.brand}
+                      onChange={(event) =>
+                        setField("brand", event.target.value)
+                      }
+                    />
+                  </Field>
+                </div>
+                <Field
+                  label="Descripción"
+                  evidence={draft.evidence.description}
+                >
+                  <textarea
+                    className={`${input} min-h-24 resize-y`}
+                    value={draft.description}
+                    onChange={(event) =>
+                      setField("description", event.target.value)
+                    }
+                  />
+                </Field>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field
+                    label="Oferta principal"
+                    evidence={draft.evidence.offer}
+                  >
+                    <input
+                      className={input}
+                      value={draft.offer}
+                      onChange={(event) =>
+                        setField("offer", event.target.value)
+                      }
+                    />
+                  </Field>
+                  <Field label="Tipo de negocio">
+                    <select
+                      className={input}
+                      value={draft.detectedBusinessType}
+                      onChange={(event) =>
+                        setField(
+                          "detectedBusinessType",
+                          event.target.value as
+                            | "products"
+                            | "services"
+                            | "mixed",
+                        )
+                      }
+                    >
+                      <option value="products">Productos</option>
+                      <option value="services">Servicios</option>
+                      <option value="mixed">Productos y servicios</option>
+                    </select>
+                  </Field>
+                </div>
+              </div>
+              <div className="grid gap-4 rounded-2xl border border-ink/10 bg-white p-5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[.14em] text-slate/60">
+                      Ofertas detectadas
+                    </p>
+                    <p className="mt-1 text-sm text-slate/65">
+                      Seleccioná lo que querés importar. Podés corregir o sumar
+                      manualmente.
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => addOffering("product")}
+                      className="rounded-full border border-ink/15 px-3 py-2 text-xs font-bold hover:border-moss"
+                    >
+                      + Producto
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => addOffering("service")}
+                      className="rounded-full border border-ink/15 px-3 py-2 text-xs font-bold hover:border-moss"
+                    >
+                      + Servicio
+                    </button>
+                  </div>
+                </div>
+                {draft.offerings.length ? (
+                  <div className="grid gap-3">
+                    {draft.offerings.map((item, index) => (
+                      <OfferingCard
+                        key={`${item.id}-${index}`}
+                        item={item}
+                        update={(value) => updateOffering(index, item.id, value)}
+                        remove={() =>
+                          setDraft((current) => ({
+                            ...current,
+                            offerings: current.offerings.filter(
+                              (_, position) => position !== index,
+                            ),
+                          }))
+                        }
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="rounded-xl border border-dashed border-ink/15 p-5 text-sm text-slate/60">
+                    No encontramos un catálogo claro. Podés agregar tus ofertas
+                    manualmente o continuar sin importarlas.
+                  </p>
+                )}
+              </div>
+              <div className="grid gap-4 rounded-2xl border border-ink/10 bg-white p-5">
+                <p className="text-xs font-bold uppercase tracking-[.14em] text-slate/60">
+                  Conocimiento y comunicación
+                </p>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Tono">
+                    <input
+                      className={input}
+                      value={draft.tone}
+                      onChange={(event) => setField("tone", event.target.value)}
+                    />
+                  </Field>
+                  <Field label="Temas (separados por coma)">
+                    <input
+                      className={input}
+                      value={draft.topics.join(", ")}
+                      onChange={(event) =>
+                        setField(
+                          "topics",
+                          event.target.value
+                            .split(",")
+                            .map((item) => item.trim())
+                            .filter(Boolean),
+                        )
+                      }
+                    />
+                  </Field>
+                </div>
+                {draft.knowledge.map((item, index) => (
+                  <Field
+                    key={index}
+                    label={
+                      draft.knowledgePrompts[index] ||
+                      `Conocimiento ${index + 1}`
+                    }
+                    evidence={draft.evidence.knowledge}
+                  >
+                    <textarea
+                      className={`${input} min-h-20 resize-y`}
+                      value={item}
+                      onChange={(event) => {
+                        const next = [...draft.knowledge];
+                        next[index] = event.target.value;
+                        setField("knowledge", next);
+                      }}
+                    />
+                  </Field>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {step === 2 ? (
+            <div className="grid max-w-3xl gap-5">
+              <div className="rounded-3xl border border-moss/25 bg-moss/[.07] p-6">
+                <p className="font-display text-3xl text-ink">
+                  Listo para activar.
+                </p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-xl bg-white/70 p-3">
+                    <p className="text-2xl font-display text-ink">
+                      {productCount}
+                    </p>
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate/60">
+                      Productos
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-white/70 p-3">
+                    <p className="text-2xl font-display text-ink">
+                      {serviceCount}
+                    </p>
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate/60">
+                      Servicios
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-white/70 p-3">
+                    <p className="text-2xl font-display text-ink">
+                      {draft.knowledge.filter(Boolean).length}
+                    </p>
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate/60">
+                      Conocimientos
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-2xl border border-ink/10 bg-white p-5">
+                <p className="text-xs font-bold uppercase tracking-[.14em] text-slate/60">
+                  Dónde escuchar
+                </p>
+                <p className="mt-1 text-sm text-slate/65">
+                  Sugerimos las redes detectadas, pero podés elegir sólo las que
+                  quieras usar.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {NETWORKS.map((network) => {
+                    const selected = draft.selectedNetworks.includes(network);
+                    return (
+                      <button
+                        type="button"
+                        key={network}
+                        onClick={() =>
+                          setField(
+                            "selectedNetworks",
+                            selected
+                              ? draft.selectedNetworks.filter(
+                                  (item) => item !== network,
+                                )
+                              : [...draft.selectedNetworks, network],
+                          )
+                        }
+                        className={`rounded-full border px-3 py-2 text-sm font-bold transition ${selected ? "border-moss bg-moss text-paper" : "border-ink/15 bg-white text-ink"}`}
+                      >
+                        {selected ? "✓ " : "+ "}
+                        {network}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={complete}
+                disabled={saveState === "saving"}
+                className="w-fit rounded-full bg-ink px-6 py-3 text-sm font-bold text-paper transition hover:bg-moss disabled:opacity-50"
+              >
+                {preview
+                  ? "Ver finalización local"
+                  : "Guardar y abrir el panel"}
               </button>
             </div>
           ) : null}
-
-          {step === 1 ? (
-            <div className="grid max-w-3xl gap-6">
-              {analysed ? <div className="rounded-xl border border-moss/25 bg-moss/[0.08] px-4 py-3 text-sm text-moss">Propuesta de ejemplo lista para revisar. En producción se generará a partir de {url || "tu URL"}.</div> : null}
-              <div className="grid gap-5 sm:grid-cols-2"><Field label="Nombre visible"><input value={name} onChange={(event) => setName(event.target.value)} className={inputClass} /></Field><Field label="Marca principal"><input value={brand} onChange={(event) => setBrand(event.target.value)} className={inputClass} /></Field></div>
-              <Field label="Descripción"><textarea value={description} onChange={(event) => setDescription(event.target.value)} rows={3} className={`${inputClass} resize-y`} /></Field>
-              <div>
-                <div className="mb-3 flex items-end justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.13em] text-slate/70">¿De qué temas querés hablar?</p><p className="mt-1 text-xs text-slate/55">Elegí al menos tres. Podés combinarlos libremente.</p></div><span className="rounded-full bg-ink/5 px-2.5 py-1 text-xs font-bold text-slate/60">{topics.length} elegidos</span></div>
-                <div className="grid gap-2 sm:grid-cols-2">{TOPIC_OPTIONS.map(([value, title, help]) => <ChoiceButton key={value} selected={topics.includes(value)} title={title} description={help} onClick={() => toggle(value, topics, setTopics)} />)}</div>
-                <div className="mt-3 flex gap-2"><input value={customTopic} onChange={(event) => setCustomTopic(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addCustomTopic(); } }} className={inputClass} placeholder="Otro tema específico…" /><button type="button" onClick={addCustomTopic} className="shrink-0 rounded-xl border border-ink/15 bg-white px-4 text-sm font-bold text-ink hover:border-ink/40">Agregar</button></div>
-                {topics.filter((topic) => !TOPIC_OPTIONS.some(([value]) => value === topic)).length ? <div className="mt-2 flex flex-wrap gap-2">{topics.filter((topic) => !TOPIC_OPTIONS.some(([value]) => value === topic)).map((topic) => <button type="button" key={topic} onClick={() => toggle(topic, topics, setTopics)} className="rounded-full bg-ink px-3 py-1 text-xs font-semibold text-paper">{topic} ×</button>)}</div> : null}
-              </div>
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.13em] text-slate/70">¿Cómo querés que suene?</p><p className="mb-3 mt-1 text-xs text-slate/55">Elegí un tono principal. Las voces lo adaptarán según cada conversación.</p>
-                <div className="grid gap-2 sm:grid-cols-2">{TONE_OPTIONS.map(([title, help]) => <ChoiceButton key={title} selected={tone === title} title={title} description={help} onClick={() => setTone(title)} />)}</div>
-              </div>
-              <div className="rounded-2xl border border-ink/10 bg-paper p-4"><p className="text-xs font-bold uppercase tracking-[0.14em] text-slate/55">Voces de Cafishia</p><p className="mt-2 text-sm leading-relaxed text-slate/75">Las cinco voces estándar se crean automáticamente. Más adelante podrás editar sus textos desde Configuración, pero no hace falta elegirlas ahora.</p><div className="mt-3 flex flex-wrap gap-2">{["Técnico", "Práctico", "Innovación", "Educativo", "Comercial"].map((voice) => <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-ink shadow-sm" key={voice}>{voice}</span>)}</div></div>
-            </div>
-          ) : null}
-
-          {step === 2 ? (
-            <div className="grid max-w-3xl gap-6"><div className="rounded-2xl border border-ink/10 bg-paper p-5"><p className="font-display text-2xl text-ink">La primera oferta es suficiente.</p><p className="mt-1 text-sm text-slate/70">Después podrás sumar productos o servicios desde el catálogo.</p></div><Field label={businessType === "services" ? "Servicio principal" : businessType === "products" ? "Producto principal" : "Oferta principal"}><input value={offer} onChange={(event) => setOffer(event.target.value)} className={inputClass} /></Field><div><p className="text-xs font-bold uppercase tracking-[0.13em] text-slate/70">¿Qué podemos destacar?</p><p className="mb-3 mt-1 text-xs text-slate/55">Elegí solo afirmaciones reales para tu negocio.</p><div className="grid gap-2 sm:grid-cols-2">{CLAIM_OPTIONS.map((claim) => <ChoiceButton key={claim} selected={claims.includes(claim)} title={claim} onClick={() => toggle(claim, claims, setClaims)} />)}</div></div><div><p className="text-xs font-bold uppercase tracking-[0.13em] text-slate/70">Límites de seguridad</p><p className="mb-3 mt-1 text-xs text-slate/55">Cafishia aplicará estos límites a todas las respuestas.</p><div className="grid gap-2 sm:grid-cols-2">{LIMIT_OPTIONS.map((limit) => <ChoiceButton key={limit} selected={limits.includes(limit)} title={limit} onClick={() => toggle(limit, limits, setLimits)} />)}</div></div></div>
-          ) : null}
-
-          {step === 3 ? (
-            <div className="grid max-w-3xl gap-5">
-              <div className="rounded-2xl border border-brass/25 bg-brass/[0.06] p-5">
-                <p className="text-xs font-bold uppercase tracking-[0.13em] text-brass">Generado por Cafishia</p>
-                <p className="mt-2 font-display text-2xl text-ink">Preparamos tres respuestas para {brand || name}.</p>
-                <p className="mt-1 text-sm leading-relaxed text-slate/70">Usamos la marca, la oferta, los temas, el tono y los límites que elegiste antes. Revisalas y corregí cualquier dato que no represente al negocio.</p>
-              </div>
-              <div>
-                <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
-                  <div><p className="text-xs font-bold uppercase tracking-[0.13em] text-slate/70">Cambiar el enfoque</p><p className="mt-1 text-xs text-slate/55">La opción que elijas reemplazará la propuesta {knowledgeTarget + 1} con contenido nuevo.</p></div>
-                  <button type="button" onClick={prepareKnowledge} className="rounded-full border border-ink/15 bg-white px-3 py-2 text-xs font-bold text-ink transition hover:border-brass hover:bg-brass/[0.06]">↻ Regenerar las tres</button>
-                </div>
-                <div className="flex flex-wrap gap-2">{KNOWLEDGE_SUGGESTIONS.map((suggestion) => <button type="button" key={suggestion} onClick={() => applyKnowledgeSuggestion(suggestion)} className="rounded-full border border-ink/15 bg-white px-3 py-2 text-xs font-bold text-ink transition hover:border-brass hover:bg-brass/[0.06]">+ {suggestion}</button>)}</div>
-              </div>
-              {knowledge.map((item, index) => (
-                <div key={index} className={`rounded-2xl border bg-white p-4 transition ${knowledgeTarget === index ? "border-brass shadow-[0_0_0_3px_rgba(185,135,47,0.08)]" : "border-ink/10"}`}>
-                  <div className="mb-3 flex items-center justify-between gap-3"><div><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-brass">Propuesta automática {index + 1}</p><p className="mt-1 text-sm font-bold text-ink">{knowledgePrompts[index]}</p></div>{knowledgeTarget === index ? <span className="rounded-full bg-brass/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-brass">Próxima a cambiar</span> : null}</div>
-                  <textarea value={item} onChange={(event) => { setKnowledge((current) => current.map((value, position) => position === index ? event.target.value : value)); setKnowledgeApproved(false); }} rows={4} aria-label={`Propuesta automática ${index + 1}: ${knowledgePrompts[index]}`} className={`${inputClass} resize-y`} />
-                </div>
-              ))}
-              <div className={`rounded-2xl border p-4 ${knowledgeApproved ? "border-moss/30 bg-moss/[0.06]" : "border-ink/10 bg-white"}`}>
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-sm font-bold text-ink">{knowledgeApproved ? "Respuestas aprobadas" : "¿Estas respuestas representan a la marca?"}</p><p className="mt-1 text-xs text-slate/60">Si editás o regenerás una propuesta, tendrás que aprobarlas nuevamente.</p></div><button type="button" disabled={knowledge.some((item) => !item.trim())} onClick={() => setKnowledgeApproved(true)} className={`rounded-xl px-4 py-3 text-sm font-bold transition ${knowledgeApproved ? "bg-moss text-white" : "bg-ink text-paper hover:bg-moss disabled:cursor-not-allowed disabled:opacity-35"}`}>{knowledgeApproved ? "✓ Aprobadas" : "Aprobar las tres respuestas"}</button></div>
-              </div>
-            </div>
-          ) : null}
-
-          {step === 4 ? (
-            <div className="grid max-w-3xl gap-5">
-              <div className="rounded-2xl border border-ink/10 bg-paper p-5"><p className="font-display text-2xl text-ink">¿En qué redes querés buscar oportunidades?</p><p className="mt-1 text-sm leading-relaxed text-slate/70">Elegí solamente los lugares donde querés que Cafishia consulte. Nosotros nos ocupamos de preparar las búsquedas con la información de la marca.</p></div>
-              <div><div className="mb-3 flex items-end justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-[0.13em] text-slate/70">Redes para consultar</p><p className="mt-1 text-xs text-slate/55">Podés elegir una o varias.</p></div><span className="rounded-full bg-ink/5 px-2.5 py-1 text-xs font-bold text-slate/60">{selectedNetworks.length} {selectedNetworks.length === 1 ? "elegida" : "elegidas"}</span></div><div className="grid grid-cols-2 gap-2 sm:grid-cols-4">{NETWORK_OPTIONS.map((network) => <button type="button" aria-pressed={selectedNetworks.includes(network)} key={network} onClick={() => toggleNetwork(network)} className={`rounded-xl border px-3 py-3 text-sm font-bold transition ${selectedNetworks.includes(network) ? "border-moss bg-moss text-paper shadow-sm" : "border-ink/10 bg-white text-ink hover:border-ink/35"}`}>{selectedNetworks.includes(network) ? "✓ " : "+ "}{network}</button>)}</div></div>
-              {selectedNetworks.length > 0 ? <div className="rounded-2xl border border-moss/25 bg-moss/[0.06] px-5 py-4"><p className="text-sm font-bold text-ink">Cafishia consultará: {selectedNetworks.join(", ")}.</p><p className="mt-1 text-xs text-slate/60">Las búsquedas se configurarán automáticamente; no necesitás escribir nada más.</p></div> : <div className="rounded-2xl border border-dashed border-ink/20 bg-white/50 px-5 py-8 text-center text-sm text-slate/60">Elegí al menos una red para continuar.</div>}
-            </div>
-          ) : null}
-
-          {step === 5 ? (
-            <div className="grid max-w-2xl gap-6"><div className={`rounded-2xl border p-6 ${ready ? "border-moss/30 bg-moss/[0.08]" : "border-signal/25 bg-signal/[0.06]"}`}><p className="font-display text-3xl text-ink">{ready ? "Todo lo esencial está listo." : "Todavía falta un poco."}</p><p className="mt-2 text-sm leading-relaxed text-slate/75">Al finalizar, Cafishia guardará esta configuración y abrirá tu espacio de trabajo.</p></div><ul className="grid gap-2">{checklist.map((item) => <li key={item.label} className="flex items-center gap-3 rounded-xl border border-ink/10 bg-white px-4 py-3 text-sm"><span className={`grid h-6 w-6 place-items-center rounded-full text-xs font-bold ${item.done ? "bg-moss text-paper" : "bg-signal/15 text-signal"}`}>{item.done ? "✓" : "!"}</span><span className="font-medium text-ink">{item.label}</span></li>)}</ul>{ready ? <button type="button" onClick={() => window.alert("Vista local: en producción, esto guardará tu configuración y abrirá la suite.")} className="w-fit rounded-full bg-moss px-6 py-3 text-sm font-bold text-paper shadow-lg shadow-moss/20 transition hover:-translate-y-0.5">Finalizar configuración</button> : null}</div>
-          ) : null}
-
-          {step === 5 && ready && !preview ? <button type="button" onClick={complete} disabled={saveState === "saving"} className="mt-4 w-fit rounded-full bg-ink px-6 py-3 text-sm font-bold text-paper transition hover:bg-moss disabled:opacity-50">Abrir el panel</button> : null}
-
-          <footer className="mt-10 flex flex-wrap items-center justify-between gap-3 border-t border-ink/10 pt-5"><button type="button" onClick={goBack} disabled={step === 0} className="rounded-full px-3 py-2 text-sm font-bold text-slate/60 transition hover:text-ink disabled:cursor-not-allowed disabled:opacity-30">← Volver</button>{step > 0 && step < STEPS.length - 1 ? <div className="ml-auto flex items-center gap-3">{!stepValid[step] ? <span className="max-w-52 text-right text-xs font-medium text-signal">Completá este paso para continuar.</span> : null}<button type="button" onClick={goNext} disabled={!stepValid[step]} className="rounded-full border border-ink/20 bg-white px-5 py-2.5 text-sm font-bold text-ink transition hover:border-ink hover:bg-paper disabled:cursor-not-allowed disabled:border-ink/10 disabled:bg-ink/[0.03] disabled:text-slate/35">Continuar →</button></div> : <span />}</footer>
+          <footer className="mt-9 flex items-center justify-between border-t border-ink/10 pt-5">
+            <button
+              type="button"
+              onClick={() => setStep((current) => Math.max(0, current - 1))}
+              disabled={step === 0}
+              className="rounded-full px-3 py-2 text-sm font-bold text-slate/60 disabled:opacity-30"
+            >
+              ← Volver
+            </button>
+            {step < 2 ? (
+              <button
+                type="button"
+                onClick={() => (step === 0 ? analyze() : setStep(2))}
+                disabled={!canContinue || isAnalyzing}
+                className="rounded-full bg-ink px-5 py-2.5 text-sm font-bold text-paper transition hover:bg-moss disabled:opacity-35"
+              >
+                {step === 0 ? "Analizar página →" : "Revisar activación →"}
+              </button>
+            ) : (
+              <span />
+            )}
+          </footer>
         </section>
       </div>
     </main>

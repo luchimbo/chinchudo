@@ -37,7 +37,7 @@ Plan derivado de la auditoría del 2026-07-17. Objetivo: eliminar riesgos operat
 ## Fase 6 — Documentación
 
 16. **AGENTS.md**: Supabase Postgres (no SQLite), NSTBrowser como provider default, OpenRouter, scripts `.mts`, comandos nuevos (`monitor`, `healthcheck`, `trend-listen`, `daily-quota`...), clientes prestige/jurispedia, publicación asistida existente.
-17. **`.env.example`**: agregar `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `AUTH_USERS_JSON`, `OPENROUTER_*`, `NSTBROWSER_API_BASE`, `DOLPHIN_API_TOKEN/BASE`, `CREATOMATE_*`, `HEYGEN_*`, `DID_*`, `DAILY_QUOTA_*`, `OPPORTUNITY_CLASSIFIER_TIMEOUT_MS`, etc.
+17. **`.env.example`**: agregar `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `OPENROUTER_*`, `NSTBROWSER_API_BASE`, `DOLPHIN_API_TOKEN/BASE`, `CREATOMATE_*`, `HEYGEN_*`, `DID_*`, `DAILY_QUOTA_*`, `OPPORTUNITY_CLASSIFIER_TIMEOUT_MS`, etc.
 
 ## Verificación final
 

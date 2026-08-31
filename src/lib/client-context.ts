@@ -136,6 +136,11 @@ export async function loadClientContext(
     include: { brand: true },
     orderBy: { name: "asc" },
   });
+  const services = await prisma.service.findMany({
+    where: { brand: { clientId } },
+    include: { brand: true },
+    orderBy: { name: "asc" },
+  });
 
   return {
     client,
@@ -143,6 +148,7 @@ export async function loadClientContext(
     personas,
     catalogRules,
     catalogProducts,
+    services,
     detectedProduct: detectedProduct?.brandId === brand.id ? detectedProduct : null,
   };
 }

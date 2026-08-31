@@ -1,7 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { hashPassword, signJwt } from "@/lib/auth-crypto";
-import { authUserCookieName, encodeAuthUser } from "@/lib/auth";
+import { checkRateLimit } from "@/lib/rate-limit";
+
+const AUTH_SESSION_TTL_SECONDS = 24 * 60 * 60; // 24h (sesión de panel)
+
+function clientIp(req: NextRequest): string {
+  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+}
+
+function rateLimitResponse(resetInMs: number): NextResponse {
+  return NextResponse.json(
+    { error: "Demasiados intentos, espera un momento e intentá de nuevo." },
+    { status: 429, headers: { "Retry-After": String(Math.ceil(resetInMs / 1000)) } },
+  );
+}
 
 const defaultChannels = [
   { name: "YouTube", type: "video_comments", baseUrl: "https://www.youtube.com" },
@@ -22,6 +35,10 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Rate limit por IP (5 intentos cada 15 min).
+    const rlIp = checkRateLimit(`register:ip:${clientIp(req)}`, 5, 15 * 60 * 1000);
+    if (!rlIp.allowed) return rateLimitResponse(rlIp.resetInMs);
 
     const secret = process.env.AUTH_SECRET;
     if (!secret) {
@@ -115,34 +132,18 @@ export async function POST(req: NextRequest) {
       role: user.role,
       clientId: user.clientId,
       clientSlug: client.slug,
+      tv: 0,
     };
-    const token = signJwt(tokenPayload, secret);
-
-    // Formatear payload de cookie auth_user compatible
-    const authUserPayload = {
-      username: user.email,
-      label: user.name,
-      role: user.role as "admin" | "operator",
-      clientSlugs: [client.slug],
-      accessType: "tenant_user" as const,
-    };
+    const token = signJwt(tokenPayload, secret, AUTH_SESSION_TTL_SECONDS);
 
     const response = NextResponse.json({ success: true });
 
-    // Establecer cookies
+    // Establecer cookie de sesión
     response.cookies.set("auth_session", token, {
       httpOnly: true,
       sameSite: "lax",
       secure: process.env.NODE_ENV === "production",
-      maxAge: 60 * 60 * 24 * 7, // 7 días
-      path: "/",
-    });
-
-    response.cookies.set(authUserCookieName(), encodeAuthUser(authUserPayload), {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      maxAge: 60 * 60 * 24 * 7,
+      maxAge: AUTH_SESSION_TTL_SECONDS,
       path: "/",
     });
 

@@ -105,6 +105,7 @@ model Client {
   trackingEvents         TrackingEvent[]
   youtubeConnections     YouTubeConnection[]
   users                  User[]
+  loginAuditEvents       LoginAuditEvent[]
   opportunities          Opportunity[]
   observedProfiles       ObservedProfile[]
   trends                 Trend[]
@@ -147,10 +148,28 @@ model User {
   role         String   @default("operator") // "admin" | "operator"
   clientId     String
   client       Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  tokenVersion Int      @default(0)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   @@index([clientId])
+}
+
+model LoginAuditEvent {
+  id        String    @id @default(cuid())
+  clientId  String?
+  userId    String?
+  email     String
+  success   Boolean
+  reason    String?
+  ipAddress String    @default("")
+  userAgent String    @default("")
+  createdAt DateTime  @default(now())
+  client    Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@index([email, createdAt])
+  @@index([clientId, createdAt])
+  @@map("login_audit_events")
 }
 
 model PlatformAdminProfile {
@@ -251,6 +270,7 @@ model Brand {
   client               Client?       @relation(fields: [clientId], references: [id])
   opportunities        Opportunity[]
   products             Product[]
+  services             Service[]
   responses            Response[]
   videoScripts         VideoScript[]
 
@@ -268,6 +288,10 @@ model Product {
   warrantyNotes  String        @default("")
   stockStatus    String        @default("Por confirmar")
   priceRange     String        @default("Por confirmar")
+  sourceType     String        @default("manual")
+  sourceExternalId String?
+  sourceUrl      String        @default("")
+  sourceSnapshotAt DateTime?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
   opportunities  Opportunity[]
@@ -481,6 +505,30 @@ model ClientMemory {
   @@unique([responseId, source])
 }
 
+model Service {
+  id              String   @id @default(cuid())
+  brandId         String
+  name            String
+  category        String   @default("")
+  description     String   @default("")
+  scope           String   @default("")
+  modality        String   @default("")
+  audience        String   @default("")
+  priceRange      String   @default("Por confirmar")
+  availabilityNotes String @default("Por confirmar")
+  sourceType      String   @default("manual")
+  sourceExternalId String?
+  sourceUrl       String   @default("")
+  sourceSnapshotAt DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  brand           Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
+
+  @@unique([brandId, name])
+  @@index([brandId])
+  @@index([sourceExternalId])
+}
+
 enum OnboardingStatus {
   NOT_STARTED
   ANALYZING
@@ -503,8 +551,27 @@ model ClientOnboarding {
   createdAt     DateTime         @default(now())
   updatedAt     DateTime         @updatedAt
   client        Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  sourcePages   OnboardingSourcePage[]
 
   @@index([status])
+}
+
+/// Evidencia liviana del análisis web. Guarda sólo texto extraído y metadatos,
+/// nunca HTML completo ni datos de usuarios del sitio fuente.
+model OnboardingSourcePage {
+  id            String           @id @default(cuid())
+  onboardingId  String
+  url           String
+  title         String           @default("")
+  pageType      String           @default("other")
+  contentHash   String           @default("")
+  excerpt       String           @default("")
+  extracted     Json             @default("{}")
+  fetchedAt     DateTime         @default(now())
+  onboarding    ClientOnboarding @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+
+  @@unique([onboardingId, url])
+  @@index([onboardingId])
 }
 
 model PublishingLog {
@@ -517,9 +584,9 @@ model PublishingLog {
   result         String      @default("no_reply")
   followUpNeeded Boolean     @default(false)
   createdAt      DateTime    @default(now())
+  account        String      @default("")
   publishMethod  String      @default("manual")
   remoteId       String      @default("")
-  account        String      @default("")
   opportunity    Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
   response       Response    @relation(fields: [responseId], references: [id], onDelete: Cascade)
 

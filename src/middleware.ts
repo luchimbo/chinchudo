@@ -92,6 +92,9 @@ export async function middleware(request: NextRequest) {
   if (pathname === "/onboarding" && process.env.NODE_ENV !== "production") {
     return NextResponse.next();
   }
+  if (pathname === "/api/onboarding/preview" && process.env.NODE_ENV !== "production") {
+    return NextResponse.next();
+  }
 
   // Rutas públicas: login, registro y APIs de auth
   if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {

@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@prisma/client";
+import type { Brand, PrismaClient, Service } from "@prisma/client";
 import { logger } from "./logger";
 import { fetchChatCompletion, resolveLLMConfig } from "./llm-provider";
 import {
@@ -94,13 +94,16 @@ export async function classifyOpportunity(
   }
 ): Promise<ClassificationResult> {
   // 1. Cargar contexto del cliente
-  const [client, brands, products, knowledgeBase] = await Promise.all([
+  const [client, brands, products, services, knowledgeBase] = await Promise.all([
     prisma.client.findUniqueOrThrow({ where: { id: candidate.clientId } }),
     prisma.brand.findMany({ where: { clientId: candidate.clientId } }),
     prisma.product.findMany({
       where: { brand: { clientId: candidate.clientId } },
       include: { brand: true }
     }),
+    // Los dobles de prueba y las bases que todavía no aplicaron la migración
+    // pueden no exponer Service; en ese caso clasificamos con el resto del contexto.
+    (prisma as any).service?.findMany({ where: { brand: { clientId: candidate.clientId } }, include: { brand: true } }) ?? Promise.resolve([]),
     prisma.knowledgeBase.findMany({ where: { clientId: candidate.clientId }, take: 15 })
   ]);
 
@@ -109,6 +112,7 @@ export async function classifyOpportunity(
   const productsList = products
     .map((p) => `- ID: ${p.id} | Nombre: ${p.name} | Marca: ${p.brand.name} | Categoría: ${p.category} | Descripción: ${p.description}`)
     .join("\n");
+  const servicesList = (services as Array<Service & { brand: Brand }>).map((service) => `- ${service.name} | Marca: ${service.brand.name} | Categoría: ${service.category} | Descripción: ${service.description || service.scope}`).join("\n");
   const kbSummary = knowledgeBase.map((k) => `- Tema: ${k.topic} | Contenido: ${k.content}`).join("\n");
 
   const prompt = `Actúas como un clasificador experto de oportunidades y validador de calidad comercial en redes sociales para el cliente: "${client.name}" (${client.slug}).
@@ -120,6 +124,9 @@ ${brandsList || "- Ninguna marca cargada"}
 
 ### Productos en catálogo:
 ${productsList || "- Ningún producto en catálogo"}
+
+### Servicios en catálogo:
+${servicesList || "- Ningún servicio en catálogo"}
 
 ### Conocimiento básico:
 ${kbSummary || "- Ningún conocimiento cargado"}

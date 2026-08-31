@@ -1,4 +1,4 @@
-import type { Brand, CatalogRule, Channel, Client, CompetitorEvidence, Opportunity, Persona, Product } from "@prisma/client";
+import type { Brand, CatalogRule, Channel, Client, CompetitorEvidence, Opportunity, Persona, Product, Service } from "@prisma/client";
 import { selectRelevantProducts, type ScopedProduct } from "./catalog";
 import type { KnowledgeLike, ObjectionLike } from "./knowledge";
 import { deriveVoiceModulation, type ProfileContextForDraft } from "./observed-profiles";
@@ -18,6 +18,7 @@ type DraftContext = {
   client?: Client;
   catalogProducts?: ScopedProduct[];
   catalogRules?: Pick<CatalogRule, "category" | "keywords">[];
+  services?: (Service & { brand?: Brand | null })[];
   knowledge?: KnowledgeLike[];
   objections?: ObjectionLike[];
   activeSystemPrompt?: string | null;
@@ -151,6 +152,7 @@ export function buildPrompt(ctx: DraftContext): string {
     : "";
   const productList = [primaryBlock, alternativesBlock].filter(Boolean).join("\n") || "  - (sin productos específicos identificados)";
   const allowedProductNames = relevant.map((p) => formatProductName(p.marca, p.nombre)).join("; ");
+  const servicesBlock = (ctx.services ?? []).slice(0, 12).map((service) => `- ${service.name}: ${service.description || service.scope || "Servicio confirmado"}`).join("\n") || "- (sin servicios específicos cargados)";
 
   const forbiddenExtra = persona.forbiddenPhrases
     ? `\n- Frases prohibidas específicas de tu voz: ${persona.forbiddenPhrases}`
@@ -291,6 +293,10 @@ ${goodEx}${badEx}
 
 ## Productos autorizados para esta respuesta
 ${productList}
+
+## Servicios confirmados
+${servicesBlock}
+- Mencioná un servicio sólo si responde directamente a la consulta y no agregues alcance, precio ni disponibilidad que no estén confirmados arriba.
 
 ## Marca de fondo y contexto competitivo (${client?.slug === "prestige-running" ? "podés mencionar Prestige únicamente al integrar un producto autorizado" : "NO la menciones directamente en la respuesta"})
 - Marca: ${brand.name}

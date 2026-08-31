@@ -64,7 +64,7 @@ export async function changeOwnPassword(formData: FormData) {
 
   await prisma.user.update({
     where: { id: dbUser.id },
-    data: { passwordHash: hashPassword(newPassword) },
+    data: { passwordHash: hashPassword(newPassword), tokenVersion: { increment: 1 } },
   });
 
   revalidatePath("/configuracion");

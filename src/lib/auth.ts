@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import type { Client, PrismaClient } from "@prisma/client";
+import { verifyJwt } from "./auth-crypto";
 
 export type AuthUser = {
   username: string;
@@ -10,72 +11,25 @@ export type AuthUser = {
   supportSessionId?: string;
 };
 
-type EnvUser = AuthUser & { password: string };
-const USER_COOKIE = "auth_user";
-
-function parseUsers(): EnvUser[] {
-  const raw = process.env.AUTH_USERS_JSON;
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as EnvUser[];
-    return Array.isArray(parsed) ? parsed.filter((u) => u.username && u.password) : [];
-  } catch {
-    return [];
-  }
-}
-
-export function findEnvUser(username: string, password: string): AuthUser | null {
-  const user = parseUsers().find((u) => u.username === username && u.password === password);
-  if (!user) return null;
-  return {
-    username: user.username,
-    label: user.label || user.username,
-    role: user.role === "admin" ? "admin" : "operator",
-    clientSlugs: user.clientSlugs ?? [],
-    accessType: "tenant_user",
-  };
-}
-
-export function encodeAuthUser(user: AuthUser): string {
-  return Buffer.from(JSON.stringify(user), "utf8").toString("base64url");
-}
-
-export function decodeAuthUser(value: string | undefined): AuthUser | null {
-  if (!value) return null;
-  try {
-    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as AuthUser;
-    if (!parsed.username) return null;
-    return {
-      username: parsed.username,
-      label: parsed.label || parsed.username,
-      role: parsed.role === "admin" ? "admin" : "operator",
-      clientSlugs: Array.isArray(parsed.clientSlugs) ? parsed.clientSlugs : [],
-      accessType: "tenant_user",
-    };
-  } catch {
-    return null;
-  }
-}
-
 export async function getCurrentUser(): Promise<AuthUser | null> {
   const store = await cookies();
   const tenantToken = store.get("auth_session")?.value;
   const tenantSecret = process.env.AUTH_SECRET;
   if (tenantToken && tenantSecret) {
-    try {
-      const { verifyJwt } = await import("./auth-crypto");
-      const decoded = verifyJwt(tenantToken, tenantSecret);
-      if (decoded?.email && decoded?.clientSlug && decoded?.clientId && decoded?.legacy !== true) {
-        return {
-          username: decoded.email,
-          label: decodeAuthUser(store.get(USER_COOKIE)?.value)?.label || decoded.email.split("@")[0],
-          role: decoded.role === "admin" ? "admin" : "operator",
-          clientSlugs: [decoded.clientSlug],
-          accessType: "tenant_user",
-        };
-      }
-    } catch {
-      // A delegated support session may still be valid.
+    const decoded = verifyJwt(tenantToken, tenantSecret);
+    if (decoded?.email && decoded?.clientSlug && decoded?.clientId && decoded?.legacy !== true) {
+      const { prisma } = await import("./db");
+      const current = await prisma.user
+        .findUnique({ where: { email: decoded.email }, select: { tokenVersion: true } })
+        .catch(() => null);
+      if (current && (decoded.tv ?? 0) !== current.tokenVersion) return null;
+      return {
+        username: decoded.email,
+        label: decoded.email.split("@")[0],
+        role: decoded.role === "admin" ? "admin" : "operator",
+        clientSlugs: [decoded.clientSlug],
+        accessType: "tenant_user",
+      };
     }
   }
 
@@ -133,10 +87,6 @@ export async function getVisibleClients(prisma: PrismaClient): Promise<Client[]>
     where: { active: true, slug: { in: user.clientSlugs } },
     orderBy: { name: "asc" },
   });
-}
-
-export function authUserCookieName() {
-  return USER_COOKIE;
 }
 
 export async function assertClientAccess(prisma: PrismaClient, clientId: string): Promise<void> {

@@ -63,6 +63,15 @@
     "uso": "interfaz de dos entradas para voz, instrumento o setup chico"
   },
   {
+    "id": "arturia-minifuse-2-otg",
+    "nombre": "Arturia MiniFuse 2 OTG Placa de Sonido",
+    "marca": "Arturia",
+    "modelo": "MiniFuse 2 OTG",
+    "categoria_id": "interfaces-audio",
+    "url": "https://www.pcmidi.com.ar/productos/arturia-minifuse-2-otg-placa-de-sonido-h5t2q/",
+    "uso": "interfaz de dos entradas con USB dual y conectividad OTG para grabar, transmitir y trabajar con celular o tablet"
+  },
+  {
     "id": "arturia-minifuse-4-black",
     "nombre": "Placa de sonido Arturia MiniFuse 4 Black",
     "marca": "Arturia",
@@ -205,6 +214,150 @@
     "categoria_id": "controladores-midi",
     "url": "https://www.pcmidi.com.ar/productos/arturia-keylab-88-mk3-87lp3/",
     "uso": "controlador de 88 teclas para interpretacion y produccion avanzada"
+  },
+  {
+    "id": "arturia-astrolab-37",
+    "nombre": "AstroLab 37 Teclado Sintetizador ARTURIA",
+    "marca": "Arturia",
+    "modelo": "AstroLab 37",
+    "categoria_id": "sintetizadores",
+    "url": "https://www.pcmidi.com.ar/productos/preventa-astrolab-37-teclado-sintetizador-arturia-707op/",
+    "uso": "sintetizador de escenario autonomo de 37 teclas"
+  },
+  {
+    "id": "arturia-astrolab-61",
+    "nombre": "Teclado Sintetizador Arturia AstroLab 61",
+    "marca": "Arturia",
+    "modelo": "AstroLab 61",
+    "categoria_id": "sintetizadores",
+    "url": "https://www.pcmidi.com.ar/productos/arturia-astrolab/",
+    "uso": "sintetizador de escenario autonomo de 61 teclas"
+  },
+  {
+    "id": "arturia-astrolab-61-silver",
+    "nombre": "PREVENTA Arturia AstroLab 61 Silver",
+    "marca": "Arturia",
+    "modelo": "AstroLab 61 Silver",
+    "categoria_id": "sintetizadores",
+    "url": "",
+    "uso": "variante silver del sintetizador AstroLab 61"
+  },
+  {
+    "id": "arturia-astrolab-88",
+    "nombre": "Sintetizador ARTURIA AstroLab 88 Teclas",
+    "marca": "Arturia",
+    "modelo": "AstroLab 88",
+    "categoria_id": "sintetizadores",
+    "url": "https://www.pcmidi.com.ar/productos/sintetizador-arturia-astrolab-88-teclas-ienlf/",
+    "uso": "sintetizador de escenario autonomo de 88 teclas"
+  },
+  {
+    "id": "arturia-keylab-essential-49-mk3",
+    "nombre": "Arturia KeyLab Essential 49 MK3",
+    "marca": "Arturia",
+    "modelo": "KeyLab Essential 49 MK3",
+    "categoria_id": "controladores-midi",
+    "url": "https://www.pcmidi.com.ar/productos/arturia-keylab-essential-49-mk3-ga9cj/",
+    "uso": "controlador MIDI de 49 teclas"
+  },
+  {
+    "id": "arturia-keylab-essential-49-mk3-black",
+    "nombre": "Arturia KeyLab Essential 49 MK3 Black",
+    "marca": "Arturia",
+    "modelo": "KeyLab Essential 49 MK3 Black",
+    "categoria_id": "controladores-midi",
+    "url": "https://www.pcmidi.com.ar/productos/arturia-keylab-essential-49-mk3-black-astj7/",
+    "uso": "variante black del KeyLab Essential 49 MK3"
+  },
+  {
+    "id": "arturia-keylab-essential-61-mk3",
+    "nombre": "Arturia KeyLab Essential 61 MK3",
+    "marca": "Arturia",
+    "modelo": "KeyLab Essential 61 MK3",
+    "categoria_id": "controladores-midi",
+    "url": "https://www.pcmidi.com.ar/productos/arturia-keylab-essential-61-mk3-4n42m/",
+    "uso": "controlador MIDI de 61 teclas"
+  },
+  {
+    "id": "arturia-keylab-essential-61-mk3-black",
+    "nombre": "Arturia KeyLab Essential 61 MK3 Black",
+    "marca": "Arturia",
+    "modelo": "KeyLab Essential 61 MK3 Black",
+    "categoria_id": "controladores-midi",
+    "url": "https://www.pcmidi.com.ar/productos/arturia-keylab-essential-61-mk3-black-ppn7x/",
+    "uso": "variante black del KeyLab Essential 61 MK3"
+  },
+  {
+    "id": "arturia-keylab-essential-61-mk3-aquamarine",
+    "nombre": "PREVENTA Arturia KeyLab Essential 61 MK3 Aquamarine",
+    "marca": "Arturia",
+    "modelo": "KeyLab Essential 61 MK3 Aquamarine",
+    "categoria_id": "controladores-midi",
+    "url": "",
+    "uso": "variante aquamarine del KeyLab Essential 61 MK3"
+  },
+  {
+    "id": "arturia-keylab-essential-61-mk3-rose-quartz",
+    "nombre": "PREVENTA Arturia KeyLab Essential 61 MK3 Rose Quartz",
+    "marca": "Arturia",
+    "modelo": "KeyLab Essential 61 MK3 Rose Quartz",
+    "categoria_id": "controladores-midi",
+    "url": "",
+    "uso": "variante rose quartz del KeyLab Essential 61 MK3"
+  },
+  {
+    "id": "arturia-keylab-essential-88-mk3",
+    "nombre": "ARTURIA KeyLab Essential 88 MK3",
+    "marca": "Arturia",
+    "modelo": "KeyLab Essential 88 MK3",
+    "categoria_id": "controladores-midi",
+    "url": "",
+    "uso": "controlador MIDI de 88 teclas"
+  },
+  {
+    "id": "arturia-keylab-essential-88-mk3-black",
+    "nombre": "ARTURIA KeyLab Essential 88 MK3 Black Edition",
+    "marca": "Arturia",
+    "modelo": "KeyLab Essential 88 MK3 Black Edition",
+    "categoria_id": "controladores-midi",
+    "url": "",
+    "uso": "variante black del KeyLab Essential 88 MK3"
+  },
+  {
+    "id": "arturia-keylab-61-mk3-black",
+    "nombre": "Controlador MIDI Arturia KeyLab 61 MK3 Black",
+    "marca": "Arturia",
+    "modelo": "KeyLab 61 MK3 Black",
+    "categoria_id": "controladores-midi",
+    "url": "https://www.pcmidi.com.ar/productos/controlador-midi-arturia-keylab-61-mk3-black-kdn9e/",
+    "uso": "controlador MIDI KeyLab 61 MK3 black"
+  },
+  {
+    "id": "arturia-keylab-61-mk3-white",
+    "nombre": "Controlador MIDI Arturia KeyLab 61 MK3 White",
+    "marca": "Arturia",
+    "modelo": "KeyLab 61 MK3 White",
+    "categoria_id": "controladores-midi",
+    "url": "",
+    "uso": "controlador MIDI KeyLab 61 MK3 white"
+  },
+  {
+    "id": "arturia-keylab-49-mk3-black",
+    "nombre": "Controlador MIDI Arturia KeyLab 49 MK3 Black",
+    "marca": "Arturia",
+    "modelo": "KeyLab 49 MK3 Black",
+    "categoria_id": "controladores-midi",
+    "url": "",
+    "uso": "controlador MIDI KeyLab 49 MK3 black"
+  },
+  {
+    "id": "arturia-keylab-49-mk3-white",
+    "nombre": "Controlador MIDI Arturia KeyLab 49 MK3 White",
+    "marca": "Arturia",
+    "modelo": "KeyLab 49 MK3 White",
+    "categoria_id": "controladores-midi",
+    "url": "",
+    "uso": "controlador MIDI KeyLab 49 MK3 white"
   },
   {
     "id": "arturia-minifreak-vocoder",

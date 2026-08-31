@@ -548,6 +548,7 @@ export async function generateResponseDrafts(formData: FormData) {
       ? (selectedProduct ? [selectedProduct] : [])
       : clientContext.catalogProducts.filter((p) => p.brandId === brandId),
     catalogRules: clientContext.catalogRules,
+    services: clientContext.services.filter((service) => service.brandId === brandId),
     knowledge,
     objections,
     activeSystemPrompt,

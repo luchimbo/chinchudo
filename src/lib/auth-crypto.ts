@@ -29,11 +29,11 @@ function base64UrlDecode(str: string): string {
   return Buffer.from(str, "base64url").toString("utf8");
 }
 
-const DEFAULT_JWT_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 días, igual que maxAge de la cookie
+export const DEFAULT_JWT_TTL_SECONDS = 60 * 60 * 24; // 24h, igual que maxAge de la cookie
 
 /**
  * Firma un JWT usando HMAC-SHA256 con el secret dado.
- * Agrega iat y exp (default 7 días) al payload.
+ * Agrega iat y exp (default 24h) al payload.
  */
 export function signJwt(payload: object, secret: string, ttlSeconds: number = DEFAULT_JWT_TTL_SECONDS): string {
   const now = Math.floor(Date.now() / 1000);
