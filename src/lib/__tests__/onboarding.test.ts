@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertPublicUrl, generatedKnowledge, mergeManualFields, sanitizeDraft } from "@/lib/onboarding";
+import { assertPublicUrl, generatedKnowledge, mergeManualFields, normalizeWebsiteUrl, sanitizeDraft } from "@/lib/onboarding";
 
 describe("onboarding", () => {
   it("normaliza listas y evita aprobar conocimientos incompletos", () => {
@@ -26,6 +26,15 @@ describe("onboarding", () => {
 
   it("bloquea URLs internas antes de consultar la red", async () => {
     await expect(assertPublicUrl("http://127.0.0.1:3000/admin")).rejects.toThrow("direcciones internas");
+  });
+
+  it("agrega HTTPS cuando se pega solo el dominio", () => {
+    expect(normalizeWebsiteUrl(" pcmidi.com.ar ")).toBe("https://pcmidi.com.ar");
+    expect(normalizeWebsiteUrl("http://pcmidi.com.ar")).toBe("http://pcmidi.com.ar");
+  });
+
+  it("no convierte otros protocolos en direcciones web", () => {
+    expect(normalizeWebsiteUrl("ftp://archivos.ejemplo.com")).toBe("ftp://archivos.ejemplo.com");
   });
 
   it("conserva un campo manual de nivel superior al reanalizar", () => {

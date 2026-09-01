@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { normalizeWebsiteUrl } from "@/lib/onboarding";
 import type {
   OnboardingDraft,
   OnboardingEvidence,
@@ -339,10 +340,12 @@ export function OnboardingWizard({
     };
   }, [draft, preview, step, url]);
   const analyze = async () => {
-    if (!/^https?:\/\//i.test(url.trim())) {
-      setNotice("Ingresá una URL que comience con http:// o https://.");
+    const normalizedUrl = normalizeWebsiteUrl(url);
+    if (!/^https?:\/\//i.test(normalizedUrl)) {
+      setNotice("Ingresá una dirección web válida.");
       return;
     }
+    setUrl(normalizedUrl);
     setIsAnalyzing(true);
     setNotice("");
     setAnalysisStages(["Leyendo el sitio…"]);
@@ -359,7 +362,9 @@ export function OnboardingWizard({
     );
     try {
       const endpoint = preview ? "/api/onboarding/preview" : "/api/onboarding";
-      const body = preview ? { url } : { action: "analyze", url };
+      const body = preview
+        ? { url: normalizedUrl }
+        : { action: "analyze", url: normalizedUrl };
       const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -416,7 +421,7 @@ export function OnboardingWizard({
     ).length;
   const canContinue =
     step === 0
-      ? /^https?:\/\//i.test(url.trim())
+      ? /^https?:\/\//i.test(normalizeWebsiteUrl(url))
       : step === 1
         ? Boolean(draft.name.trim() && draft.brand.trim())
         : true;
@@ -508,7 +513,8 @@ export function OnboardingWizard({
                     className={input}
                     value={url}
                     onChange={(event) => setUrl(event.target.value)}
-                    placeholder="https://www.tunegocio.com.ar"
+                    onBlur={() => setUrl((current) => normalizeWebsiteUrl(current))}
+                    placeholder="tunegocio.com.ar"
                   />
                 </Field>
                 <button

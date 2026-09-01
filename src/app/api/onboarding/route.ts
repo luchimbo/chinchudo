@@ -5,6 +5,7 @@ import {
   analyzePublicWebsite,
   defaultDraft,
   mergeManualFields,
+  normalizeWebsiteUrl,
   sanitizeDraft,
   syncOnboarding,
 } from "@/lib/onboarding";
@@ -90,7 +91,7 @@ export async function POST(request: NextRequest) {
     const client = await clientForRequest();
     const body = await request.json();
     if (body.action === "analyze") {
-      const url = String(body.url || "");
+      const url = normalizeWebsiteUrl(String(body.url || ""));
       if (!/^https?:\/\//i.test(url))
         return NextResponse.json(
           { error: "Ingresá una dirección web válida." },

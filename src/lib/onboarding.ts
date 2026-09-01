@@ -298,6 +298,19 @@ export async function assertPublicUrl(value: string): Promise<URL> {
     throw new Error("El dominio apunta a una red interna y fue bloqueado.");
   return url;
 }
+
+/**
+ * Makes a domain pasted by a person usable as a web URL. The public-address
+ * checks still happen in `assertPublicUrl` immediately before any request.
+ */
+export function normalizeWebsiteUrl(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  return /^[a-z][a-z\d+.-]*:/i.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`;
+}
+
 async function safeFetch(
   input: URL,
   startedAt: number,
@@ -645,7 +658,7 @@ export async function analyzePublicWebsite(
   clientName: string,
 ): Promise<WebsiteAnalysis> {
   const startedAt = Date.now(),
-    initial = await assertPublicUrl(value),
+    initial = await assertPublicUrl(normalizeWebsiteUrl(value)),
     warnings: string[] = [],
     pages: WebsitePage[] = [];
   let homeResult: { url: URL; html: string };
