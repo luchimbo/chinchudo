@@ -70,10 +70,6 @@ export type OnboardingDraft = {
     durationMs: number;
   };
 };
-export type OnboardingCompletionIssue = {
-  key: string;
-  label: string;
-};
 export type WebsitePage = {
   url: string;
   title: string;
@@ -277,35 +273,6 @@ export function sanitizeDraft(
       durationMs: Number((stats as any).durationMs) || 0,
     },
   };
-}
-
-/** Campos que hacen que las respuestas y la escucha inicial tengan contexto útil. */
-export function getOnboardingCompletionIssues(
-  value: OnboardingDraft | Required<OnboardingDraft>,
-): OnboardingCompletionIssue[] {
-  const draft = sanitizeDraft(value);
-  const missing: OnboardingCompletionIssue[] = [];
-  const requireText = (key: string, label: string, text: string) => {
-    if (!text.trim()) missing.push({ key, label });
-  };
-  requireText("name", "Nombre del negocio", draft.name);
-  requireText("brand", "Marca", draft.brand);
-  requireText("description", "Resumen del negocio", draft.description);
-  requireText("offer", "Oferta principal", draft.offer);
-  requireText("targetAudience", "Público objetivo", draft.targetAudience);
-  requireText("tone", "Tono", draft.tone);
-  if (!draft.businessGoals.some((goal) => goal.trim()))
-    missing.push({ key: "businessGoals", label: "Objetivos del negocio" });
-  if (!draft.topics.some((topic) => topic.trim()))
-    missing.push({ key: "topics", label: "Temas" });
-  draft.knowledge.forEach((item, index) => {
-    if (!item.trim())
-      missing.push({
-        key: `knowledge-${index}`,
-        label: draft.knowledgePrompts[index] || `Conocimiento ${index + 1}`,
-      });
-  });
-  return missing;
 }
 
 function privateAddress(address: string): boolean {

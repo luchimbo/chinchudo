@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { assertPublicUrl, cleanBusinessSummary, fillOnboardingDraftGaps, generatedKnowledge, getOnboardingCompletionIssues, isGenericOfferingName, mergeManualFields, sanitizeDraft } from "@/lib/onboarding";
+import { assertPublicUrl, cleanBusinessSummary, fillOnboardingDraftGaps, generatedKnowledge, isGenericOfferingName, mergeManualFields, sanitizeDraft } from "@/lib/onboarding";
+import { getOnboardingCompletionIssues } from "@/lib/onboarding-completion";
 import { normalizeWebsiteUrl } from "@/lib/website-url";
 
 describe("onboarding", () => {

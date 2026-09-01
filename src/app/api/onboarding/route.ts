@@ -4,12 +4,12 @@ import { getVisibleClients } from "@/lib/auth";
 import {
   analyzePublicWebsite,
   defaultDraft,
-  getOnboardingCompletionIssues,
   mergeManualFields,
   sanitizeDraft,
   syncOnboarding,
   syncOnboardingCatalog,
 } from "@/lib/onboarding";
+import { getOnboardingCompletionIssues } from "@/lib/onboarding-completion";
 import { normalizeWebsiteUrl } from "@/lib/website-url";
 
 export const dynamic = "force-dynamic";

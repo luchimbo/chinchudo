@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { normalizeWebsiteUrl } from "@/lib/website-url";
 import type { OnboardingDraft } from "@/lib/onboarding";
-import { getOnboardingCompletionIssues } from "@/lib/onboarding";
+import { getOnboardingCompletionIssues } from "@/lib/onboarding-completion";
 
 const NETWORKS = [
   "Instagram",
