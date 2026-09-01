@@ -4,6 +4,7 @@ import { getVisibleClients } from "@/lib/auth";
 import {
   analyzePublicWebsite,
   defaultDraft,
+  getOnboardingCompletionIssues,
   mergeManualFields,
   sanitizeDraft,
   syncOnboarding,
@@ -181,6 +182,16 @@ export async function POST(request: NextRequest) {
     });
     const draft = sanitizeDraft(onboarding.draft, client.name);
     if (body.action === "complete") {
+      const issues = getOnboardingCompletionIssues(draft);
+      if (issues.length) {
+        return NextResponse.json(
+          {
+            error: `Completá ${issues.map((issue) => issue.label).join(", ")} antes de activar.`,
+            issues,
+          },
+          { status: 400 },
+        );
+      }
       const approvedDraft = { ...draft, knowledgeApproved: true };
       await syncOnboarding(prisma, client.id, approvedDraft);
       const completed = await onboardingDb.clientOnboarding.update({

@@ -70,6 +70,10 @@ export type OnboardingDraft = {
     durationMs: number;
   };
 };
+export type OnboardingCompletionIssue = {
+  key: string;
+  label: string;
+};
 export type WebsitePage = {
   url: string;
   title: string;
@@ -273,6 +277,35 @@ export function sanitizeDraft(
       durationMs: Number((stats as any).durationMs) || 0,
     },
   };
+}
+
+/** Campos que hacen que las respuestas y la escucha inicial tengan contexto útil. */
+export function getOnboardingCompletionIssues(
+  value: OnboardingDraft | Required<OnboardingDraft>,
+): OnboardingCompletionIssue[] {
+  const draft = sanitizeDraft(value);
+  const missing: OnboardingCompletionIssue[] = [];
+  const requireText = (key: string, label: string, text: string) => {
+    if (!text.trim()) missing.push({ key, label });
+  };
+  requireText("name", "Nombre del negocio", draft.name);
+  requireText("brand", "Marca", draft.brand);
+  requireText("description", "Resumen del negocio", draft.description);
+  requireText("offer", "Oferta principal", draft.offer);
+  requireText("targetAudience", "Público objetivo", draft.targetAudience);
+  requireText("tone", "Tono", draft.tone);
+  if (!draft.businessGoals.some((goal) => goal.trim()))
+    missing.push({ key: "businessGoals", label: "Objetivos del negocio" });
+  if (!draft.topics.some((topic) => topic.trim()))
+    missing.push({ key: "topics", label: "Temas" });
+  draft.knowledge.forEach((item, index) => {
+    if (!item.trim())
+      missing.push({
+        key: `knowledge-${index}`,
+        label: draft.knowledgePrompts[index] || `Conocimiento ${index + 1}`,
+      });
+  });
+  return missing;
 }
 
 function privateAddress(address: string): boolean {
@@ -652,7 +685,7 @@ async function suggestedFields(
           {
             role: "system",
             content:
-              "Extraé únicamente hechos presentes en las fuentes. Respondé JSON con name, description, brand, offer, targetAudience, businessGoals, topics (máximo 5), claims (máximo 5), limits (máximo 5), tone, knowledge (arreglo de exactamente 3 strings, en este orden: 1) qué problema resuelve el negocio para sus clientes, 2) qué debería tener en cuenta alguien para elegir entre sus opciones, 3) una pregunta frecuente real del sitio junto con su respuesta). description debe ser un resumen comercial de una sola oración (máximo 280 caracteres); offer debe decir qué vende en términos de categorías, no listar todo el catálogo; targetAudience debe describir a quién apunta el negocio; businessGoals debe ser un arreglo de 1 a 3 objetivos comerciales breves. Podés inferir targetAudience y businessGoals sólo desde productos, categorías, propuesta de valor y llamados a la acción visibles; son hipótesis, no hechos confirmados. Ignorá navegación, cookies, login, carrito, checkout, precios, descuentos, envíos, banners y textos repetitivos. Si un dato no está respaldado devolvé vacío ('' o [] y '' para cada posición de knowledge sin respaldo). No inventes precio, stock, garantía ni resultados.",
+              "Respondé JSON con name, description, brand, offer, targetAudience, businessGoals, topics (máximo 5), claims (máximo 5), limits (máximo 5), tone y knowledge (arreglo de exactamente 3 strings, en este orden: 1) qué problema resuelve el negocio, 2) qué debería considerar alguien al elegir una opción, 3) una pregunta frecuente útil con su respuesta). Extraé hechos del sitio para name, description, brand, offer, claims y limits. Para targetAudience, businessGoals, topics, tone y knowledge podés proponer una formulación breve y prudente a partir de productos, categorías, propuesta de valor y llamados a la acción visibles. description debe ser una sola oración de hasta 280 caracteres; offer debe resumir categorías y no listar todo el catálogo. Ignorá navegación, cookies, login, carrito, checkout, precios, descuentos, envíos, banners y textos repetitivos. Si no hay contexto suficiente para un dato, devolvelo vacío. No inventes precio, stock, garantía, características técnicas ni resultados.",
           },
           { role: "user", content: source },
         ],
@@ -700,6 +733,70 @@ export function generatedKnowledge(
   if (kind === "Cómo elegir una opción")
     return `Para elegir una opción, ${brand} primero entiende el uso esperado y compara alternativas según ${topic}.`;
   return `Una pregunta frecuente es cómo saber si ${offer} es adecuado. ${brand} debe pedir contexto antes de recomendar.`;
+}
+
+/**
+ * Convierte lo que pudo leerse del sitio en una propuesta utilizable. Sólo
+ * completa huecos; nunca reemplaza texto que ya fue confirmado o editado.
+ */
+export function fillOnboardingDraftGaps(
+  value: OnboardingDraft | Required<OnboardingDraft>,
+  sourceUrl = "",
+): Required<OnboardingDraft> {
+  const draft = sanitizeDraft(value);
+  const offer = draft.offer || fallbackOffer(draft.offerings);
+  const hasBusinessContext = Boolean(
+    offer || draft.description.trim() || draft.offerings.length,
+  );
+  const firstTopic = offer
+    .replace(/^(productos?|servicios?)\s+(de|para)\s+/i, "")
+    .trim()
+    .slice(0, 120);
+  const inferredEvidence = (key: string): OnboardingEvidence | undefined =>
+    draft.evidence[key] ||
+    (sourceUrl
+      ? { url: sourceUrl, status: "suggested", confidence: "medium" }
+      : undefined);
+  const topics = draft.topics.length
+    ? draft.topics
+    : firstTopic
+      ? [firstTopic]
+      : [];
+  const completed: Required<OnboardingDraft> = {
+    ...draft,
+    offer,
+    targetAudience:
+      draft.targetAudience ||
+      (hasBusinessContext
+        ? `Personas que buscan ${offer || "una solución para su necesidad"}.`
+        : ""),
+    businessGoals:
+      draft.businessGoals.length || !hasBusinessContext
+        ? draft.businessGoals
+        : ["Orientar consultas y ayudar a elegir la opción adecuada"],
+    topics,
+    evidence: { ...draft.evidence },
+  };
+  const missingKeys = [
+    !draft.offer && "offer",
+    !draft.targetAudience && completed.targetAudience && "targetAudience",
+    !draft.businessGoals.length && completed.businessGoals.length && "businessGoals",
+    !draft.topics.length && completed.topics.length && "topics",
+  ].filter(Boolean) as string[];
+  for (const key of missingKeys) {
+    const item = inferredEvidence(key);
+    if (item) completed.evidence[key] = item;
+  }
+  if (hasBusinessContext) {
+    completed.knowledge = completed.knowledge.map((item, index) =>
+      item || generatedKnowledge(completed, completed.knowledgePrompts[index]),
+    );
+    if (completed.knowledge.some(Boolean) && !completed.evidence.knowledge) {
+      const item = inferredEvidence("knowledge");
+      if (item) completed.evidence.knowledge = item;
+    }
+  }
+  return sanitizeDraft(completed);
 }
 export async function analyzePublicWebsite(
   value: string,
@@ -869,8 +966,12 @@ export async function analyzePublicWebsite(
     warnings.push(
       "No detectamos un catálogo estructurado. Podés agregar una oferta principal si querés.",
     );
+  const completed = fillOnboardingDraftGaps(
+    { ...merged, warnings, stats: deterministic.stats },
+    home.url,
+  );
   return {
-    draft: { ...merged, warnings, stats: deterministic.stats },
+    draft: completed,
     pages,
     warning: warnings.join(" ") || undefined,
   };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertPublicUrl, cleanBusinessSummary, generatedKnowledge, isGenericOfferingName, mergeManualFields, sanitizeDraft } from "@/lib/onboarding";
+import { assertPublicUrl, cleanBusinessSummary, fillOnboardingDraftGaps, generatedKnowledge, getOnboardingCompletionIssues, isGenericOfferingName, mergeManualFields, sanitizeDraft } from "@/lib/onboarding";
 import { normalizeWebsiteUrl } from "@/lib/website-url";
 
 describe("onboarding", () => {
@@ -12,6 +12,37 @@ describe("onboarding", () => {
   it("genera conocimiento desde la información aprobada", () => {
     const draft = sanitizeDraft({ brand: "Casa Norte", offer: "asesoramiento", topics: ["compra informada"] });
     expect(generatedKnowledge(draft, "Problema que resolvemos")).toContain("Casa Norte");
+  });
+
+  it("completa una propuesta útil sin IA cuando el sitio aporta contexto", () => {
+    const draft = fillOnboardingDraftGaps({
+      name: "Prestige Running",
+      brand: "Prestige Running",
+      description: "Tienda online de medias técnicas para correr.",
+      offer: "Medias técnicas para running",
+    }, "https://prestige.test");
+    expect(getOnboardingCompletionIssues(draft)).toEqual([]);
+    expect(draft.targetAudience).toContain("Medias técnicas para running");
+    expect(draft.knowledge.every(Boolean)).toBe(true);
+  });
+
+  it("deja pendiente sólo lo que no tiene contexto suficiente", () => {
+    const draft = fillOnboardingDraftGaps({ name: "Marca", brand: "Marca" });
+    expect(getOnboardingCompletionIssues(draft).map((issue) => issue.key)).toContain("offer");
+    expect(getOnboardingCompletionIssues(draft).map((issue) => issue.key)).toContain("knowledge-0");
+  });
+
+  it("no agrega claims sensibles al completar los huecos", () => {
+    const draft = fillOnboardingDraftGaps({
+      name: "Marca",
+      brand: "Marca",
+      description: "Productos para entrenar.",
+      offer: "Accesorios deportivos",
+      claims: [],
+      limits: [],
+    });
+    expect(draft.claims).toEqual([]);
+    expect(draft.limits).toEqual([]);
   });
 
   it("conserva productos y servicios revisables con su procedencia", () => {

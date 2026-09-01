@@ -3,10 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { normalizeWebsiteUrl } from "@/lib/website-url";
-import type {
-  OnboardingDraft,
-  OnboardingEvidence,
-} from "@/lib/onboarding";
+import type { OnboardingDraft } from "@/lib/onboarding";
+import { getOnboardingCompletionIssues } from "@/lib/onboarding";
 
 const NETWORKS = [
   "Instagram",
@@ -74,61 +72,24 @@ function clientDraft(value?: OnboardingDraft): Required<OnboardingDraft> {
 
 const input =
   "w-full rounded-xl border border-ink/15 bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition placeholder:text-slate/35 focus:border-moss focus:ring-4 focus:ring-moss/10";
-function Badge({ evidence }: { evidence?: OnboardingEvidence }) {
-  const item = evidence || {
-    status: "needs_confirmation",
-    confidence: "low",
-    url: "",
-  };
-  const labels = {
-    extracted: "Extraído",
-    suggested: "Sugerido",
-    manual: "Manual",
-    needs_confirmation: "Falta confirmar",
-  } as const;
-  const styles = {
-    extracted: "bg-moss/10 text-moss",
-    suggested: "bg-brass/15 text-brass",
-    manual: "bg-ink/10 text-ink",
-    needs_confirmation: "bg-signal/10 text-signal",
-  } as const;
-  return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${styles[item.status]}`}
-    >
-      {labels[item.status]} ·{" "}
-      {item.confidence === "high"
-        ? "alta"
-        : item.confidence === "medium"
-          ? "media"
-          : "baja"}
-      {item.url ? (
-        <a
-          href={item.url}
-          target="_blank"
-          rel="noreferrer"
-          className="ml-1 underline"
-        >
-          Fuente ↗
-        </a>
-      ) : null}
-    </span>
-  );
-}
 function Field({
   label,
-  evidence,
   children,
+  fieldId,
+  invalid = false,
 }: {
   label: string;
-  evidence?: OnboardingEvidence;
   children: React.ReactNode;
+  fieldId?: string;
+  invalid?: boolean;
 }) {
   return (
-    <label className="grid gap-1.5">
-      <span className="flex flex-wrap items-center justify-between gap-2 text-xs font-bold uppercase tracking-[0.13em] text-slate/70">
+    <label
+      data-onboarding-field={fieldId}
+      className={`grid gap-1.5 rounded-xl transition ${invalid ? "bg-signal/[.08] p-2 ring-1 ring-signal/40" : ""}`}
+    >
+      <span className="text-xs font-bold uppercase tracking-[0.13em] text-slate/70">
         {label}
-        <Badge evidence={evidence} />
       </span>
       {children}
     </label>
@@ -151,6 +112,7 @@ export function OnboardingWizard({
   const [notice, setNotice] = useState(initial?.analysisError || "");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisStages, setAnalysisStages] = useState<string[]>([]);
+  const [reviewAttempted, setReviewAttempted] = useState(false);
   const [manualOfferingName, setManualOfferingName] = useState("");
   const [manualOfferingKind, setManualOfferingKind] = useState<
     "product" | "service"
@@ -303,12 +265,18 @@ export function OnboardingWizard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "complete" }),
       });
-      if (!response.ok) throw new Error();
+      const data = await response.json();
+      if (!response.ok)
+        throw new Error(data.error || "No se pudo finalizar la configuración.");
       router.push("/");
       router.refresh();
-    } catch {
+    } catch (error) {
       setSaveState("error");
-      setNotice("No se pudo finalizar. Intentá de nuevo.");
+      setNotice(
+        error instanceof Error
+          ? error.message
+          : "No se pudo finalizar. Intentá de nuevo.",
+      );
     }
   };
   const productCount = draft.offerings.filter(
@@ -322,12 +290,26 @@ export function OnboardingWizard({
       draft.offerings.map((item) => item.category.trim()).filter(Boolean),
     ),
   ].slice(0, 6);
-  const canContinue =
-    step === 0
-      ? /^https?:\/\//i.test(normalizeWebsiteUrl(url))
-      : step === 1
-        ? Boolean(draft.name.trim() && draft.brand.trim())
-        : true;
+  const reviewIssues = reviewAttempted
+    ? getOnboardingCompletionIssues(draft)
+    : [];
+  const continueToActivation = () => {
+    const issues = getOnboardingCompletionIssues(draft);
+    setReviewAttempted(true);
+    if (!issues.length) {
+      setStep(2);
+      return;
+    }
+    const first = issues[0];
+    setNotice("Completá la información pendiente antes de avanzar.");
+    window.requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLElement>(
+          `[data-onboarding-field="${first.key}"] input, [data-onboarding-field="${first.key}"] textarea, [data-onboarding-field="${first.key}"] select`,
+        )
+        ?.focus();
+    });
+  };
   const detected = useMemo(
     () => draft.stats.pagesRead > 0,
     [draft.stats.pagesRead],
@@ -392,20 +374,26 @@ export function OnboardingWizard({
               {step === 0
                 ? "Tu página ya sabe bastante de vos."
                 : step === 1
-                  ? "Esto fue lo que encontramos."
+                  ? "Revisá tu configuración."
                   : "Tu espacio está listo para arrancar."}
             </h1>
             <p className="mt-3 text-sm leading-relaxed text-slate/70">
               {step === 0
                 ? "Pegá la web y Cafishia preparará una propuesta. Después sólo revisás lo necesario."
                 : step === 1
-                  ? "Todo es editable. Las etiquetas indican de dónde salió cada dato."
+                  ? "Completamos una propuesta con la información pública de tu negocio. Ajustala para que quede exactamente como querés."
                   : "Confirmá qué información se importará y en qué redes querés empezar a escuchar."}
             </p>
           </header>
           {notice ? (
             <div className="mb-6 rounded-xl border border-brass/25 bg-brass/[.08] px-4 py-3 text-sm text-ink">
               {notice}
+            </div>
+          ) : null}
+          {step === 1 && reviewIssues.length ? (
+            <div className="mb-6 rounded-2xl border border-signal/30 bg-signal/[.08] px-4 py-3 text-sm text-ink" role="alert">
+              <p className="font-bold">Falta completar información para avanzar</p>
+              <p className="mt-1 text-slate/75">Completá: {reviewIssues.map((issue) => issue.label).join(", ")}.</p>
             </div>
           ) : null}
           {step === 0 ? (
@@ -478,7 +466,8 @@ export function OnboardingWizard({
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field
                     label="Nombre del negocio"
-                    evidence={draft.evidence.name}
+                    fieldId="name"
+                    invalid={reviewIssues.some((issue) => issue.key === "name")}
                   >
                     <input
                       className={input}
@@ -486,7 +475,7 @@ export function OnboardingWizard({
                       onChange={(event) => setField("name", event.target.value)}
                     />
                   </Field>
-                  <Field label="Marca" evidence={draft.evidence.brand}>
+                  <Field label="Marca" fieldId="brand" invalid={reviewIssues.some((issue) => issue.key === "brand")}>
                     <input
                       className={input}
                       value={draft.brand}
@@ -496,9 +485,10 @@ export function OnboardingWizard({
                     />
                   </Field>
                 </div>
-                <Field
-                  label="Resumen del negocio"
-                  evidence={draft.evidence.description}
+                  <Field
+                    label="Resumen del negocio"
+                    fieldId="description"
+                    invalid={reviewIssues.some((issue) => issue.key === "description")}
                 >
                   <textarea
                     className={`${input} min-h-24 resize-y`}
@@ -510,8 +500,9 @@ export function OnboardingWizard({
                 </Field>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field
-                    label="Qué vende"
-                    evidence={draft.evidence.offer}
+                    label="Oferta principal"
+                    fieldId="offer"
+                    invalid={reviewIssues.some((issue) => issue.key === "offer")}
                   >
                     <input
                       className={input}
@@ -521,7 +512,7 @@ export function OnboardingWizard({
                       }
                     />
                   </Field>
-                  <Field label="Tipo de negocio">
+                  <Field label="Tipo de negocio" fieldId="detectedBusinessType">
                     <select
                       className={input}
                       value={draft.detectedBusinessType}
@@ -541,9 +532,10 @@ export function OnboardingWizard({
                     </select>
                   </Field>
                 </div>
-                <Field
-                  label="Público objetivo"
-                  evidence={draft.evidence.targetAudience}
+                  <Field
+                    label="Público objetivo"
+                    fieldId="targetAudience"
+                    invalid={reviewIssues.some((issue) => issue.key === "targetAudience")}
                 >
                   <textarea
                     className={`${input} min-h-20 resize-y`}
@@ -554,9 +546,10 @@ export function OnboardingWizard({
                     placeholder="Por ejemplo: corredores y personas activas que buscan medias técnicas para entrenar."
                   />
                 </Field>
-                <Field
-                  label="Objetivos del negocio"
-                  evidence={draft.evidence.businessGoals}
+                  <Field
+                    label="Objetivos del negocio"
+                    fieldId="businessGoals"
+                    invalid={reviewIssues.some((issue) => issue.key === "businessGoals")}
                 >
                   <textarea
                     className={`${input} min-h-20 resize-y`}
@@ -671,14 +664,14 @@ export function OnboardingWizard({
                   Conocimiento y comunicación
                 </p>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Tono">
+                  <Field label="Tono" fieldId="tone" invalid={reviewIssues.some((issue) => issue.key === "tone")}>
                     <input
                       className={input}
                       value={draft.tone}
                       onChange={(event) => setField("tone", event.target.value)}
                     />
                   </Field>
-                  <Field label="Temas (separados por coma)">
+                  <Field label="Temas (separados por coma)" fieldId="topics" invalid={reviewIssues.some((issue) => issue.key === "topics")}>
                     <input
                       className={input}
                       value={draft.topics.join(", ")}
@@ -701,7 +694,8 @@ export function OnboardingWizard({
                       draft.knowledgePrompts[index] ||
                       `Conocimiento ${index + 1}`
                     }
-                    evidence={draft.evidence.knowledge}
+                    fieldId={`knowledge-${index}`}
+                    invalid={reviewIssues.some((issue) => issue.key === `knowledge-${index}`)}
                   >
                     <textarea
                       className={`${input} min-h-20 resize-y`}
@@ -808,8 +802,8 @@ export function OnboardingWizard({
             {step < 2 ? (
               <button
                 type="button"
-                onClick={() => (step === 0 ? analyze() : setStep(2))}
-                disabled={!canContinue || isAnalyzing}
+                onClick={() => (step === 0 ? analyze() : continueToActivation())}
+                disabled={isAnalyzing}
                 className="rounded-full bg-ink px-5 py-2.5 text-sm font-bold text-paper transition hover:bg-moss disabled:opacity-35"
               >
                 {step === 0 ? "Analizar página →" : "Revisar activación →"}
