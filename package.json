@@ -29,6 +29,8 @@
     "db:studio": "prisma studio",
     "agents:listen": "python agents/orchestrator.py listen",
     "onboarding:sync-catalog": "tsx scripts/sync-pending-onboarding-catalog.mts",
+    "onboarding:audit-contamination": "tsx scripts/audit-onboarding-contamination.mts",
+    "onboarding:repair-prestige-contamination": "tsx scripts/repair-prestige-contamination.mts",
     "agents:draft": "python agents/orchestrator.py draft",
     "agents:draft-daily-quota": "node node_modules/tsx/dist/cli.mjs scripts/daily-draft-quota.mts",
     "agents:regenerate-drafts": "node node_modules/tsx/dist/cli.mjs scripts/draft-worker.mts --replace-pending --limit 50",

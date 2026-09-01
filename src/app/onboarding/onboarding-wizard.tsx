@@ -98,11 +98,17 @@ function Field({
 export function OnboardingWizard({
   initial,
   preview = false,
+  clientName,
+  clientSlug,
 }: {
   initial?: Initial;
   preview?: boolean;
+  clientName?: string;
+  clientSlug?: string;
 }) {
   const router = useRouter();
+  const apiUrl = (path: string) =>
+    clientSlug ? `${path}?client=${encodeURIComponent(clientSlug)}` : path;
   const [step, setStep] = useState(Math.min(initial?.step ?? 0, 2));
   const [url, setUrl] = useState(initial?.sourceUrl || "");
   const [draft, setDraft] = useState<Required<OnboardingDraft>>(() =>
@@ -178,7 +184,10 @@ export function OnboardingWizard({
     setSaveState("saving");
     const timer = window.setTimeout(async () => {
       try {
-        const response = await fetch("/api/onboarding", {
+        const patchUrl = clientSlug
+          ? `/api/onboarding?client=${encodeURIComponent(clientSlug)}`
+          : "/api/onboarding";
+        const response = await fetch(patchUrl, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -199,7 +208,7 @@ export function OnboardingWizard({
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [draft, preview, step, url]);
+  }, [draft, preview, step, url, clientSlug]);
   const analyze = async () => {
     const normalizedUrl = normalizeWebsiteUrl(url);
     if (!/^https?:\/\//i.test(normalizedUrl)) {
@@ -222,7 +231,7 @@ export function OnboardingWizard({
       1000,
     );
     try {
-      const endpoint = preview ? "/api/onboarding/preview" : "/api/onboarding";
+      const endpoint = preview ? "/api/onboarding/preview" : apiUrl("/api/onboarding");
       const body = preview
         ? { url: normalizedUrl }
         : { action: "analyze", url: normalizedUrl };
@@ -260,7 +269,7 @@ export function OnboardingWizard({
     }
     setSaveState("saving");
     try {
-      const response = await fetch("/api/onboarding", {
+      const response = await fetch(apiUrl("/api/onboarding"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "complete" }),
@@ -327,7 +336,7 @@ export function OnboardingWizard({
               <div>
                 <p className="font-display text-xl tracking-tight">Cafishia</p>
                 <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#eff3e8]/55">
-                  Configuración inicial
+                  {clientName ? `Configuración de ${clientName}` : "Configuración inicial"}
                 </p>
               </div>
             </div>
@@ -571,27 +580,27 @@ export function OnboardingWizard({
               {draft.offerings.length ? (
                 <div className="rounded-2xl border border-moss/20 bg-moss/[.06] p-5">
                   <p className="text-xs font-bold uppercase tracking-[.14em] text-moss">
-                    Catálogo sincronizado
+                    Catálogo candidato
                   </p>
                   <p className="mt-1 text-sm leading-relaxed text-slate/70">
-                    Importamos automáticamente lo encontrado en tu sitio para
-                    usarlo como contexto al responder consultas.
+                    Esto es lo que encontramos en tu sitio. Es una propuesta:
+                    se importa recién cuando confirmás y activás tu espacio.
                   </p>
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     <div className="rounded-xl bg-white/75 px-4 py-3">
                       <p className="font-display text-2xl text-ink">
-                        {draft.stats.importedProducts || productCount}
+                        {productCount}
                       </p>
                       <p className="text-xs font-bold uppercase tracking-wide text-slate/60">
-                        Productos importados
+                        Productos detectados
                       </p>
                     </div>
                     <div className="rounded-xl bg-white/75 px-4 py-3">
                       <p className="font-display text-2xl text-ink">
-                        {draft.stats.importedServices || serviceCount}
+                        {serviceCount}
                       </p>
                       <p className="text-xs font-bold uppercase tracking-wide text-slate/60">
-                        Servicios importados
+                        Servicios detectados
                       </p>
                     </div>
                   </div>

@@ -2,24 +2,40 @@ import { prisma } from "../src/lib/db";
 import {
   analyzePublicWebsite,
   mergeManualFields,
+  parseDomainKeywords,
   sanitizeDraft,
   syncOnboardingCatalog,
+  type ConfirmedClientContext,
 } from "../src/lib/onboarding";
 
 const onboardingDb = prisma as any;
 
 async function main() {
   const onboardings = await onboardingDb.clientOnboarding.findMany({
-    where: { sourceUrl: { not: "" } },
+    // Sólo continúa el catálogo de onboardings ya aprobados por un humano;
+    // nunca importa productos para un borrador todavía en revisión.
+    where: { sourceUrl: { not: "" }, status: "COMPLETED" },
     include: { client: true },
   });
   let continued = 0;
   for (const onboarding of onboardings) {
     const previous = sanitizeDraft(onboarding.draft, onboarding.client.name);
     if (!previous.stats.catalogSyncPending) continue;
+    const brands = await prisma.brand.findMany({
+      where: { clientId: onboarding.clientId },
+      select: { name: true },
+    });
+    const context: ConfirmedClientContext = {
+      name: onboarding.client.name,
+      brands: brands.map((brand) => brand.name),
+      description: onboarding.client.description,
+      domainKeywords: parseDomainKeywords(onboarding.client.domainKeywords),
+      openrouterApiKey: onboarding.client.openrouterApiKey,
+      openrouterModel: onboarding.client.openrouterModel,
+    };
     const analysis = await analyzePublicWebsite(
       onboarding.sourceUrl,
-      onboarding.client.name,
+      context,
       {
         candidateOffset: previous.stats.catalogNextOffset,
         skipSuggestions: true,
@@ -37,9 +53,9 @@ async function main() {
         stats: {
           ...draft.stats,
           importedProducts:
-            previous.stats.importedProducts + catalog.products,
+            (previous.stats.importedProducts || 0) + catalog.products,
           importedServices:
-            previous.stats.importedServices + catalog.services,
+            (previous.stats.importedServices || 0) + catalog.services,
         },
       },
       onboarding.client.name,

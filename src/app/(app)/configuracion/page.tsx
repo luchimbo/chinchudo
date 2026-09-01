@@ -56,7 +56,7 @@ export default async function ConfiguracionPage({
               {group.cards.map((card) => (
                 <Link
                   key={card.href}
-                  href={card.href === "/onboarding" ? card.href : `${card.href}${q}`}
+                  href={`${card.href}${q}`}
                   className="group flex flex-col gap-2 rounded-xl border border-ink/10 bg-paper p-5 transition hover:border-ink/25 hover:shadow-sm"
                 >
                   <h2 className="font-semibold text-ink">{card.title}</h2>

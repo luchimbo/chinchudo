@@ -1,5 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { assertPublicUrl, cleanBusinessSummary, fillOnboardingDraftGaps, generatedKnowledge, isGenericOfferingName, mergeManualFields, sanitizeDraft } from "@/lib/onboarding";
+import {
+  assertPublicUrl,
+  cleanBusinessSummary,
+  containsOfferingLeak,
+  fillOnboardingDraftGaps,
+  generatedKnowledge,
+  isGenericOfferingName,
+  matchConfirmedBrand,
+  mergeManualFields,
+  parseDomainKeywords,
+  sanitizeDraft,
+  semanticAudienceFallback,
+  summarizeForPrompt,
+} from "@/lib/onboarding";
 import { getOnboardingCompletionIssues } from "@/lib/onboarding-completion";
 import { normalizeWebsiteUrl } from "@/lib/website-url";
 
@@ -21,9 +34,10 @@ describe("onboarding", () => {
       brand: "Prestige Running",
       description: "Tienda online de medias técnicas para correr.",
       offer: "Medias técnicas para running",
+      topics: ["running", "trail"],
     }, "https://prestige.test");
     expect(getOnboardingCompletionIssues(draft)).toEqual([]);
-    expect(draft.targetAudience).toContain("Medias técnicas para running");
+    expect(draft.targetAudience).toContain("running");
     expect(draft.knowledge.every(Boolean)).toBe(true);
   });
 
@@ -171,5 +185,71 @@ describe("onboarding", () => {
     expect(merged.offerings).toHaveLength(1);
     expect(merged.offerings[0].name).toBe("Controlador editado");
     expect(merged.offerings[0].price).toBe("$100.000");
+  });
+
+  it("no inventa público objetivo a partir de nombres de producto cuando no hay categorías ni temas", () => {
+    const draft = fillOnboardingDraftGaps({
+      name: "Marca",
+      brand: "Marca",
+      description: "Tienda online de accesorios.",
+      offer: "Accesorios variados",
+    });
+    expect(draft.targetAudience).toBe("");
+    expect(getOnboardingCompletionIssues(draft).map((issue) => issue.key)).toContain("targetAudience");
+  });
+
+  it("deriva público objetivo desde las categorías detectadas, no desde nombres de producto", () => {
+    const audience = semanticAudienceFallback({
+      offerings: [
+        { id: "1", kind: "product", name: "Trail Pro. Media caña. Art 1025", category: "Trail", description: "", specs: "", scope: "", modality: "", audience: "", price: "Por confirmar", availability: "Por confirmar", url: "", selected: true, evidence: { url: "", status: "extracted", confidence: "high" } },
+        { id: "2", kind: "product", name: "Media de compresión graduada 15-20 mm Hg. Art 1010", category: "Compresion Graduada", description: "", specs: "", scope: "", modality: "", audience: "", price: "Por confirmar", availability: "Por confirmar", url: "", selected: true, evidence: { url: "", status: "extracted", confidence: "high" } },
+      ],
+      topics: [],
+    });
+    expect(audience).toBe("Personas interesadas en Trail y Compresion Graduada.");
+    expect(audience).not.toContain("Art 1025");
+    expect(audience).not.toContain("1010");
+  });
+
+  it("mapea un título de sitio a la marca ya confirmada en vez de duplicarla", () => {
+    expect(matchConfirmedBrand("Tienda Online de Prestige Running", ["Prestige"])).toBe("Prestige");
+    expect(matchConfirmedBrand("MidiPlus Argentina", ["MidiPlus", "Kressmer"])).toBe("MidiPlus");
+    expect(matchConfirmedBrand("Un sitio sin relación", ["Prestige"])).toBeNull();
+  });
+
+  it("rechaza un público objetivo que copia SKUs, artículos o precios", () => {
+    const offerings = [
+      { id: "1", kind: "product" as const, name: "Trail Pro. Media caña. Art 1025", category: "Trail", description: "", specs: "", scope: "", modality: "", audience: "", price: "Por confirmar", availability: "Por confirmar", url: "", selected: true, evidence: { url: "", status: "extracted" as const, confidence: "high" as const } },
+    ];
+    expect(containsOfferingLeak("Personas interesadas en Trail Pro. Media caña. Art 1025", offerings)).toBe(true);
+    expect(containsOfferingLeak("Compra Art 1025 desde $5000", offerings)).toBe(true);
+    expect(containsOfferingLeak("Personas que practican running y trail", offerings)).toBe(false);
+  });
+
+  it("resume categorías y usos repetidos para el prompt, sin depender de una sola página", () => {
+    const page = (overrides: Partial<Parameters<typeof summarizeForPrompt>[0][number]>) => ({
+      url: "https://tienda.test/x", title: "Tienda", description: "", text: "", pageType: "product",
+      offerings: [], socialNetworks: [], platform: "Tiendanube", hash: "x",
+      ...overrides,
+    });
+    const signals = summarizeForPrompt([
+      page({ title: "Tienda | Inicio" }),
+      page({
+        offerings: [
+          { id: "1", kind: "product", name: "Trail Pro", category: "Trail", description: "", specs: "", scope: "Running y trail", modality: "", audience: "Corredores", price: "Por confirmar", availability: "Por confirmar", url: "", selected: true, evidence: { url: "", status: "extracted", confidence: "high" } },
+          { id: "2", kind: "product", name: "Compresion 15-20", category: "Compresion Graduada", description: "", specs: "", scope: "Running y trail", modality: "", audience: "Corredores", price: "Por confirmar", availability: "Por confirmar", url: "", selected: true, evidence: { url: "", status: "extracted", confidence: "high" } },
+        ],
+      }),
+    ]);
+    expect(signals.categories.map((item) => item.name)).toEqual(["Trail", "Compresion Graduada"]);
+    expect(signals.repeatedUses).toContain("Running y trail");
+    expect(signals.representativeProducts).toEqual(["Trail Pro", "Compresion 15-20"]);
+  });
+
+  it("parsea domainKeywords de forma segura, incluso con JSON inválido", () => {
+    expect(parseDomainKeywords('["running","trail"]')).toEqual(["running", "trail"]);
+    expect(parseDomainKeywords("")).toEqual([]);
+    expect(parseDomainKeywords("{roto")).toEqual([]);
+    expect(parseDomainKeywords(null)).toEqual([]);
   });
 });

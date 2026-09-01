@@ -1,52 +1,74 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { getVisibleClients } from "@/lib/auth";
+import { ClientResolutionError, resolveClientForSlug } from "@/lib/auth";
 import {
   analyzePublicWebsite,
   defaultDraft,
   mergeManualFields,
+  parseDomainKeywords,
   sanitizeDraft,
   syncOnboarding,
-  syncOnboardingCatalog,
+  type ConfirmedClientContext,
 } from "@/lib/onboarding";
 import { getOnboardingCompletionIssues } from "@/lib/onboarding-completion";
 import { normalizeWebsiteUrl } from "@/lib/website-url";
+import type { Client } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 const onboardingDb = prisma as any;
 
-async function clientForRequest() {
-  const clients = await getVisibleClients(prisma);
-  const client = clients[0];
-  if (!client) throw new Error("No tenés un espacio de trabajo disponible.");
-  return client;
+async function clientForRequest(request: NextRequest) {
+  return resolveClientForSlug(prisma, request.nextUrl.searchParams.get("client"));
 }
 
-export async function GET() {
+async function confirmedContextFor(client: Client): Promise<ConfirmedClientContext> {
+  const brands = await prisma.brand.findMany({
+    where: { clientId: client.id },
+    select: { name: true },
+  });
+  return {
+    name: client.name,
+    brands: brands.map((brand) => brand.name),
+    description: client.description,
+    domainKeywords: parseDomainKeywords(client.domainKeywords),
+    openrouterApiKey: client.openrouterApiKey,
+    openrouterModel: client.openrouterModel,
+  };
+}
+
+export async function GET(request: NextRequest) {
   try {
-    const client = await clientForRequest();
+    const client = await clientForRequest(request);
     const onboarding = await onboardingDb.clientOnboarding.upsert({
       where: { clientId: client.id },
       create: { clientId: client.id, draft: defaultDraft(client.name) },
       update: {},
     });
     return NextResponse.json({
+      client: { slug: client.slug, name: client.name },
       onboarding: {
         ...onboarding,
         draft: sanitizeDraft(onboarding.draft, client.name),
       },
     });
   } catch (error) {
+    const status = error instanceof ClientResolutionError ? error.status : 401;
     return NextResponse.json(
       { error: (error as Error).message },
-      { status: 401 },
+      { status },
     );
   }
 }
 
 export async function PATCH(request: NextRequest) {
+  let client: Client;
   try {
-    const client = await clientForRequest();
+    client = await clientForRequest(request);
+  } catch (error) {
+    const status = error instanceof ClientResolutionError ? error.status : 401;
+    return NextResponse.json({ error: (error as Error).message }, { status });
+  }
+  try {
     const body = await request.json();
     const existing = await onboardingDb.clientOnboarding.upsert({
       where: { clientId: client.id },
@@ -61,6 +83,8 @@ export async function PATCH(request: NextRequest) {
       1,
       Math.min(3, Number(body.currentStep) || existing.currentStep),
     );
+    // El autosave sólo persiste el borrador: nunca escribe Client/Brand/Product/Persona,
+    // y no revierte un onboarding ya COMPLETED a IN_REVIEW.
     const onboarding = await onboardingDb.clientOnboarding.update({
       where: { clientId: client.id },
       data: {
@@ -74,13 +98,12 @@ export async function PATCH(request: NextRequest) {
             ? body.businessType.slice(0, 30)
             : existing.businessType,
         currentStep,
-        status: "IN_REVIEW",
+        status: existing.status === "COMPLETED" ? existing.status : "IN_REVIEW",
         analysisError: "",
       },
     });
-    await syncOnboarding(prisma, client.id, draft);
     return NextResponse.json({ onboarding: { ...onboarding, draft } });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: "No se pudo guardar. Revisá tu conexión e intentá de nuevo." },
       { status: 400 },
@@ -89,8 +112,14 @@ export async function PATCH(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  let client: Client;
   try {
-    const client = await clientForRequest();
+    client = await clientForRequest(request);
+  } catch (error) {
+    const status = error instanceof ClientResolutionError ? error.status : 401;
+    return NextResponse.json({ error: (error as Error).message }, { status });
+  }
+  try {
     const body = await request.json();
     if (body.action === "analyze") {
       const url = normalizeWebsiteUrl(String(body.url || ""));
@@ -110,21 +139,13 @@ export async function POST(request: NextRequest) {
         update: { sourceUrl: url, status: "ANALYZING", analysisError: "" },
       });
       try {
-        const analysis = await analyzePublicWebsite(url, client.name);
+        const context = await confirmedContextFor(client);
+        const analysis = await analyzePublicWebsite(url, context);
         const previousDraft = sanitizeDraft(existing.draft, client.name);
+        // El análisis sólo guarda el borrador y las páginas leídas: no importa
+        // catálogo ni toca Brand/Product hasta que el cliente confirme.
         const draft = mergeManualFields(analysis.draft, previousDraft);
-        const catalog = await syncOnboardingCatalog(prisma, client.id, draft);
-        const importedDraft = sanitizeDraft(
-          {
-            ...draft,
-            stats: {
-              ...draft.stats,
-              importedProducts: catalog.products,
-              importedServices: catalog.services,
-            },
-          },
-          client.name,
-        );
+        const importedDraft = sanitizeDraft(draft, client.name);
         const onboarding = await onboardingDb.clientOnboarding.update({
           where: { clientId: client.id },
           data: { status: "IN_REVIEW", draft: importedDraft },
@@ -193,15 +214,13 @@ export async function POST(request: NextRequest) {
         );
       }
       const approvedDraft = { ...draft, knowledgeApproved: true };
-      await syncOnboarding(prisma, client.id, approvedDraft);
-      const completed = await onboardingDb.clientOnboarding.update({
+      // Único punto que sincroniza Client/Brand/Product/Persona/MonitoredSource,
+      // atómicamente junto con el pase a COMPLETED.
+      await syncOnboarding(prisma, client.id, approvedDraft, {
+        completeOnboardingId: onboarding.id,
+      });
+      const completed = await onboardingDb.clientOnboarding.findUniqueOrThrow({
         where: { clientId: client.id },
-        data: {
-          status: "COMPLETED",
-          completedAt: new Date(),
-          currentStep: 3,
-          draft: approvedDraft,
-        },
       });
       return NextResponse.json({ onboarding: completed });
     }

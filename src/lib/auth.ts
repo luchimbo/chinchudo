@@ -97,3 +97,33 @@ export async function assertClientAccess(prisma: PrismaClient, clientId: string)
     throw new Error("No tenés acceso a este cliente.");
   }
 }
+
+export class ClientResolutionError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
+/**
+ * Resuelve el cliente para un request: exige un slug explícito cuando la sesión
+ * ve más de un cliente, y nunca elige clients[0] entre varios en silencio.
+ */
+export async function resolveClientForSlug(
+  prisma: PrismaClient,
+  slug?: string | null,
+): Promise<Client> {
+  const clients = await getVisibleClients(prisma);
+  if (!clients.length)
+    throw new ClientResolutionError("No tenés un espacio de trabajo disponible.", 401);
+  if (!slug) {
+    if (clients.length > 1)
+      throw new ClientResolutionError("Especificá el cliente (?client=<slug>).", 400);
+    return clients[0];
+  }
+  const client = clients.find((item) => item.slug === slug);
+  if (!client)
+    throw new ClientResolutionError("No tenés acceso a este cliente.", 403);
+  return client;
+}

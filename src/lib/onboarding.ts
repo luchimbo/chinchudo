@@ -3,8 +3,9 @@ import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import * as cheerio from "cheerio";
 import type { PrismaClient } from "@prisma/client";
-import { fetchChatCompletion, resolveLLMConfig } from "./llm-provider";
+import { fetchChatCompletion, resolveLLMConfig, type LegacyClientLLMConfig, type LLMConfig } from "./llm-provider";
 import { normalizeWebsiteUrl } from "./website-url";
+import { logger } from "./logger";
 
 export { normalizeWebsiteUrl } from "./website-url";
 
@@ -90,9 +91,36 @@ export type WebsiteAnalysisOptions = {
   candidateOffset?: number;
   skipSuggestions?: boolean;
 };
+/** Configuración ya confirmada del cliente: tiene prioridad sobre lo que la web propone. */
+export type ConfirmedClientContext = LegacyClientLLMConfig & {
+  name: string;
+  brands: string[];
+  description: string;
+  domainKeywords: string[];
+};
+export type BusinessSignals = {
+  candidateBrand: string;
+  categories: { name: string; count: number }[];
+  repeatedUses: string[];
+  dominantTerms: string[];
+  representativeProducts: string[];
+};
+
+/** Convierte `Client.domainKeywords` (JSON almacenado como string) en un arreglo seguro. */
+export function parseDomainKeywords(value: string | null | undefined): string[] {
+  try {
+    const parsed = JSON.parse(value || "[]");
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
 
 const voices = ["Técnico", "Práctico", "Innovación", "Educativo", "Comercial"];
 const MAX_PAGES = 40,
+  MAX_PROMPT_PAGES = 8,
   MAX_DISCOVERED_CANDIDATES = 1_000,
   MAX_BYTES = 2_000_000,
   TOTAL_TIMEOUT = 25_000,
@@ -621,72 +649,280 @@ function sitemapUrls(xml: string, base: URL): string[] {
       }
     });
 }
-const KNOWLEDGE_PRIORITY_PAGE_TYPES = new Set(["faq", "about", "contact"]);
 
-async function suggestedFields(
-  pages: WebsitePage[],
-): Promise<Partial<OnboardingDraft>> {
-  const config = resolveLLMConfig();
-  if (!config.apiKey) return {};
+/** Elige una muestra chica y representativa de páginas para el prompt: portada, "Nosotros", FAQ y ofertas de distintas categorías. */
+export function selectPagesForPrompt(pages: WebsitePage[]): WebsitePage[] {
   const [home, ...rest] = pages;
-  const ordered = [
-    home,
-    ...rest.sort(
-      (a, b) =>
-        Number(KNOWLEDGE_PRIORITY_PAGE_TYPES.has(b.pageType)) -
-        Number(KNOWLEDGE_PRIORITY_PAGE_TYPES.has(a.pageType)),
-    ),
-  ].filter((page): page is WebsitePage => Boolean(page));
-  const source = ordered
+  if (!home) return pages.slice(0, MAX_PROMPT_PAGES);
+  const about = rest.filter((page) => page.pageType === "about").slice(0, 1);
+  const faq = rest.filter((page) => page.pageType === "faq").slice(0, 1);
+  const usedUrls = new Set([home.url, ...about.map((page) => page.url), ...faq.map((page) => page.url)]);
+  const offeringPages = rest.filter(
+    (page) => !usedUrls.has(page.url) && page.offerings.length > 0,
+  );
+  const seenCategories = new Set<string>();
+  const diverseOfferingPages: WebsitePage[] = [];
+  for (const page of offeringPages) {
+    const category = page.offerings[0]?.category.trim() || page.pageType;
+    if (seenCategories.has(category)) continue;
+    seenCategories.add(category);
+    diverseOfferingPages.push(page);
+  }
+  const remainingSlots = Math.max(0, MAX_PROMPT_PAGES - 1 - about.length - faq.length);
+  return [home, ...about, ...faq, ...diverseOfferingPages.slice(0, remainingSlots)];
+}
+
+const STOPWORDS = new Set([
+  "para", "con", "desde", "este", "esta", "estos", "estas", "como", "entre",
+  "segun", "tiene", "tienen", "sobre", "donde", "hacia", "http", "https",
+  "www", "tienda", "online", "productos", "producto", "servicios", "servicio",
+  "comprar", "compra", "envio", "envios", "precio", "precios", "todo", "todos",
+]);
+
+function normalizeWord(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "");
+}
+
+/** Resumen estructurado de lo que se sabe del negocio, construido antes de armar el prompt. */
+export function summarizeForPrompt(pages: WebsitePage[]): BusinessSignals {
+  const home = pages[0];
+  const offerings = pages.flatMap((page) => page.offerings);
+  const categoryCounts = new Map<string, number>();
+  for (const item of offerings) {
+    const category = item.category.trim();
+    if (!category) continue;
+    categoryCounts.set(category, (categoryCounts.get(category) || 0) + 1);
+  }
+  const categories = [...categoryCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
     .slice(0, 8)
+    .map(([name, count]) => ({ name, count }));
+  const useCaseText = offerings
+    .map((item) => `${item.scope} ${item.audience} ${item.description}`)
+    .join(" ");
+  const words = normalizeWord(useCaseText)
+    .split(/[^a-z0-9]+/)
+    .filter((word) => word.length > 3 && !STOPWORDS.has(word));
+  const frequency = new Map<string, number>();
+  for (const word of words) frequency.set(word, (frequency.get(word) || 0) + 1);
+  const dominantTerms = [...frequency.entries()]
+    .filter(([, count]) => count >= 2)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([term]) => term);
+  const repeatedUses = [
+    ...new Set(offerings.map((item) => item.scope.trim()).filter(Boolean)),
+  ].slice(0, 5);
+  const representativeProducts = [
+    ...new Set(offerings.map((item) => item.name)),
+  ].slice(0, 10);
+  return {
+    candidateBrand: home?.title.split(/[|–—-]/)[0].trim() || "",
+    categories,
+    repeatedUses,
+    dominantTerms,
+    representativeProducts,
+  };
+}
+
+function normalizeForBrandMatch(value: string): string {
+  return normalizeWord(value)
+    .replace(/\b(tienda online de|tienda de|tienda online|tienda|shop online|shop|store)\b/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/** Mapea un nombre de marca detectado en el sitio a una marca ya confirmada del cliente, para no crear duplicados. */
+export function matchConfirmedBrand(
+  candidate: string,
+  confirmedBrands: string[],
+): string | null {
+  const normalizedCandidate = normalizeForBrandMatch(candidate);
+  if (!normalizedCandidate) return null;
+  for (const brand of confirmedBrands) {
+    const normalizedBrand = normalizeForBrandMatch(brand);
+    if (!normalizedBrand) continue;
+    if (
+      normalizedCandidate === normalizedBrand ||
+      normalizedCandidate.includes(normalizedBrand) ||
+      normalizedBrand.includes(normalizedCandidate)
+    )
+      return brand;
+  }
+  return null;
+}
+
+function joinList(items: string[]): string {
+  if (items.length <= 1) return items[0] || "";
+  if (items.length === 2) return `${items[0]} y ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")} y ${items[items.length - 1]}`;
+}
+
+/** Público objetivo derivado de categorías/temas reales, sin depender de la IA ni de nombres de producto. */
+export function semanticAudienceFallback(draft: {
+  offerings: OnboardingOffering[];
+  topics: string[];
+}): string {
+  const categories = [
+    ...new Set(draft.offerings.map((item) => item.category.trim()).filter(Boolean)),
+  ];
+  const source = categories.length ? categories : draft.topics.filter(Boolean);
+  if (!source.length) return "";
+  return `Personas interesadas en ${joinList(source.slice(0, 3))}.`;
+}
+
+/** Detecta si un texto generado por la IA terminó copiando inventario en vez de describir personas. */
+export function containsOfferingLeak(
+  text: string,
+  offerings: OnboardingOffering[],
+): boolean {
+  if (!text) return false;
+  const normalized = text.toLowerCase();
+  if (/\bart[íi]culo?\s*\d+|\bsku\b|\$\s?\d/i.test(text)) return true;
+  return offerings.some((item) => {
+    const name = item.name.trim().toLowerCase();
+    return name.length > 3 && normalized.includes(name);
+  });
+}
+
+async function requestSuggestedFields(
+  config: LLMConfig,
+  pages: WebsitePage[],
+  signals: BusinessSignals,
+  context: ConfirmedClientContext,
+  correctivePrompt?: string,
+): Promise<{ data: any } | null> {
+  const selected = selectPagesForPrompt(pages);
+  const source = selected
     .map(
       (page) =>
         `URL: ${page.url}\nTÍTULO: ${page.title}\nTEXTO: ${page.text.slice(0, 1800)}`,
     )
     .join("\n\n");
+  const summaryBlock = [
+    `Marca candidata: ${signals.candidateBrand || "sin datos"}`,
+    `Categorías detectadas: ${signals.categories.map((item) => `${item.name} (${item.count})`).join(", ") || "sin datos"}`,
+    `Usos repetidos: ${signals.repeatedUses.join(", ") || "sin datos"}`,
+    `Términos dominantes: ${signals.dominantTerms.join(", ") || "sin datos"}`,
+    `Productos representativos: ${signals.representativeProducts.join(", ") || "sin datos"}`,
+  ].join("\n");
+  const confirmedBlock =
+    context.name || context.brands.length || context.description
+      ? `Configuración YA CONFIRMADA de este negocio (prioritaria: el sitio sólo puede proponer cambios, nunca reemplazarla sin justificación): nombre "${context.name}", marcas: ${context.brands.join(", ") || "ninguna"}, descripción: "${context.description}", palabras clave: ${context.domainKeywords.join(", ") || "ninguna"}.`
+      : "";
+  const systemPrompt = [
+    "Respondé JSON con name, description, brand, offer, targetAudience, businessGoals, topics (máximo 5), claims (máximo 5), limits (máximo 5), tone y knowledge (arreglo de exactamente 3 strings: 1) qué problema resuelve el negocio, 2) qué debería considerar alguien al elegir una opción, 3) una pregunta frecuente útil con su respuesta).",
+    "targetAudience describe personas y sus actividades o necesidades (ejemplo: 'Personas que practican running y trail'). Nunca copies nombres de producto, SKUs, artículos, precios ni títulos de catálogo en targetAudience.",
+    "Usá el resumen estructurado de categorías, usos y términos dominantes para inferir el público y las categorías; no el listado de productos.",
+    confirmedBlock,
+    "description debe ser una sola oración de hasta 280 caracteres; offer debe resumir categorías y no listar todo el catálogo.",
+    "Ignorá navegación, cookies, login, carrito, checkout, precios, descuentos, envíos, banners y textos repetitivos.",
+    "Si no hay contexto suficiente para un dato, devolvelo vacío. No inventes precio, stock, garantía, características técnicas ni resultados.",
+    correctivePrompt || "",
+  ]
+    .filter(Boolean)
+    .join("\n");
   try {
     const { response } = await fetchChatCompletion(
       config,
       {
         messages: [
-          {
-            role: "system",
-            content:
-              "Respondé JSON con name, description, brand, offer, targetAudience, businessGoals, topics (máximo 5), claims (máximo 5), limits (máximo 5), tone y knowledge (arreglo de exactamente 3 strings, en este orden: 1) qué problema resuelve el negocio, 2) qué debería considerar alguien al elegir una opción, 3) una pregunta frecuente útil con su respuesta). Extraé hechos del sitio para name, description, brand, offer, claims y limits. Para targetAudience, businessGoals, topics, tone y knowledge podés proponer una formulación breve y prudente a partir de productos, categorías, propuesta de valor y llamados a la acción visibles. description debe ser una sola oración de hasta 280 caracteres; offer debe resumir categorías y no listar todo el catálogo. Ignorá navegación, cookies, login, carrito, checkout, precios, descuentos, envíos, banners y textos repetitivos. Si no hay contexto suficiente para un dato, devolvelo vacío. No inventes precio, stock, garantía, características técnicas ni resultados.",
-          },
-          { role: "user", content: source },
+          { role: "system", content: systemPrompt },
+          { role: "user", content: `RESUMEN ESTRUCTURADO:\n${summaryBlock}\n\nPÁGINAS:\n${source}` },
         ],
         response_format: { type: "json_object" },
         temperature: 0,
         max_tokens: 900,
       },
       "Cafishia - análisis de onboarding",
+      context,
     );
-    if (!response.ok) return {};
-    const data = JSON.parse(
-      (await response.json()).choices?.[0]?.message?.content || "{}",
+    if (!response.ok) {
+      await logger.warn(
+        "onboarding_llm_http_error",
+        `El proveedor de IA respondió ${response.status} durante el análisis de onboarding.`,
+        { status: response.status },
+      );
+      return null;
+    }
+    const payload = await response.json();
+    const raw = payload.choices?.[0]?.message?.content;
+    try {
+      return { data: JSON.parse(raw || "{}") };
+    } catch (error) {
+      await logger.warn(
+        "onboarding_llm_invalid_json",
+        "La IA devolvió una respuesta que no es JSON válido durante el onboarding.",
+        { raw, error: error instanceof Error ? error.message : String(error) },
+      );
+      return null;
+    }
+  } catch (error) {
+    await logger.warn(
+      "onboarding_llm_connection_error",
+      "No se pudo contactar al proveedor de IA durante el análisis de onboarding.",
+      { error: error instanceof Error ? error.message : String(error) },
     );
+    return null;
+  }
+}
+
+export async function suggestedFields(
+  pages: WebsitePage[],
+  offerings: OnboardingOffering[],
+  context: ConfirmedClientContext,
+): Promise<Partial<OnboardingDraft>> {
+  const config = resolveLLMConfig(context);
+  if (!config.apiKey) return {};
+  const signals = summarizeForPrompt(pages);
+
+  const parseResult = (data: any): Partial<OnboardingDraft> => {
     const knowledge = Array.isArray(data.knowledge)
       ? [0, 1, 2].map((index) => clipped(data.knowledge[index], 2000))
       : [];
+    const targetAudienceRaw = clipped(data.targetAudience, 800);
+    const rejected = containsOfferingLeak(targetAudienceRaw, offerings);
+    if (rejected) {
+      void logger.warn(
+        "onboarding_llm_validation_rejected",
+        "targetAudience de la IA copiaba nombres de producto, SKU o precios; se descartó.",
+        { targetAudience: targetAudienceRaw },
+      );
+    }
     return {
       name: clipped(data.name, 160),
       description: clipped(data.description, 2000),
       brand: clipped(data.brand, 160),
       offer: clipped(data.offer, 800),
-      targetAudience: clipped(data.targetAudience, 800),
-      businessGoals: strings(data.businessGoals, 3).map((item) =>
-        clipped(item, 240),
-      ),
+      targetAudience: rejected ? "" : targetAudienceRaw,
+      businessGoals: strings(data.businessGoals, 3).map((item) => clipped(item, 240)),
       tone: clipped(data.tone, 160),
       topics: strings(data.topics, 5),
       claims: strings(data.claims, 5),
       limits: strings(data.limits, 5),
       ...(knowledge.some(Boolean) ? { knowledge } : {}),
     };
-  } catch {
-    return {};
+  };
+
+  const isLowQuality = (result: Partial<OnboardingDraft>) =>
+    !result.targetAudience && !result.offer && !result.description;
+
+  const first = await requestSuggestedFields(config, pages, signals, context);
+  let parsed = first ? parseResult(first.data) : {};
+  if (!first || isLowQuality(parsed)) {
+    const retry = await requestSuggestedFields(
+      config,
+      pages,
+      signals,
+      context,
+      "El intento anterior devolvió datos vacíos, genéricos o copiaba nombres de producto. Generá una síntesis nueva enfocada en categorías, usos y personas, apoyada en el resumen estructurado.",
+    );
+    if (retry) parsed = parseResult(retry.data);
   }
+  return parsed;
 }
 export function generatedKnowledge(
   draft: Required<OnboardingDraft>,
@@ -735,7 +971,7 @@ export function fillOnboardingDraftGaps(
     targetAudience:
       draft.targetAudience ||
       (hasBusinessContext
-        ? `Personas que buscan ${offer || "una solución para su necesidad"}.`
+        ? semanticAudienceFallback({ offerings: draft.offerings, topics: draft.topics })
         : ""),
     businessGoals:
       draft.businessGoals.length || !hasBusinessContext
@@ -767,9 +1003,14 @@ export function fillOnboardingDraftGaps(
 }
 export async function analyzePublicWebsite(
   value: string,
-  clientName: string,
+  clientContext: ConfirmedClientContext | string,
   options: WebsiteAnalysisOptions = {},
 ): Promise<WebsiteAnalysis> {
+  const context: ConfirmedClientContext =
+    typeof clientContext === "string"
+      ? { name: clientContext, brands: [], description: "", domainKeywords: [] }
+      : clientContext;
+  const clientName = context.name;
   const startedAt = Date.now(),
     initial = await assertPublicUrl(normalizeWebsiteUrl(value)),
     warnings: string[] = [],
@@ -810,6 +1051,9 @@ export async function analyzePublicWebsite(
   const allCandidates = [
     ...new Set([...candidateUrls(homeResult.html, homeResult.url), ...sitemap]),
   ]
+    // La portada ya se agregó a `pages` arriba; si el sitemap o los enlaces la
+    // repiten, filtrarla acá evita una entrada duplicada (viola el unique de OnboardingSourcePage).
+    .filter((candidate) => candidate !== home.url)
     .filter((candidate) =>
       robotsAllows(robotsText, new URL(candidate).pathname),
     );
@@ -838,6 +1082,16 @@ export async function analyzePublicWebsite(
     );
     pages.push(...batch.filter((page): page is WebsitePage => Boolean(page)));
   }
+  // Dos candidatos distintos pueden redirigir a la misma URL final: dedupear
+  // defensivamente antes de persistir OnboardingSourcePage (unique por url).
+  const seenPageUrls = new Set<string>();
+  const dedupedPages = pages.filter((page) => {
+    if (seenPageUrls.has(page.url)) return false;
+    seenPageUrls.add(page.url);
+    return true;
+  });
+  pages.length = 0;
+  pages.push(...dedupedPages);
   const uniqueOffers = new Map<string, OnboardingOffering>();
   pages
     .flatMap((page) => page.offerings)
@@ -859,11 +1113,12 @@ export async function analyzePublicWebsite(
             ? "services"
             : "mixed";
   const firstHeading = home.title.split(/[|–—-]/)[0].trim();
+  const matchedBrand = matchConfirmedBrand(firstHeading, context.brands);
   const deterministic: Required<OnboardingDraft> = {
     ...defaultDraft(clientName),
-    name: firstHeading || clientName,
-    brand: firstHeading || clientName,
-    description: cleanBusinessSummary(home.description),
+    name: context.name || firstHeading || clientName,
+    brand: matchedBrand || firstHeading || clientName,
+    description: context.description || cleanBusinessSummary(home.description),
     offer: fallbackOffer(offerings),
     detectedBusinessType,
     detectedPlatform: home.platform,
@@ -874,12 +1129,12 @@ export async function analyzePublicWebsite(
     evidence: {
       name: {
         url: home.url,
-        status: "extracted",
+        status: context.name ? "manual" : "extracted",
         confidence: home.title ? "high" : "low",
       },
       description: {
         url: home.url,
-        status: "extracted",
+        status: context.description ? "manual" : "extracted",
         confidence: home.description ? "medium" : "low",
       },
       offer: {
@@ -887,7 +1142,11 @@ export async function analyzePublicWebsite(
         status: offerings.length ? "extracted" : "needs_confirmation",
         confidence: offerings.length ? "medium" : "low",
       },
-      brand: { url: home.url, status: "suggested", confidence: "medium" },
+      brand: {
+        url: home.url,
+        status: matchedBrand ? "manual" : "suggested",
+        confidence: matchedBrand ? "high" : "medium",
+      },
     },
     warnings,
     stats: {
@@ -901,7 +1160,9 @@ export async function analyzePublicWebsite(
       durationMs: Date.now() - startedAt,
     },
   };
-  const suggested = options.skipSuggestions ? {} : await suggestedFields(pages),
+  const suggested = options.skipSuggestions
+      ? {}
+      : await suggestedFields(pages, offerings, context),
     merged = sanitizeDraft(
       {
         ...deterministic,
@@ -924,7 +1185,7 @@ export async function analyzePublicWebsite(
       },
       clientName,
     );
-  if (!suggested.description && !suggested.offer) {
+  if (!suggested.description && !suggested.offer && !context.description) {
     warnings.push(
       "No pudimos generar un resumen comercial confiable; completá qué vende, público y objetivos manualmente.",
     );
@@ -1076,10 +1337,16 @@ export async function syncOnboardingCatalog(
   return prisma.$transaction((tx) => syncCatalogOfferings(tx, clientId, draft));
 }
 
+export type SyncOnboardingOptions = {
+  /** Cuando se pasa, además de sincronizar el catálogo marca este onboarding como COMPLETED dentro de la misma transacción. */
+  completeOnboardingId?: string;
+};
+
 export async function syncOnboarding(
   prisma: PrismaClient,
   clientId: string,
   draftInput: Required<OnboardingDraft>,
+  options: SyncOnboardingOptions = {},
 ) {
   const draft = sanitizeDraft(draftInput);
   await prisma.$transaction(async (tx) => {
@@ -1099,13 +1366,16 @@ export async function syncOnboarding(
       },
     });
     const catalog = await syncCatalogOfferings(tx, clientId, draft);
-    if (!catalog.brand) return;
-    const brand = catalog.brand;
-    await Promise.all(
-      voices.map((name) =>
-        tx.persona.upsert({
+    if (catalog.brand) {
+      const brand = catalog.brand;
+      // Sólo crea las voces que falten; nunca uniforma el tono de personas ya confirmadas.
+      for (const name of voices) {
+        const existing = await tx.persona.findUnique({
           where: { clientId_name: { clientId, name } },
-          create: {
+        });
+        if (existing) continue;
+        await tx.persona.create({
+          data: {
             clientId,
             name,
             role: name,
@@ -1115,45 +1385,51 @@ export async function syncOnboarding(
             allowedPhrases: draft.claims.join("\n"),
             forbiddenPhrases: draft.limits.join("\n"),
           },
-          update: {
-            tone: draft.tone,
-            allowedPhrases: draft.claims.join("\n"),
-            forbiddenPhrases: draft.limits.join("\n"),
+        });
+      }
+      if (draft.knowledgeApproved) {
+        await tx.knowledgeBase.deleteMany({
+          where: { clientId, source: "onboarding" },
+        });
+        await tx.knowledgeBase.createMany({
+          data: draft.knowledge.filter(Boolean).map((content, index) => ({
+            clientId,
+            brandId: brand.id,
+            topic: draft.knowledgePrompts[index] || `Conocimiento ${index + 1}`,
+            content,
+            source: "onboarding",
+            confidence: "high",
+          })),
+        });
+      }
+      for (const channel of draft.selectedNetworks) {
+        const query =
+          `${draft.brand || draft.name} ${draft.offer || draft.topics[0] || "consultas"}`.slice(
+            0,
+            400,
+          );
+        await tx.monitoredSource.upsert({
+          where: { label: `${clientId}:onboarding:${channel}` },
+          create: {
+            clientId,
+            label: `${clientId}:onboarding:${channel}`,
+            channel,
+            query,
+            expectedTopics: draft.topics,
           },
-        }),
-      ),
-    );
-    if (draft.knowledgeApproved) {
-      await tx.knowledgeBase.deleteMany({
-        where: { clientId, source: "onboarding" },
-      });
-      await tx.knowledgeBase.createMany({
-        data: draft.knowledge.filter(Boolean).map((content, index) => ({
-          clientId,
-          brandId: brand.id,
-          topic: draft.knowledgePrompts[index] || `Conocimiento ${index + 1}`,
-          content,
-          source: "onboarding",
-          confidence: "high",
-        })),
-      });
+          update: { query, expectedTopics: draft.topics, active: true },
+        });
+      }
     }
-    for (const channel of draft.selectedNetworks) {
-      const query =
-        `${draft.brand || draft.name} ${draft.offer || draft.topics[0] || "consultas"}`.slice(
-          0,
-          400,
-        );
-      await tx.monitoredSource.upsert({
-        where: { label: `${clientId}:onboarding:${channel}` },
-        create: {
-          clientId,
-          label: `${clientId}:onboarding:${channel}`,
-          channel,
-          query,
-          expectedTopics: draft.topics,
+    if (options.completeOnboardingId) {
+      await (tx as any).clientOnboarding.update({
+        where: { id: options.completeOnboardingId },
+        data: {
+          status: "COMPLETED",
+          completedAt: new Date(),
+          currentStep: 3,
+          draft,
         },
-        update: { query, expectedTopics: draft.topics, active: true },
       });
     }
   });
