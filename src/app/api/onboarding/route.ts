@@ -7,6 +7,7 @@ import {
   mergeManualFields,
   sanitizeDraft,
   syncOnboarding,
+  syncOnboardingCatalog,
 } from "@/lib/onboarding";
 import { normalizeWebsiteUrl } from "@/lib/website-url";
 
@@ -111,9 +112,21 @@ export async function POST(request: NextRequest) {
         const analysis = await analyzePublicWebsite(url, client.name);
         const previousDraft = sanitizeDraft(existing.draft, client.name);
         const draft = mergeManualFields(analysis.draft, previousDraft);
+        const catalog = await syncOnboardingCatalog(prisma, client.id, draft);
+        const importedDraft = sanitizeDraft(
+          {
+            ...draft,
+            stats: {
+              ...draft.stats,
+              importedProducts: catalog.products,
+              importedServices: catalog.services,
+            },
+          },
+          client.name,
+        );
         const onboarding = await onboardingDb.clientOnboarding.update({
           where: { clientId: client.id },
-          data: { status: "IN_REVIEW", draft },
+          data: { status: "IN_REVIEW", draft: importedDraft },
         });
         await onboardingDb.onboardingSourcePage.deleteMany({
           where: { onboardingId: onboarding.id },
@@ -135,7 +148,7 @@ export async function POST(request: NextRequest) {
             })),
           });
         return NextResponse.json({
-          onboarding: { ...onboarding, draft },
+          onboarding: { ...onboarding, draft: importedDraft },
           analysis: {
             pages: analysis.pages.map((page) => ({
               url: page.url,

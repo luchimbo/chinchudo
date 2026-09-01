@@ -6,7 +6,6 @@ import { normalizeWebsiteUrl } from "@/lib/website-url";
 import type {
   OnboardingDraft,
   OnboardingEvidence,
-  OnboardingOffering,
 } from "@/lib/onboarding";
 
 const NETWORKS = [
@@ -135,97 +134,6 @@ function Field({
     </label>
   );
 }
-function OfferingCard({
-  item,
-  update,
-  remove,
-}: {
-  item: OnboardingOffering;
-  update: (next: Partial<OnboardingOffering>) => void;
-  remove: () => void;
-}) {
-  return (
-    <article
-      className={`rounded-2xl border p-4 ${item.selected ? "border-ink/10 bg-white" : "border-ink/10 bg-ink/[0.02] opacity-60"}`}
-    >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => update({ selected: !item.selected })}
-            className={`grid h-6 w-6 place-items-center rounded border text-xs font-bold ${item.selected ? "border-moss bg-moss text-paper" : "border-ink/20 bg-white text-transparent"}`}
-          >
-            ✓
-          </button>
-          <span className="rounded-full bg-ink/5 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-slate">
-            {item.kind === "product" ? "Producto" : "Servicio"}
-          </span>
-          <Badge evidence={item.evidence} />
-        </div>
-        <button
-          type="button"
-          onClick={remove}
-          className="text-xs font-bold text-slate/55 hover:text-signal"
-        >
-          Quitar
-        </button>
-      </div>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <Field label="Nombre" evidence={item.evidence}>
-          <input
-            className={input}
-            value={item.name}
-            onChange={(event) => update({ name: event.target.value })}
-          />
-        </Field>
-        <Field label="Categoría">
-          <input
-            className={input}
-            value={item.category}
-            onChange={(event) => update({ category: event.target.value })}
-            placeholder="Sin categoría"
-          />
-        </Field>
-      </div>
-      <div className="mt-3">
-        <Field label="Descripción">
-          <textarea
-            className={`${input} min-h-20 resize-y`}
-            value={item.description}
-            onChange={(event) => update({ description: event.target.value })}
-          />
-        </Field>
-      </div>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
-        {item.kind === "product" ? (
-          <Field label="Especificaciones">
-            <input
-              className={input}
-              value={item.specs}
-              onChange={(event) => update({ specs: event.target.value })}
-            />
-          </Field>
-        ) : (
-          <Field label="Alcance">
-            <input
-              className={input}
-              value={item.scope}
-              onChange={(event) => update({ scope: event.target.value })}
-            />
-          </Field>
-        )}
-        <Field label="Precio publicado">
-          <input
-            className={input}
-            value={item.price}
-            onChange={(event) => update({ price: event.target.value })}
-          />
-        </Field>
-      </div>
-    </article>
-  );
-}
-
 export function OnboardingWizard({
   initial,
   preview = false,
@@ -243,6 +151,10 @@ export function OnboardingWizard({
   const [notice, setNotice] = useState(initial?.analysisError || "");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisStages, setAnalysisStages] = useState<string[]>([]);
+  const [manualOfferingName, setManualOfferingName] = useState("");
+  const [manualOfferingKind, setManualOfferingKind] = useState<
+    "product" | "service"
+  >("product");
   const firstSave = useRef(true);
   const markManual = (field: string) =>
     setDraft((current) => ({
@@ -264,38 +176,18 @@ export function OnboardingWizard({
     setDraft((current) => ({ ...current, [field]: value }));
     markManual(String(field));
   };
-  const updateOffering = (
-    index: number,
-    id: string,
-    value: Partial<OnboardingOffering>,
-  ) => {
-    setDraft((current) => ({
-      ...current,
-      offerings: current.offerings.map((item, position) =>
-        position === index
-          ? {
-              ...item,
-              ...value,
-              evidence: {
-                ...item.evidence,
-                status: "manual",
-                confidence: "high",
-              },
-            }
-          : item,
-      ),
-      manualFields: [...new Set([...current.manualFields, `offering:${id}`])],
-    }));
-  };
-  const addOffering = (kind: "product" | "service") =>
+  const addManualOffering = () => {
+    const name = manualOfferingName.trim();
+    if (!name) return;
+    const id = `manual-${Date.now()}`;
     setDraft((current) => ({
       ...current,
       offerings: [
         ...current.offerings,
         {
-          id: `manual-${Date.now()}`,
-          kind,
-          name: kind === "product" ? "Nuevo producto" : "Nuevo servicio",
+          id,
+          kind: manualOfferingKind,
+          name,
           category: "",
           description: "",
           specs: "",
@@ -304,12 +196,17 @@ export function OnboardingWizard({
           audience: "",
           price: "Por confirmar",
           availability: "Por confirmar",
-          url: "",
+          url,
           selected: true,
           evidence: { url, status: "manual", confidence: "high" },
         },
       ],
+      manualFields: [
+        ...new Set([...current.manualFields, `offering:${id}`]),
+      ],
     }));
+    setManualOfferingName("");
+  };
   useEffect(() => {
     if (preview || firstSave.current) {
       firstSave.current = false;
@@ -414,13 +311,17 @@ export function OnboardingWizard({
       setNotice("No se pudo finalizar. Intentá de nuevo.");
     }
   };
-  const selectedOffers = draft.offerings.filter((item) => item.selected),
-    productCount = selectedOffers.filter(
+  const productCount = draft.offerings.filter(
       (item) => item.kind === "product",
     ).length,
-    serviceCount = selectedOffers.filter(
+    serviceCount = draft.offerings.filter(
       (item) => item.kind === "service",
     ).length;
+  const catalogCategories = [
+    ...new Set(
+      draft.offerings.map((item) => item.category.trim()).filter(Boolean),
+    ),
+  ].slice(0, 6);
   const canContinue =
     step === 0
       ? /^https?:\/\//i.test(normalizeWebsiteUrl(url))
@@ -674,59 +575,97 @@ export function OnboardingWizard({
                   />
                 </Field>
               </div>
-              <div className="grid gap-4 rounded-2xl border border-ink/10 bg-white p-5">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-[.14em] text-slate/60">
-                      Ofertas detectadas
-                    </p>
-                    <p className="mt-1 text-sm text-slate/65">
-                      Seleccioná lo que querés importar. Podés corregir o sumar
-                      manualmente.
-                    </p>
+              {draft.offerings.length ? (
+                <div className="rounded-2xl border border-moss/20 bg-moss/[.06] p-5">
+                  <p className="text-xs font-bold uppercase tracking-[.14em] text-moss">
+                    Catálogo sincronizado
+                  </p>
+                  <p className="mt-1 text-sm leading-relaxed text-slate/70">
+                    Importamos automáticamente lo encontrado en tu sitio para
+                    usarlo como contexto al responder consultas.
+                  </p>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-xl bg-white/75 px-4 py-3">
+                      <p className="font-display text-2xl text-ink">
+                        {draft.stats.importedProducts || productCount}
+                      </p>
+                      <p className="text-xs font-bold uppercase tracking-wide text-slate/60">
+                        Productos importados
+                      </p>
+                    </div>
+                    <div className="rounded-xl bg-white/75 px-4 py-3">
+                      <p className="font-display text-2xl text-ink">
+                        {draft.stats.importedServices || serviceCount}
+                      </p>
+                      <p className="text-xs font-bold uppercase tracking-wide text-slate/60">
+                        Servicios importados
+                      </p>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
+                  {catalogCategories.length ? (
+                    <div className="mt-4 flex flex-wrap gap-2" aria-label="Categorías importadas">
+                      {catalogCategories.map((category) => (
+                        <span
+                          key={category}
+                          className="rounded-full bg-white/75 px-3 py-1.5 text-xs font-bold text-slate"
+                        >
+                          {category}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {draft.stats.catalogSyncPending ? (
+                    <p className="mt-4 text-sm text-slate/65">
+                      Detectamos más páginas de catálogo. La sincronización
+                      completa quedará pendiente para continuar después, sin
+                      demorar esta configuración.
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-dashed border-ink/20 bg-white p-5">
+                  <p className="text-xs font-bold uppercase tracking-[.14em] text-slate/60">
+                    Sin catálogo detectado
+                  </p>
+                  <p className="mt-1 text-sm leading-relaxed text-slate/65">
+                    No encontramos productos ni servicios estructurados. Si te
+                    sirve, podés agregar una oferta principal ahora o continuar
+                    sin catálogo.
+                  </p>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-[150px_minmax(0,1fr)_auto]">
+                    <select
+                      aria-label="Tipo de oferta principal"
+                      className={input}
+                      value={manualOfferingKind}
+                      onChange={(event) =>
+                        setManualOfferingKind(
+                          event.target.value as "product" | "service",
+                        )
+                      }
+                    >
+                      <option value="product">Producto</option>
+                      <option value="service">Servicio</option>
+                    </select>
+                    <input
+                      className={input}
+                      value={manualOfferingName}
+                      onChange={(event) => setManualOfferingName(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") addManualOffering();
+                      }}
+                      placeholder="Ej.: Medias técnicas para running"
+                    />
                     <button
                       type="button"
-                      onClick={() => addOffering("product")}
-                      className="rounded-full border border-ink/15 px-3 py-2 text-xs font-bold hover:border-moss"
+                      onClick={addManualOffering}
+                      disabled={!manualOfferingName.trim()}
+                      className="rounded-xl bg-ink px-4 py-2.5 text-sm font-bold text-paper transition hover:bg-moss disabled:cursor-not-allowed disabled:opacity-45"
                     >
-                      + Producto
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => addOffering("service")}
-                      className="rounded-full border border-ink/15 px-3 py-2 text-xs font-bold hover:border-moss"
-                    >
-                      + Servicio
+                      Agregar
                     </button>
                   </div>
                 </div>
-                {draft.offerings.length ? (
-                  <div className="grid gap-3">
-                    {draft.offerings.map((item, index) => (
-                      <OfferingCard
-                        key={`${item.id}-${index}`}
-                        item={item}
-                        update={(value) => updateOffering(index, item.id, value)}
-                        remove={() =>
-                          setDraft((current) => ({
-                            ...current,
-                            offerings: current.offerings.filter(
-                              (_, position) => position !== index,
-                            ),
-                          }))
-                        }
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <p className="rounded-xl border border-dashed border-ink/15 p-5 text-sm text-slate/60">
-                    No encontramos un catálogo claro. Podés agregar tus ofertas
-                    manualmente o continuar sin importarlas.
-                  </p>
-                )}
-              </div>
+              )}
               <div className="grid gap-4 rounded-2xl border border-ink/10 bg-white p-5">
                 <p className="text-xs font-bold uppercase tracking-[.14em] text-slate/60">
                   Conocimiento y comunicación

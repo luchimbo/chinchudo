@@ -28,6 +28,7 @@
     "agents:jurispedia:calibrate": "tsx scripts/seed-jurispedia-calibration.mts && tsx scripts/draft-worker.mts --client jurispedia --limit 4",
     "db:studio": "prisma studio",
     "agents:listen": "python agents/orchestrator.py listen",
+    "onboarding:sync-catalog": "tsx scripts/sync-pending-onboarding-catalog.mts",
     "agents:draft": "python agents/orchestrator.py draft",
     "agents:draft-daily-quota": "node node_modules/tsx/dist/cli.mjs scripts/daily-draft-quota.mts",
     "agents:regenerate-drafts": "node node_modules/tsx/dist/cli.mjs scripts/draft-worker.mts --replace-pending --limit 50",

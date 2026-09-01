@@ -63,6 +63,10 @@ export type OnboardingDraft = {
     pagesDiscarded: number;
     products: number;
     services: number;
+    importedProducts?: number;
+    importedServices?: number;
+    catalogSyncPending?: boolean;
+    catalogNextOffset?: number;
     durationMs: number;
   };
 };
@@ -82,9 +86,14 @@ export type WebsiteAnalysis = {
   pages: WebsitePage[];
   warning?: string;
 };
+export type WebsiteAnalysisOptions = {
+  candidateOffset?: number;
+  skipSuggestions?: boolean;
+};
 
 const voices = ["Técnico", "Práctico", "Innovación", "Educativo", "Comercial"];
 const MAX_PAGES = 40,
+  MAX_DISCOVERED_CANDIDATES = 1_000,
   MAX_BYTES = 2_000_000,
   TOTAL_TIMEOUT = 25_000,
   PAGE_TIMEOUT = 7_000;
@@ -133,6 +142,10 @@ export function defaultDraft(clientName = ""): Required<OnboardingDraft> {
       pagesDiscarded: 0,
       products: 0,
       services: 0,
+      importedProducts: 0,
+      importedServices: 0,
+      catalogSyncPending: false,
+      catalogNextOffset: 0,
       durationMs: 0,
     },
   };
@@ -253,6 +266,10 @@ export function sanitizeDraft(
       pagesDiscarded: Number((stats as any).pagesDiscarded) || 0,
       products: Number((stats as any).products) || 0,
       services: Number((stats as any).services) || 0,
+      importedProducts: Number((stats as any).importedProducts) || 0,
+      importedServices: Number((stats as any).importedServices) || 0,
+      catalogSyncPending: (stats as any).catalogSyncPending === true,
+      catalogNextOffset: Number((stats as any).catalogNextOffset) || 0,
       durationMs: Number((stats as any).durationMs) || 0,
     },
   };
@@ -385,6 +402,12 @@ function fallbackOffer(offerings: OnboardingOffering[]) {
   if (labels.length === 2) return `${labels[0]} y ${labels[1]}`;
   return `${labels[0]}, ${labels[1]} y ${labels[2]}`;
 }
+const GENERIC_OFFER_NAME =
+  /^(?:compr[áa]\s+(?:online\s+)?(?:productos?|servicios?)(?:\s+en\s+.+)?|(?:tienda|shop|cat[aá]logo)(?:\s+online)?|productos?|servicios?)$/i;
+
+export function isGenericOfferingName(value: string) {
+  return GENERIC_OFFER_NAME.test(value.trim().replace(/\s+/g, " "));
+}
 function platform(html: string, url: URL): string {
   const source = `${html.slice(0, 100_000)} ${url.hostname}`.toLowerCase();
   return /tiendanube|nuvemshop/.test(source)
@@ -429,7 +452,7 @@ function toOffering(
   index: number,
 ): OnboardingOffering | null {
   const name = textFromValue(raw.name);
-  if (!name) return null;
+  if (!name || isGenericOfferingName(name)) return null;
   const offer = raw.offers || raw.offer || {},
     availability =
       String(offer.availability || "").replace(
@@ -495,7 +518,12 @@ function parsePage(url: URL, html: string): WebsitePage {
     return [];
   });
   const kind = pageType(url);
-  if (!offerings.length && (kind === "product" || kind === "service") && title)
+  if (
+    !offerings.length &&
+    (kind === "product" || kind === "service") &&
+    title &&
+    !isGenericOfferingName(title)
+  )
     offerings.push({
       id: url.toString(),
       kind,
@@ -575,8 +603,7 @@ function candidateUrls(html: string, base: URL): string[] {
             a,
           ),
         ),
-    )
-    .slice(0, MAX_PAGES - 1);
+    );
 }
 function sitemapUrls(xml: string, base: URL): string[] {
   const $ = cheerio.load(xml, { xmlMode: true });
@@ -592,8 +619,7 @@ function sitemapUrls(xml: string, base: URL): string[] {
       } catch {
         return [];
       }
-    })
-    .slice(0, MAX_PAGES - 1);
+    });
 }
 const KNOWLEDGE_PRIORITY_PAGE_TYPES = new Set(["faq", "about", "contact"]);
 
@@ -678,6 +704,7 @@ export function generatedKnowledge(
 export async function analyzePublicWebsite(
   value: string,
   clientName: string,
+  options: WebsiteAnalysisOptions = {},
 ): Promise<WebsiteAnalysis> {
   const startedAt = Date.now(),
     initial = await assertPublicUrl(normalizeWebsiteUrl(value)),
@@ -716,13 +743,18 @@ export async function analyzePublicWebsite(
   } catch {
     // El sitemap es opcional; los enlaces de la portada siguen siendo suficientes.
   }
-  const candidates = [
+  const allCandidates = [
     ...new Set([...candidateUrls(homeResult.html, homeResult.url), ...sitemap]),
   ]
     .filter((candidate) =>
       robotsAllows(robotsText, new URL(candidate).pathname),
-    )
-    .slice(0, MAX_PAGES - 1);
+    );
+  const discoveredCandidates = allCandidates.slice(0, MAX_DISCOVERED_CANDIDATES);
+  const candidateOffset = Math.max(0, Math.floor(options.candidateOffset || 0));
+  const candidates = discoveredCandidates.slice(
+    candidateOffset,
+    candidateOffset + MAX_PAGES - 1,
+  );
   for (
     let i = 0;
     i < candidates.length &&
@@ -799,10 +831,13 @@ export async function analyzePublicWebsite(
       pagesDiscarded: Math.max(0, candidates.length - pages.length + 1),
       products,
       services,
+      catalogSyncPending:
+        allCandidates.length > candidateOffset + candidates.length,
+      catalogNextOffset: candidateOffset + candidates.length,
       durationMs: Date.now() - startedAt,
     },
   };
-  const suggested = await suggestedFields(pages),
+  const suggested = options.skipSuggestions ? {} : await suggestedFields(pages),
     merged = sanitizeDraft(
       {
         ...deterministic,
@@ -832,7 +867,7 @@ export async function analyzePublicWebsite(
   }
   if (!offerings.length)
     warnings.push(
-      "No detectamos ofertas estructuradas; revisá o agregá productos y servicios manualmente.",
+      "No detectamos un catálogo estructurado. Podés agregar una oferta principal si querés.",
     );
   return {
     draft: { ...merged, warnings, stats: deterministic.stats },
@@ -868,6 +903,111 @@ export function mergeManualFields(
   return merged;
 }
 
+async function syncCatalogOfferings(
+  tx: any,
+  clientId: string,
+  draft: Required<OnboardingDraft>,
+) {
+  if (!draft.brand.trim())
+    return { brand: null, products: 0, services: 0 };
+  const brand = await tx.brand.upsert({
+    where: { clientId_name: { clientId, name: draft.brand } },
+    create: {
+      clientId,
+      name: draft.brand,
+      strengths: draft.offer,
+      tone: draft.tone,
+      allowedClaims: draft.claims.join("\n"),
+      forbiddenClaims: draft.limits.join("\n"),
+    },
+    update: {
+      strengths: draft.offer,
+      tone: draft.tone,
+      allowedClaims: draft.claims.join("\n"),
+      forbiddenClaims: draft.limits.join("\n"),
+    },
+  });
+  let products = 0;
+  let services = 0;
+  for (const item of draft.offerings) {
+    if (item.kind === "product") {
+      products += 1;
+      await tx.product.upsert({
+        where: { brandId_name: { brandId: brand.id, name: item.name } },
+        create: {
+          brandId: brand.id,
+          name: item.name,
+          category: item.category,
+          description: item.description,
+          technicalSpecs: item.specs,
+          useCases: item.scope,
+          stockStatus: item.availability,
+          priceRange: item.price,
+          sourceType: "website",
+          sourceExternalId: item.id,
+          sourceUrl: item.url,
+          sourceSnapshotAt: new Date(),
+        },
+        update: {
+          category: item.category,
+          description: item.description,
+          technicalSpecs: item.specs,
+          useCases: item.scope,
+          stockStatus: item.availability,
+          priceRange: item.price,
+          sourceType: "website",
+          sourceExternalId: item.id,
+          sourceUrl: item.url,
+          sourceSnapshotAt: new Date(),
+        },
+      });
+    } else {
+      services += 1;
+      await (tx as any).service.upsert({
+        where: { brandId_name: { brandId: brand.id, name: item.name } },
+        create: {
+          brandId: brand.id,
+          name: item.name,
+          category: item.category,
+          description: item.description,
+          scope: item.scope,
+          modality: item.modality,
+          audience: item.audience,
+          priceRange: item.price,
+          availabilityNotes: item.availability,
+          sourceType: "website",
+          sourceExternalId: item.id,
+          sourceUrl: item.url,
+          sourceSnapshotAt: new Date(),
+        },
+        update: {
+          category: item.category,
+          description: item.description,
+          scope: item.scope,
+          modality: item.modality,
+          audience: item.audience,
+          priceRange: item.price,
+          availabilityNotes: item.availability,
+          sourceType: "website",
+          sourceExternalId: item.id,
+          sourceUrl: item.url,
+          sourceSnapshotAt: new Date(),
+        },
+      });
+    }
+  }
+  return { brand, products, services };
+}
+
+export async function syncOnboardingCatalog(
+  prisma: PrismaClient,
+  clientId: string,
+  draftInput: Required<OnboardingDraft>,
+) {
+  const draft = sanitizeDraft(draftInput);
+  return prisma.$transaction((tx) => syncCatalogOfferings(tx, clientId, draft));
+}
+
 export async function syncOnboarding(
   prisma: PrismaClient,
   clientId: string,
@@ -890,24 +1030,9 @@ export async function syncOnboarding(
         },
       },
     });
-    if (!draft.brand.trim()) return;
-    const brand = await tx.brand.upsert({
-      where: { clientId_name: { clientId, name: draft.brand } },
-      create: {
-        clientId,
-        name: draft.brand,
-        strengths: draft.offer,
-        tone: draft.tone,
-        allowedClaims: draft.claims.join("\n"),
-        forbiddenClaims: draft.limits.join("\n"),
-      },
-      update: {
-        strengths: draft.offer,
-        tone: draft.tone,
-        allowedClaims: draft.claims.join("\n"),
-        forbiddenClaims: draft.limits.join("\n"),
-      },
-    });
+    const catalog = await syncCatalogOfferings(tx, clientId, draft);
+    if (!catalog.brand) return;
+    const brand = catalog.brand;
     await Promise.all(
       voices.map((name) =>
         tx.persona.upsert({
@@ -930,70 +1055,6 @@ export async function syncOnboarding(
         }),
       ),
     );
-    for (const item of draft.offerings.filter((offer) => offer.selected)) {
-      if (item.kind === "product")
-        await tx.product.upsert({
-          where: { brandId_name: { brandId: brand.id, name: item.name } },
-          create: {
-            brandId: brand.id,
-            name: item.name,
-            category: item.category,
-            description: item.description,
-            technicalSpecs: item.specs,
-            useCases: item.scope,
-            stockStatus: item.availability,
-            priceRange: item.price,
-            sourceType: "website",
-            sourceExternalId: item.id,
-            sourceUrl: item.url,
-            sourceSnapshotAt: new Date(),
-          },
-          update: {
-            category: item.category,
-            description: item.description,
-            technicalSpecs: item.specs,
-            useCases: item.scope,
-            stockStatus: item.availability,
-            priceRange: item.price,
-            sourceType: "website",
-            sourceExternalId: item.id,
-            sourceUrl: item.url,
-            sourceSnapshotAt: new Date(),
-          },
-        });
-      else
-        await (tx as any).service.upsert({
-          where: { brandId_name: { brandId: brand.id, name: item.name } },
-          create: {
-            brandId: brand.id,
-            name: item.name,
-            category: item.category,
-            description: item.description,
-            scope: item.scope,
-            modality: item.modality,
-            audience: item.audience,
-            priceRange: item.price,
-            availabilityNotes: item.availability,
-            sourceType: "website",
-            sourceExternalId: item.id,
-            sourceUrl: item.url,
-            sourceSnapshotAt: new Date(),
-          },
-          update: {
-            category: item.category,
-            description: item.description,
-            scope: item.scope,
-            modality: item.modality,
-            audience: item.audience,
-            priceRange: item.price,
-            availabilityNotes: item.availability,
-            sourceType: "website",
-            sourceExternalId: item.id,
-            sourceUrl: item.url,
-            sourceSnapshotAt: new Date(),
-          },
-        });
-    }
     if (draft.knowledgeApproved) {
       await tx.knowledgeBase.deleteMany({
         where: { clientId, source: "onboarding" },

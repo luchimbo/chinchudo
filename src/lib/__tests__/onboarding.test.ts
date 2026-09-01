@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertPublicUrl, cleanBusinessSummary, generatedKnowledge, mergeManualFields, sanitizeDraft } from "@/lib/onboarding";
+import { assertPublicUrl, cleanBusinessSummary, generatedKnowledge, isGenericOfferingName, mergeManualFields, sanitizeDraft } from "@/lib/onboarding";
 import { normalizeWebsiteUrl } from "@/lib/website-url";
 
 describe("onboarding", () => {
@@ -43,6 +43,22 @@ describe("onboarding", () => {
     expect(cleanBusinessSummary(prestigeLike)).toBe(
       "Comprá medias técnicas para running por internet. Tenemos soquetes y medias de compresión.",
     );
+  });
+
+  it("no trata una llamada a comprar en la tienda como un producto", () => {
+    expect(isGenericOfferingName("Comprá online productos en Prestige Running")).toBe(true);
+    expect(isGenericOfferingName("Medias técnicas de compresión")).toBe(false);
+  });
+
+  it("conserva el estado de importación y de catálogo pendiente", () => {
+    const draft = sanitizeDraft({
+      stats: { products: 40, services: 2, importedProducts: 40, importedServices: 2, catalogSyncPending: true },
+    });
+    expect(draft.stats).toMatchObject({
+      importedProducts: 40,
+      importedServices: 2,
+      catalogSyncPending: true,
+    });
   });
 
   it("normaliza público y objetivos sin romper borradores anteriores", () => {
