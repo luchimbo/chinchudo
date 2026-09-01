@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { assertPublicUrl, generatedKnowledge, mergeManualFields, normalizeWebsiteUrl, sanitizeDraft } from "@/lib/onboarding";
+import { assertPublicUrl, cleanBusinessSummary, generatedKnowledge, mergeManualFields, sanitizeDraft } from "@/lib/onboarding";
+import { normalizeWebsiteUrl } from "@/lib/website-url";
 
 describe("onboarding", () => {
   it("normaliza listas y evita aprobar conocimientos incompletos", () => {
@@ -37,6 +38,38 @@ describe("onboarding", () => {
     expect(normalizeWebsiteUrl("ftp://archivos.ejemplo.com")).toBe("ftp://archivos.ejemplo.com");
   });
 
+  it("limpia cookies, navegación y carrito del resumen de una tienda", () => {
+    const prestigeLike = "Comprá medias técnicas para running por internet. Tenemos soquetes y medias de compresión. Al navegar por este sitio aceptás el uso de cookies. Iniciar sesión / Crear cuenta. ¡Agregado al carrito!";
+    expect(cleanBusinessSummary(prestigeLike)).toBe(
+      "Comprá medias técnicas para running por internet. Tenemos soquetes y medias de compresión.",
+    );
+  });
+
+  it("normaliza público y objetivos sin romper borradores anteriores", () => {
+    const legacy = sanitizeDraft({ name: "Prestige" });
+    expect(legacy.targetAudience).toBe("");
+    expect(legacy.businessGoals).toEqual([]);
+    const draft = sanitizeDraft({
+      targetAudience: "Corredores y deportistas",
+      businessGoals: ["Vender online", "Comunicar beneficios", "Fidelizar", "Ignorar"],
+    });
+    expect(draft.targetAudience).toBe("Corredores y deportistas");
+    expect(draft.businessGoals).toEqual(["Vender online", "Comunicar beneficios", "Fidelizar"]);
+  });
+
+  it("conserva la trazabilidad de las inferencias comerciales sugeridas", () => {
+    const draft = sanitizeDraft({
+      targetAudience: "Corredores y deportistas",
+      businessGoals: ["Vender online", "Comunicar beneficios técnicos"],
+      evidence: {
+        targetAudience: { url: "https://prestige.test", status: "suggested", confidence: "medium" },
+        businessGoals: { url: "https://prestige.test", status: "suggested", confidence: "medium" },
+      },
+    });
+    expect(draft.evidence.targetAudience?.status).toBe("suggested");
+    expect(draft.evidence.businessGoals?.status).toBe("suggested");
+  });
+
   it("conserva un campo manual de nivel superior al reanalizar", () => {
     const previous = sanitizeDraft({
       brand: "Marca editada a mano",
@@ -47,6 +80,21 @@ describe("onboarding", () => {
     const merged = mergeManualFields(fresh, previous);
     expect(merged.brand).toBe("Marca editada a mano");
     expect(merged.evidence.brand?.status).toBe("manual");
+  });
+
+  it("conserva público y objetivos editados manualmente al reanalizar", () => {
+    const previous = sanitizeDraft({
+      targetAudience: "Corredores de trail",
+      businessGoals: ["Vender online"],
+      manualFields: ["targetAudience", "businessGoals"],
+    });
+    const fresh = sanitizeDraft({
+      targetAudience: "Deportistas en general",
+      businessGoals: ["Captar clientes"],
+    });
+    const merged = mergeManualFields(fresh, previous);
+    expect(merged.targetAudience).toBe("Corredores de trail");
+    expect(merged.businessGoals).toEqual(["Vender online"]);
   });
 
   it("conserva una oferta agregada a mano que ya no está en el sitio", () => {
