@@ -5,10 +5,10 @@ import {
   analyzePublicWebsite,
   defaultDraft,
   mergeManualFields,
-  normalizeWebsiteUrl,
   sanitizeDraft,
   syncOnboarding,
 } from "@/lib/onboarding";
+import { normalizeWebsiteUrl } from "@/lib/website-url";
 
 export const dynamic = "force-dynamic";
 const onboardingDb = prisma as any;

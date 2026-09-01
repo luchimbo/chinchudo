@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { normalizeWebsiteUrl } from "@/lib/onboarding";
+import { normalizeWebsiteUrl } from "@/lib/website-url";
 import type {
   OnboardingDraft,
   OnboardingEvidence,
@@ -42,6 +42,8 @@ function clientDraft(value?: OnboardingDraft): Required<OnboardingDraft> {
     brand: raw.brand || "",
     tone: raw.tone || "Claro y cercano",
     offer: raw.offer || "",
+    targetAudience: raw.targetAudience || "",
+    businessGoals: raw.businessGoals || [],
     topics: raw.topics || [],
     claims: raw.claims || [],
     limits: raw.limits || [],
@@ -594,7 +596,7 @@ export function OnboardingWizard({
                   </Field>
                 </div>
                 <Field
-                  label="Descripción"
+                  label="Resumen del negocio"
                   evidence={draft.evidence.description}
                 >
                   <textarea
@@ -607,7 +609,7 @@ export function OnboardingWizard({
                 </Field>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field
-                    label="Oferta principal"
+                    label="Qué vende"
                     evidence={draft.evidence.offer}
                   >
                     <input
@@ -638,6 +640,39 @@ export function OnboardingWizard({
                     </select>
                   </Field>
                 </div>
+                <Field
+                  label="Público objetivo"
+                  evidence={draft.evidence.targetAudience}
+                >
+                  <textarea
+                    className={`${input} min-h-20 resize-y`}
+                    value={draft.targetAudience}
+                    onChange={(event) =>
+                      setField("targetAudience", event.target.value)
+                    }
+                    placeholder="Por ejemplo: corredores y personas activas que buscan medias técnicas para entrenar."
+                  />
+                </Field>
+                <Field
+                  label="Objetivos del negocio"
+                  evidence={draft.evidence.businessGoals}
+                >
+                  <textarea
+                    className={`${input} min-h-20 resize-y`}
+                    value={draft.businessGoals.join("\n")}
+                    onChange={(event) =>
+                      setField(
+                        "businessGoals",
+                        event.target.value
+                          .split("\n")
+                          .map((item) => item.trim())
+                          .filter(Boolean)
+                          .slice(0, 3),
+                      )
+                    }
+                    placeholder="Un objetivo por línea (máximo 3)"
+                  />
+                </Field>
               </div>
               <div className="grid gap-4 rounded-2xl border border-ink/10 bg-white p-5">
                 <div className="flex flex-wrap items-center justify-between gap-2">

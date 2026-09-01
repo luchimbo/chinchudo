@@ -4,6 +4,9 @@ import { isIP } from "node:net";
 import * as cheerio from "cheerio";
 import type { PrismaClient } from "@prisma/client";
 import { fetchChatCompletion, resolveLLMConfig } from "./llm-provider";
+import { normalizeWebsiteUrl } from "./website-url";
+
+export { normalizeWebsiteUrl } from "./website-url";
 
 export type EvidenceStatus =
   | "extracted"
@@ -39,6 +42,8 @@ export type OnboardingDraft = {
   brand?: string;
   tone?: string;
   offer?: string;
+  targetAudience?: string;
+  businessGoals?: string[];
   topics?: string[];
   claims?: string[];
   limits?: string[];
@@ -64,6 +69,7 @@ export type OnboardingDraft = {
 export type WebsitePage = {
   url: string;
   title: string;
+  description: string;
   text: string;
   pageType: string;
   offerings: OnboardingOffering[];
@@ -102,6 +108,8 @@ export function defaultDraft(clientName = ""): Required<OnboardingDraft> {
     brand: clientName,
     tone: "Claro y cercano",
     offer: "",
+    targetAudience: "",
+    businessGoals: [],
     topics: [],
     claims: [],
     limits: [],
@@ -215,6 +223,10 @@ export function sanitizeDraft(
     brand: clipped(raw.brand, 160) || base.brand,
     tone: clipped(raw.tone, 160) || base.tone,
     offer: clipped(raw.offer, 800),
+    targetAudience: clipped(raw.targetAudience, 800),
+    businessGoals: strings(raw.businessGoals, 3).map((item) =>
+      clipped(item, 240),
+    ),
     topics: strings(raw.topics, 12),
     claims: strings(raw.claims, 10),
     limits: strings(raw.limits, 10),
@@ -299,18 +311,6 @@ export async function assertPublicUrl(value: string): Promise<URL> {
   return url;
 }
 
-/**
- * Makes a domain pasted by a person usable as a web URL. The public-address
- * checks still happen in `assertPublicUrl` immediately before any request.
- */
-export function normalizeWebsiteUrl(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) return "";
-  return /^[a-z][a-z\d+.-]*:/i.test(trimmed)
-    ? trimmed
-    : `https://${trimmed}`;
-}
-
 async function safeFetch(
   input: URL,
   startedAt: number,
@@ -367,6 +367,23 @@ function robotsAllows(robots: string, path: string): boolean {
 }
 function cleanText(value: string) {
   return value.replace(/\s+/g, " ").trim().slice(0, 16_000);
+}
+const SUMMARY_STOP_MARKERS =
+  /\b(?:al navegar|uso de cookies?|cookies?|iniciar sesi[oó]n|crear cuenta|agregado al carrito|ver carrito|total\s*\(|descuento|env[ií]o gratis|sin inter[eé]s)\b/i;
+
+/** Removes storefront chrome from metadata before it can become the business summary. */
+export function cleanBusinessSummary(value: string) {
+  const summary = cleanText(value);
+  const marker = summary.search(SUMMARY_STOP_MARKERS);
+  return (marker >= 0 ? summary.slice(0, marker) : summary).trim().slice(0, 500);
+}
+
+function fallbackOffer(offerings: OnboardingOffering[]) {
+  const labels = [...new Set(offerings.flatMap((item) => [item.category, item.name]).filter(Boolean))]
+    .slice(0, 3);
+  if (labels.length <= 1) return labels[0] || "";
+  if (labels.length === 2) return `${labels[0]} y ${labels[1]}`;
+  return `${labels[0]}, ${labels[1]} y ${labels[2]}`;
 }
 function platform(html: string, url: URL): string {
   const source = `${html.slice(0, 100_000)} ${url.hostname}`.toLowerCase();
@@ -520,6 +537,7 @@ function parsePage(url: URL, html: string): WebsitePage {
   return {
     url: url.toString(),
     title,
+    description,
     text,
     pageType: kind,
     offerings,
@@ -608,7 +626,7 @@ async function suggestedFields(
           {
             role: "system",
             content:
-              "Extraé únicamente hechos presentes en las fuentes. Respondé JSON con name, description, brand, offer, topics (máximo 5), claims (máximo 5), limits (máximo 5), tone, knowledge (arreglo de exactamente 3 strings, en este orden: 1) qué problema resuelve el negocio para sus clientes, 2) qué debería tener en cuenta alguien para elegir entre sus opciones, 3) una pregunta frecuente real del sitio junto con su respuesta). Si un dato no está respaldado devolvé vacío ('' para cada posición de knowledge que no tenga respaldo). No inventes precio, stock, garantía ni resultados.",
+              "Extraé únicamente hechos presentes en las fuentes. Respondé JSON con name, description, brand, offer, targetAudience, businessGoals, topics (máximo 5), claims (máximo 5), limits (máximo 5), tone, knowledge (arreglo de exactamente 3 strings, en este orden: 1) qué problema resuelve el negocio para sus clientes, 2) qué debería tener en cuenta alguien para elegir entre sus opciones, 3) una pregunta frecuente real del sitio junto con su respuesta). description debe ser un resumen comercial de una sola oración (máximo 280 caracteres); offer debe decir qué vende en términos de categorías, no listar todo el catálogo; targetAudience debe describir a quién apunta el negocio; businessGoals debe ser un arreglo de 1 a 3 objetivos comerciales breves. Podés inferir targetAudience y businessGoals sólo desde productos, categorías, propuesta de valor y llamados a la acción visibles; son hipótesis, no hechos confirmados. Ignorá navegación, cookies, login, carrito, checkout, precios, descuentos, envíos, banners y textos repetitivos. Si un dato no está respaldado devolvé vacío ('' o [] y '' para cada posición de knowledge sin respaldo). No inventes precio, stock, garantía ni resultados.",
           },
           { role: "user", content: source },
         ],
@@ -630,6 +648,10 @@ async function suggestedFields(
       description: clipped(data.description, 2000),
       brand: clipped(data.brand, 160),
       offer: clipped(data.offer, 800),
+      targetAudience: clipped(data.targetAudience, 800),
+      businessGoals: strings(data.businessGoals, 3).map((item) =>
+        clipped(item, 240),
+      ),
       tone: clipped(data.tone, 160),
       topics: strings(data.topics, 5),
       claims: strings(data.claims, 5),
@@ -745,8 +767,8 @@ export async function analyzePublicWebsite(
     ...defaultDraft(clientName),
     name: firstHeading || clientName,
     brand: firstHeading || clientName,
-    description: home.text.slice(0, 800),
-    offer: offerings[0]?.name || "",
+    description: cleanBusinessSummary(home.description),
+    offer: fallbackOffer(offerings),
     detectedBusinessType,
     detectedPlatform: home.platform,
     offerings,
@@ -762,7 +784,12 @@ export async function analyzePublicWebsite(
       description: {
         url: home.url,
         status: "extracted",
-        confidence: home.text ? "medium" : "low",
+        confidence: home.description ? "medium" : "low",
+      },
+      offer: {
+        url: offerings[0]?.url || home.url,
+        status: offerings.length ? "extracted" : "needs_confirmation",
+        confidence: offerings.length ? "medium" : "low",
       },
       brand: { url: home.url, status: "suggested", confidence: "medium" },
     },
@@ -798,6 +825,11 @@ export async function analyzePublicWebsite(
       },
       clientName,
     );
+  if (!suggested.description && !suggested.offer) {
+    warnings.push(
+      "No pudimos generar un resumen comercial confiable; completá qué vende, público y objetivos manualmente.",
+    );
+  }
   if (!offerings.length)
     warnings.push(
       "No detectamos ofertas estructuradas; revisá o agregá productos y servicios manualmente.",
@@ -853,6 +885,8 @@ export async function syncOnboarding(
           tone: draft.tone,
           claims: draft.claims,
           limits: draft.limits,
+          targetAudience: draft.targetAudience,
+          businessGoals: draft.businessGoals,
         },
       },
     });
