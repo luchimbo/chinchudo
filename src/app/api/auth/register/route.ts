@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { hashPassword, signJwt } from "@/lib/auth-crypto";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { defaultDraft } from "@/lib/onboarding";
 
 const AUTH_SESSION_TTL_SECONDS = 24 * 60 * 60; // 24h (sesión de panel)
 
@@ -121,6 +122,13 @@ export async function POST(req: NextRequest) {
           },
         });
       }
+
+      // 4. Crear la fila de onboarding: marca este cliente como self-serve
+      // (los clientes configurados a mano no tienen fila) y evita el upsert
+      // perezoso disperso en la API de onboarding.
+      await (tx as any).clientOnboarding.create({
+        data: { clientId: newClient.id, draft: defaultDraft(newClient.name) },
+      });
 
       return { client: newClient, user: newUser };
     });

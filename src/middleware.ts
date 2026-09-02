@@ -84,15 +84,30 @@ async function supportSessionIsActive(id: string, clientId: string): Promise<boo
   }
 }
 
+function isLocalHost(request: NextRequest): boolean {
+  const host = (request.headers.get("host") || "").split(":")[0].toLowerCase();
+  return host === "localhost" || host === "127.0.0.1" || host === "::1";
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Muestra el recorrido sin datos persistentes exclusivamente durante el
-  // desarrollo local. En producción la ruta queda protegida por sesión.
-  if (pathname === "/onboarding" && process.env.NODE_ENV !== "production") {
+  // desarrollo local: requiere build no-productiva, una decisión deliberada
+  // (ONBOARDING_PREVIEW=1) y estar sirviendo en localhost. En producción la
+  // ruta queda protegida por sesión.
+  const previewEnabled =
+    process.env.NODE_ENV !== "production" &&
+    process.env.ONBOARDING_PREVIEW === "1" &&
+    isLocalHost(request);
+  if (pathname === "/onboarding" && previewEnabled) {
     return NextResponse.next();
   }
-  if (pathname === "/api/onboarding/preview" && process.env.NODE_ENV !== "production") {
+  if (
+    pathname === "/api/onboarding/preview" &&
+    request.method === "POST" &&
+    previewEnabled
+  ) {
     return NextResponse.next();
   }
 

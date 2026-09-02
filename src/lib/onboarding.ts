@@ -41,6 +41,8 @@ export type OnboardingDraft = {
   name?: string;
   description?: string;
   brand?: string;
+  /** Id de la Brand confirmada a la que corresponde este draft, cuando se resolvió sin ambigüedad. */
+  confirmedBrandId?: string;
   tone?: string;
   offer?: string;
   targetAudience?: string;
@@ -143,6 +145,7 @@ export function defaultDraft(clientName = ""): Required<OnboardingDraft> {
     name: clientName,
     description: "",
     brand: clientName,
+    confirmedBrandId: "",
     tone: "Claro y cercano",
     offer: "",
     targetAudience: "",
@@ -262,15 +265,19 @@ export function sanitizeDraft(
     name: clipped(raw.name, 160) || base.name,
     description: clipped(raw.description, 2000),
     brand: clipped(raw.brand, 160) || base.brand,
+    confirmedBrandId: clipped(raw.confirmedBrandId, 60),
     tone: clipped(raw.tone, 160) || base.tone,
     offer: clipped(raw.offer, 800),
     targetAudience: clipped(raw.targetAudience, 800),
     businessGoals: strings(raw.businessGoals, 3).map((item) =>
       clipped(item, 240),
     ),
-    topics: strings(raw.topics, 12),
-    claims: strings(raw.claims, 10),
-    limits: strings(raw.limits, 10),
+    // Topes generosos: Client.domainKeywords y Brand.allowedClaims/forbiddenClaims
+    // no tienen límite en la base. Un tope bajo trunca en silencio un round-trip
+    // con la configuración confirmada (ver rehydrateDraftFromConfirmed).
+    topics: strings(raw.topics, 40),
+    claims: strings(raw.claims, 30),
+    limits: strings(raw.limits, 30),
     knowledge: strings(raw.knowledge, 3).concat(["", "", ""]).slice(0, 3),
     knowledgePrompts: strings(raw.knowledgePrompts, 3)
       .concat(base.knowledgePrompts)
@@ -1232,6 +1239,16 @@ export function mergeManualFields(
   return merged;
 }
 
+/** El nombre del draft ya lo tiene otro cliente; `syncOnboarding` no puede activar así. */
+export class OnboardingNameConflictError extends Error {
+  constructor(public readonly conflictingName: string) {
+    super(
+      `Ya existe otro cliente con el nombre "${conflictingName}". Ajustá el nombre en el paso Revisar antes de activar.`,
+    );
+    this.name = "OnboardingNameConflictError";
+  }
+}
+
 async function syncCatalogOfferings(
   tx: any,
   clientId: string,
@@ -1259,6 +1276,7 @@ async function syncCatalogOfferings(
   let products = 0;
   let services = 0;
   for (const item of draft.offerings) {
+    if (!item.selected) continue;
     if (item.kind === "product") {
       products += 1;
       await tx.product.upsert({
@@ -1337,6 +1355,45 @@ export async function syncOnboardingCatalog(
   return prisma.$transaction((tx) => syncCatalogOfferings(tx, clientId, draft));
 }
 
+/** `draftValue` es literalmente igual a `domainValue`, o es el prefijo que quedó
+ * después de que sanitizeDraft cortara un valor más largo en `limit`. En ese
+ * caso escribir `draftValue` de vuelta sería una regresión silenciosa por
+ * clipping, así que también cuenta como "sin cambios". */
+function unchangedString(draftValue: string, domainValue: string, limit?: number): boolean {
+  if (draftValue === domainValue) return true;
+  if (!limit) return false;
+  return (
+    draftValue.length === limit &&
+    domainValue.length > limit &&
+    domainValue.startsWith(draftValue)
+  );
+}
+function unchangedList(draftValue: string[], domainValue: string[], limit?: number): boolean {
+  const draftJson = JSON.stringify(draftValue);
+  if (draftJson === JSON.stringify(domainValue)) return true;
+  if (!limit || draftValue.length !== limit || domainValue.length <= limit) return false;
+  return draftJson === JSON.stringify(domainValue.slice(0, limit));
+}
+function deepEqualJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b))
+    return (
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((item, index) => deepEqualJson(item, b[index]))
+    );
+  if (a && b && typeof a === "object" && typeof b === "object") {
+    const keysA = Object.keys(a as object);
+    const keysB = Object.keys(b as object);
+    return (
+      keysA.length === keysB.length &&
+      keysA.every((key) => deepEqualJson((a as any)[key], (b as any)[key]))
+    );
+  }
+  return false;
+}
+
 export type SyncOnboardingOptions = {
   /** Cuando se pasa, además de sincronizar el catálogo marca este onboarding como COMPLETED dentro de la misma transacción. */
   completeOnboardingId?: string;
@@ -1350,21 +1407,59 @@ export async function syncOnboarding(
 ) {
   const draft = sanitizeDraft(draftInput);
   await prisma.$transaction(async (tx) => {
-    await tx.client.update({
+    const currentClient = await tx.client.findUnique({
       where: { id: clientId },
-      data: {
-        name: draft.name || undefined,
-        description: draft.description,
-        domainKeywords: JSON.stringify(draft.topics),
-        responsePolicy: {
-          tone: draft.tone,
-          claims: draft.claims,
-          limits: draft.limits,
-          targetAudience: draft.targetAudience,
-          businessGoals: draft.businessGoals,
-        },
-      },
+      select: { name: true, description: true, domainKeywords: true, responsePolicy: true },
     });
+    // Un draft congelado con un nombre que otro cliente ya tomó no debe reventar
+    // la transacción con un P2002 críptico: se detecta antes y se informa.
+    if (draft.name && currentClient && draft.name !== currentClient.name) {
+      const conflict = await tx.client.findFirst({
+        where: { name: draft.name, NOT: { id: clientId } },
+        select: { id: true },
+      });
+      if (conflict) throw new OnboardingNameConflictError(draft.name);
+    }
+    // responsePolicy tiene dos dueños con claves disjuntas (ver ResponsePolicy en
+    // response-policy.ts): mergear en vez de reemplazar preserva lo que otra
+    // pantalla haya escrito ahí.
+    const existingPolicy =
+      currentClient?.responsePolicy &&
+      typeof currentClient.responsePolicy === "object" &&
+      !Array.isArray(currentClient.responsePolicy)
+        ? (currentClient.responsePolicy as Record<string, unknown>)
+        : {};
+    // Escritura diferencial: sólo se tocan los campos que cambiaron respecto a
+    // lo ya confirmado. Hace que reactivar sin editar nada sea un no-op real
+    // (no sólo "por construcción" vía rehidratación) y evita que un valor
+    // truncado por el clipping de sanitizeDraft pise al original más largo.
+    const clientData: Record<string, unknown> = {};
+    if (draft.name && (!currentClient || draft.name !== currentClient.name)) {
+      clientData.name = draft.name;
+    }
+    if (!currentClient || !unchangedString(draft.description, currentClient.description, 2000)) {
+      clientData.description = draft.description;
+    }
+    if (
+      !currentClient ||
+      !unchangedList(draft.topics, parseDomainKeywords(currentClient.domainKeywords), 40)
+    ) {
+      clientData.domainKeywords = JSON.stringify(draft.topics);
+    }
+    const mergedPolicy = {
+      ...existingPolicy,
+      tone: draft.tone,
+      claims: draft.claims,
+      limits: draft.limits,
+      targetAudience: draft.targetAudience,
+      businessGoals: draft.businessGoals,
+    };
+    if (!deepEqualJson(mergedPolicy, existingPolicy)) {
+      clientData.responsePolicy = mergedPolicy;
+    }
+    if (Object.keys(clientData).length > 0) {
+      await tx.client.update({ where: { id: clientId }, data: clientData });
+    }
     const catalog = await syncCatalogOfferings(tx, clientId, draft);
     if (catalog.brand) {
       const brand = catalog.brand;
@@ -1388,36 +1483,71 @@ export async function syncOnboarding(
         });
       }
       if (draft.knowledgeApproved) {
-        await tx.knowledgeBase.deleteMany({
-          where: { clientId, source: "onboarding" },
-        });
-        await tx.knowledgeBase.createMany({
-          data: draft.knowledge.filter(Boolean).map((content, index) => ({
-            clientId,
-            brandId: brand.id,
-            topic: draft.knowledgePrompts[index] || `Conocimiento ${index + 1}`,
-            content,
-            source: "onboarding",
-            confidence: "high",
-          })),
-        });
+        // Upsert por (clientId, source, topic) en vez de borrar y recrear:
+        // preserva ids/createdAt y no destruye una edición hecha en /knowledge
+        // que siga en source:"onboarding" para un topic que ya no aplica.
+        const existingRows: { id: string; topic: string }[] =
+          await tx.knowledgeBase.findMany({
+            where: { clientId, source: "onboarding" },
+            select: { id: true, topic: true },
+          });
+        const byTopic = new Map(existingRows.map((row) => [row.topic, row.id]));
+        const desiredTopics = new Set<string>();
+        for (const [index, content] of draft.knowledge.entries()) {
+          if (!content) continue;
+          const topic = draft.knowledgePrompts[index] || `Conocimiento ${index + 1}`;
+          desiredTopics.add(topic);
+          const existingId = byTopic.get(topic);
+          if (existingId) {
+            await tx.knowledgeBase.update({
+              where: { id: existingId },
+              data: { content, confidence: "high" },
+            });
+          } else {
+            await tx.knowledgeBase.create({
+              data: {
+                clientId,
+                brandId: brand.id,
+                topic,
+                content,
+                source: "onboarding",
+                confidence: "high",
+              },
+            });
+          }
+        }
+        const staleIds = existingRows
+          .filter((row) => !desiredTopics.has(row.topic))
+          .map((row) => row.id);
+        if (staleIds.length) {
+          await tx.knowledgeBase.deleteMany({ where: { id: { in: staleIds } } });
+        }
       }
       for (const channel of draft.selectedNetworks) {
+        const label = `${clientId}:onboarding:${channel}`;
         const query =
           `${draft.brand || draft.name} ${draft.offer || draft.topics[0] || "consultas"}`.slice(
             0,
             400,
           );
+        // Sólo reescribe query/expectedTopics si los temas cambiaron: si alguien
+        // afinó el query a mano en /clients, reactivar la fuente no lo pisa.
+        const existingSource = await tx.monitoredSource.findUnique({
+          where: { label },
+          select: { expectedTopics: true },
+        });
+        const currentTopics = Array.isArray(existingSource?.expectedTopics)
+          ? (existingSource!.expectedTopics as unknown[])
+          : [];
+        const topicsChanged =
+          !existingSource ||
+          JSON.stringify(currentTopics) !== JSON.stringify(draft.topics);
         await tx.monitoredSource.upsert({
-          where: { label: `${clientId}:onboarding:${channel}` },
-          create: {
-            clientId,
-            label: `${clientId}:onboarding:${channel}`,
-            channel,
-            query,
-            expectedTopics: draft.topics,
-          },
-          update: { query, expectedTopics: draft.topics, active: true },
+          where: { label },
+          create: { clientId, label, channel, query, expectedTopics: draft.topics },
+          update: topicsChanged
+            ? { active: true, query, expectedTopics: draft.topics }
+            : { active: true },
         });
       }
     }

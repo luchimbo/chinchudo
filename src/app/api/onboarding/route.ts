@@ -5,13 +5,16 @@ import {
   analyzePublicWebsite,
   defaultDraft,
   mergeManualFields,
+  OnboardingNameConflictError,
   parseDomainKeywords,
   sanitizeDraft,
   syncOnboarding,
   type ConfirmedClientContext,
 } from "@/lib/onboarding";
 import { getOnboardingCompletionIssues } from "@/lib/onboarding-completion";
+import { confirmedDraftFor } from "@/lib/onboarding-rehydrate";
 import { normalizeWebsiteUrl } from "@/lib/website-url";
+import { logger } from "@/lib/logger";
 import type { Client } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
@@ -48,7 +51,7 @@ export async function GET(request: NextRequest) {
       client: { slug: client.slug, name: client.name },
       onboarding: {
         ...onboarding,
-        draft: sanitizeDraft(onboarding.draft, client.name),
+        draft: await confirmedDraftFor(prisma, client, onboarding),
       },
     });
   } catch (error) {
@@ -102,6 +105,16 @@ export async function PATCH(request: NextRequest) {
         analysisError: "",
       },
     });
+    if (currentStep > existing.currentStep) {
+      logger.info("onboarding_step_reached", "Avanzó de paso en el onboarding", {
+        clientId: client.id,
+        step: currentStep,
+        fromStep: existing.currentStep,
+        secondsSinceCreated: Math.round(
+          (Date.now() - new Date(existing.createdAt).getTime()) / 1000,
+        ),
+      });
+    }
     return NextResponse.json({ onboarding: { ...onboarding, draft } });
   } catch {
     return NextResponse.json(
@@ -138,6 +151,20 @@ export async function POST(request: NextRequest) {
         },
         update: { sourceUrl: url, status: "ANALYZING", analysisError: "" },
       });
+      if (existing.status === "NOT_STARTED") {
+        const sourceHost = (() => {
+          try {
+            return new URL(url).hostname;
+          } catch {
+            return "";
+          }
+        })();
+        logger.info("onboarding_started", "Inició el análisis del sitio", {
+          clientId: client.id,
+          sourceHost,
+        });
+      }
+      const analysisStartedAt = Date.now();
       try {
         const context = await confirmedContextFor(client);
         const analysis = await analyzePublicWebsite(url, context);
@@ -169,6 +196,14 @@ export async function POST(request: NextRequest) {
               },
             })),
           });
+        logger.info("onboarding_analyzed", "Analizó el sitio con éxito", {
+          clientId: client.id,
+          durationMs: Date.now() - analysisStartedAt,
+          pagesRead: importedDraft.stats.pagesRead,
+          products: importedDraft.stats.products,
+          services: importedDraft.stats.services,
+          hasWarning: Boolean(analysis.warning),
+        });
         return NextResponse.json({
           onboarding: { ...onboarding, draft: importedDraft },
           analysis: {
@@ -189,6 +224,10 @@ export async function POST(request: NextRequest) {
             analysisError: (error as Error).message,
           },
         });
+        logger.warn("onboarding_analysis_failed", "Falló el análisis del sitio", {
+          clientId: client.id,
+          error: (error as Error).message,
+        });
         return NextResponse.json({
           onboarding: {
             ...onboarding,
@@ -205,6 +244,10 @@ export async function POST(request: NextRequest) {
     if (body.action === "complete") {
       const issues = getOnboardingCompletionIssues(draft);
       if (issues.length) {
+        logger.info("onboarding_completion_blocked", "Intentó activar con campos pendientes", {
+          clientId: client.id,
+          issues: issues.map((issue) => issue.key),
+        });
         return NextResponse.json(
           {
             error: `Completá ${issues.map((issue) => issue.label).join(", ")} antes de activar.`,
@@ -213,6 +256,7 @@ export async function POST(request: NextRequest) {
           { status: 400 },
         );
       }
+      const mode = onboarding.status === "COMPLETED" ? "edit" : "setup";
       const approvedDraft = { ...draft, knowledgeApproved: true };
       // Único punto que sincroniza Client/Brand/Product/Persona/MonitoredSource,
       // atómicamente junto con el pase a COMPLETED.
@@ -222,13 +266,24 @@ export async function POST(request: NextRequest) {
       const completed = await onboardingDb.clientOnboarding.findUniqueOrThrow({
         where: { clientId: client.id },
       });
+      logger.info("onboarding_completed", "Activó la configuración", {
+        clientId: client.id,
+        mode,
+        products: draft.offerings.filter((item) => item.kind === "product").length,
+        services: draft.offerings.filter((item) => item.kind === "service").length,
+        networks: draft.selectedNetworks.length,
+        manualFieldCount: draft.manualFields.length,
+      });
       return NextResponse.json({ onboarding: completed });
     }
     return NextResponse.json(
       { error: "Acción no reconocida." },
       { status: 400 },
     );
-  } catch {
+  } catch (error) {
+    if (error instanceof OnboardingNameConflictError) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
     return NextResponse.json(
       { error: "No se pudo completar la acción. Intentá de nuevo." },
       { status: 400 },

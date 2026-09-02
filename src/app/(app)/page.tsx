@@ -2,6 +2,9 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { getVisibleClients } from "@/lib/auth";
 import { operationalOpportunityWhere } from "@/lib/opportunity-channels";
+import { getOnboardingProgress } from "@/lib/onboarding-progress";
+import { sanitizeDraft } from "@/lib/onboarding";
+import { OnboardingChecklist } from "@/components/onboarding-checklist";
 
 type PageProps = { searchParams: { client?: string } };
 
@@ -23,7 +26,7 @@ export default async function HomePage({ searchParams }: PageProps) {
   const opportunityWhere = { ...clientWhere, ...operationalOpportunityWhere() };
   const workStatuses = ["NEW", "NEEDS_REVIEW", "DRAFTED", "APPROVED", "FOLLOW_UP"] as const;
 
-  const [pending, published, converted, landings, leads, recent] = await Promise.all([
+  const [pending, published, converted, landings, leads, recent, onboarding, activeSources] = await Promise.all([
     prisma.opportunity.count({ where: { ...opportunityWhere, status: { in: [...workStatuses] } } }),
     prisma.opportunity.count({ where: { ...opportunityWhere, status: "PUBLISHED" } }),
     prisma.opportunity.count({ where: { ...opportunityWhere, status: "CONVERTED" } }),
@@ -35,9 +38,50 @@ export default async function HomePage({ searchParams }: PageProps) {
       orderBy: [{ opportunityScore: "desc" }, { createdAt: "desc" }],
       take: 4,
     }),
+    client
+      ? (prisma as any).clientOnboarding.findUnique({
+          where: { clientId: client.id },
+          select: { status: true, currentStep: true, sourceUrl: true, draft: true },
+        })
+      : Promise.resolve(null),
+    client
+      ? prisma.monitoredSource.count({ where: { clientId: client.id, active: true } })
+      : Promise.resolve(0),
   ]);
 
   const withClient = (href: string) => client ? `${href}?client=${encodeURIComponent(client.slug)}` : href;
+
+  // El draft mid-flow es la fuente de verdad (no se rehidrata acá: si ya está
+  // COMPLETED, getOnboardingProgress lo marca invisible antes de mirar el draft).
+  const onboardingProgress = client
+    ? getOnboardingProgress({
+        status: onboarding?.status ?? null,
+        currentStep: onboarding?.currentStep ?? 1,
+        sourceUrl: onboarding?.sourceUrl ?? "",
+        draft: sanitizeDraft(onboarding?.draft, client.name),
+        clientSlug: client.slug,
+      })
+    : null;
+
+  type EmptyOpportunityState = { text: string; cta?: { label: string; href: string } };
+  const emptyOpportunityState: EmptyOpportunityState = !client
+    ? { text: "Todavía no hay oportunidades para este cliente." }
+    : onboardingProgress?.visible
+      ? {
+          text: "Terminá de configurar tu espacio para empezar a detectar oportunidades.",
+          cta: { label: "Continuar configuración →", href: withClient("/onboarding") },
+        }
+      : !onboarding
+        ? { text: "Todavía no hay oportunidades para este cliente." }
+        : activeSources === 0
+          ? {
+              text: "Elegí en qué redes escuchar para empezar a recibir oportunidades.",
+              cta: { label: "Elegir redes →", href: `${withClient("/onboarding")}&step=2&from=configuracion` },
+            }
+          : {
+              text: "El radar está activo, todavía sin oportunidades.",
+              cta: { label: "Buscar oportunidades manualmente →", href: withClient("/oportunidades") },
+            };
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-7 px-5 py-8 lg:px-8">
@@ -53,6 +97,8 @@ export default async function HomePage({ searchParams }: PageProps) {
           </Link>
         </div>
       </header>
+
+      {onboardingProgress ? <OnboardingChecklist progress={onboardingProgress} /> : null}
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <Metric label="Para atender" value={pending} note="Conversaciones activas" tone="brass" />
@@ -83,7 +129,19 @@ export default async function HomePage({ searchParams }: PageProps) {
                 </Link>
               ))}
             </div>
-          ) : <p className="px-5 py-10 text-sm text-slate/65">Todavía no hay oportunidades para este cliente.</p>}
+          ) : (
+            <div className="px-5 py-10 text-sm text-slate/65">
+              <p>{emptyOpportunityState.text}</p>
+              {emptyOpportunityState.cta ? (
+                <Link
+                  href={emptyOpportunityState.cta.href}
+                  className="mt-2 inline-block font-bold text-moss hover:text-ink"
+                >
+                  {emptyOpportunityState.cta.label}
+                </Link>
+              ) : null}
+            </div>
+          )}
         </div>
 
         <aside className="rounded-xl border border-ink/10 bg-ink p-5 text-paper shadow-panel">

@@ -4,7 +4,10 @@ import { analyzePublicWebsite } from "@/lib/onboarding";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
-  if (process.env.NODE_ENV === "production")
+  // Defensa en profundidad: el middleware ya exige NODE_ENV no productivo +
+  // ONBOARDING_PREVIEW=1 + host local, pero esta ruta no debe depender
+  // únicamente de que el matcher del middleware siga cubriéndola.
+  if (process.env.NODE_ENV === "production" || process.env.ONBOARDING_PREVIEW !== "1")
     return NextResponse.json({ error: "No encontrado." }, { status: 404 });
   try {
     const body = await request.json();

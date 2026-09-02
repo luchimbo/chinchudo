@@ -5,6 +5,11 @@ import { useRouter } from "next/navigation";
 import { normalizeWebsiteUrl } from "@/lib/website-url";
 import type { OnboardingDraft } from "@/lib/onboarding";
 import { getOnboardingCompletionIssues } from "@/lib/onboarding-completion";
+import {
+  reanalysisImpact,
+  stepLabelsFor,
+  type OnboardingWizardMode,
+} from "@/lib/onboarding-wizard-state";
 
 const NETWORKS = [
   "Instagram",
@@ -16,11 +21,6 @@ const NETWORKS = [
   "Reddit",
   "Google",
 ];
-const STEPS = [
-  ["01", "Analizar", "Pegá la página de tu negocio."],
-  ["02", "Revisar", "Corregí sólo lo que haga falta."],
-  ["03", "Activar", "Confirmá y abrí tu espacio."],
-] as const;
 type Initial = {
   draft: Required<OnboardingDraft>;
   step: number;
@@ -30,6 +30,12 @@ type Initial = {
   analysisError: string;
 };
 type SaveState = "saved" | "saving" | "error";
+type NoticeLevel = "info" | "warning" | "error";
+type Notice = {
+  level: NoticeLevel;
+  message: string;
+  action?: { label: string; onClick: () => void };
+} | null;
 
 function clientDraft(value?: OnboardingDraft): Required<OnboardingDraft> {
   const raw = value ?? {};
@@ -37,6 +43,7 @@ function clientDraft(value?: OnboardingDraft): Required<OnboardingDraft> {
     name: raw.name || "",
     description: raw.description || "",
     brand: raw.brand || "",
+    confirmedBrandId: raw.confirmedBrandId || "",
     tone: raw.tone || "Claro y cercano",
     offer: raw.offer || "",
     targetAudience: raw.targetAudience || "",
@@ -95,27 +102,49 @@ function Field({
     </label>
   );
 }
+
+const NOTICE_STYLES: Record<NoticeLevel, { box: string; role: "alert" | "status" }> = {
+  info: { box: "border-moss/20 bg-moss/[.06]", role: "status" },
+  warning: { box: "border-brass/25 bg-brass/[.08]", role: "status" },
+  error: { box: "border-signal/30 bg-signal/[.08]", role: "alert" },
+};
+
 export function OnboardingWizard({
   initial,
   preview = false,
   clientName,
   clientSlug,
+  mode = "setup",
+  completedAt = null,
+  returnTo = "panel",
 }: {
   initial?: Initial;
   preview?: boolean;
   clientName?: string;
   clientSlug?: string;
+  mode?: OnboardingWizardMode;
+  completedAt?: string | null;
+  returnTo?: "panel" | "configuracion";
 }) {
   const router = useRouter();
   const apiUrl = (path: string) =>
     clientSlug ? `${path}?client=${encodeURIComponent(clientSlug)}` : path;
+  const STEPS = stepLabelsFor(mode);
   const [step, setStep] = useState(Math.min(initial?.step ?? 0, 2));
   const [url, setUrl] = useState(initial?.sourceUrl || "");
   const [draft, setDraft] = useState<Required<OnboardingDraft>>(() =>
     clientDraft(initial?.draft),
   );
   const [saveState, setSaveState] = useState<SaveState>("saved");
-  const [notice, setNotice] = useState(initial?.analysisError || "");
+  const [notice, setNotice] = useState<Notice>(
+    initial?.analysisError
+      ? {
+          level: "warning",
+          message: initial.analysisError,
+          action: { label: "Volver a analizar", onClick: () => beginAnalysis() },
+        }
+      : null,
+  );
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisStages, setAnalysisStages] = useState<string[]>([]);
   const [reviewAttempted, setReviewAttempted] = useState(false);
@@ -123,6 +152,7 @@ export function OnboardingWizard({
   const [manualOfferingKind, setManualOfferingKind] = useState<
     "product" | "service"
   >("product");
+  const [reanalysisPanelOpen, setReanalysisPanelOpen] = useState(false);
   const firstSave = useRef(true);
   const markManual = (field: string) =>
     setDraft((current) => ({
@@ -143,6 +173,14 @@ export function OnboardingWizard({
   ) => {
     setDraft((current) => ({ ...current, [field]: value }));
     markManual(String(field));
+  };
+  const toggleOfferingSelected = (id: string, selected: boolean) => {
+    setDraft((current) => ({
+      ...current,
+      offerings: current.offerings.map((item) =>
+        item.id === id ? { ...item, selected } : item,
+      ),
+    }));
   };
   const addManualOffering = () => {
     const name = manualOfferingName.trim();
@@ -212,12 +250,12 @@ export function OnboardingWizard({
   const analyze = async () => {
     const normalizedUrl = normalizeWebsiteUrl(url);
     if (!/^https?:\/\//i.test(normalizedUrl)) {
-      setNotice("Ingresá una dirección web válida.");
+      setNotice({ level: "error", message: "Ingresá una dirección web válida." });
       return;
     }
     setUrl(normalizedUrl);
     setIsAnalyzing(true);
-    setNotice("");
+    setNotice(null);
     setAnalysisStages(["Leyendo el sitio…"]);
     const progress = window.setInterval(
       () =>
@@ -245,20 +283,58 @@ export function OnboardingWizard({
         throw new Error(data.error || "No se pudo analizar el sitio.");
       const next = clientDraft(data.draft || data.onboarding?.draft);
       setDraft(next);
-      setNotice(data.warning || "");
+      setNotice(data.warning ? { level: "warning", message: data.warning } : null);
       setStep(1);
       setSaveState("saved");
     } catch (error) {
-      setNotice(
-        error instanceof Error
-          ? error.message
-          : "No se pudo analizar el sitio.",
-      );
+      setNotice({
+        level: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "No se pudo analizar el sitio.",
+      });
       setSaveState("error");
     } finally {
       window.clearInterval(progress);
       setIsAnalyzing(false);
     }
+  };
+  function beginAnalysis() {
+    if (mode === "edit" && !reanalysisPanelOpen) {
+      setReanalysisPanelOpen(true);
+      return;
+    }
+    void analyze();
+  }
+  const confirmReanalysis = async (alsoReplaceConfirmed: boolean) => {
+    setReanalysisPanelOpen(false);
+    if (alsoReplaceConfirmed) {
+      // "Reemplazar también lo confirmado": quita la protección de mergeManualFields
+      // sobre todo lo que no sea una oferta cargada a mano, y lo persiste antes de
+      // analizar (el análisis lee el draft ya guardado en el servidor, no este
+      // estado local todavía no sincronizado por el autosave con debounce).
+      const nextDraft = {
+        ...draft,
+        manualFields: draft.manualFields.filter((field) => field.startsWith("offering:")),
+      };
+      setDraft(nextDraft);
+      try {
+        await fetch(apiUrl("/api/onboarding"), {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            draft: nextDraft,
+            sourceUrl: url,
+            businessType: nextDraft.detectedBusinessType,
+            currentStep: step + 1,
+          }),
+        });
+      } catch {
+        // Si falla, el análisis usa el draft previo (protección intacta): no rompe nada.
+      }
+    }
+    void analyze();
   };
   const complete = async () => {
     if (preview) {
@@ -277,26 +353,33 @@ export function OnboardingWizard({
       const data = await response.json();
       if (!response.ok)
         throw new Error(data.error || "No se pudo finalizar la configuración.");
-      router.push("/");
+      const target =
+        mode === "edit" && returnTo === "configuracion" && clientSlug
+          ? `/configuracion?client=${encodeURIComponent(clientSlug)}&onboarding=saved`
+          : "/";
+      router.push(target);
       router.refresh();
     } catch (error) {
       setSaveState("error");
-      setNotice(
-        error instanceof Error
-          ? error.message
-          : "No se pudo finalizar. Intentá de nuevo.",
-      );
+      setNotice({
+        level: "error",
+        message:
+          error instanceof Error
+            ? error.message
+            : "No se pudo finalizar. Intentá de nuevo.",
+      });
     }
   };
-  const productCount = draft.offerings.filter(
+  const selectedOfferings = draft.offerings.filter((item) => item.selected);
+  const productCount = selectedOfferings.filter(
       (item) => item.kind === "product",
     ).length,
-    serviceCount = draft.offerings.filter(
+    serviceCount = selectedOfferings.filter(
       (item) => item.kind === "service",
     ).length;
   const catalogCategories = [
     ...new Set(
-      draft.offerings.map((item) => item.category.trim()).filter(Boolean),
+      selectedOfferings.map((item) => item.category.trim()).filter(Boolean),
     ),
   ].slice(0, 6);
   const reviewIssues = reviewAttempted
@@ -310,7 +393,6 @@ export function OnboardingWizard({
       return;
     }
     const first = issues[0];
-    setNotice("Completá la información pendiente antes de avanzar.");
     window.requestAnimationFrame(() => {
       document
         .querySelector<HTMLElement>(
@@ -319,10 +401,33 @@ export function OnboardingWizard({
         ?.focus();
     });
   };
+  const canJumpTo = (index: number) => mode === "edit" || index <= step;
+  const goToStep = (index: number) => {
+    if (!canJumpTo(index)) return;
+    if (index === 2 && getOnboardingCompletionIssues(draft).length) {
+      setStep(1);
+      continueToActivation();
+      return;
+    }
+    setStep(index);
+  };
   const detected = useMemo(
     () => draft.stats.pagesRead > 0,
     [draft.stats.pagesRead],
   );
+  const impact = useMemo(() => reanalysisImpact(draft), [draft]);
+  const completedAtLabel = useMemo(() => {
+    if (!completedAt) return "";
+    try {
+      return new Date(completedAt).toLocaleDateString("es-AR", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      });
+    } catch {
+      return "";
+    }
+  }, [completedAt]);
   return (
     <main className="min-h-screen bg-[#f5f1e8] px-4 py-5 sm:px-8 sm:py-9">
       <div className="mx-auto grid max-w-6xl overflow-hidden rounded-[2rem] border border-ink/10 bg-paper shadow-[0_30px_100px_rgba(37,31,19,0.12)] lg:grid-cols-[275px_minmax(0,1fr)]">
@@ -336,7 +441,11 @@ export function OnboardingWizard({
               <div>
                 <p className="font-display text-xl tracking-tight">Cafishia</p>
                 <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#eff3e8]/55">
-                  {clientName ? `Configuración de ${clientName}` : "Configuración inicial"}
+                  {mode === "edit"
+                    ? `Editando configuración${completedAtLabel ? ` · activada el ${completedAtLabel}` : ""}`
+                    : clientName
+                      ? `Configuración de ${clientName}`
+                      : "Configuración inicial"}
                 </p>
               </div>
             </div>
@@ -350,27 +459,30 @@ export function OnboardingWizard({
                     : "Cambios guardados automáticamente."}
             </div>
             <ol className="grid gap-2">
-              {STEPS.map(([number, title, description], index) => (
-                <li key={title}>
-                  <button
-                    type="button"
-                    onClick={() => index <= step && setStep(index)}
-                    className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition ${step === index ? "bg-white/12" : index < step ? "opacity-85 hover:bg-white/8" : "cursor-default opacity-35"}`}
-                  >
-                    <span
-                      className={`grid h-7 w-7 place-items-center rounded-full border text-[10px] font-bold ${index < step ? "border-[#d8b465] bg-[#d8b465] text-[#17231e]" : "border-white/25"}`}
+              {STEPS.map(([number, title, description], index) => {
+                const jumpable = canJumpTo(index);
+                return (
+                  <li key={title}>
+                    <button
+                      type="button"
+                      onClick={() => goToStep(index)}
+                      className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition ${step === index ? "bg-white/12" : index < step || jumpable ? "opacity-85 hover:bg-white/8" : "cursor-default opacity-35"}`}
                     >
-                      {index < step ? "✓" : number}
-                    </span>
-                    <span>
-                      <span className="block text-sm font-bold">{title}</span>
-                      <span className="mt-0.5 block text-[11px] leading-snug text-[#eff3e8]/55">
-                        {description}
+                      <span
+                        className={`grid h-7 w-7 place-items-center rounded-full border text-[10px] font-bold ${index < step ? "border-[#d8b465] bg-[#d8b465] text-[#17231e]" : "border-white/25"}`}
+                      >
+                        {index < step ? "✓" : number}
                       </span>
-                    </span>
-                  </button>
-                </li>
-              ))}
+                      <span>
+                        <span className="block text-sm font-bold">{title}</span>
+                        <span className="mt-0.5 block text-[11px] leading-snug text-[#eff3e8]/55">
+                          {description}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
             </ol>
           </div>
         </aside>
@@ -381,22 +493,46 @@ export function OnboardingWizard({
             </p>
             <h1 className="mt-2 font-display text-4xl tracking-tight text-ink">
               {step === 0
-                ? "Tu página ya sabe bastante de vos."
+                ? mode === "edit"
+                  ? "¿Cambió algo en tu sitio?"
+                  : "Tu página ya sabe bastante de vos."
                 : step === 1
-                  ? "Revisá tu configuración."
-                  : "Tu espacio está listo para arrancar."}
+                  ? mode === "edit"
+                    ? "Editá tu configuración."
+                    : "Revisá tu configuración."
+                  : mode === "edit"
+                    ? "Confirmá los cambios."
+                    : "Tu espacio está listo para arrancar."}
             </h1>
             <p className="mt-3 text-sm leading-relaxed text-slate/70">
               {step === 0
-                ? "Pegá la web y Cafishia preparará una propuesta. Después sólo revisás lo necesario."
+                ? mode === "edit"
+                  ? "Podés continuar sin releer el sitio, o pedirle a Cafishia que lo revise de nuevo."
+                  : "Pegá la web y Cafishia preparará una propuesta. Después sólo revisás lo necesario."
                 : step === 1
-                  ? "Completamos una propuesta con la información pública de tu negocio. Ajustala para que quede exactamente como querés."
-                  : "Confirmá qué información se importará y en qué redes querés empezar a escuchar."}
+                  ? mode === "edit"
+                    ? "Esta es tu configuración confirmada. Ajustá sólo lo que quieras cambiar."
+                    : "Completamos una propuesta con la información pública de tu negocio. Ajustala para que quede exactamente como querés."
+                  : mode === "edit"
+                    ? "Revisá qué se va a actualizar y en qué redes querés escuchar."
+                    : "Confirmá qué información se importará y en qué redes querés empezar a escuchar."}
             </p>
           </header>
           {notice ? (
-            <div className="mb-6 rounded-xl border border-brass/25 bg-brass/[.08] px-4 py-3 text-sm text-ink">
-              {notice}
+            <div
+              className={`mb-6 rounded-xl border px-4 py-3 text-sm text-ink ${NOTICE_STYLES[notice.level].box}`}
+              role={NOTICE_STYLES[notice.level].role}
+            >
+              {notice.message}
+              {notice.action ? (
+                <button
+                  type="button"
+                  onClick={notice.action.onClick}
+                  className="ml-2 font-bold underline underline-offset-2"
+                >
+                  {notice.action.label}
+                </button>
+              ) : null}
             </div>
           ) : null}
           {step === 1 && reviewIssues.length ? (
@@ -419,17 +555,67 @@ export function OnboardingWizard({
                 </Field>
                 <button
                   type="button"
-                  onClick={analyze}
+                  onClick={beginAnalysis}
                   disabled={isAnalyzing}
                   className="mt-5 rounded-full bg-ink px-5 py-3 text-sm font-bold text-paper transition hover:bg-moss disabled:opacity-50"
                 >
                   {isAnalyzing
                     ? "Analizando…"
-                    : detected
-                      ? "Volver a analizar"
-                      : "Analizar mi página →"}
+                    : mode === "edit"
+                      ? "Volver a leer mi sitio"
+                      : detected
+                        ? "Volver a analizar"
+                        : "Analizar mi página →"}
                 </button>
               </div>
+              {mode === "edit" && reanalysisPanelOpen ? (
+                <div className="mt-5 rounded-2xl border border-brass/25 bg-brass/[.06] p-5">
+                  <p className="text-sm font-bold text-ink">¿Volver a leer tu sitio?</p>
+                  <p className="mt-1 text-sm leading-relaxed text-slate/70">
+                    Nada se guarda en tu configuración hasta que pulses &quot;Guardar cambios&quot;.
+                  </p>
+                  {impact.keepLabels.length || impact.manualOfferingsCount ? (
+                    <div className="mt-3">
+                      <p className="text-xs font-bold uppercase tracking-wide text-slate/55">
+                        Se conserva
+                      </p>
+                      <p className="mt-1 text-sm text-slate/75">
+                        {impact.keepLabels.join(", ")}
+                        {impact.keepLabels.length && impact.manualOfferingsCount
+                          ? " y "
+                          : ""}
+                        {impact.manualOfferingsCount
+                          ? `${impact.manualOfferingsCount} oferta${impact.manualOfferingsCount > 1 ? "s" : ""} cargada${impact.manualOfferingsCount > 1 ? "s" : ""} a mano`
+                          : ""}
+                        .
+                      </p>
+                    </div>
+                  ) : null}
+                  <div className="mt-4 flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => confirmReanalysis(false)}
+                      className="rounded-full bg-ink px-4 py-2 text-sm font-bold text-paper transition hover:bg-moss"
+                    >
+                      Sí, releer mi sitio
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setReanalysisPanelOpen(false)}
+                      className="rounded-full px-4 py-2 text-sm font-bold text-slate/60"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => confirmReanalysis(true)}
+                      className="text-xs font-semibold text-slate/50 underline underline-offset-2 hover:text-signal"
+                    >
+                      Reemplazar también lo confirmado
+                    </button>
+                  </div>
+                </div>
+              ) : null}
               {isAnalyzing ? (
                 <div className="mt-5 rounded-2xl border border-moss/20 bg-moss/[.06] p-5">
                   {analysisStages.map((stage, index) => (
@@ -463,7 +649,7 @@ export function OnboardingWizard({
                   servicios
                 </span>
                 {draft.warnings.map((warning) => (
-                  <span key={warning} className="text-signal">
+                  <span key={warning} className="text-brass">
                     · {warning}
                   </span>
                 ))}
@@ -583,8 +769,8 @@ export function OnboardingWizard({
                     Catálogo candidato
                   </p>
                   <p className="mt-1 text-sm leading-relaxed text-slate/70">
-                    Esto es lo que encontramos en tu sitio. Es una propuesta:
-                    se importa recién cuando confirmás y activás tu espacio.
+                    Esto es lo que encontramos en tu sitio. Se importa lo que
+                    dejes tildado recién cuando confirmás y activás tu espacio.
                   </p>
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     <div className="rounded-xl bg-white/75 px-4 py-3">
@@ -592,7 +778,7 @@ export function OnboardingWizard({
                         {productCount}
                       </p>
                       <p className="text-xs font-bold uppercase tracking-wide text-slate/60">
-                        Productos detectados
+                        Productos a importar
                       </p>
                     </div>
                     <div className="rounded-xl bg-white/75 px-4 py-3">
@@ -600,7 +786,7 @@ export function OnboardingWizard({
                         {serviceCount}
                       </p>
                       <p className="text-xs font-bold uppercase tracking-wide text-slate/60">
-                        Servicios detectados
+                        Servicios a importar
                       </p>
                     </div>
                   </div>
@@ -616,6 +802,27 @@ export function OnboardingWizard({
                       ))}
                     </div>
                   ) : null}
+                  <div className="mt-4 max-h-56 overflow-y-auto rounded-xl bg-white/70">
+                    {draft.offerings.map((item) => (
+                      <label
+                        key={item.id}
+                        className="flex items-center gap-3 border-b border-ink/5 px-3 py-2 text-sm last:border-b-0"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={item.selected}
+                          onChange={(event) =>
+                            toggleOfferingSelected(item.id, event.target.checked)
+                          }
+                          className="h-4 w-4 rounded border-ink/25"
+                        />
+                        <span className="flex-1 truncate text-ink">{item.name}</span>
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-slate/45">
+                          {item.kind === "product" ? "Producto" : "Servicio"}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
                   {draft.stats.catalogSyncPending ? (
                     <p className="mt-4 text-sm text-slate/65">
                       Detectamos más páginas de catálogo. La sincronización
@@ -724,7 +931,7 @@ export function OnboardingWizard({
             <div className="grid max-w-3xl gap-5">
               <div className="rounded-3xl border border-moss/25 bg-moss/[.07] p-6">
                 <p className="font-display text-3xl text-ink">
-                  Listo para activar.
+                  {mode === "edit" ? "Cambios listos para guardar." : "Listo para activar."}
                 </p>
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
                   <div className="rounded-xl bg-white/70 p-3">
@@ -795,7 +1002,9 @@ export function OnboardingWizard({
               >
                 {preview
                   ? "Ver finalización local"
-                  : "Guardar y abrir el panel"}
+                  : mode === "edit"
+                    ? "Guardar cambios"
+                    : "Guardar y abrir el panel"}
               </button>
             </div>
           ) : null}
@@ -811,11 +1020,23 @@ export function OnboardingWizard({
             {step < 2 ? (
               <button
                 type="button"
-                onClick={() => (step === 0 ? analyze() : continueToActivation())}
+                onClick={() =>
+                  step === 0
+                    ? mode === "edit"
+                      ? setStep(1)
+                      : void analyze()
+                    : continueToActivation()
+                }
                 disabled={isAnalyzing}
                 className="rounded-full bg-ink px-5 py-2.5 text-sm font-bold text-paper transition hover:bg-moss disabled:opacity-35"
               >
-                {step === 0 ? "Analizar página →" : "Revisar activación →"}
+                {step === 0
+                  ? mode === "edit"
+                    ? "Continuar sin releer →"
+                    : "Analizar página →"
+                  : mode === "edit"
+                    ? "Revisar cambios →"
+                    : "Revisar activación →"}
               </button>
             ) : (
               <span />

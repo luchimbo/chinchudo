@@ -30,9 +30,9 @@ const GROUPS: Group[] = [
 export default async function ConfiguracionPage({
   searchParams,
 }: {
-  searchParams: { client?: string; password?: string };
+  searchParams: { client?: string; password?: string; onboarding?: string };
 }) {
-  const { client: slug, password } = searchParams;
+  const { client: slug, password, onboarding } = searchParams;
   if (!slug) notFound();
 
   const c = await prisma.client.findUnique({ where: { slug }, select: { id: true } });
@@ -48,6 +48,12 @@ export default async function ConfiguracionPage({
         <p className="mt-1 text-sm text-slate">Todo lo que define cómo funciona el sistema para este cliente.</p>
       </header>
 
+      {onboarding === "saved" ? (
+        <p className="mb-6 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-800">
+          Configuración actualizada.
+        </p>
+      ) : null}
+
       <div className="flex flex-col gap-8">
         {GROUPS.map((group) => (
           <section key={group.title}>
@@ -56,7 +62,7 @@ export default async function ConfiguracionPage({
               {group.cards.map((card) => (
                 <Link
                   key={card.href}
-                  href={`${card.href}${q}`}
+                  href={`${card.href}${q}${card.href === "/onboarding" ? "&from=configuracion" : ""}`}
                   className="group flex flex-col gap-2 rounded-xl border border-ink/10 bg-paper p-5 transition hover:border-ink/25 hover:shadow-sm"
                 >
                   <h2 className="font-semibold text-ink">{card.title}</h2>
