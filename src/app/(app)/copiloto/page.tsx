@@ -1,5 +1,5 @@
 import { OpportunityStatus, Prisma } from "@prisma/client";
-import { getVisibleClients } from "@/lib/auth";
+import { requirePageClient } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { OPPORTUNITY_CHANNEL_NAMES, operationalOpportunityWhere } from "@/lib/opportunity-channels";
 import { selectCopilotPulse } from "@/lib/radar-editorial";
@@ -11,18 +11,15 @@ type PageProps = {
 };
 
 export default async function CopilotoPage({ searchParams }: PageProps) {
-  const [clients, channels] = await Promise.all([
-    getVisibleClients(prisma),
+  const [activeClient, channels] = await Promise.all([
+    requirePageClient(prisma, searchParams.client),
     prisma.channel.findMany({
       where: { name: { in: [...OPPORTUNITY_CHANNEL_NAMES] } },
       orderBy: { name: "asc" },
     }),
   ]);
-  const activeClient = clients.find((client) => client.slug === searchParams.client) ?? clients[0] ?? null;
   const activeView = searchParams.view === "pulse" ? "pulse" : "opportunities";
-  const brands = activeClient
-    ? await prisma.brand.findMany({ where: { clientId: activeClient.id }, orderBy: { name: "asc" } })
-    : [];
+  const brands = await prisma.brand.findMany({ where: { clientId: activeClient.id }, orderBy: { name: "asc" } });
   const selectedBrand = brands.find((brand) => brand.id === searchParams.brand)?.id;
   const selectedChannel = channels.find((channel) => channel.id === searchParams.channel)?.id;
   const selectedResponse = searchParams.response === "generated" ? "generated" : "";
@@ -106,6 +103,7 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
       opportunities={opportunities.map((opportunity) => ({
         id: opportunity.id,
         text: opportunity.sourceText,
+        notes: opportunity.notes,
         author: opportunity.sourceAuthor,
         sourceUrl: opportunity.sourceUrl,
         channel: opportunity.channel.name,

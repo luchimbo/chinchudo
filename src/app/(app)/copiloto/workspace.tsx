@@ -7,11 +7,37 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { discardCopilotOpportunity, generateCopilotDrafts, markCopilotResponse, publishCopilotYouTubeResponse, teachCopilotFromResponse } from "@/app/(app)/opportunities/actions";
 
 type Response = { id: string; text: string; variantType: string; isPrimary: boolean; persona: string };
-type Opportunity = { id: string; text: string; author: string; sourceUrl: string; channel: string; brand: string; product: string; createdAt: string; status: string; responses: Response[] };
+type Opportunity = { id: string; text: string; notes: string; author: string; sourceUrl: string; channel: string; brand: string; product: string; createdAt: string; status: string; responses: Response[] };
 type PulseSignal = { id: string; title: string; description: string; sourceUrl: string; platform: string; createdAt: string; reason: string; allowHumor: boolean };
 
 function cleanPreview(text: string) {
   return text.replace(/\s+/g, " ").trim();
+}
+
+// Muchas fuentes (ej. resultados de YouTube) pegan el título de la publicación
+// al final del texto scrapeado, después de "Published <fecha>". Cuando aparece
+// ese patrón lo mostramos como título separado; si no, todo el texto queda
+// como descripción.
+const SOURCE_TITLE_PATTERN = /^(.*?)\s*Published\s+[A-Za-z]+\s+\d{1,2},?\s*\d{4}\s*(.+?)\s*-\s*YouTube\s*$/i;
+
+function splitTitleFromText(raw: string): { title: string | null; description: string } {
+  const text = cleanPreview(raw);
+  const match = text.match(SOURCE_TITLE_PATTERN);
+  if (match && match[2].trim()) return { title: match[2].trim(), description: match[1].trim() };
+  return { title: null, description: text };
+}
+
+function getAiReason(notes: string): string | null {
+  if (!notes) return null;
+  const match = notes.match(/Raz[oó]n IA:\s*(.+?)(?:\s+Prioridad estrat[eé]gica:|$)/i);
+  return match?.[1]?.trim() || null;
+}
+
+function ExpandableText({ text, limit = 240, className = "" }: { text: string; limit?: number; className?: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const isLong = text.length > limit;
+  const shown = expanded || !isLong ? text : `${text.slice(0, limit).trimEnd()}…`;
+  return <p className={className}>{shown}{isLong ? <button type="button" onClick={() => setExpanded((value) => !value)} className="ml-1.5 font-bold text-moss hover:text-ink">{expanded ? "Ver menos" : "Ver más"}</button> : null}</p>;
 }
 
 async function copyToClipboard(text: string): Promise<void> {
@@ -97,9 +123,12 @@ function OpportunityCard({ opportunity, clientSlug, youtube }: { opportunity: Op
   const date = new Date(opportunity.createdAt).toLocaleDateString("es-AR", { day: "numeric", month: "short" });
   const responses = useMemo(() => [...opportunity.responses].sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary)), [opportunity.responses]);
   const response = responses[0];
+  const { title, description } = useMemo(() => splitTitleFromText(opportunity.text), [opportunity.text]);
+  const aiReason = useMemo(() => getAiReason(opportunity.notes), [opportunity.notes]);
+  const [reasonOpen, setReasonOpen] = useState(false);
 
   return <article className="overflow-hidden rounded-2xl border border-ink/10 bg-white/85 shadow-panel">
-    <div className="border-b border-ink/10 px-5 py-4"><div className="flex flex-wrap items-center justify-between gap-3 text-xs font-semibold text-slate/70"><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-ink/7 px-2.5 py-1 text-ink">{opportunity.channel}</span><span>{opportunity.brand}</span>{opportunity.product ? <span className="text-slate/50">{opportunity.product}</span> : null}</div><span>{date}</span></div><p className="mt-4 max-w-3xl whitespace-pre-wrap text-[15px] leading-7 text-ink">{cleanPreview(opportunity.text)}</p><div className="mt-4 flex flex-wrap gap-2"><a href={opportunity.sourceUrl} target="_blank" rel="noreferrer" className="rounded-full border border-ink/15 px-3 py-1.5 text-xs font-bold text-ink transition hover:border-ink/40">Abrir fuente</a>{opportunity.author ? <span className="px-2 py-1.5 text-xs text-slate/65">{opportunity.author}</span> : null}<Link href={`/opportunities/${opportunity.id}`} className="px-2 py-1.5 text-xs font-semibold text-slate/65 underline decoration-slate/25 underline-offset-4 hover:text-ink">Ver detalle</Link></div></div>
+    <div className="border-b border-ink/10 px-5 py-4"><div className="flex flex-wrap items-center justify-between gap-3 text-xs font-semibold text-slate/70"><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-ink/7 px-2.5 py-1 text-ink">{opportunity.channel}</span><span>{opportunity.brand}</span>{opportunity.product ? <span className="text-slate/50">{opportunity.product}</span> : null}</div><span>{date}</span></div><div className="mt-4 max-w-3xl">{title ? <p className="font-display text-lg font-bold leading-6 text-ink">{title}</p> : null}<ExpandableText text={description} limit={240} className={`whitespace-pre-wrap text-[15px] leading-7 text-slate/80 ${title ? "mt-1.5" : ""}`} /></div><div className="mt-4 flex flex-wrap items-center gap-2"><a href={opportunity.sourceUrl} target="_blank" rel="noreferrer" className="rounded-full border border-ink/15 px-3 py-1.5 text-xs font-bold text-ink transition hover:border-ink/40">Abrir fuente</a>{opportunity.author ? <span className="px-2 py-1.5 text-xs text-slate/65">{opportunity.author}</span> : null}{aiReason ? <button type="button" onClick={() => setReasonOpen((value) => !value)} className="flex items-center gap-1 px-2 py-1.5 text-xs font-semibold text-slate/65 underline decoration-slate/25 underline-offset-4 hover:text-ink">Razón IA<span aria-hidden="true" className={`transition-transform ${reasonOpen ? "rotate-180" : ""}`}>▾</span></button> : null}</div>{aiReason && reasonOpen ? <div className="mt-3 max-w-3xl rounded-md bg-paper p-3 text-sm leading-6 text-slate">{aiReason}</div> : null}</div>
     <div className="px-5 py-5">
       {!response ? <form action={generateCopilotDrafts} className="rounded-xl bg-paper p-4"><input type="hidden" name="opportunityId" value={opportunity.id} /><PendingSubmit pendingLabel="Generando respuesta..." className="rounded-full bg-ink px-4 py-2.5 text-sm font-bold text-paper transition hover:bg-slate">Generar respuesta</PendingSubmit></form> : <div className="max-w-3xl"><ResponseCard response={response} opportunityId={opportunity.id} sourceUrl={opportunity.sourceUrl} channel={opportunity.channel} clientSlug={clientSlug} youtube={youtube} /></div>}
       <div className="mt-4">{discardOpen ? <form action={discardCopilotOpportunity} className="flex flex-wrap items-center gap-2 rounded-xl border border-signal/20 bg-signal/[0.04] p-3"><input type="hidden" name="opportunityId" value={opportunity.id} /><select name="reason" defaultValue="NO_RELEVANTE" className="rounded-lg border border-ink/15 bg-white px-2 py-2 text-xs text-ink"><option value="NO_RELEVANTE">No era relevante</option><option value="NO_ES_EL_TONO">No era el tono</option><option value="FALTA_INFO">Faltaba información</option><option value="NO_CONVIENE">No conviene responder</option></select><PendingSubmit pendingLabel="Descartando..." className="rounded-full bg-signal px-3 py-2 text-xs font-bold text-white">Confirmar descarte</PendingSubmit><button type="button" onClick={() => setDiscardOpen(false)} className="px-2 py-2 text-xs font-semibold text-slate">Cancelar</button></form> : <button type="button" onClick={() => setDiscardOpen(true)} className="text-xs font-semibold text-slate/65 underline decoration-slate/30 underline-offset-4 hover:text-signal">Descartar oportunidad</button>}</div>
