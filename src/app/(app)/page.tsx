@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
-import { getVisibleClients } from "@/lib/auth";
+import { requirePageClient } from "@/lib/auth";
 import { operationalOpportunityWhere } from "@/lib/opportunity-channels";
 import { getOnboardingProgress } from "@/lib/onboarding-progress";
 import { sanitizeDraft } from "@/lib/onboarding";
@@ -20,9 +20,8 @@ function Metric({ label, value, note, tone = "ink" }: { label: string; value: nu
 }
 
 export default async function HomePage({ searchParams }: PageProps) {
-  const clients = await getVisibleClients(prisma);
-  const client = clients.find((item) => item.slug === searchParams.client) ?? clients[0] ?? null;
-  const clientWhere = client ? { clientId: client.id } : {};
+  const client = await requirePageClient(prisma, searchParams.client);
+  const clientWhere = { clientId: client.id };
   const opportunityWhere = { ...clientWhere, ...operationalOpportunityWhere() };
   const workStatuses = ["NEW", "NEEDS_REVIEW", "DRAFTED", "APPROVED", "FOLLOW_UP"] as const;
 
@@ -89,7 +88,6 @@ export default async function HomePage({ searchParams }: PageProps) {
         <p className="text-xs font-bold uppercase tracking-[0.3em] text-moss">Centro de control · {client?.name ?? "Suite"}</p>
         <div className="mt-3 flex flex-wrap items-end justify-between gap-5">
           <div>
-            <h1 className="font-display text-4xl leading-none text-ink md:text-5xl">Dashboard</h1>
             <p className="mt-2 max-w-2xl text-sm text-slate">La vista general para decidir qué atender, publicar y medir hoy.</p>
           </div>
           <Link href={withClient("/copiloto")} className="rounded-full bg-ink px-5 py-3 text-sm font-bold text-paper transition hover:bg-moss">
@@ -108,7 +106,7 @@ export default async function HomePage({ searchParams }: PageProps) {
         <Metric label="Leads" value={leads} note="Contactos captados" />
       </section>
 
-      <section className="grid gap-5 lg:grid-cols-[minmax(0,1.5fr)_minmax(260px,0.8fr)]">
+      <section className="grid gap-5">
         <div className="overflow-hidden rounded-xl border border-ink/10 bg-white/75 shadow-panel">
           <div className="flex items-center justify-between border-b border-ink/10 px-5 py-4">
             <div>
@@ -143,23 +141,6 @@ export default async function HomePage({ searchParams }: PageProps) {
             </div>
           )}
         </div>
-
-        <aside className="rounded-xl border border-ink/10 bg-ink p-5 text-paper shadow-panel">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-paper/55">Atajos operativos</p>
-          <div className="mt-4 flex flex-col gap-2">
-            {[
-              ["Copiloto CM", "/copiloto"],
-              ["Crear landing", "/landings/editor"],
-              ["Tendencias y guiones", "/videos"],
-              ["Tendencias", "/tendencias"],
-              ["Analíticas detalladas", "/analytics"],
-            ].map(([label, href]) => (
-              <Link key={href} href={withClient(href)} className="flex items-center justify-between rounded-lg border border-paper/15 px-3 py-3 text-sm font-semibold transition hover:border-brass hover:bg-paper/10">
-                {label}<span aria-hidden="true">→</span>
-              </Link>
-            ))}
-          </div>
-        </aside>
       </section>
     </div>
   );

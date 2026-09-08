@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import type { Client, PrismaClient } from "@prisma/client";
 import { verifyJwt } from "./auth-crypto";
 
@@ -126,4 +127,23 @@ export async function resolveClientForSlug(
   if (!client)
     throw new ClientResolutionError("No tenés acceso a este cliente.", 403);
   return client;
+}
+
+/**
+ * Variante de resolveClientForSlug para server components de página: nunca
+ * cae en silencio a clients[0] ni deja pasar un clientFilter vacío. Un 401
+ * redirige a /login; el resto se propaga para que lo capture error.tsx.
+ */
+export async function requirePageClient(
+  prisma: PrismaClient,
+  slug?: string | null,
+): Promise<Client> {
+  try {
+    return await resolveClientForSlug(prisma, slug);
+  } catch (err) {
+    if (err instanceof ClientResolutionError && err.status === 401) {
+      redirect("/login");
+    }
+    throw err;
+  }
 }
