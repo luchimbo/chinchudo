@@ -1,4 +1,4 @@
-import { appendFile, mkdir, open, unlink, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, open, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { prisma } from "../src/lib/db";
@@ -18,6 +18,10 @@ const CLASSIFIER_TIMEOUT_MS = Number(process.env.OPPORTUNITY_CLASSIFIER_TIMEOUT_
 const DEFAULT_MAX_ROUNDS = Math.max(1, Number(process.env.DAILY_QUOTA_MAX_ROUNDS || 3));
 const MAX_CONCURRENCY = Math.max(1, Math.min(3, Number(process.env.DAILY_QUOTA_CONCURRENCY || 3)));
 const PIPELINE_LOCK_PATH = join(process.cwd(), "data", "opportunity-pipeline.lock");
+// Matches agents/orchestrator.py's MONITOR_LOCK_MAX_AGE_SECONDS: a lock left
+// behind by a crashed/killed run (e.g. Task Scheduler's execution time limit)
+// must not block the daily search until the next calendar day.
+const PIPELINE_LOCK_MAX_AGE_MS = 1900 * 1000;
 
 type Source = { id: string; label: string; channel: string; query: string; account: string | null; limit: number; lastRunAt: Date | null; lifecycle: string; priority: number; emptyReads: number };
 type Client = { id: string; slug: string; name: string; dailyOpportunityTarget: number; opportunitySearchState: unknown; domainKeywords: string };
@@ -373,14 +377,32 @@ async function main() {
   await withTimeout(prisma.$disconnect(), "Cierre de Prisma", 5_000);
 }
 
+async function acquirePipelineLock(): Promise<Awaited<ReturnType<typeof open>>> {
+  try {
+    return await open(PIPELINE_LOCK_PATH, "wx");
+  } catch (error: any) {
+    if (error?.code !== "EEXIST") throw error;
+    const age = Date.now() - (await stat(PIPELINE_LOCK_PATH)).mtimeMs;
+    if (age <= PIPELINE_LOCK_MAX_AGE_MS) {
+      const holder = await readFile(PIPELINE_LOCK_PATH, "utf8").catch(() => "");
+      throw Object.assign(new Error(`Otra corrida del pipeline de oportunidades está activa (${holder.trim() || "lock sin detalle"}).`), { code: "LOCK_BUSY" });
+    }
+    // Lock outlived a crashed/killed run (e.g. Task Scheduler's execution time
+    // limit) — same recovery as agents/orchestrator.py's monitor_run_lock.
+    await unlink(PIPELINE_LOCK_PATH).catch(() => {});
+    return open(PIPELINE_LOCK_PATH, "wx");
+  }
+}
+
 async function runWithPipelineLock() {
   await mkdir(join(process.cwd(), "data"), { recursive: true });
   let lock: Awaited<ReturnType<typeof open>>;
   try {
-    lock = await open(PIPELINE_LOCK_PATH, "wx");
+    lock = await acquirePipelineLock();
   } catch (error: any) {
-    if (error?.code === "EEXIST") {
-      console.log(JSON.stringify({ command: "daily-opportunity-quota", status: "skipped", reason: "Otra corrida del pipeline de oportunidades está activa." }));
+    if (error?.code === "LOCK_BUSY") {
+      console.log(JSON.stringify({ command: "daily-opportunity-quota", status: "skipped", reason: error.message }));
+      process.exitCode = 1;
       return;
     }
     throw error;
