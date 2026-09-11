@@ -4,6 +4,7 @@ import { requirePageClient } from "@/lib/auth";
 import { deleteLanding, publishAllOnlineLandings, publishLandingPreview, publishSelectedLandings, updateLandingStatus } from "./actions";
 import { DeleteLandingButton } from "./delete-landing-button";
 import { GenerationProgressCard } from "./generation-progress-card";
+import { InternalLinksEditor, type EditorialLink, type LinkCandidate } from "./internal-links-editor";
 
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: "Borrador",
@@ -19,6 +20,13 @@ const STATUS_CLASS: Record<string, string> = {
   PREVIEW_ONLINE: "bg-sky-500/10 text-sky-700 border-sky-300/50",
   PUBLISHED: "bg-moss/10 text-moss border-moss/30",
   ARCHIVED: "bg-ink/5 text-ink/55 border-ink/10",
+};
+
+const CONTENT_TYPE_LABELS: Record<string, string> = {
+  LEGACY: "Archivo",
+  PILLAR: "Pilar",
+  GUIDE: "Guía",
+  CAMPAIGN: "Campaña",
 };
 
 function fmt(d: Date | null | string) {
@@ -46,11 +54,36 @@ export default async function LandingsPage({
         ...clientFilter,
         status: status === "PREVIEW_ONLINE" ? { in: ["APPROVED", "PREVIEW_ONLINE"] } : status as any,
       },
-      include: { leadMagnet: true, _count: { select: { leads: true, trackingEvents: true } } },
+      include: {
+        leadMagnet: true,
+        contentCluster: { select: { slug: true, name: true } },
+        outboundInternalLinks: {
+          select: { targetLandingId: true, anchorText: true, mode: true, targetLanding: { select: { titulo: true, slug: true } } },
+          orderBy: [{ mode: "desc" }, { position: "asc" }],
+        },
+        _count: {
+          select: {
+            leads: true,
+            trackingEvents: true,
+            inboundInternalLinks: { where: { mode: { not: "EXCLUDED" } } },
+          },
+        },
+      },
       orderBy: { createdAt: "desc" },
       take: 50,
     }),
   ]);
+
+  // Destinos posibles para enlaces fijos: artículos editoriales publicados e
+  // indexables del mismo cliente (nunca legado, borradores ni otro cliente).
+  const linkCandidates: LinkCandidate[] = (
+    await prisma.landing.findMany({
+      where: { ...clientFilter, status: "PUBLISHED", indexingState: "INDEX", contentType: { in: ["PILLAR", "GUIDE"] } },
+      select: { id: true, titulo: true, slug: true, contentCluster: { select: { name: true } } },
+      orderBy: [{ contentClusterId: "asc" }, { publishedAt: "desc" }],
+      take: 500,
+    })
+  ).map((item) => ({ id: item.id, title: item.titulo || item.slug, clusterName: item.contentCluster?.name ?? "Sin cluster" }));
 
   const countMap = Object.fromEntries(counts.map((c) => [c.status, c._count.id]));
   const readyCount = (countMap.APPROVED || 0) + (countMap.PREVIEW_ONLINE || 0);
@@ -132,6 +165,13 @@ export default async function LandingsPage({
                       </span>
                     )}
                   </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
+                    <span className="rounded-full bg-ink/5 px-2 py-0.5 font-semibold text-ink">{CONTENT_TYPE_LABELS[landing.contentType] ?? landing.contentType}</span>
+                    {landing.contentCluster ? <span className="rounded-full bg-sky-500/10 px-2 py-0.5 text-sky-700">{landing.contentCluster.name}</span> : null}
+                    <span className={`rounded-full px-2 py-0.5 ${landing.indexingState === "INDEX" ? "bg-moss/10 text-moss" : "bg-ink/5 text-slate"}`}>
+                      {landing.indexingState === "INDEX" ? "Indexable" : "Noindex"}
+                    </span>
+                  </div>
                   <h2 className="mt-1 font-semibold text-ink">{landing.titulo || landing.slug}</h2>
                   <p className="mt-0.5 text-xs text-slate">{landing.keyword}</p>
                   {landing.publicPreviewUrl ? (
@@ -145,7 +185,24 @@ export default async function LandingsPage({
                   <div className="mt-2 flex gap-4 text-xs text-slate">
                     <span>👁 {landing._count.trackingEvents} visitas</span>
                     <span>📧 {landing._count.leads} contactos capturados</span>
+                    {landing.contentCluster ? (
+                      <span>
+                        🔗 {landing._count.inboundInternalLinks} entrantes · {landing.outboundInternalLinks.filter((link) => link.mode !== "EXCLUDED").length} salientes
+                      </span>
+                    ) : null}
                   </div>
+                  {landing.contentCluster && landing.status === "PUBLISHED" && landing.indexingState === "INDEX" ? (
+                    <InternalLinksEditor
+                      sourceId={landing.id}
+                      candidates={linkCandidates}
+                      links={landing.outboundInternalLinks.map<EditorialLink>((link) => ({
+                        targetId: link.targetLandingId,
+                        targetTitle: link.targetLanding.titulo || link.targetLanding.slug,
+                        anchorText: link.anchorText,
+                        mode: link.mode,
+                      }))}
+                    />
+                  ) : null}
                 </div>
 
                 <div className="flex flex-wrap gap-2 items-center">
@@ -223,7 +280,11 @@ export default async function LandingsPage({
                   {landing.status === "PUBLISHED" && (
                     <>
                       <a
-                        href={landing.publicPreviewUrl || `${blogBase.replace(/\/$/, "")}/${landing.slug}/`}
+                        href={
+                          landing.contentCluster && landing.indexingState === "INDEX"
+                            ? `${blogBase.replace(/\/$/, "")}/guias/${landing.contentCluster.slug}/${landing.slug}/`
+                            : landing.publicPreviewUrl || `${blogBase.replace(/\/$/, "")}/${landing.slug}/`
+                        }
                         target="_blank"
                         rel="noreferrer"
                         className="rounded-lg border border-ink/15 px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-ink/40"

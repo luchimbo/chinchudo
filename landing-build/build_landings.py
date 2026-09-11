@@ -11,9 +11,9 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urlparse, urlunparse
 
 
 ROOT = Path(__file__).resolve().parent
@@ -113,6 +113,54 @@ TEMPLATE_PATH = TEMPLATES_DIR / "landing-static-template.html"
 TEMPLATE_REGISTRY_PATH = TEMPLATES_DIR / "registry.json"
 MAX_GENERATE_PER_RUN = 50
 MAX_GENERATE_PER_DAY = 50
+MAX_EDITORIAL_PER_WEEK = 3
+
+# PC MIDI starts as the reusable pilot. These definitions live in code only as
+# a safe fallback; the database remains the source of truth once migrated.
+EDITORIAL_CLUSTERS = [
+    {"slug": "controladores-midi", "name": "Controladores MIDI y DAW", "description": "Cómo elegir teclados, pads y controladores para cada software y flujo de trabajo.", "terms": ("controlador", "midi", "ableton", "fl studio", "keylab", "minilab", "keystep", "pad")},
+    {"slug": "grabacion-en-casa", "name": "Grabación en casa", "description": "Interfaces, micrófonos y decisiones prácticas para grabar mejor en un home studio.", "terms": ("interfaz", "placa", "grabar", "grabación", "voz", "microfono", "micrófono", "home studio")},
+    {"slug": "podcast-y-streaming", "name": "Podcast y streaming", "description": "Guías para voces, transmisión en vivo y creación de contenido.", "terms": ("podcast", "stream", "directo", "youtub", "brazo", "filtro pop")},
+    {"slug": "monitoreo-home-studio", "name": "Monitoreo para home studio", "description": "Auriculares y monitores para escuchar, practicar y producir con criterio.", "terms": ("monitor", "auricular", "mezcla", "escuchar")},
+    {"slug": "sintetizadores", "name": "Sintetizadores", "description": "Síntesis, teclados y herramientas para crear sonidos y producir música electrónica.", "terms": ("sintet", "microfreak", "minifreak", "polybrute", "sonido")},
+    {"slug": "instrumentos-para-practicar", "name": "Instrumentos para practicar", "description": "Pianos digitales y baterías electrónicas para estudiar y tocar en casa.", "terms": ("batería", "bateria", "piano", "tecla", "practicar", "departamento")},
+]
+EDITORIAL_TYPES = {"PILLAR", "GUIDE"}
+HUB_PAGE_SIZE = 20
+# Umbrales de solapamiento (Jaccard de términos): contra artículos nuevos se
+# evita la canibalización; contra el archivo legado sólo lo casi idéntico.
+EDITORIAL_OVERLAP_THRESHOLD = 0.5
+LEGACY_OVERLAP_THRESHOLD = 0.8
+
+
+def default_indexing_state() -> str:
+    """Registros sin estado explícito: el archivo de PC MIDI queda noindex;
+    los demás clientes conservan su comportamiento (indexable)."""
+    return "NOINDEX" if client_slug_active() == "pcmidi" else "INDEX"
+
+
+def is_indexable(landing: dict) -> bool:
+    return (landing.get("indexing_state") or default_indexing_state()) == "INDEX"
+
+
+def is_editorial(landing: dict) -> bool:
+    """Guía o pilar nuevo, indexable y con cluster: vive bajo /guias/."""
+    return landing.get("content_type") in EDITORIAL_TYPES and is_indexable(landing) and bool(landing.get("cluster_slug"))
+
+
+def iso_datetime(value: object) -> str:
+    """Fecha ISO 8601 para schema.org y sitemap (acepta datetime o texto)."""
+    if isinstance(value, datetime):
+        moment = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return moment.isoformat()
+    text = str(value or "").strip()
+    if not text or text == "None":
+        return ""
+    try:
+        moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    return (moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)).isoformat()
 
 
 def load_template_registry() -> dict:
@@ -285,29 +333,18 @@ def _load_landings_from_pg() -> list[dict] | None:
         with psycopg.connect(url, row_factory=dict_row) as conn:
             if client_id:
                 rows = conn.execute(
-                    "SELECT slug, keyword, intent, titulo, \"htmlContent\", \"seoTitle\", \"seoDescription\", \"leadMagnetId\", \"createdAt\" "
-                    "FROM \"Landing\" WHERE status = 'APPROVED' AND \"clientId\" = %s ORDER BY \"createdAt\" DESC",
+                    "SELECT l.id, l.slug, l.keyword, l.intent, l.titulo, l.status, l.\"htmlContent\", l.\"seoTitle\", l.\"seoDescription\", l.\"leadMagnetId\", l.\"createdAt\", l.\"updatedAt\", l.\"publishedAt\", l.\"contentType\", l.\"indexingState\", l.\"authorName\", l.\"sourceRefs\", cc.slug AS cluster_slug, cc.name AS cluster_name "
+                    "FROM \"Landing\" l LEFT JOIN \"ContentCluster\" cc ON cc.id = l.\"contentClusterId\" WHERE l.status IN ('APPROVED', 'PUBLISHED') AND l.\"clientId\" = %s ORDER BY l.\"createdAt\" DESC",
                     (client_id,),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT slug, keyword, intent, titulo, \"htmlContent\", \"seoTitle\", \"seoDescription\", \"leadMagnetId\", \"createdAt\" "
-                    "FROM \"Landing\" WHERE status = 'APPROVED' ORDER BY \"createdAt\" DESC"
+                    "SELECT l.id, l.slug, l.keyword, l.intent, l.titulo, l.status, l.\"htmlContent\", l.\"seoTitle\", l.\"seoDescription\", l.\"leadMagnetId\", l.\"createdAt\", l.\"updatedAt\", l.\"publishedAt\", l.\"contentType\", l.\"indexingState\", l.\"authorName\", l.\"sourceRefs\", cc.slug AS cluster_slug, cc.name AS cluster_name "
+                    "FROM \"Landing\" l LEFT JOIN \"ContentCluster\" cc ON cc.id = l.\"contentClusterId\" WHERE l.status IN ('APPROVED', 'PUBLISHED') ORDER BY l.\"createdAt\" DESC"
                 ).fetchall()
-        # Mapear campos Prisma → formato que espera el builder
-        result = []
-        for r in rows:
-            result.append({
-                "slug": r["slug"],
-                "keyword": r["keyword"],
-                "intent": r.get("intent", ""),
-                "titulo": r.get("titulo", ""),
-                "html_content": r.get("htmlContent", ""),
-                "seo_title": r.get("seoTitle", ""),
-                "seo_description": r.get("seoDescription", ""),
-                "lead_magnet_id": r.get("leadMagnetId"),
-                "created_at": str(r.get("createdAt", "")),
-            })
+        # Mapear campos Prisma → formato que espera el builder. El contenido
+        # renderizable vive como JSON en htmlContent.
+        result = [normalize_pg_landing(dict(r)) for r in rows]
         return result
     except Exception as exc:
         print(f"[build_landings] No se pudo leer desde Postgres: {exc}. Usando jsonl local.")
@@ -342,16 +379,33 @@ def normalize_pg_landing(row: dict) -> dict:
             parsed = json.loads(html_content)
         except Exception:
             parsed = {}
+    source_refs = row.get("sourceRefs") or row.get("source_refs") or parsed.get("source_refs") or []
+    if isinstance(source_refs, str):
+        try:
+            source_refs = json.loads(source_refs)
+        except Exception:
+            source_refs = []
     return {
         **parsed,
-        "id": row.get("id", parsed.get("id", "")),
+        "id": row.get("id") or parsed.get("id", ""),
         "slug": row.get("slug") or parsed.get("slug", ""),
         "keyword": row.get("keyword") or parsed.get("keyword", ""),
-        "intent": row.get("intent", parsed.get("intent", "")),
-        "titulo": row.get("titulo", parsed.get("titulo", "")),
+        "intent": row.get("intent") or parsed.get("intent", ""),
+        "titulo": row.get("titulo") or parsed.get("titulo", ""),
         "seo_title": row.get("seoTitle") or parsed.get("seo_title", ""),
         "meta_description": row.get("seoDescription") or parsed.get("meta_description") or parsed.get("seo_description", ""),
         "seo_description": row.get("seoDescription") or parsed.get("seo_description", ""),
+        "lead_magnet_id": row.get("leadMagnetId") or parsed.get("lead_magnet_id"),
+        "status": row.get("status") or parsed.get("status", ""),
+        "content_type": row.get("contentType") or row.get("content_type") or parsed.get("content_type") or "LEGACY",
+        "indexing_state": row.get("indexingState") or row.get("indexing_state") or parsed.get("indexing_state") or default_indexing_state(),
+        "cluster_slug": row.get("cluster_slug") or parsed.get("cluster_slug") or "",
+        "cluster_name": row.get("cluster_name") or parsed.get("cluster_name") or "",
+        "author_name": row.get("authorName") or row.get("author_name") or parsed.get("author_name") or f"Equipo {client_name()}",
+        "source_refs": source_refs,
+        "created_at": iso_datetime(row.get("createdAt") or row.get("created_at") or parsed.get("created_at")),
+        "updated_at": iso_datetime(row.get("updatedAt") or row.get("updated_at") or parsed.get("updated_at")),
+        "published_at": iso_datetime(row.get("publishedAt") or row.get("published_at") or parsed.get("published_at")),
     }
 
 
@@ -483,7 +537,14 @@ def preview_command(landing_id: str = "", base_url: str = "") -> None:
         errors = validate_landings([landing], categories, products)
         if errors:
             landing = demo_landing(categories, products)
-    sys.stdout.buffer.write(render_landing(landing, categories, products, base_url, load_lead_magnets()).encode("utf-8"))
+    html_text = render_landing(landing, categories, products, base_url, load_lead_magnets())
+    sys.stdout.buffer.write(mark_preview_noindex(html_text).encode("utf-8"))
+
+
+def mark_preview_noindex(html_text: str) -> str:
+    """Las previews /l/{slug} nunca deben indexarse ni transmitir enlaces."""
+    marked, count = re.subn(r'<meta name="robots" content="[^"]*">', '<meta name="robots" content="noindex,nofollow">', html_text, count=1)
+    return marked if count else marked.replace("</head>", '<meta name="robots" content="noindex,nofollow"></head>', 1)
 
 
 def load_env() -> None:
@@ -545,7 +606,10 @@ def load_jsonl(path: Path) -> list[dict]:
     return rows
 
 
-def append_landing(landing: dict) -> None:
+def append_landing(landing: dict) -> dict:
+    """Persiste la landing. Un artículo editorial se publica y recalcula el
+    grafo; si el grafo falla, el artículo vuelve a borrador (nunca queda
+    publicado a medias). Devuelve el id y los enlaces creados."""
     expected_client_id = os.environ.get("LANDING_EXPECTED_CLIENT_ID", "").strip()
     configured_client_id = str(_CLIENT_CONFIG.get("id") or "").strip()
     if expected_client_id and configured_client_id and expected_client_id != configured_client_id:
@@ -559,7 +623,7 @@ def append_landing(landing: dict) -> None:
     if db_url:
         try:
             sys.path.insert(0, str(ROOT.parent / "agents"))
-            from db_pg import upsert_landing  # type: ignore
+            from db_pg import get_content_cluster, rebuild_editorial_internal_links, update_landing_status, upsert_landing  # type: ignore
             extra = {}
             # The relay provides the intended client id. Prefer it over any
             # inferred runtime config so a multi-client run cannot persist in
@@ -568,7 +632,20 @@ def append_landing(landing: dict) -> None:
                 extra["clientId"] = client_id
             preview_base_url = client_blog_url().rstrip("/")
             preview_path = f"/l/{quote(str(landing.get('slug', '')).strip())}"
-            upsert_landing(
+            editorial = is_editorial(landing)
+            if editorial:
+                cluster = get_content_cluster(client_id, str(landing.get("cluster_slug") or ""))
+                if not cluster:
+                    raise RuntimeError(f"No existe el cluster editorial {landing.get('cluster_slug')!r}")
+                extra.update({
+                    "contentClusterId": cluster["id"],
+                    "contentType": landing.get("content_type", "GUIDE"),
+                    "indexingState": "INDEX",
+                    "authorName": landing.get("author_name") or f"Equipo {client_name()}",
+                    "sourceRefs": json.dumps(landing.get("source_refs", []), ensure_ascii=False),
+                    "publishedAt": datetime.now(timezone.utc),
+                })
+            landing_id = upsert_landing(
                 slug=landing.get("slug", ""),
                 keyword=landing.get("keyword", ""),
                 html_content=json.dumps(landing, ensure_ascii=False),
@@ -576,17 +653,60 @@ def append_landing(landing: dict) -> None:
                 intent=landing.get("intent", ""),
                 seoTitle=landing.get("seo_title", ""),
                 seoDescription=landing.get("seo_description", ""),
-                status="PREVIEW_ONLINE",
+                status="PUBLISHED" if editorial else "PREVIEW_ONLINE",
                 publicPreviewUrl=f"{preview_base_url}{preview_path}",
                 previewPublishedAt=datetime.now(timezone.utc),
                 **extra,
             )
+            if editorial:
+                try:
+                    graph = rebuild_editorial_internal_links(client_id)
+                except Exception:
+                    update_landing_status(landing_id, "DRAFT")
+                    raise
+                outbound = [link for link in graph.get("links", []) if link["source"] == landing_id]
+                inbound = [link for link in graph.get("links", []) if link["target"] == landing_id]
+                result = {"id": landing_id, "links": {"outbound": len(outbound), "inbound": len(inbound), "auto_total": graph.get("auto_links", 0)}}
+                print(f"[build_landings] Artículo editorial publicado: {landing_id} ({len(outbound)} salientes, {len(inbound)} entrantes)")
+            else:
+                result = {"id": landing_id}
         except Exception as exc:
             raise RuntimeError(f"No se pudo persistir landing en Postgres: {exc}") from exc
+    else:
+        result = {}
     landings_path = _landings_path()
     landings_path.parent.mkdir(parents=True, exist_ok=True)
     with landings_path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(landing, ensure_ascii=False, separators=(",", ":")) + "\n")
+    return result
+
+
+def editorial_quota_remaining(existing: list[dict]) -> int:
+    """Cupo de publicaciones editoriales que quedan en la semana (lunes UTC)."""
+    client_id = str(_CLIENT_CONFIG.get("id") or os.environ.get("LANDING_EXPECTED_CLIENT_ID") or "")
+    if os.environ.get("DATABASE_URL") and client_id:
+        try:
+            sys.path.insert(0, str(ROOT.parent / "agents"))
+            from db_pg import count_editorial_publications_this_week  # type: ignore
+            return max(0, MAX_EDITORIAL_PER_WEEK - count_editorial_publications_this_week(client_id))
+        except Exception as exc:
+            # Sin poder verificar la cuota no se publica: el excedente espera.
+            print(f"[build_landings] No se pudo verificar cuota editorial semanal: {exc}")
+            return 0
+    return max(0, MAX_EDITORIAL_PER_WEEK - count_published_this_week(existing))
+
+
+def count_published_this_week(landings: list[dict], now: datetime | None = None) -> int:
+    now = now or datetime.now(timezone.utc)
+    week_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    total = 0
+    for landing in landings:
+        if not is_editorial(landing):
+            continue
+        published = iso_datetime(landing.get("published_at"))
+        if published and datetime.fromisoformat(published) >= week_start:
+            total += 1
+    return total
 
 
 def append_jsonl(path: Path, rows: list[dict]) -> None:
@@ -736,7 +856,7 @@ def parse_vercel_deploy_url(stdout_lines: list[str], stderr_lines: list[str]) ->
     return ""
 
 
-def deploy_with_vercel(base_url: str) -> dict:
+def deploy_with_vercel(base_url: str, build_summary: dict | None = None) -> dict:
     project = load_vercel_project()
     if not project.get("projectId"):
         report_path = write_report("deploy-blocked", {
@@ -812,6 +932,7 @@ def deploy_with_vercel(base_url: str) -> dict:
         "stderr_tail": stderr_lines[-20:],
         "file_count": manifest["file_count"],
         "files": manifest["files"],
+        "site": {key: (build_summary or {}).get(key) for key in ("published_articles", "noindex_pages", "sitemap_urls", "broken_links", "orphans", "graph_warnings", "graph_audit")},
     }
     report_path = write_report("deploy" if result.returncode == 0 else "deploy-blocked", payload)
     if result.returncode != 0:
@@ -948,9 +1069,9 @@ def generation_prompt(topic: dict, categories: dict[str, dict], products: dict[s
     brand = client_name()
     has_products = bool(catalog["productos"])
     if has_products:
-        system = f"""Sos estratega SEO y especialista en landings comerciales para {brand}.
+        system = f"""Sos estratega SEO y editor de guías de compra para el blog de {brand}.
 Devolves solo JSON valido, sin markdown ni explicaciones.
-La landing debe ser unica, concreta, util para un posible comprador y relacionada con productos vendidos por {brand}.
+El artículo debe ser único, concreto, útil para una persona y relacionado con productos vendidos por {brand}. Respondé primero la búsqueda y recién después orientá hacia categorías o productos.
 No inventes categorias, productos, marcas, modelos ni URLs. Solo usa IDs del catalogo recibido.
 No menciones precios, stock, disponibilidad, distribuidor oficial, soporte tecnico oficial, exclusividad, reparaciones, alquileres, clases formales, grabacion, mezcla ni mastering.
 No incluyas software Arturia tipo Modular V, CS-80 V, CMI V, Synclavier V ni packs de plugins.
@@ -959,7 +1080,7 @@ Usa español rioplatense claro y humano."""
         product_rules = "- product_ids debe contener 2 a 5 productos reales del catalogo, todos hardware.\n- Si un producto no ayuda al tema, no lo uses."
         components_subtitle_hint = "parrafo que mencione productos/modelos reales si ayudan"
     else:
-        system = f"""Sos estratega SEO y especialista en contenido util para {brand}.
+        system = f"""Sos estratega SEO y editor de guías útiles para el blog de {brand}.
 Devolves solo JSON valido, sin markdown ni explicaciones.
 La landing debe ser unica, concreta y util para la persona que busca esa informacion, siempre dentro del ambito de {brand}.
 No inventes categorias, productos, marcas, modelos ni URLs. Solo usa IDs del catalogo recibido.
@@ -969,6 +1090,23 @@ Usa español rioplatense claro y humano."""
         product_ids_template = '"product_ids": [],'
         product_rules = "- El catalogo no tiene productos: product_ids debe ser una lista vacia: []."
         components_subtitle_hint = "parrafo que mencione categorias reales si ayudan"
+    editorial = bool(topic.get("cluster_slug"))
+    editorial_brief = ""
+    editorial_fields = ""
+    editorial_rules = ""
+    if editorial:
+        editorial_brief = (
+            f"\nTipo editorial: {topic.get('editorial_content_type', 'GUIDE')}"
+            f"\nCluster editorial: {topic.get('cluster_name') or topic.get('cluster_slug')}\n"
+        )
+        editorial_fields = """
+  "direct_answer": "respuesta directa a la búsqueda en 2 o 3 frases, sin rodeos",
+  "common_mistakes": ["error frecuente concreto y cómo evitarlo", "error frecuente concreto y cómo evitarlo", "error frecuente concreto y cómo evitarlo"],"""
+        editorial_rules = """
+- Estructura editorial: primero la respuesta directa (direct_answer), después criterios prácticos (components: why = para qué sirve, look = qué comparar), una comparativa cuando haya alternativas reales, errores frecuentes (common_mistakes), productos relacionados del catálogo y preguntas frecuentes útiles.
+- Las preguntas frecuentes deben aportar información nueva; no repitas el H1 ni la respuesta directa.
+- Si el tipo editorial es PILLAR, cubrí el tema principal de forma amplia y conectá los criterios que luego desarrollarán guías específicas.
+- Si el tipo editorial es GUIDE, resolvé un problema, comparación o decisión puntual dentro del cluster; no repitas la guía general."""
     user = f"""Tema semilla:
 - keyword: {topic.get('keyword', '')}
 - intencion: {topic.get('intencion', '')}
@@ -976,8 +1114,8 @@ Usa español rioplatense claro y humano."""
 
 Catalogo cerrado permitido:
 {json.dumps(catalog, ensure_ascii=False)}
-
-Genera una landing JSON con exactamente esta forma:
+{editorial_brief}
+Genera un artículo JSON con exactamente esta forma:
 {{
   "slug": "slug-seo-unico",
   "keyword": "busqueda objetivo concreta",
@@ -985,7 +1123,7 @@ Genera una landing JSON con exactamente esta forma:
   "seo_title": "title unico de maximo 65 caracteres",
   "meta_description": "meta description unica de 140 a 160 caracteres",
   "h1": "H1 unico y natural",
-  "hero_lede": "subtitulo humano de 1 a 2 frases",
+  "hero_lede": "subtitulo humano de 1 a 2 frases",{editorial_fields}
   "components_title": "titulo humano y especifico para la seccion de opciones",
   "components_subtitle": "{components_subtitle_hint}",
   "primary_category_id": "id_categoria",
@@ -1013,7 +1151,7 @@ Reglas:
 {product_rules}
 - No uses frases genericas como "lo que entra en juego".
 - No afirmes que {brand} tiene stock ni disponibilidad.
-- La landing debe responder una busqueda o problema real de la persona."""
+- El artículo debe responder una búsqueda o problema real de la persona con criterios prácticos, no con una lista genérica de productos.{editorial_rules}"""
     return system, user
 
 
@@ -1025,6 +1163,149 @@ def normalize_generated_landing(landing: dict) -> dict:
     landing["product_ids"] = [PRODUCT_ALIASES.get(item, item) for item in landing.get("product_ids", [])]
     landing["product_ids"] = list(dict.fromkeys(landing.get("product_ids", [])))[:5]
     return landing
+
+
+def cluster_terms(cluster: dict) -> tuple[str, ...]:
+    """Términos para asignar temas a un cluster. Los clusters del piloto traen
+    términos curados; los de otros clientes se derivan de nombre y descripción."""
+    curated = next((item["terms"] for item in EDITORIAL_CLUSTERS if item["slug"] == cluster.get("slug")), None)
+    if curated and client_slug_active() == "pcmidi":
+        return tuple(curated)
+    return tuple(sorted(topic_terms(f"{cluster.get('name', '')} {cluster.get('description', '')}")))
+
+
+def editorial_cluster_for(topic: dict, clusters: list[dict], landing: dict | None = None) -> dict | None:
+    """Asigna un hogar temático estable antes de generar.
+
+    Un tema que ya trae cluster (p. ej. un pilar) lo conserva; si no, gana el
+    cluster con más términos presentes. Sin coincidencias no hay cluster: el
+    tema no se fuerza a un tema ajeno.
+    """
+    if not clusters:
+        return None
+    by_slug = {str(cluster.get("slug")): cluster for cluster in clusters}
+    preset = str(topic.get("cluster_slug") or "")
+    if preset:
+        return by_slug.get(preset)
+    text = " ".join(
+        str(value or "")
+        for value in (
+            topic.get("keyword"), topic.get("busqueda_objetivo"), topic.get("intencion"), topic.get("categorias_sugeridas"),
+            (landing or {}).get("keyword"), (landing or {}).get("h1"),
+        )
+    ).lower()
+    best, best_score = None, 0
+    for cluster in clusters:
+        score = sum(1 for term in cluster_terms(cluster) if term in text)
+        if score > best_score:
+            best, best_score = cluster, score
+    return best
+
+
+def apply_editorial_metadata(topic: dict, landing: dict, cluster: dict | None) -> dict:
+    """Convierte la generación en un artículo editorial indexable."""
+    if not cluster:
+        return landing
+    content_type = str(topic.get("editorial_content_type") or "GUIDE").upper()
+    now = datetime.now(timezone.utc).isoformat()
+    landing["content_type"] = content_type if content_type in EDITORIAL_TYPES else "GUIDE"
+    landing["indexing_state"] = "INDEX"
+    landing["cluster_slug"] = cluster["slug"]
+    landing["cluster_name"] = cluster["name"]
+    landing["author_name"] = f"Equipo {client_name()}"
+    landing["published_at"] = now
+    landing["updated_at"] = now
+    landing.setdefault("source_refs", [])
+    return landing
+
+
+def pillar_cluster_slugs(clusters: list[dict], landings: list[dict]) -> set[str]:
+    """Clusters que ya tienen pilar publicado (en la base o en el respaldo local)."""
+    with_pillar = {str(cluster.get("slug")) for cluster in clusters if cluster.get("pillarLandingId")}
+    with_pillar.update(
+        str(landing.get("cluster_slug"))
+        for landing in landings
+        if landing.get("content_type") == "PILLAR" and is_editorial(landing)
+    )
+    return with_pillar
+
+
+def editorial_pillar_topics(clusters: list[dict], landings: list[dict]) -> list[dict]:
+    """Los pilares se generan primero; las guías de un cluster esperan a su pilar."""
+    existing = pillar_cluster_slugs(clusters, landings)
+    return [
+        {
+            "keyword": f"Guía completa: {str(cluster['name']).lower()}",
+            "intencion": "guía pilar editorial",
+            "categorias_sugeridas": "",
+            "source": "editorial_pillar",
+            "editorial_content_type": "PILLAR",
+            "cluster_slug": cluster["slug"],
+        }
+        for cluster in clusters
+        if cluster["slug"] not in existing
+    ]
+
+
+def topic_overlap(candidate: str, reference: str) -> float:
+    candidate_terms, reference_terms = topic_terms(candidate), topic_terms(reference)
+    if not candidate_terms or not reference_terms:
+        return 0.0
+    return len(candidate_terms & reference_terms) / len(candidate_terms | reference_terms)
+
+
+def editorial_overlap_reason(candidate: str, existing: list[dict]) -> str:
+    """Solapamiento sustancial con un artículo nuevo, o casi idéntico al legado."""
+    for item in existing:
+        reference = str(item.get("keyword") or item.get("h1") or "")
+        overlap = topic_overlap(candidate, reference)
+        if is_editorial(item) and overlap >= EDITORIAL_OVERLAP_THRESHOLD:
+            return f"canibaliza {item.get('slug')}"
+        if not is_editorial(item) and overlap >= LEGACY_OVERLAP_THRESHOLD:
+            return f"casi idéntico al archivo {item.get('slug')}"
+    return ""
+
+
+def validate_editorial_candidate(landing: dict, existing: list[dict], clusters: list[dict], pillar_slugs: set[str]) -> list[str]:
+    """Validaciones obligatorias antes de autopublicar. Si alguna falla, el
+    artículo queda bloqueado y reportado; nunca se publica a medias."""
+    errors: list[str] = []
+    label = landing.get("slug") or landing.get("keyword") or "articulo"
+    for field in ("slug", "seo_title", "h1", "meta_description"):
+        value = str(landing.get(field) or "").strip().lower()
+        if not value:
+            errors.append(f"{label}: falta {field}")
+            continue
+        if any(str(item.get(field) or "").strip().lower() == value for item in existing):
+            errors.append(f"{label}: {field} duplicado con otra publicación")
+    reason = editorial_overlap_reason(str(landing.get("keyword") or ""), existing) or editorial_overlap_reason(str(landing.get("h1") or ""), existing)
+    if reason:
+        errors.append(f"{label}: contenido duplicado o canibalizante ({reason})")
+    cluster_slugs = {str(cluster.get("slug")) for cluster in clusters}
+    cluster_slug = str(landing.get("cluster_slug") or "")
+    if cluster_slug not in cluster_slugs:
+        errors.append(f"{label}: cluster inexistente {cluster_slug!r}")
+    elif landing.get("content_type") == "GUIDE" and cluster_slug not in pillar_slugs:
+        errors.append(f"{label}: el cluster {cluster_slug} todavía no tiene artículo pilar")
+    if landing.get("content_type") not in EDITORIAL_TYPES:
+        errors.append(f"{label}: tipo editorial inválido {landing.get('content_type')!r}")
+    return errors
+
+
+def validate_rendered_article(html_text: str, expected_canonical: str) -> list[str]:
+    """Estructura HTML mínima de un artículo indexable."""
+    errors: list[str] = []
+    h1_count = len(re.findall(r"<h1[\s>]", html_text, flags=re.IGNORECASE))
+    if h1_count != 1:
+        errors.append(f"el artículo tiene {h1_count} H1")
+    canonicals = re.findall(r'<link rel="canonical" href="([^"]*)"', html_text)
+    if canonicals != [html.escape(expected_canonical, quote=True)]:
+        errors.append(f"canonical incorrecta: {canonicals}")
+    if 'content="index,follow"' not in html_text:
+        errors.append("el artículo no es indexable")
+    if "{{ " in html_text:
+        errors.append("quedaron placeholders sin reemplazar")
+    return errors
 
 
 def catalogue_fallback_landing(topic: dict, categories: dict[str, dict], products: dict[str, dict]) -> dict:
@@ -1640,10 +1921,21 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
     existing = load_landings()
     existing_slugs = {item.get("slug") for item in existing}
     existing_keywords = {topic_key_from_record(item) for item in existing}
+    # Un cliente con clusters editoriales publica artículos del blog: todo tema
+    # nuevo necesita cluster, respeta la cuota semanal y se autopublica sólo si
+    # pasa las validaciones obligatorias. Sin clusters, el flujo es el de siempre.
+    clusters = load_content_clusters()
+    editorial_mode = bool(clusters)
+    pillar_slugs = pillar_cluster_slugs(clusters, existing)
+    weekly_remaining = None
+    if editorial_mode:
+        weekly_remaining = editorial_quota_remaining(existing)
+        limit = min(limit, weekly_remaining)
     opportunities = load_jsonl(_opportunities_path())
     # La base editorial del cliente define la diversidad. Las señales de redes
     # se agregan, pero no pueden desplazarla ni repetir una sola categoría.
-    topics = balance_topics_by_source([*load_seed_topics(), *opportunities])
+    pillar_topics = editorial_pillar_topics(clusters, existing) if editorial_mode else []
+    topics = [*pillar_topics, *balance_topics_by_source([*load_seed_topics(), *opportunities])]
     created = 0
     created_items = []
     skipped_items = []
@@ -1674,14 +1966,31 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
             skipped_items.append(skipped)
             append_generation_event(run_id, {"command": "generate", "event": "skipped", "dry_run": dry_run, **skipped})
             continue
+        cluster = None
+        if editorial_mode:
+            cluster = editorial_cluster_for(topic, clusters)
+            if not cluster:
+                skipped = {"keyword": topic_label, "reason": "without_cluster"}
+                skipped_items.append(skipped)
+                append_generation_event(run_id, {"command": "generate", "event": "skipped", "dry_run": dry_run, **skipped})
+                continue
+            content_type = str(topic.get("editorial_content_type") or "GUIDE").upper()
+            if content_type == "GUIDE" and cluster["slug"] not in pillar_slugs:
+                # Queda en cola: se genera cuando el cluster tenga su pilar.
+                skipped = {"keyword": topic_label, "reason": "waiting_for_pillar", "cluster": cluster["slug"]}
+                skipped_items.append(skipped)
+                append_generation_event(run_id, {"command": "generate", "event": "skipped", "dry_run": dry_run, **skipped})
+                continue
+            topic = {**topic, "cluster_slug": cluster["slug"], "cluster_name": cluster["name"], "editorial_content_type": content_type}
         print("@@landing-progress " + json.dumps({"event": "processing", "keyword": topic.get("keyword") or topic.get("busqueda_objetivo") or "Tema sin nombre"}, ensure_ascii=False), flush=True)
         if topic_key_from_record(topic) in existing_keywords:
             skipped = {"keyword": topic.get("keyword") or topic.get("busqueda_objetivo"), "reason": "already_exists"}
             skipped_items.append(skipped)
             append_generation_event(run_id, {"command": "generate", "event": "skipped", "dry_run": dry_run, **skipped})
             continue
-        if is_near_duplicate_topic(topic_label, existing):
-            skipped = {"keyword": topic_label, "reason": "near_duplicate"}
+        overlap_reason = editorial_overlap_reason(topic_label, existing) if editorial_mode else ("near_duplicate" if is_near_duplicate_topic(topic_label, existing) else "")
+        if overlap_reason:
+            skipped = {"keyword": topic_label, "reason": "near_duplicate", "detail": overlap_reason}
             skipped_items.append(skipped)
             append_generation_event(run_id, {"command": "generate", "event": "skipped", "dry_run": dry_run, **skipped})
             continue
@@ -1700,12 +2009,19 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
             output_text = " ".join(str(landing.get(key) or "") for key in ("keyword", "titulo", "seo_title", "h1")).lower()
             if not any(term in output_text for term in prestige_terms):
                 landing = normalize_generated_landing(catalogue_fallback_landing(topic, categories, products))
+        landing = apply_editorial_metadata(topic, landing, cluster)
         if landing["slug"] in existing_slugs:
             landing["slug"] = slugify(f"{landing['slug']}-{created + 1}")
         # La propuesta se valida contra el catálogo del cliente activo. Las
         # landings históricas ya fueron deduplicadas arriba; revalidarlas acá
         # puede bloquear un cliente por registros viejos de otro catálogo.
         errors = validate_landings([landing], categories, products)
+        if editorial_mode and not errors:
+            errors = validate_editorial_candidate(landing, existing, clusters, pillar_slugs)
+            if not errors:
+                blog_url = client_blog_url().rstrip("/")
+                rendered = render_landing(landing, categories, products, blog_url, {})
+                errors = [f"{landing['slug']}: {error}" for error in validate_rendered_article(rendered, landing_url(landing, blog_url))]
         if errors:
             print("Saltada por validacion: " + landing.get("slug", topic.get("keyword", "sin-slug")))
             for error in errors:
@@ -1715,18 +2031,44 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
             append_generation_event(run_id, {"command": "generate", "event": "blocked", "dry_run": dry_run, **blocked})
             continue
         print(f"Generada: {landing['slug']} ({landing['keyword']})")
+        persisted: dict = {}
         if not dry_run:
-            append_landing(landing)
+            try:
+                persisted = append_landing(landing) or {}
+            except RuntimeError as exc:
+                if not editorial_mode:
+                    raise
+                blocked = {"keyword": landing.get("keyword"), "slug": landing.get("slug"), "reason": "persist_error", "errors": [str(exc)]}
+                blocked_items.append(blocked)
+                append_generation_event(run_id, {"command": "generate", "event": "blocked", "dry_run": dry_run, **blocked})
+                continue
+        if landing.get("content_type") == "PILLAR" and landing.get("cluster_slug"):
+            pillar_slugs.add(str(landing["cluster_slug"]))
         existing.append(landing)
         existing_slugs.add(landing["slug"])
         existing_keywords.add(topic_key_from_record(landing))
         created += 1
-        created_item = {"slug": landing["slug"], "keyword": landing["keyword"], "title": landing.get("titulo") or landing.get("seo_title") or landing["keyword"], "source": topic.get("source") or "internal"}
+        created_item = {
+            "slug": landing["slug"],
+            "keyword": landing["keyword"],
+            "title": landing.get("titulo") or landing.get("seo_title") or landing["keyword"],
+            "source": topic.get("source") or "internal",
+            "cluster": landing.get("cluster_slug", ""),
+            "contentType": landing.get("content_type", ""),
+            "indexingState": landing.get("indexing_state", default_indexing_state()),
+            "url": landing_url(landing, client_blog_url().rstrip("/")) if is_editorial(landing) else "",
+            "links": persisted.get("links", {}),
+            "validation": "ok",
+        }
         created_items.append(created_item)
         print("@@landing-progress " + json.dumps({"event": "created", **created_item}, ensure_ascii=False), flush=True)
         append_generation_event(run_id, {"command": "generate", "event": "created", "dry_run": dry_run, **created_item})
 
-    if created < limit and stopped_reason == "limit_reached":
+    if editorial_mode and weekly_remaining is not None and created >= weekly_remaining and stopped_reason == "limit_reached":
+        # El excedente queda en cola: los temas siguen en la base de
+        # oportunidades y se toman la semana próxima.
+        stopped_reason = "weekly_quota_reached"
+    elif created < limit and stopped_reason == "limit_reached":
         stopped_reason = "no_more_topics_or_all_skipped"
     print(f"Landings nuevas: {created}")
     summary = {
@@ -1740,6 +2082,12 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
         "processed_count": processed,
         "created_count": created,
         "stopped_reason": stopped_reason,
+        "editorial": {
+            "enabled": editorial_mode,
+            "weekly_quota": MAX_EDITORIAL_PER_WEEK if editorial_mode else None,
+            "weekly_remaining_before_run": weekly_remaining,
+            "clusters_with_pillar": sorted(pillar_slugs),
+        },
         "elapsed_seconds": round(time.monotonic() - started_at, 2),
         "max_seconds": max_seconds,
         "skipped_count": len(skipped_items),
@@ -1843,7 +2191,7 @@ def render_landing(landing: dict, categories: dict[str, dict], products: dict[st
     step_leds = "".join(f'<span style="--i:{index}"></span>' for index in range(16))
     slug = landing.get("slug") or slugify(landing["keyword"])
     landing_variant = f"motion-{int(hashlib.sha1(slug.encode('utf-8')).hexdigest()[:2], 16) % 3}"
-    canonical_url = landing_url(slug, base_url)
+    canonical_url = landing_url(landing, base_url)
     brand = client_name()
     store_url = client_store_url().rstrip("/") or "#"
     blog_url = client_blog_url().rstrip("/")
@@ -1873,6 +2221,7 @@ def render_landing(landing: dict, categories: dict[str, dict], products: dict[st
         "meta_description": esc(landing["meta_description"]),
         "canonical_url": esc(canonical_url),
         "faq_json_ld": esc(faq_json_ld).replace("&quot;", '"'),
+        "robots_content": "index,follow" if landing.get("indexing_state", "NOINDEX") == "INDEX" else "noindex,follow",
         "primary_url": esc(primary["url"]),
         "primary_name": esc(display_category_name(primary)),
         "cta_text": f"Ver opciones en {brand}",
@@ -1891,7 +2240,10 @@ def render_landing(landing: dict, categories: dict[str, dict], products: dict[st
         "vu_bars": vu_bars,
         "step_leds": step_leds,
         "asset_prefix": "../",
-        "index_href": "../index.html",
+        # Absoluto a la portada: las guías viven en /guias/{cluster}/{slug}/ y
+        # un "../" relativo apuntaría al hub, no al inicio del blog.
+        "index_href": esc(f"{base_url.rstrip('/')}/" if base_url else "/"),
+        "slug": esc(slug),
         "primary_color": _CLIENT_CONFIG.get("landingPrimaryColor") or "#EB6517",
         "secondary_color": _CLIENT_CONFIG.get("landingSecondaryColor") or "#F6A00C",
         "template_id": esc(active_template_id()),
@@ -1910,12 +2262,241 @@ def render_landing(landing: dict, categories: dict[str, dict], products: dict[st
         "mega_copy": esc("Consulta categorias relacionadas y elegi segun tu caso de uso, tu espacio y tus prioridades de compra."),
     }
     template_text = active_template_path().read_text(encoding="utf-8-sig")
-    return render_template(template_text, values)
+    rendered = render_template(template_text, values)
+
+    if not is_editorial(landing):
+        return rendered
+    return decorate_editorial_article(rendered, landing, canonical_url, brand, blog_url or base_url.rstrip("/"))
 
 
-def landing_url(slug: str, base_url: str = "") -> str:
-    path = f"/{quote(slug)}/"
+# Algunos templates ordenan <main> con flexbox: `order` ubica los bloques
+# editoriales después de las FAQ (errores) y al final (enlaces).
+EDITORIAL_SECTION_STYLE = "width:100%;max-width:1180px;margin:0 auto;padding:28px 16px;border-top:1px solid rgba(29,29,27,.16);"
+EDITORIAL_KICKER_STYLE = "font:800 12px/1 Arial,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#706b61;"
+EDITORIAL_H2_STYLE = "margin:10px 0;font:700 clamp(26px,4vw,42px)/1 Georgia,serif;"
+
+
+def internal_link(item: dict, link_type: str, text: str | None = None) -> str:
+    label = text or item.get("anchor_text") or item.get("h1") or item.get("titulo") or item.get("seo_title") or item.get("keyword")
+    return (
+        f'<a href="{esc(landing_path(item))}" data-internal-link="true" data-link-type="{esc(link_type)}" '
+        f'data-target-slug="{esc(item.get("slug"))}">{esc(label)}</a>'
+    )
+
+
+def decorate_editorial_article(rendered: str, landing: dict, canonical_url: str, brand: str, blog_url: str) -> str:
+    """Capa editorial sobre cualquier template: miga de pan, respuesta directa,
+    enlace al pilar, errores frecuentes, relacionadas y datos estructurados."""
+    cluster_slug = str(landing.get("cluster_slug") or "")
+    cluster_name = str(landing.get("cluster_name") or "Guías")
+    hub_path = f"/guias/{quote(cluster_slug)}/"
+    title = landing.get("h1") or landing.get("keyword")
+    breadcrumb = (
+        '<nav aria-label="Miga de pan" style="max-width:1180px;margin:18px auto 0;padding:0 16px;font:12px/1.4 Arial,sans-serif;color:#706b61;">'
+        f'<a href="/">Blog</a> &nbsp;/&nbsp; <a href="{esc(hub_path)}" data-internal-link="true" data-link-type="hub">{esc(cluster_name)}</a> &nbsp;/&nbsp; <span>{esc(title)}</span></nav>'
+    )
+
+    intro_parts = []
+    if landing.get("direct_answer"):
+        intro_parts.append(
+            f'<p style="{EDITORIAL_KICKER_STYLE}">Respuesta rápida</p>'
+            f'<p style="margin:8px 0 0;font:500 19px/1.5 Georgia,serif;">{esc(landing["direct_answer"])}</p>'
+        )
+    pillar = landing.get("_pillar")
+    if pillar and landing.get("content_type") != "PILLAR":
+        intro_parts.append(
+            '<p style="margin:14px 0 0;font:15px/1.5 Arial,sans-serif;">Esta guía forma parte de '
+            f'{internal_link(pillar, "pillar")}, la guía completa sobre {esc(cluster_name.lower())}.</p>'
+        )
+    intro_html = f'<section aria-label="Resumen" style="max-width:1180px;margin:0 auto;padding:18px 16px 0;">{"".join(intro_parts)}</section>' if intro_parts else ""
+
+    mistakes = [str(item) for item in landing.get("common_mistakes") or [] if str(item).strip()]
+    mistakes_html = ""
+    if mistakes:
+        items = "".join(f'<li style="margin:.5rem 0;">{esc(item)}</li>' for item in mistakes[:6])
+        mistakes_html = (
+            f'<section aria-label="Errores frecuentes" style="{EDITORIAL_SECTION_STYLE}order:4;">'
+            f'<p style="{EDITORIAL_KICKER_STYLE}">Antes de decidir</p><h2 style="{EDITORIAL_H2_STYLE}">Errores frecuentes</h2>'
+            f'<ul style="margin:0;padding-left:20px;font:16px/1.5 Arial,sans-serif;">{items}</ul></section>'
+        )
+
+    links_html = ""
+    if landing.get("content_type") == "PILLAR" and landing.get("_pillar_index"):
+        items = "".join(f'<li style="margin:.65rem 0;">{internal_link(item, "pillar_index")}</li>' for item in landing["_pillar_index"])
+        links_html = (
+            f'<section aria-label="Guías de este tema" style="{EDITORIAL_SECTION_STYLE}padding-bottom:54px;order:7;">'
+            f'<p style="{EDITORIAL_KICKER_STYLE}">{esc(cluster_name)}</p><h2 style="{EDITORIAL_H2_STYLE}">Guías de este tema</h2>'
+            f'<ul style="margin:0;padding-left:20px;font:600 17px/1.45 Arial,sans-serif;">{items}</ul></section>'
+        )
+    elif landing.get("_related"):
+        items = "".join(f'<li style="margin:.65rem 0;">{internal_link(item, "related")}</li>' for item in landing["_related"])
+        links_html = (
+            f'<section aria-label="Guías relacionadas" style="{EDITORIAL_SECTION_STYLE}padding-bottom:54px;order:7;">'
+            f'<p style="{EDITORIAL_KICKER_STYLE}">Seguí explorando</p><h2 style="{EDITORIAL_H2_STYLE}">Guías relacionadas</h2>'
+            f'<ul style="margin:0;padding-left:20px;font:600 17px/1.45 Arial,sans-serif;">{items}</ul></section>'
+        )
+
+    date_published = iso_datetime(landing.get("published_at") or landing.get("created_at"))
+    date_modified = iso_datetime(landing.get("updated_at")) or date_published
+    article_schema = {
+        "@context": "https://schema.org",
+        "@type": "BlogPosting",
+        "headline": title,
+        "description": landing.get("meta_description"),
+        "mainEntityOfPage": canonical_url,
+        "author": {"@type": "Organization", "name": landing.get("author_name") or f"Equipo {brand}"},
+        "publisher": {"@type": "Organization", "name": brand},
+        "datePublished": date_published,
+        "dateModified": date_modified,
+        "articleSection": cluster_name,
+    }
+    breadcrumb_schema = {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+            {"@type": "ListItem", "position": 1, "name": "Blog", "item": f"{blog_url}/"},
+            {"@type": "ListItem", "position": 2, "name": cluster_name, "item": f"{blog_url}{hub_path}"},
+            {"@type": "ListItem", "position": 3, "name": title, "item": canonical_url},
+        ],
+    }
+    social_meta = (
+        f'<meta property="og:type" content="article"><meta property="og:title" content="{esc(landing.get("seo_title"))}">'
+        f'<meta property="og:description" content="{esc(landing.get("meta_description"))}"><meta property="og:url" content="{esc(canonical_url)}">'
+        f'<meta property="og:site_name" content="{esc(brand)}"><meta property="article:published_time" content="{esc(date_published)}"><meta property="article:modified_time" content="{esc(date_modified)}">'
+        f'<meta name="twitter:card" content="summary"><meta name="twitter:title" content="{esc(landing.get("seo_title"))}">'
+        f'<meta name="twitter:description" content="{esc(landing.get("meta_description"))}">'
+        f'<script type="application/ld+json">{json_for_script(article_schema)}</script>'
+        f'<script type="application/ld+json">{json_for_script(breadcrumb_schema)}</script>'
+    )
+    tracking = (
+        "<script>(function(){document.addEventListener('click',function(event){"
+        "var link=event.target&&event.target.closest?event.target.closest('a[data-internal-link]'):null;if(!link)return;"
+        "try{navigator.sendBeacon('/api/events',JSON.stringify({event_type:'internal_link_click',"
+        f"slug:{json_for_script(landing.get('slug') or '')},client_slug:{json_for_script(client_slug_active())},"
+        "meta:{target_slug:link.getAttribute('data-target-slug')||'',link_type:link.getAttribute('data-link-type')||'',href:link.getAttribute('href')||''}}));}catch(e){}"
+        "});})();</script>"
+    )
+    rendered = rendered.replace("</head>", social_meta + "</head>", 1)
+    rendered = rendered.replace("<main>", "<main>" + breadcrumb + intro_html, 1)
+    rendered = rendered.replace("</main>", mistakes_html + links_html + "</main>", 1)
+    return rendered.replace("</body>", tracking + "</body>", 1)
+
+
+def json_for_script(value: object) -> str:
+    """JSON seguro dentro de <script>: no permite cerrar la etiqueta."""
+    return json.dumps(value, ensure_ascii=False).replace("</", "<\\/")
+
+
+def landing_path(landing: dict) -> str:
+    slug = str(landing.get("slug") or "")
+    if is_editorial(landing):
+        return f"/guias/{quote(str(landing['cluster_slug']))}/{quote(slug)}/"
+    return f"/{quote(slug)}/"
+
+
+def landing_url(landing: dict | str, base_url: str = "") -> str:
+    path = landing_path(landing) if isinstance(landing, dict) else f"/{quote(landing)}/"
     return f"{base_url.rstrip('/')}{path}" if base_url else path
+
+
+def load_content_clusters() -> list[dict]:
+    """Clusters del cliente activo. La base es la fuente de verdad; la lista en
+    código sólo cubre al piloto de PC MIDI cuando no hay base disponible."""
+    fallback = [dict(cluster) for cluster in EDITORIAL_CLUSTERS] if client_slug_active() == "pcmidi" else []
+    client_id = _CLIENT_CONFIG.get("id")
+    if not os.environ.get("DATABASE_URL") or not client_id:
+        return fallback
+    try:
+        import psycopg
+        from psycopg.rows import dict_row
+        with psycopg.connect(psycopg_url(os.environ["DATABASE_URL"]), row_factory=dict_row) as conn:
+            rows = conn.execute(
+                'SELECT id, slug, name, description, "pillarLandingId" FROM "ContentCluster" WHERE "clientId" = %s ORDER BY name',
+                (client_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+    except Exception as exc:
+        print(f"[build_landings] No se pudieron cargar clusters editoriales: {exc}")
+        return fallback
+
+
+def attach_internal_links(landings: list[dict]) -> None:
+    """Adjunta al payload de render el pilar, las relacionadas y (en el pilar)
+    el índice de su cluster. Con base usa los enlaces persistidos (AUTO y
+    PINNED; EXCLUDED nunca se muestra); sin base, calcula el mismo plan."""
+    for landing in landings:
+        landing["_pillar"] = None
+        landing["_related"] = []
+        landing["_pillar_index"] = []
+    editorial = [landing for landing in landings if is_editorial(landing)]
+    if not editorial:
+        return
+    rows = load_persisted_internal_links() if os.environ.get("DATABASE_URL") and _CLIENT_CONFIG.get("id") else None
+    if rows is None:
+        rows = plan_local_internal_links(editorial)
+
+    by_id = {str(landing.get("id") or landing.get("slug")): landing for landing in editorial}
+    ordered = sorted(rows, key=lambda row: (row.get("mode") != "PINNED", int(row.get("position") or 0)))
+    for row in ordered:
+        source = by_id.get(str(row["sourceLandingId"]))
+        target = by_id.get(str(row["targetLandingId"]))
+        # Sólo artículos del mismo cliente, publicados e indexables: el mapa
+        # by_id ya excluye legado, borradores y otros clientes.
+        if not source or not target or source is target:
+            continue
+        item = {**target, "anchor_text": row.get("anchorText") or ""}
+        item.pop("_related", None)
+        item.pop("_pillar_index", None)
+        item.pop("_pillar", None)
+        same_cluster = source.get("cluster_slug") == target.get("cluster_slug")
+        if source.get("content_type") == "PILLAR" and same_cluster:
+            source["_pillar_index"].append(item)
+        elif target.get("content_type") == "PILLAR" and same_cluster and source["_pillar"] is None:
+            source["_pillar"] = item
+        elif target.get("content_type") != "PILLAR" and len(source["_related"]) < 4 and all(existing.get("slug") != item.get("slug") for existing in source["_related"]):
+            source["_related"].append(item)
+
+
+def load_persisted_internal_links() -> list[dict] | None:
+    try:
+        import psycopg
+        from psycopg.rows import dict_row
+        with psycopg.connect(psycopg_url(os.environ["DATABASE_URL"]), row_factory=dict_row) as conn:
+            return [dict(row) for row in conn.execute(
+                '''SELECT "sourceLandingId", "targetLandingId", "anchorText", position, mode
+                   FROM "LandingInternalLink"
+                   WHERE "clientId" = %s AND mode IN ('AUTO', 'PINNED')
+                   ORDER BY "sourceLandingId", position, "createdAt"''',
+                (_CLIENT_CONFIG["id"],),
+            ).fetchall()]
+    except Exception as exc:
+        print(f"[build_landings] No se pudieron cargar enlaces internos; se calculan localmente: {exc}")
+        return None
+
+
+def plan_local_internal_links(editorial: list[dict]) -> list[dict]:
+    """Mismo planificador que usa la base, para builds sin DATABASE_URL."""
+    sys.path.insert(0, str(ROOT.parent / "agents"))
+    from editorial_graph import Article, plan_internal_links  # type: ignore
+
+    articles = [
+        Article(
+            id=str(landing.get("id") or landing.get("slug")),
+            slug=str(landing.get("slug")),
+            content_type=str(landing.get("content_type")),
+            cluster_id=str(landing.get("cluster_slug")),
+            title=str(landing.get("h1") or landing.get("titulo") or landing.get("keyword") or landing.get("slug")),
+            intent=str(landing.get("intent") or ""),
+            published_at=iso_datetime(landing.get("published_at") or landing.get("created_at")),
+            category_ids=set(category_ids_for(landing)),
+            product_ids=set(landing.get("product_ids") or []),
+        )
+        for landing in editorial
+    ]
+    return [
+        {"sourceLandingId": link.source_id, "targetLandingId": link.target_id, "anchorText": link.anchor_text, "position": link.position, "mode": "AUTO"}
+        for link in plan_internal_links(articles)
+    ]
 
 
 def validate_built_site(landings: list[dict], sitemap_urls: list[str]) -> list[str]:
@@ -1938,52 +2519,60 @@ def validate_built_site(landings: list[dict], sitemap_urls: list[str]) -> list[s
             errors.append(f"site: sitemap no incluye {loc}")
 
     for landing in landings:
-        slug = landing.get("slug") or slugify(landing["keyword"])
-        output = SITE_DIR / slug / "index.html"
+        output = SITE_DIR / landing_path(landing).strip("/") / "index.html"
         if not output.exists():
             errors.append(f"site: falta landing generada {output.relative_to(ROOT)}")
 
     return errors
 
 
-def render_index(landings: list[dict], categories: dict[str, dict], base_url: str) -> str:
+def render_index(landings: list[dict], categories: dict[str, dict], base_url: str, clusters: list[dict]) -> str:
     primary_color = _CLIENT_CONFIG.get("landingPrimaryColor") or "#EB6517"
     canonical_url = f"{base_url.rstrip('/')}/" if base_url else "/"
-    featured = landings[:12]
-    latest = landings[:48]
-    category_counts = []
-    for category_id, category in categories.items():
-        if category_id == "home":
-            continue
-        count = sum(1 for landing in landings if category_id in category_ids_for(landing))
-        if count:
-            category_counts.append((count, category))
-    category_counts.sort(key=lambda item: (-item[0], item[1]["nombre"]))
+    brand = client_name()
+    indexable = sorted((landing for landing in landings if is_indexable(landing)), key=landing_recency, reverse=True)
+    featured = indexable[:12]
+    latest = indexable[:48]
 
     featured_html = []
     for index, landing in enumerate(featured, start=1):
-        slug = landing.get("slug") or slugify(landing["keyword"])
+        path = landing_path(landing)
         featured_html.append(
             f'<article class="guide-card guide-card-{index}"><span class="card-kicker">Guia {index:02d}</span>'
-            f'<h3><a href="/{esc(slug)}/">{esc(landing["h1"])}</a></h3>'
+            f'<h3><a href="{esc(path)}">{esc(landing["h1"])}</a></h3>'
             f'<p>{esc(landing["meta_description"])}</p>'
-            f'<a class="text-link" href="/{esc(slug)}/">Leer guia <span>-></span></a></article>'
+            f'<a class="text-link" href="{esc(path)}">Leer guia <span>-></span></a></article>'
         )
 
     category_html = []
-    for count, category in category_counts[:8]:
+    for cluster in clusters:
+        count = sum(1 for landing in indexable if is_editorial(landing) and landing.get("cluster_slug") == cluster.get("slug"))
         category_html.append(
-            f'<article class="topic-card"><span>{count} guias</span><h3>{esc(category["nombre"])}</h3>'
-            f'<p>{esc(category["descripcion"])}</p>'
-            f'<a href="{esc(category["url"])}" target="_blank" rel="noopener">Ver categoria en {esc(brand)}</a></article>'
+            f'<article class="topic-card"><span>{count} guias</span><h3>{esc(cluster["name"])}</h3>'
+            f'<p>{esc(cluster.get("description", ""))}</p>'
+            f'<a href="/guias/{esc(quote(str(cluster["slug"])))}/">Explorar guías</a></article>'
         )
+    if not clusters:
+        # Clientes sin blog editorial: se mantienen los temas por categoría.
+        category_counts = []
+        for category_id, category in categories.items():
+            if category_id == "home":
+                continue
+            count = sum(1 for landing in indexable if category_id in category_ids_for(landing))
+            if count:
+                category_counts.append((count, category))
+        category_counts.sort(key=lambda item: (-item[0], item[1]["nombre"]))
+        for count, category in category_counts[:8]:
+            category_html.append(
+                f'<article class="topic-card"><span>{count} guias</span><h3>{esc(category["nombre"])}</h3>'
+                f'<p>{esc(category["descripcion"])}</p>'
+                f'<a href="{esc(category["url"])}" target="_blank" rel="noopener">Ver categoria en {esc(brand)}</a></article>'
+            )
 
     latest_html = []
     for landing in latest:
-        slug = landing.get("slug") or slugify(landing["keyword"])
-        latest_html.append(f'<li><a href="/{esc(slug)}/">{esc(landing["h1"])}</a><span>{esc(landing["keyword"])}</span></li>')
+        latest_html.append(f'<li><a href="{esc(landing_path(landing))}">{esc(landing["h1"])}</a><span>{esc(landing["keyword"])}</span></li>')
 
-    brand = client_name()
     store_url = client_store_url()
     schema = {
         "@context": "https://schema.org",
@@ -2063,22 +2652,150 @@ def render_index(landings: list[dict], categories: dict[str, dict], base_url: st
     <section class="hero">
       <div class="container hero-grid">
         <div><span class="eyebrow">Guias de compra {esc(brand)}</span><h1>Elegir mejor con {esc(brand)}.</h1><p class="lede">Comparativas y guias practicas para elegir los productos de {esc(brand)} segun tu uso real.</p><div class="hero-actions"><a class="btn btn-primary" href="#guias">Explorar guias</a><a class="btn btn-ghost" href="{esc(store_url)}/" target="_blank" rel="noopener">Ir a la tienda</a></div></div>
-        <aside class="meter"><span>Archivo indexable</span><strong>{len(landings)}</strong><span>guias publicadas</span><div class="bars" aria-hidden="true"><i style="height:38%"></i><i style="height:62%"></i><i style="height:84%"></i><i style="height:46%"></i><i style="height:92%"></i><i style="height:58%"></i><i style="height:74%"></i><i style="height:42%"></i><i style="height:100%"></i><i style="height:68%"></i><i style="height:52%"></i><i style="height:88%"></i></div></aside>
+        <aside class="meter"><span>Archivo indexable</span><strong>{len(indexable)}</strong><span>guias publicadas</span><div class="bars" aria-hidden="true"><i style="height:38%"></i><i style="height:62%"></i><i style="height:84%"></i><i style="height:46%"></i><i style="height:92%"></i><i style="height:58%"></i><i style="height:74%"></i><i style="height:42%"></i><i style="height:100%"></i><i style="height:68%"></i><i style="height:52%"></i><i style="height:88%"></i></div></aside>
       </div>
     </section>
     <section class="section" id="guias"><div class="container"><div class="section-head"><h2>Guias destacadas</h2><p>Entradas orientadas a problemas reales de compra: que conectar, que comparar y que categoria revisar antes de decidir.</p></div><div class="guide-grid">{''.join(featured_html)}</div></div></section>
-    <section class="section" id="temas"><div class="container"><div class="section-head"><h2>Temas principales</h2><p>Cada tema enlaza con categorias reales de {esc(brand)} para pasar de la duda tecnica a opciones concretas.</p></div><div class="topic-grid">{''.join(category_html)}</div><div class="cta-band"><h2>Catalogo comercial en {esc(brand)}.</h2><a class="btn btn-primary" href="{esc(store_url)}/" target="_blank" rel="noopener">Ver tienda</a></div></div></section>
+    <section class="section" id="temas"><div class="container"><div class="section-head"><h2>Temas principales</h2><p>Empezá por un tema y avanzá desde la duda puntual hacia las guías que la desarrollan.</p></div><div class="topic-grid">{''.join(category_html)}</div><div class="cta-band"><h2>Catálogo comercial en {esc(brand)}.</h2><a class="btn btn-primary" href="{esc(store_url)}/" target="_blank" rel="noopener">Ver tienda</a></div></div></section>
     <section class="section" id="indice"><div class="container"><div class="section-head"><h2>Ultimas guias</h2><p>Indice editorial de busquedas frecuentes, comparativas y decisiones de compra.</p></div><ul class="latest">{''.join(latest_html)}</ul></div></section>
   </main>
-  <footer class="container">{esc(brand)} comercializa productos para sus clientes. Este blog ayuda a comparar alternativas segun uso real y enlaza a categorias disponibles en la tienda.</footer>
+  <footer class="container">{esc(brand)} comercializa productos para sus clientes. Este blog organiza guías por tema para ayudar a comparar alternativas según uso real.</footer>
 </body>
 </html>'''
 
 
-def build(base_url: str = "") -> None:
+def landing_recency(landing: dict) -> str:
+    return iso_datetime(landing.get("published_at") or landing.get("created_at")) or ""
+
+
+def cluster_entries(cluster: dict, landings: list[dict]) -> list[dict]:
+    """Pilar primero; después las guías, de la más nueva a la más vieja."""
+    entries = [landing for landing in landings if is_editorial(landing) and landing.get("cluster_slug") == cluster.get("slug")]
+    pillars = [landing for landing in entries if landing.get("content_type") == "PILLAR"]
+    guides = sorted((landing for landing in entries if landing.get("content_type") != "PILLAR"), key=landing_recency, reverse=True)
+    return [*pillars, *guides]
+
+
+CURRENT_PAGE_ATTR = ' aria-current="page"'
+
+
+def hub_page_path(cluster_slug: str, page: int) -> str:
+    base = f"/guias/{quote(cluster_slug)}/"
+    return base if page <= 1 else f"{base}pagina/{page}/"
+
+
+def hub_pages(cluster: dict, landings: list[dict]) -> list[dict]:
+    """Paginación HTML rastreable: cada página es una URL real con enlaces."""
+    entries = cluster_entries(cluster, landings)
+    chunks = [entries[index:index + HUB_PAGE_SIZE] for index in range(0, len(entries), HUB_PAGE_SIZE)] or [[]]
+    return [
+        {"page": number, "total": len(chunks), "path": hub_page_path(str(cluster["slug"]), number), "entries": chunk}
+        for number, chunk in enumerate(chunks, start=1)
+    ]
+
+
+def render_cluster_hub(cluster: dict, page: dict, base_url: str) -> str:
+    cluster_slug = str(cluster["slug"])
+    number, total = page["page"], page["total"]
+    canonical = f"{base_url.rstrip('/')}{page['path']}" if base_url else page["path"]
+    entries = page["entries"]
+    # Un hub vacío no aporta nada al índice: queda accesible pero noindex.
+    robots = "index,follow" if entries else "noindex,follow"
+    items = "".join(
+        f'<article><p>{"Guía pilar" if landing.get("content_type") == "PILLAR" else "Guía práctica"}</p>'
+        f'<h2>{internal_link(landing, "hub")}</h2><p>{esc(landing.get("meta_description") or "")}</p></article>'
+        for landing in entries
+    ) or '<p>Estamos preparando las primeras guías de este tema.</p>'
+    pager = []
+    if number > 1:
+        pager.append(f'<a rel="prev" href="{esc(hub_page_path(cluster_slug, number - 1))}">&larr; Anteriores</a>')
+    if total > 1:
+        pager.extend(
+            f'<a href="{esc(hub_page_path(cluster_slug, index))}"{CURRENT_PAGE_ATTR if index == number else ""}>{index}</a>'
+            for index in range(1, total + 1)
+        )
+    if number < total:
+        pager.append(f'<a rel="next" href="{esc(hub_page_path(cluster_slug, number + 1))}">Siguientes &rarr;</a>')
+    pager_html = f'<nav class="pager" aria-label="Páginas">{" ".join(pager)}</nav>' if pager else ""
+    title_suffix = f" · página {number}" if number > 1 else ""
+    schema = {
+        "@context": "https://schema.org",
+        "@type": "CollectionPage",
+        "name": f"{cluster['name']}{title_suffix}",
+        "description": cluster.get("description", ""),
+        "url": canonical,
+        "hasPart": [{"@type": "BlogPosting", "headline": landing.get("h1"), "url": landing_url(landing, base_url)} for landing in entries],
+    }
+    breadcrumb = {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+            {"@type": "ListItem", "position": 1, "name": "Blog", "item": f"{base_url.rstrip('/')}/" if base_url else "/"},
+            {"@type": "ListItem", "position": 2, "name": cluster["name"], "item": canonical},
+        ],
+    }
+    store_url = client_store_url().rstrip("/")
+    return f'''<!DOCTYPE html>
+<html lang="es-AR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{esc(cluster["name"])}{esc(title_suffix)} | Guías {esc(client_name())}</title><meta name="description" content="{esc(cluster.get("description", ""))}">
+<link rel="canonical" href="{esc(canonical)}"><meta name="robots" content="{robots}">
+<meta property="og:type" content="website"><meta property="og:title" content="{esc(cluster["name"])}"><meta property="og:url" content="{esc(canonical)}"><meta name="twitter:card" content="summary">
+<script type="application/ld+json">{json_for_script(schema)}</script>
+<script type="application/ld+json">{json_for_script(breadcrumb)}</script>
+<style>body{{margin:0;background:#f4f1ea;color:#1d1d1b;font:16px/1.55 Arial,sans-serif}}main,header,footer{{max-width:920px;margin:auto;padding:24px}}a{{color:inherit}}header{{display:flex;gap:12px;border-bottom:1px solid #c9c3b5;font-size:13px}}h1{{font:700 clamp(42px,8vw,78px)/.95 Georgia,serif;letter-spacing:-.05em}}h2{{font:700 28px/1.1 Georgia,serif;margin:.25rem 0}}article{{padding:28px 0;border-bottom:1px solid #c9c3b5}}article p:first-child{{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:#746c5d}}.pager{{display:flex;flex-wrap:wrap;gap:14px;padding:28px 0;font-weight:700}}.pager [aria-current]{{text-decoration:none;color:#746c5d}}footer{{color:#746c5d;font-size:14px}}</style></head>
+<body><header><a href="/">Blog</a><span>/</span><span>{esc(cluster["name"])}</span></header>
+<main><p>Guías del tema</p><h1>{esc(cluster["name"])}</h1><p>{esc(cluster.get("description", ""))}</p>{items}{pager_html}</main>
+<footer><a href="/">Todos los temas</a> &middot; <a href="{esc(store_url)}/" target="_blank" rel="noopener">Tienda {esc(client_name())}</a></footer>
+</body></html>'''
+
+
+def write_sitemap(entries: list[tuple[str, str]]) -> None:
+    sitemap_xml = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+    for loc, lastmod in entries:
+        lastmod_xml = f"<lastmod>{esc(lastmod[:10])}</lastmod>" if lastmod else ""
+        sitemap_xml += f"  <url><loc>{esc(loc)}</loc>{lastmod_xml}</url>\n"
+    sitemap_xml += "</urlset>\n"
+    (SITE_DIR / "sitemap.xml").write_text(sitemap_xml, encoding="utf-8")
+
+
+def editorial_site_paths(landings: list[dict], clusters: list[dict]) -> set[str]:
+    """Rutas nuevas sobre las que la auditoría del grafo es bloqueante."""
+    paths = {unquote(landing_path(landing)) for landing in landings if is_editorial(landing)}
+    for cluster in clusters:
+        for page in hub_pages(cluster, landings):
+            if page["entries"]:
+                paths.add(unquote(page["path"]))
+    return paths
+
+
+def graph_rule_warnings(landings: list[dict]) -> dict[str, list[str]]:
+    """Reglas del plan (pilar, 3-4 relacionadas, entrantes) sobre lo renderizado."""
+    sys.path.insert(0, str(ROOT.parent / "agents"))
+    from editorial_graph import Article, audit_article_links  # type: ignore
+
+    editorial = [landing for landing in landings if is_editorial(landing)]
+    by_slug = {str(landing.get("slug")): landing for landing in editorial}
+    articles = [
+        Article(id=str(landing.get("slug")), slug=str(landing.get("slug")), content_type=str(landing.get("content_type")), cluster_id=str(landing.get("cluster_slug")))
+        for landing in editorial
+    ]
+    links = []
+    for landing in editorial:
+        targets = [*(landing.get("_related") or []), *(landing.get("_pillar_index") or [])]
+        if landing.get("_pillar"):
+            targets.append(landing["_pillar"])
+        links.extend((str(landing.get("slug")), str(target.get("slug"))) for target in targets if str(target.get("slug")) in by_slug)
+    return {unquote(landing_path(by_slug[slug])): problems for slug, problems in audit_article_links(articles, links).items()}
+
+
+def build(base_url: str = "") -> dict:
+    from site_audit import audit_site  # type: ignore
+
     categories = load_categories()
     products = load_products()
     landings = load_landings()
+    clusters = load_content_clusters()
+    attach_internal_links(landings)
     lead_magnets = load_lead_magnets()
     errors = validate_landings(landings, categories, products)
     if errors:
@@ -2099,45 +2816,99 @@ def build(base_url: str = "") -> None:
         if source.exists():
             shutil.copy2(source, ASSETS_DIR / logo)
 
-    sitemap_urls = [f"{base_url.rstrip('/')}/" if base_url else "/"]
+    root = base_url.rstrip("/")
+    sitemap_entries: list[tuple[str, str]] = []
+    for cluster in clusters:
+        for page in hub_pages(cluster, landings):
+            hub_dir = SITE_DIR / unquote(page["path"]).strip("/")
+            hub_dir.mkdir(parents=True, exist_ok=True)
+            (hub_dir / "index.html").write_text(render_cluster_hub(cluster, page, base_url), encoding="utf-8")
+            if page["entries"]:
+                lastmod = max((iso_datetime(landing.get("updated_at")) or landing_recency(landing) for landing in page["entries"]), default="")
+                sitemap_entries.append((f"{root}{page['path']}", lastmod))
+    published: list[dict] = []
+    noindex_count = 0
     for landing in landings:
-        slug = landing.get("slug") or slugify(landing["keyword"])
         html_text = render_landing(landing, categories, products, base_url, lead_magnets)
-        landing_dir = SITE_DIR / slug
+        landing_dir = SITE_DIR / unquote(landing_path(landing)).strip("/")
         landing_dir.mkdir(parents=True, exist_ok=True)
         output = landing_dir / "index.html"
         output.write_text(html_text, encoding="utf-8")
-        loc = landing_url(slug, base_url)
-        sitemap_urls.append(loc)
+        if is_indexable(landing):
+            sitemap_entries.append((landing_url(landing, base_url), iso_datetime(landing.get("updated_at")) or landing_recency(landing)))
+            if is_editorial(landing):
+                published.append({"slug": landing.get("slug"), "url": landing_url(landing, base_url), "cluster": landing.get("cluster_slug"), "type": landing.get("content_type")})
+        else:
+            noindex_count += 1
 
-    index_html = render_index(landings, categories, base_url)
+    index_html = render_index(landings, categories, base_url, clusters)
     (SITE_DIR / "index.html").write_text(index_html, encoding="utf-8")
 
-    today = datetime.now(timezone.utc).date().isoformat()
-    sitemap_xml = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-    for loc in sitemap_urls:
-        sitemap_xml += f"  <url><loc>{esc(loc)}</loc><lastmod>{today}</lastmod></url>\n"
-    sitemap_xml += "</urlset>\n"
-    (SITE_DIR / "sitemap.xml").write_text(sitemap_xml, encoding="utf-8")
+    home_lastmod = max((lastmod for _, lastmod in sitemap_entries), default="")
+    sitemap_entries.insert(0, (f"{root}/" if base_url else "/", home_lastmod))
+    write_sitemap(sitemap_entries)
+    sitemap_urls = [loc for loc, _ in sitemap_entries]
 
     sitemap_ref = f"Sitemap: {base_url.rstrip('/')}/sitemap.xml" if base_url else "Sitemap: sitemap.xml"
+    # Las páginas legacy NO se bloquean acá: el crawler tiene que poder leer su noindex.
     (SITE_DIR / "robots.txt").write_text(f"User-agent: *\nAllow: /\n{sitemap_ref}\n", encoding="utf-8")
     site_errors = validate_built_site(landings, sitemap_urls)
+    graph_audit = audit_site(SITE_DIR, base_url, sitemap_urls, editorial_site_paths(landings, clusters))
+    graph_audit["published_articles"] = published
+    graph_audit["graph_rule_warnings"] = graph_rule_warnings(landings)
+    audit_path = write_report("site-graph-audit", {"command": "build", **graph_audit})
+    site_errors.extend(graph_audit["errors"])
     if site_errors:
-        report_path = write_report("build-blocked", {"command": "build", "status": "blocked", "stage": "site_validation", "errors": site_errors})
-        raise SystemExit("Validacion de site fallida:\n" + "\n".join(f"- {error}" for error in site_errors) + f"\nReporte: {report_path}")
+        report_path = write_report("build-blocked", {"command": "build", "status": "blocked", "stage": "site_validation", "errors": site_errors, "graph_audit": str(audit_path)})
+        raise SystemExit("Validacion de site fallida:\n" + "\n".join(f"- {error}" for error in site_errors[:50]) + f"\nReporte: {report_path}")
     current_manifest = collect_site_manifest()
     current_manifest_path = write_report("site-current-manifest", {"command": "build", "status": "snapshot", "site_dir": str(SITE_DIR), **current_manifest})
-    report_path = write_report("build", {
+    summary = {
         "command": "build",
         "status": "ok",
         "landings": len(landings),
         "site_dir": str(SITE_DIR),
+        "published_articles": len(published),
+        "noindex_pages": noindex_count,
         "sitemap_urls": len(sitemap_urls),
+        "broken_links": len(graph_audit["broken_links"]),
+        "orphans": graph_audit["orphans"],
+        "graph_warnings": len(graph_audit["warnings"]) + len(graph_audit["graph_rule_warnings"]),
+        "graph_audit": str(audit_path),
         "previous_manifest": str(previous_manifest_path) if previous_manifest_path else None,
         "current_manifest": str(current_manifest_path),
         "file_count": current_manifest["file_count"],
-    })
+    }
+    report_path = write_report("build", summary)
+    print(f"Reporte generado: {report_path}")
+    print(f"Auditoría del grafo: {audit_path}")
+    return {**summary, "report": str(report_path)}
+
+
+def audit_graph_command(base_url: str = "") -> None:
+    """Reconstruye el sitio en limpio y muestra la auditoría del grafo."""
+    summary = build(base_url=base_url)
+    audit = json.loads(Path(summary["graph_audit"]).read_text(encoding="utf-8"))
+    print(f"Páginas: {audit['pages']} · indexables: {audit['indexable_pages']} · noindex: {audit['noindex_pages']}")
+    print(f"Artículos editoriales: {len(audit['published_articles'])} · URLs en sitemap: {len(audit['sitemap_urls'])}")
+    print(f"Enlaces rotos: {len(audit['broken_links'])} · huérfanas: {len(audit['orphans'])} · profundidad máx.: {audit['max_depth']}")
+    for path, problems in sorted(audit["graph_rule_warnings"].items()):
+        print(f"- {path}: {', '.join(problems)}")
+    for warning in audit["warnings"][:30]:
+        print(f"- {warning}")
+
+
+def rebuild_links_command() -> None:
+    client_id = str(_CLIENT_CONFIG.get("id") or os.environ.get("LANDING_EXPECTED_CLIENT_ID") or "")
+    if not client_id or not os.environ.get("DATABASE_URL"):
+        raise SystemExit("rebuild-links necesita --client-slug y DATABASE_URL")
+    sys.path.insert(0, str(ROOT.parent / "agents"))
+    from db_pg import rebuild_editorial_internal_links  # type: ignore
+
+    result = rebuild_editorial_internal_links(client_id)
+    result.pop("links", None)
+    report_path = write_report("rebuild-links", {"command": "rebuild-links", "status": "ok", **result})
+    print(f"Enlaces AUTO recalculados: {result['auto_links']} (fijados: {result['pinned']}, excluidos: {result['excluded']})")
     print(f"Reporte generado: {report_path}")
 
 
@@ -2178,7 +2949,7 @@ def run_pipeline(limit: int, model: str, base_url: str = "", dry_run: bool = Fal
 
 def deploy(base_url: str = "") -> None:
     validate_command()
-    build(base_url=base_url)
+    build_summary = build(base_url=base_url)
     target = os.environ.get("DEPLOY_TARGET", "vercel").strip().lower()
     if target != "vercel":
         report_path = write_report("deploy-blocked", {
@@ -2190,7 +2961,7 @@ def deploy(base_url: str = "") -> None:
             "site_dir": str(SITE_DIR),
         })
         raise SystemExit(f"Deploy bloqueado: destino no soportado `{target}`. Reporte: {report_path}")
-    result = deploy_with_vercel(base_url=base_url)
+    result = deploy_with_vercel(base_url=base_url, build_summary=build_summary)
     if result.get("deploy_url"):
         print(f"Deploy OK: {result['deploy_url']}")
     print(f"Reporte generado: {result['report']}")
@@ -2289,6 +3060,9 @@ def main() -> None:
     run_parser.add_argument("--max-seconds", type=int, default=0, help="Corta ordenadamente la generacion despues de N segundos")
     deploy_parser = sub.add_parser("deploy")
     deploy_parser.add_argument("--base-url", default="", help="URL del subdominio para canonical/sitemap")
+    audit_parser = sub.add_parser("audit-graph", help="Reconstruye el sitio y audita enlaces, canonicals, huérfanas y sitemap")
+    audit_parser.add_argument("--base-url", default="", help="URL del subdominio para canonical/sitemap")
+    sub.add_parser("rebuild-links", help="Recalcula los enlaces internos AUTO respetando PINNED/EXCLUDED")
     sub.add_parser("rollback")
     sub.add_parser("selftest")
     parser.add_argument("--client-slug", default="", help="Cliente cuya API key de OpenRouter usar (default: .env)")
@@ -2332,6 +3106,10 @@ def main() -> None:
         run_pipeline(limit=args.limit, model=args.model, base_url=args.base_url, dry_run=args.dry_run, max_seconds=args.max_seconds)
     elif args.command == "deploy":
         deploy(base_url=args.base_url)
+    elif args.command == "audit-graph":
+        audit_graph_command(base_url=args.base_url)
+    elif args.command == "rebuild-links":
+        rebuild_links_command()
     elif args.command == "rollback":
         rollback()
     elif args.command == "selftest":

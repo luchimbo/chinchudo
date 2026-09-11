@@ -96,6 +96,8 @@ model Client {
   landingProducts        LandingProduct[]
   seedTopics             SeedTopic[]
   landings               Landing[]
+  contentClusters        ContentCluster[]
+  landingInternalLinks   LandingInternalLink[]
   leadMagnets            LeadMagnet[]
   leads                  Lead[]
   nurtureSteps           NurtureStep[]
@@ -757,6 +759,24 @@ enum LandingStatus {
   ARCHIVED
 }
 
+enum LandingContentType {
+  LEGACY
+  PILLAR
+  GUIDE
+  CAMPAIGN
+}
+
+enum LandingIndexingState {
+  INDEX
+  NOINDEX
+}
+
+enum LandingInternalLinkMode {
+  AUTO
+  PINNED
+  EXCLUDED
+}
+
 model CompetitorEvidence {
   id               String    @id @default(cuid())
   clientId         String
@@ -881,6 +901,11 @@ model Landing {
   seoTitle           String              @default("")
   seoDescription     String              @default("")
   status             LandingStatus       @default(DRAFT)
+  contentType        LandingContentType  @default(GUIDE)
+  indexingState      LandingIndexingState @default(INDEX)
+  contentClusterId   String?
+  authorName         String              @default("Equipo PC MIDI Center")
+  sourceRefs         Json                @default("[]")
   publicPreviewUrl   String              @default("")
   previewPublishedAt DateTime?
   publishedAt        DateTime?
@@ -889,18 +914,59 @@ model Landing {
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   client             Client              @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  contentCluster     ContentCluster?     @relation("LandingContentCluster", fields: [contentClusterId], references: [id], onDelete: SetNull)
+  pillarFor          ContentCluster?     @relation("ContentClusterPillar")
   opportunity        Opportunity?        @relation(fields: [opportunityId], references: [id])
   leadMagnet         LeadMagnet?         @relation(fields: [leadMagnetId], references: [id])
   leads              Lead[]
   distribution       DistributionPiece[]
   trackingEvents     TrackingEvent[]
+  outboundInternalLinks LandingInternalLink[] @relation("LandingInternalLinkSource")
+  inboundInternalLinks  LandingInternalLink[] @relation("LandingInternalLinkTarget")
 
   @@unique([clientId, slug])
   @@index([clientId])
   @@index([status])
   @@index([createdAt])
+  @@index([clientId, indexingState, status])
+  @@index([contentClusterId])
 }
 
+model ContentCluster {
+  id              String   @id @default(cuid())
+  clientId        String
+  slug            String
+  name            String
+  description     String   @default("")
+  pillarLandingId String?  @unique
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  pillarLanding   Landing? @relation("ContentClusterPillar", fields: [pillarLandingId], references: [id], onDelete: SetNull)
+  landings        Landing[] @relation("LandingContentCluster")
+
+  @@unique([clientId, slug])
+  @@index([clientId])
+}
+
+model LandingInternalLink {
+  id              String                  @id @default(cuid())
+  clientId        String
+  sourceLandingId String
+  targetLandingId String
+  anchorText      String                  @default("")
+  position        Int                     @default(0)
+  mode            LandingInternalLinkMode @default(AUTO)
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+  client          Client                  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  sourceLanding   Landing                 @relation("LandingInternalLinkSource", fields: [sourceLandingId], references: [id], onDelete: Cascade)
+  targetLanding   Landing                 @relation("LandingInternalLinkTarget", fields: [targetLandingId], references: [id], onDelete: Cascade)
+
+  @@unique([sourceLandingId, targetLandingId])
+  @@index([clientId, sourceLandingId])
+  @@index([clientId, targetLandingId])
+}
 
 model Lead {
   id           String        @id @default(cuid())

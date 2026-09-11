@@ -6,7 +6,7 @@
   <title>{{ seo_title }}</title>
   <meta name="description" content="{{ meta_description }}">
   <link rel="canonical" href="{{ canonical_url }}">
-  <meta name="robots" content="index,follow">
+  <meta name="robots" content="{{ robots_content }}">
   <style>
     * { box-sizing: border-box; }
     :root {
@@ -339,7 +339,7 @@
       </div>
     </section>
   </main>
-  <footer><div class="container">{{ brand_name }} &middot; <a href="{{ store_url }}/" target="_blank" rel="noopener">Tienda</a> &middot; <a href="{{ index_href }}">Indice de landings</a></div></footer>
+  <footer><div class="container">{{ brand_name }} &middot; <a href="{{ store_url }}/" target="_blank" rel="noopener">Tienda</a> &middot; <a href="{{ index_href }}">Guías relacionadas</a></div></footer>
   <script>
     (function () {
       var revealItems = Array.prototype.slice.call(document.querySelectorAll('.reveal, .comp-card, .step-item, .benefit-cell, .faq-item'));

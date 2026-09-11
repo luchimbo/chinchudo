@@ -82,6 +82,76 @@ export async function publishAllOnlineLandings(formData: FormData) {
   revalidatePath("/landings");
 }
 
+// ─── Enlaces internos del blog editorial ─────────────────────────────────────
+// PINNED y EXCLUDED son decisiones del operador: el recálculo automático
+// (rebuild-links / cada publicación) sólo reemplaza los enlaces AUTO.
+
+const EDITORIAL_TYPES = ["PILLAR", "GUIDE"] as const;
+
+async function loadLinkPair(sourceId: string, targetId: string) {
+  if (sourceId === targetId) throw new Error("Un artículo no puede enlazarse a sí mismo.");
+  const [source, target] = await Promise.all([
+    prisma.landing.findUnique({ where: { id: sourceId }, select: { id: true, clientId: true, contentType: true } }),
+    prisma.landing.findUnique({
+      where: { id: targetId },
+      select: { id: true, clientId: true, status: true, indexingState: true, contentType: true, titulo: true, slug: true },
+    }),
+  ]);
+  if (!source || !target) throw new Error("Artículo no encontrado.");
+  if (source.clientId !== target.clientId) throw new Error("No se pueden enlazar artículos de clientes distintos.");
+  await assertClientAccess(prisma, source.clientId);
+  return { source, target };
+}
+
+export async function pinInternalLink(formData: FormData) {
+  const sourceId = z.string().min(1).parse(formData.get("sourceId"));
+  const targetId = z.string().min(1).parse(formData.get("targetId"));
+  const anchorText = z.string().trim().max(180).parse(formData.get("anchorText") ?? "");
+  const { source, target } = await loadLinkPair(sourceId, targetId);
+  const publishable =
+    target.status === "PUBLISHED" &&
+    target.indexingState === "INDEX" &&
+    (EDITORIAL_TYPES as readonly string[]).includes(target.contentType);
+  if (!publishable) throw new Error("Sólo se pueden fijar enlaces hacia artículos publicados e indexables.");
+  const existingPinned = await prisma.landingInternalLink.count({ where: { sourceLandingId: source.id, mode: "PINNED" } });
+  await prisma.landingInternalLink.upsert({
+    where: { sourceLandingId_targetLandingId: { sourceLandingId: source.id, targetLandingId: target.id } },
+    create: {
+      clientId: source.clientId,
+      sourceLandingId: source.id,
+      targetLandingId: target.id,
+      anchorText: anchorText || target.titulo || target.slug,
+      position: existingPinned + 1,
+      mode: "PINNED",
+    },
+    update: { mode: "PINNED", ...(anchorText ? { anchorText } : {}) },
+  });
+  revalidatePath("/landings");
+}
+
+export async function excludeInternalLink(formData: FormData) {
+  const sourceId = z.string().min(1).parse(formData.get("sourceId"));
+  const targetId = z.string().min(1).parse(formData.get("targetId"));
+  const { source, target } = await loadLinkPair(sourceId, targetId);
+  await prisma.landingInternalLink.upsert({
+    where: { sourceLandingId_targetLandingId: { sourceLandingId: source.id, targetLandingId: target.id } },
+    create: { clientId: source.clientId, sourceLandingId: source.id, targetLandingId: target.id, mode: "EXCLUDED" },
+    update: { mode: "EXCLUDED" },
+  });
+  revalidatePath("/landings");
+}
+
+export async function resetInternalLink(formData: FormData) {
+  const sourceId = z.string().min(1).parse(formData.get("sourceId"));
+  const targetId = z.string().min(1).parse(formData.get("targetId"));
+  const { source, target } = await loadLinkPair(sourceId, targetId);
+  // Vuelve a manos del recálculo automático: el próximo rebuild decide.
+  await prisma.landingInternalLink.deleteMany({
+    where: { sourceLandingId: source.id, targetLandingId: target.id, mode: { in: ["PINNED", "EXCLUDED"] } },
+  });
+  revalidatePath("/landings");
+}
+
 export async function deleteLanding(formData: FormData) {
   const id = z.string().min(1).parse(formData.get("id"));
   const landing = await prisma.landing.findUnique({

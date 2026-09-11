@@ -240,6 +240,129 @@ def update_landing_status(landing_id: str, status: str) -> None:
         )
 
 
+# ─── Blog editorial / enlaces internos ──────────────────────────────────────
+
+def list_content_clusters(client_slug: str) -> list[dict]:
+    with connect() as conn:
+        return [dict(row) for row in conn.execute(
+            '''SELECT cc.*, p.slug AS "pillarSlug"
+               FROM "ContentCluster" cc
+               JOIN "Client" c ON c.id = cc."clientId"
+               LEFT JOIN "Landing" p ON p.id = cc."pillarLandingId"
+               WHERE c.slug = %s
+               ORDER BY cc.name''',
+            (client_slug,),
+        ).fetchall()]
+
+
+def get_content_cluster(client_id: str, slug: str) -> dict | None:
+    with connect() as conn:
+        row = conn.execute(
+            'SELECT * FROM "ContentCluster" WHERE "clientId" = %s AND slug = %s',
+            (client_id, slug),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def count_editorial_publications_this_week(client_id: str) -> int:
+    with connect() as conn:
+        row = conn.execute(
+            '''SELECT COUNT(*) AS total FROM "Landing"
+               WHERE "clientId" = %s
+                 AND status = 'PUBLISHED'
+                 AND "contentType" IN ('PILLAR', 'GUIDE')
+                 AND "publishedAt" >= date_trunc('week', NOW())''',
+            (client_id,),
+        ).fetchone()
+    return int(row["total"] if row else 0)
+
+
+def rebuild_editorial_internal_links(client_id: str) -> dict:
+    """Recalcula enlaces AUTO sin tocar las decisiones PINNED/EXCLUDED.
+
+    Las reglas viven en editorial_graph (puro y testeado); acá sólo se leen
+    los artículos publicados e indexables de este cliente y se persiste el plan
+    en una única transacción, así nunca queda un grafo a medio escribir.
+    """
+    try:
+        from editorial_graph import Article, pillar_by_cluster, plan_internal_links
+    except ImportError:  # importado como paquete (agents.db_pg)
+        from agents.editorial_graph import Article, pillar_by_cluster, plan_internal_links
+
+    with connect() as conn:
+        rows = conn.execute(
+            '''SELECT l.id, l.slug, l.intent, l.titulo, l."seoTitle", l.keyword,
+                      l."htmlContent", l."contentType", l."contentClusterId", l."publishedAt"
+               FROM "Landing" l
+               WHERE l."clientId" = %s
+                 AND l.status = 'PUBLISHED'
+                 AND l."indexingState" = 'INDEX'
+                 AND l."contentType" IN ('PILLAR', 'GUIDE')''',
+            (client_id,),
+        ).fetchall()
+        manual = conn.execute(
+            '''SELECT "sourceLandingId", "targetLandingId", mode
+               FROM "LandingInternalLink" WHERE "clientId" = %s AND mode <> 'AUTO' ''',
+            (client_id,),
+        ).fetchall()
+        clusters = conn.execute(
+            'SELECT id, "pillarLandingId" FROM "ContentCluster" WHERE "clientId" = %s',
+            (client_id,),
+        ).fetchall()
+
+        excluded = {(row["sourceLandingId"], row["targetLandingId"]) for row in manual if row["mode"] == "EXCLUDED"}
+        pinned: dict[str, list[str]] = {}
+        for row in manual:
+            if row["mode"] == "PINNED":
+                pinned.setdefault(row["sourceLandingId"], []).append(row["targetLandingId"])
+
+        articles: list[Article] = []
+        for row in rows:
+            try:
+                payload = json.loads(row.get("htmlContent") or "{}")
+            except Exception:
+                payload = {}
+            articles.append(Article(
+                id=row["id"],
+                slug=row["slug"],
+                content_type=row["contentType"],
+                cluster_id=row.get("contentClusterId"),
+                title=str(row.get("titulo") or row.get("seoTitle") or row.get("keyword") or row["slug"]),
+                intent=str(row.get("intent") or ""),
+                published_at=str(row.get("publishedAt") or ""),
+                category_ids={value for value in [payload.get("primary_category_id", ""), *payload.get("secondary_category_ids", [])] if value},
+                product_ids=set(payload.get("product_ids", [])),
+            ))
+
+        current_pillars = {row["id"]: row["pillarLandingId"] for row in clusters if row.get("pillarLandingId")}
+        plan = plan_internal_links(articles, pinned=pinned, excluded=excluded, current_pillars=current_pillars)
+
+        conn.execute('''DELETE FROM "LandingInternalLink" WHERE "clientId" = %s AND mode = 'AUTO' ''', (client_id,))
+        for link in plan:
+            conn.execute(
+                '''INSERT INTO "LandingInternalLink"
+                   (id, "clientId", "sourceLandingId", "targetLandingId", "anchorText", position, mode, "updatedAt")
+                   VALUES (%s, %s, %s, %s, %s, %s, 'AUTO', NOW())
+                   ON CONFLICT ("sourceLandingId", "targetLandingId") DO NOTHING''',
+                (generate_cuid(), client_id, link.source_id, link.target_id, link.anchor_text, link.position),
+            )
+
+        pillars = pillar_by_cluster(articles, current_pillars)
+        for cluster in clusters:
+            pillar = pillars.get(cluster["id"])
+            pillar_id = pillar.id if pillar else None
+            if pillar_id != cluster.get("pillarLandingId"):
+                conn.execute('UPDATE "ContentCluster" SET "pillarLandingId" = %s, "updatedAt" = NOW() WHERE id = %s', (pillar_id, cluster["id"]))
+
+    return {
+        "published": len(articles),
+        "auto_links": len(plan),
+        "excluded": len(excluded),
+        "pinned": sum(len(value) for value in pinned.values()),
+        "links": [{"source": link.source_id, "target": link.target_id, "position": link.position} for link in plan],
+    }
+
+
 # ─── Leads ───────────────────────────────────────────────────────────────────
 
 def insert_lead(email: str, nombre: str, slug: str, **kwargs) -> str:

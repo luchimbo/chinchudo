@@ -48,6 +48,8 @@ export async function GET(
       headers: {
         "Content-Type": "text/html; charset=utf-8",
         "Cache-Control": "no-store",
+        // Las previews nunca compiten con la URL canónica del blog.
+        "X-Robots-Tag": "noindex, nofollow",
       },
     });
   } catch (error: any) {
