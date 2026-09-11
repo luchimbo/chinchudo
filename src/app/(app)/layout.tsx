@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getVisibleClients, getCurrentUser, isDefaultIssueReporter } from "@/lib/auth";
 import { AppShell } from "@/components/app-shell";
@@ -12,6 +13,10 @@ export default async function AppLayout({
     getCurrentUser(),
     isDefaultIssueReporter(),
   ]);
+
+  if (!user) {
+    redirect("/login");
+  }
 
   return (
     <AppShell

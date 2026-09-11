@@ -17,6 +17,9 @@ export function verifyPassword(password: string, stored: string): boolean {
   const parts = stored.split(":");
   if (parts.length !== 2) return false;
   const [salt, hash] = parts;
+  // Un hash corrupto o legacy (no-hex, longitud distinta a 64 bytes) no debe
+  // hacer que timingSafeEqual lance: eso convertiría un login inválido en un 500.
+  if (!/^[0-9a-f]{128}$/i.test(hash)) return false;
   const verifyHash = scryptSync(password, salt, 64).toString("hex");
   return timingSafeEqual(Buffer.from(hash, "hex"), Buffer.from(verifyHash, "hex"));
 }

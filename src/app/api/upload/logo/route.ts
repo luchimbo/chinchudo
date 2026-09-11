@@ -5,7 +5,8 @@ import { assertClientAccess } from "@/lib/auth";
 
 const BUCKET = "assets";
 const MAX_SIZE = 2 * 1024 * 1024; // 2 MB
-const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/webp", "image/svg+xml"];
+// Sin SVG: servido inline desde el mismo origen sería XSS almacenado.
+const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/webp"];
 
 export async function POST(req: NextRequest) {
   const form = await req.formData();
@@ -26,7 +27,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (!ALLOWED_TYPES.includes(file.type)) {
-    return NextResponse.json({ error: "Tipo de archivo no permitido. Usá PNG, JPG, WEBP o SVG." }, { status: 400 });
+    return NextResponse.json({ error: "Tipo de archivo no permitido. Usá PNG, JPG o WEBP." }, { status: 400 });
   }
   if (file.size > MAX_SIZE) {
     return NextResponse.json({ error: "El archivo supera los 2 MB." }, { status: 400 });

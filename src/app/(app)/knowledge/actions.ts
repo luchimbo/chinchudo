@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { assertClientAccess } from "@/lib/auth";
+import { requireOwnedClientId } from "@/lib/auth-guards";
 
 const optionalId = z
   .string()
@@ -52,6 +53,8 @@ export async function updateKnowledge(formData: FormData) {
 
 export async function deleteKnowledge(formData: FormData) {
   const id = z.string().min(1).parse(formData.get("id"));
+  const item = await prisma.knowledgeBase.findUniqueOrThrow({ where: { id }, select: { clientId: true } });
+  await requireOwnedClientId(item.clientId);
   await prisma.knowledgeBase.delete({ where: { id } });
   revalidatePath("/knowledge");
 }
@@ -98,6 +101,8 @@ export async function updateObjection(formData: FormData) {
 
 export async function deleteObjection(formData: FormData) {
   const id = z.string().min(1).parse(formData.get("id"));
+  const item = await prisma.objection.findUniqueOrThrow({ where: { id }, select: { clientId: true } });
+  await requireOwnedClientId(item.clientId);
   await prisma.objection.delete({ where: { id } });
   revalidatePath("/knowledge");
 }

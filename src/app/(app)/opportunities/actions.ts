@@ -6,7 +6,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { assertClientAccess } from "@/lib/auth";
+import { assertClientAccess, resolveClientForSlug } from "@/lib/auth";
+import { requireAdmin, requireOwnedClientId, requireSession } from "@/lib/auth-guards";
 import { generateLocalDrafts } from "@/lib/draft-generator";
 import { COPILOT_MAX_CHARACTERS, generateAICopilotDraft, generateAIDrafts, shortenCopilotText } from "@/lib/ai-draft-generator";
 import { selectHumorSignal } from "@/lib/radar-editorial";
@@ -55,10 +56,7 @@ export async function createOpportunity(formData: FormData) {
   });
 
   const clientSlug = formData.get("client") as string | null;
-  let clientObj = null;
-  if (clientSlug) {
-    clientObj = await prisma.client.findUnique({ where: { slug: clientSlug } });
-  }
+  const clientObj = clientSlug ? await resolveClientForSlug(prisma, clientSlug) : null;
   const channel = await prisma.channel.findUniqueOrThrow({ where: { id: parsed.channelId }, select: { name: true } });
   assertOperationalOpportunityChannel(channel.name);
 
@@ -161,6 +159,7 @@ export async function generateCopilotDrafts(formData: FormData) {
   });
   assertOperationalOpportunityChannel(opportunity.channel.name);
   const resolution = await resolveOpportunityClient(prisma, opportunity);
+  await assertClientAccess(prisma, resolution.client.id);
   const [brand, personas] = await Promise.all([
     opportunity.detectedBrandId
       ? prisma.brand.findUnique({ where: { id: opportunity.detectedBrandId } })
@@ -406,8 +405,9 @@ export async function discardCopilotOpportunity(formData: FormData) {
   });
   const opportunity = await prisma.opportunity.findUniqueOrThrow({
     where: { id: parsed.opportunityId },
-    select: { contextAssessment: true },
+    select: { contextAssessment: true, clientId: true },
   });
+  await requireOwnedClientId(opportunity.clientId);
   const currentContext = opportunity.contextAssessment && typeof opportunity.contextAssessment === "object"
     ? opportunity.contextAssessment as Record<string, unknown>
     : {};
@@ -430,7 +430,7 @@ export async function discardCopilotOpportunity(formData: FormData) {
 }
 
 export async function generateResponseDrafts(formData: FormData) {
-  const rl = checkRateLimit("ai_draft_global", 20, 60_000);
+  const rl = await checkRateLimit("ai_draft_global", 20, 60_000);
   if (!rl.allowed) {
     logger.warn("rate_limit", "generateResponseDrafts bloqueado", { resetInMs: rl.resetInMs }).catch(() => {});
     throw new Error(`Demasiadas solicitudes a la IA. Esperá ${Math.ceil(rl.resetInMs / 1000)}s.`);
@@ -466,6 +466,7 @@ export async function generateResponseDrafts(formData: FormData) {
   assertOperationalOpportunityChannel(opportunity.channel.name);
 
   const resolution = await resolveOpportunityClient(prisma, opportunity);
+  await assertClientAccess(prisma, resolution.client.id);
   const clientContext = await loadClientContext(prisma, resolution.client.id, opportunity);
   if (brand.clientId && brand.clientId !== resolution.client.id) {
     throw new Error("La marca seleccionada no pertenece al cliente de esta oportunidad.");
@@ -626,6 +627,7 @@ export async function createManualResponse(formData: FormData) {
   assertOperationalOpportunityChannel(opportunity.channel.name);
   if (["PUBLISHED", "CONVERTED", "FOLLOW_UP"].includes(opportunity.status)) throw new Error("Esta oportunidad ya fue respondida.");
   const resolution = await resolveOpportunityClient(prisma, opportunity);
+  await assertClientAccess(prisma, resolution.client.id);
   const [brand, persona, product] = await Promise.all([
     prisma.brand.findUniqueOrThrow({ where: { id: parsed.brandId } }),
     prisma.persona.findUniqueOrThrow({ where: { id: parsed.personaId } }),
@@ -664,6 +666,7 @@ export async function approveResponse(formData: FormData) {
     }),
   ]);
   assertOperationalOpportunityChannel(opportunity.channel.name);
+  await requireOwnedClientId(opportunity.clientId);
 
   if (opportunity.status === "PUBLISHED" || opportunity.status === "CONVERTED" || opportunity.status === "FOLLOW_UP") {
     throw new Error("La oportunidad ya está publicada/respondida y no se puede modificar la aprobación.");
@@ -762,6 +765,7 @@ export async function approveAndPublishResponse(formData: FormData) {
   if (opportunity.status === "PUBLISHED" || opportunity.status === "CONVERTED" || opportunity.status === "FOLLOW_UP") {
     throw new Error("La oportunidad ya está publicada/respondida.");
   }
+  await requireOwnedClientId(opportunity.clientId);
 
   const channelLower = opportunity.channel.name.toLowerCase();
   assertOperationalOpportunityChannel(opportunity.channel.name);
@@ -890,6 +894,7 @@ export async function markAsPublished(formData: FormData) {
     include: { channel: true }
   });
   assertOperationalOpportunityChannel(opportunity.channel.name);
+  await requireOwnedClientId(opportunity.clientId);
 
   if (opportunity.status === "PUBLISHED" || opportunity.status === "CONVERTED" || opportunity.status === "FOLLOW_UP") {
     throw new Error("Esta oportunidad ya fue respondida/publicada.");
@@ -991,6 +996,7 @@ export async function simulateDemoPublication(formData: FormData) {
   if (opportunity.client?.slug !== "aurora-demo") {
     throw new Error("La simulación de publicación solo está disponible en la cuenta demo local.");
   }
+  await requireOwnedClientId(opportunity.clientId);
 
   const response = await prisma.response.findFirst({
     where: { id: parsed.responseId, opportunityId: parsed.opportunityId },
@@ -1036,6 +1042,11 @@ export async function updateOpportunityStatus(formData: FormData) {
     opportunityId: formData.get("opportunityId"),
     status: formData.get("status")
   });
+  const existing = await prisma.opportunity.findUniqueOrThrow({
+    where: { id: parsed.opportunityId },
+    select: { clientId: true },
+  });
+  await requireOwnedClientId(existing.clientId);
 
   await prisma.opportunity.update({
     where: { id: parsed.opportunityId },
@@ -1095,6 +1106,7 @@ export async function publishViaAgent(formData: FormData) {
   if (!opportunity.clientId) {
     throw new Error("La oportunidad debe pertenecer a un cliente antes de publicar.");
   }
+  await requireOwnedClientId(opportunity.clientId);
   if (!parsed.account) {
     throw new Error("Elegí la cuenta de YouTube autorizada para publicar.");
   }
@@ -1141,8 +1153,9 @@ export async function publishViaAgent(formData: FormData) {
 }
 
 export async function updateClientAutoSettings(clientId: string, autoApprove: boolean, autoPublish: boolean) {
+  const client = await requireOwnedClientId(clientId);
   await prisma.client.update({
-    where: { id: clientId },
+    where: { id: client.id },
     data: { autoApprove, autoPublish },
   });
   revalidatePath("/");
@@ -1161,12 +1174,13 @@ export async function deleteResponse(formData: FormData) {
 
   const response = await prisma.response.findUnique({
     where: { id: parsed.responseId },
-    select: { approvedBy: true },
+    select: { approvedBy: true, opportunityId: true, opportunity: { select: { clientId: true } } },
   });
 
-  if (!response) {
+  if (!response || response.opportunityId !== parsed.opportunityId) {
     throw new Error("La respuesta que intentas eliminar no existe.");
   }
+  await requireOwnedClientId(response.opportunity.clientId);
 
   const wasApproved = !!response.approvedBy;
 
@@ -1201,9 +1215,8 @@ export async function deleteResponse(formData: FormData) {
 export async function assignMissingOpportunityClients(formData: FormData) {
   const clientSlug = (formData.get("client") || "") as string;
   const limit = Math.min(200, Math.max(1, Number(formData.get("limit") || 100)));
-  const client = clientSlug
-    ? await prisma.client.findUnique({ where: { slug: clientSlug } })
-    : null;
+  // Sin slug, la limpieza toca oportunidades de cualquier cliente: sólo admin.
+  const client = clientSlug ? await resolveClientForSlug(prisma, clientSlug) : (await requireAdmin(), null);
 
   const opportunities = await prisma.opportunity.findMany({
     where: {
@@ -1244,9 +1257,8 @@ export async function assignMissingOpportunityClients(formData: FormData) {
 export async function discardNoisyNewOpportunities(formData: FormData) {
   const clientSlug = (formData.get("client") || "") as string;
   const limit = Math.min(300, Math.max(1, Number(formData.get("limit") || 150)));
-  const client = clientSlug
-    ? await prisma.client.findUnique({ where: { slug: clientSlug }, select: { id: true } })
-    : null;
+  // Sin slug, el descarte toca oportunidades de cualquier cliente: sólo admin.
+  const client = clientSlug ? await resolveClientForSlug(prisma, clientSlug) : (await requireAdmin(), null);
 
   const opportunities = await prisma.opportunity.findMany({
     where: {
@@ -1283,6 +1295,12 @@ export async function discardNoisyNewOpportunities(formData: FormData) {
 export async function generateDailyDraftBatch(formData: FormData) {
   const clientSlug = (formData.get("client") || "") as string;
   const limit = Math.min(10, Math.max(1, Number(formData.get("limit") || 5)));
+  // Sin slug, el batch genera borradores para cualquier cliente: sólo admin.
+  if (clientSlug) {
+    await resolveClientForSlug(prisma, clientSlug);
+  } else {
+    await requireAdmin();
+  }
   const args = ["tsx", "scripts/draft-worker.mts", "--limit", String(limit)];
   if (clientSlug) args.push("--client", clientSlug);
 
@@ -1316,6 +1334,12 @@ export async function updateObservedSignals(formData: FormData) {
     tone: formData.get("tone"),
     toneConfidence: formData.get("toneConfidence"),
   });
+
+  const owner = await prisma.opportunity.findUniqueOrThrow({
+    where: { id: parsed.opportunityId },
+    select: { clientId: true },
+  });
+  await requireOwnedClientId(owner.clientId);
 
   await overrideObservedProfileSignals(prisma, {
     opportunityId: parsed.opportunityId,
@@ -1398,6 +1422,7 @@ export async function sendRefinementMessageAction(formData: FormData) {
   });
 
   const resolution = await resolveOpportunityClient(prisma, response.opportunity);
+  await assertClientAccess(prisma, resolution.client.id);
   const clientMemories = await getClientMemories(prisma, resolution.client.id);
 
   const assistantReply = await chatRefinementStep({
@@ -1433,6 +1458,12 @@ export async function saveRefinementChatAction(formData: FormData) {
     responseId: formData.get("responseId"),
     chatHistory,
   });
+
+  const owner = await prisma.response.findUniqueOrThrow({
+    where: { id: parsed.responseId },
+    select: { opportunity: { select: { clientId: true } } },
+  });
+  await requireOwnedClientId(owner.opportunity.clientId);
 
   await prisma.response.update({
     where: { id: parsed.responseId },
@@ -1471,6 +1502,7 @@ export async function applyRefinedResponseAction(formData: FormData) {
   });
 
   const resolution = await resolveOpportunityClient(prisma, response.opportunity);
+  await assertClientAccess(prisma, resolution.client.id);
   const clientMemories = await getClientMemories(prisma, resolution.client.id);
 
   const compiledText = await compileResponseFromChat({

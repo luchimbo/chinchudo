@@ -3,9 +3,17 @@ import { ANALYTICS_PERIODS, getAnalyticsData, generateWeeklySummary, type Analyt
 import { checkRateLimit } from "@/lib/rate-limit";
 import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/db";
+import { ClientResolutionError, getCurrentUser, resolveClientForSlug } from "@/lib/auth";
 
 export async function POST(request: NextRequest) {
-  const rl = checkRateLimit("analytics_summary", 5, 60_000);
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ error: "No autenticado." }, { status: 401 });
+  }
+
+  // La clave de rate limit es por sesión: antes era una constante global
+  // compartida por toda la plataforma.
+  const rl = await checkRateLimit(`analytics_summary:${user.username}`, 5, 60_000);
   if (!rl.allowed) {
     await logger.warn("rate_limit", "analytics/summary bloqueado", { resetInMs: rl.resetInMs });
     return NextResponse.json(
@@ -15,15 +23,21 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // Cliente activo opcional: si llega su slug, el resumen usa su key/modelo de OpenRouter.
+    // Cliente activo: siempre se resuelve contra la sesión, nunca por slug crudo.
     const clientSlug = new URL(request.url).searchParams.get("client")?.trim();
     const requestedPeriod = new URL(request.url).searchParams.get("period");
     const period: AnalyticsPeriod = ANALYTICS_PERIODS.includes(requestedPeriod as AnalyticsPeriod)
       ? requestedPeriod as AnalyticsPeriod
       : "30d";
-    const client = clientSlug
-      ? await prisma.client.findUnique({ where: { slug: clientSlug } })
-      : null;
+    let client;
+    try {
+      client = await resolveClientForSlug(prisma, clientSlug);
+    } catch (err) {
+      if (err instanceof ClientResolutionError) {
+        return NextResponse.json({ error: err.message }, { status: err.status });
+      }
+      throw err;
+    }
 
     const parseDate = (value: string | null, endOfDay = false) => {
       if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;

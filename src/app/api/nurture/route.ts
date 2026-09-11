@@ -8,8 +8,11 @@ import { prisma } from "@/lib/db";
  */
 export async function GET(req: NextRequest) {
   const secret = process.env.NURTURE_CRON_SECRET;
+  if (!secret) {
+    return NextResponse.json({ error: "NURTURE_CRON_SECRET no configurado" }, { status: 503 });
+  }
   const auth = req.headers.get("authorization") ?? "";
-  if (secret && auth !== `Bearer ${secret}`) {
+  if (auth !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "No autorizado" }, { status: 401 });
   }
 

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { prisma } from "@/lib/db";
-import { getVisibleClients } from "@/lib/auth";
+import { requirePageClient } from "@/lib/auth";
 import { createSource, updateSource, deleteSource } from "./actions";
 import { operationalOpportunityWhere } from "@/lib/opportunity-channels";
 
@@ -28,23 +28,22 @@ export default async function MonitoringPage({ searchParams }: { searchParams: {
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const argentinaNow = new Date(Date.now() - 3 * 60 * 60 * 1000);
   const todayArgentina = new Date(Date.UTC(argentinaNow.getUTCFullYear(), argentinaNow.getUTCMonth(), argentinaNow.getUTCDate(), 3));
-  const clients = await getVisibleClients(prisma);
-  const activeClient = clients.find((client) => client.slug === searchParams.client) ?? clients[0] ?? null;
+  const activeClient = await requirePageClient(prisma, searchParams.client);
   const [sources, recent, accounts, todayCount] = await Promise.all([
-    prisma.monitoredSource.findMany({ where: { ...(activeClient ? { clientId: activeClient.id } : {}), channel: "youtube" }, orderBy: { label: "asc" } }),
+    prisma.monitoredSource.findMany({ where: { clientId: activeClient.id, channel: "youtube" }, orderBy: { label: "asc" } }),
     prisma.opportunity.findMany({
       where: {
         ...operationalOpportunityWhere(),
         monitoredSourceId: { not: null },
         createdAt: { gte: since },
-        ...(activeClient ? { clientId: activeClient.id } : {}),
+        clientId: activeClient.id,
       },
       include: { channel: true, monitoredSource: true },
       orderBy: { createdAt: "desc" },
       take: 30
     }),
     loadAccounts(),
-    activeClient ? prisma.opportunity.count({ where: { clientId: activeClient.id, ...operationalOpportunityWhere(), createdAt: { gte: todayArgentina }, status: { not: "DISCARDED" } } }) : 0,
+    prisma.opportunity.count({ where: { clientId: activeClient.id, ...operationalOpportunityWhere(), createdAt: { gte: todayArgentina }, status: { not: "DISCARDED" } } }),
   ]);
 
   return (

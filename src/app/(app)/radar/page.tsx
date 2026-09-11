@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getVisibleClients } from "@/lib/auth";
+import { requirePageClient } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 type PageProps = { searchParams: { client?: string } };
@@ -44,14 +44,13 @@ function SignalCard({ signal, kind }: { signal: { id: string; title: string; des
 }
 
 export default async function RadarPage({ searchParams }: PageProps) {
-  const clients = await getVisibleClients(prisma);
-  const client = clients.find((item) => item.slug === searchParams.client) ?? clients[0] ?? null;
+  const client = await requirePageClient(prisma, searchParams.client);
   const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
-  const [trends, context] = client ? await Promise.all([
+  const [trends, context] = await Promise.all([
     prisma.trend.findMany({ where: { clientId: client.id, platform: { in: TREND_PLATFORMS }, createdAt: { gte: since } }, orderBy: { createdAt: "desc" }, take: 12 }),
     prisma.trend.findMany({ where: { clientId: client.id, platform: { in: CONTEXT_PLATFORMS }, createdAt: { gte: since } }, orderBy: { createdAt: "desc" }, take: 12 }),
-  ]) : [[], []];
-  const withClient = (href: string) => client ? `${href}?client=${encodeURIComponent(client.slug)}` : href;
+  ]);
+  const withClient = (href: string) => `${href}?client=${encodeURIComponent(client.slug)}`;
 
   return (
     <div className="mx-auto w-full max-w-6xl px-5 py-8 lg:px-8">

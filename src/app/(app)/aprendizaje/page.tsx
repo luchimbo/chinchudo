@@ -1,7 +1,7 @@
 import React from "react";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
-import { getVisibleClients } from "@/lib/auth";
+import { getVisibleClients, requirePageClient } from "@/lib/auth";
 import { operationalOpportunityWhere } from "@/lib/opportunity-channels";
 import { deleteClientMemoryAction, createManualClientMemoryAction, updateClientMemoryAction } from "../opportunities/actions";
 import { SubmitButton } from "../opportunities/[id]/SubmitButton";
@@ -17,18 +17,18 @@ const CATEGORY_COLORS: Record<string, string> = {
 type PageProps = { searchParams: { client?: string } };
 
 export default async function AprendizajePage({ searchParams }: PageProps) {
-  const clients = await getVisibleClients(prisma);
-  const activeClient = clients.find((client) => client.slug === searchParams.client) ?? clients[0];
+  const [activeClient, clients] = await Promise.all([
+    requirePageClient(prisma, searchParams.client),
+    getVisibleClients(prisma),
+  ]);
 
-  const [memories, learningRows] = activeClient
-    ? await Promise.all([
-      prisma.clientMemory.findMany({
+  const [memories, learningRows] = await Promise.all([
+    prisma.clientMemory.findMany({
       where: { clientId: activeClient.id, active: true },
       orderBy: { createdAt: "desc" },
-      }),
-      prisma.opportunity.findMany({ where: { clientId: activeClient.id, ...operationalOpportunityWhere() }, select: { contextAssessment: true }, orderBy: { updatedAt: "desc" }, take: 500 }),
-    ])
-    : [[], []];
+    }),
+    prisma.opportunity.findMany({ where: { clientId: activeClient.id, ...operationalOpportunityWhere() }, select: { contextAssessment: true }, orderBy: { updatedAt: "desc" }, take: 500 }),
+  ]);
   const feedbackEvents = learningRows.flatMap((row) => {
     const context = row.contextAssessment && typeof row.contextAssessment === "object" ? row.contextAssessment as Record<string, unknown> : {};
     const copilot = context.copilot && typeof context.copilot === "object" ? context.copilot as Record<string, unknown> : {};

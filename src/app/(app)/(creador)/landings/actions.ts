@@ -9,6 +9,8 @@ import { resolvePublicLandingUrl } from "@/lib/landing-html";
 export async function updateLandingStatus(formData: FormData) {
   const id = formData.get("id") as string;
   const status = formData.get("status") as string;
+  const landing = await prisma.landing.findUniqueOrThrow({ where: { id }, select: { clientId: true } });
+  await assertClientAccess(prisma, landing.clientId);
   await prisma.landing.update({
     where: { id },
     data: { status: status as any, publishedAt: status === "PUBLISHED" ? new Date() : null },

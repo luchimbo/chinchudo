@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-
-const PUBLIC_PATHS = ["/login", "/registro", "/api/auth", "/api/support/exchange", "/l"];
+import { isPublicPath } from "./lib/public-paths";
 
 function base64UrlToUint8Array(base64Url: string): Uint8Array {
   const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
@@ -111,8 +110,9 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Rutas públicas: login, registro y APIs de auth
-  if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
+  // Rutas públicas: login, registro, APIs de auth y endpoints de máquina
+  // (leads/events/click/unsubscribe validan su propia credencial).
+  if (isPublicPath(pathname)) {
     return NextResponse.next();
   }
 

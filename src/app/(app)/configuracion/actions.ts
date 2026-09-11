@@ -6,6 +6,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { assertClientAccess, getCurrentUser } from "@/lib/auth";
 import { hashPassword, verifyPassword } from "@/lib/auth-crypto";
+import { validatePassword } from "@/lib/password-policy";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 function str(fd: FormData, key: string) {
   return String(fd.get(key) ?? "").trim();
@@ -56,8 +58,13 @@ export async function changeOwnPassword(formData: FormData) {
   const user = await getCurrentUser();
   if (!user || user.username === "default") return redirect(passwordResultUrl("session"));
   if (!currentPassword || !newPassword || !confirmPassword) return redirect(passwordResultUrl("missing"));
-  if (newPassword.length < 6) return redirect(passwordResultUrl("short"));
   if (newPassword !== confirmPassword) return redirect(passwordResultUrl("match"));
+
+  const rl = await checkRateLimit(`change_password:${user.username}`, 5, 15 * 60 * 1000);
+  if (!rl.allowed) return redirect(passwordResultUrl("ratelimit"));
+
+  const policyCheck = validatePassword(newPassword, user.username);
+  if (!policyCheck.valid) return redirect(passwordResultUrl("policy"));
 
   const dbUser = await prisma.user.findUnique({ where: { email: user.username } });
   if (!dbUser || !verifyPassword(currentPassword, dbUser.passwordHash)) return redirect(passwordResultUrl("current"));

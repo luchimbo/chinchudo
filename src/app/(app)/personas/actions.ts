@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { assertClientAccess } from "@/lib/auth";
+import { requireOwnedClientId } from "@/lib/auth-guards";
 
 const personaSchema = z.object({
   clientId: z.string().min(1),
@@ -54,6 +55,8 @@ export async function updatePersona(formData: FormData) {
 
 export async function deletePersona(formData: FormData) {
   const id = z.string().min(1).parse(formData.get("id"));
+  const persona = await prisma.persona.findUniqueOrThrow({ where: { id }, select: { clientId: true } });
+  await requireOwnedClientId(persona.clientId);
   const responses = await prisma.response.count({ where: { personaId: id } });
   if (responses > 0) {
     throw new Error(`No se puede borrar: la persona tiene ${responses} respuesta(s) asociadas.`);

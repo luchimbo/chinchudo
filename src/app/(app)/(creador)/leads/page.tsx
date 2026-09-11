@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
-import { getVisibleClients } from "@/lib/auth";
+import { requirePageClient } from "@/lib/auth";
 
 const STEP_STATUS_CLASS: Record<string, string> = {
   PENDING: "bg-signal/10 text-signal",
@@ -35,10 +35,9 @@ export default async function LeadsPage({
   const pageNum = Math.max(1, parseInt(page));
   const PAGE_SIZE = 20;
 
-  const clients = await getVisibleClients(prisma);
-  const activeClient = clients.find((c) => c.slug === clientSlug) ?? clients[0] ?? null;
-  const clientFilter = activeClient ? { clientId: activeClient.id } : {};
-  const clientParam = activeClient ? `&client=${activeClient.slug}` : "";
+  const activeClient = await requirePageClient(prisma, clientSlug);
+  const clientFilter = { clientId: activeClient.id };
+  const clientParam = `&client=${activeClient.slug}`;
 
   const [total, leads] = await Promise.all([
     prisma.lead.count({ where: clientFilter }),

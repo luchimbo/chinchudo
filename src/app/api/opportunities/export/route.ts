@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { getVisibleClients } from "@/lib/auth";
+import { ClientResolutionError, resolveClientForSlug } from "@/lib/auth";
 import { opportunityStatuses } from "@/lib/labels";
 import { operationalOpportunityWhere } from "@/lib/opportunity-channels";
 
@@ -16,8 +16,15 @@ function csvCell(value: unknown): string {
 // Mantiene el formato del export CLI (scripts/export-csv.mjs).
 export async function GET(request: NextRequest) {
   const sp = request.nextUrl.searchParams;
-  const clients = await getVisibleClients(prisma);
-  const activeClient = clients.find((c) => c.slug === sp.get("client")) ?? clients[0] ?? null;
+  let activeClient;
+  try {
+    activeClient = await resolveClientForSlug(prisma, sp.get("client"));
+  } catch (err) {
+    if (err instanceof ClientResolutionError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    throw err;
+  }
 
   const statusParam = sp.get("status") ?? "";
   const validStatus = (opportunityStatuses as readonly string[]).includes(statusParam) ? statusParam : "";
@@ -29,9 +36,9 @@ export async function GET(request: NextRequest) {
     ...operationalOpportunityWhere(),
     status: { in: [...OPEN_STATUSES] },
     responses: view === "inbox" ? { none: {} } : { some: {} },
+    clientId: activeClient.id,
   };
   if (validStatus) where.status = validStatus as any;
-  if (activeClient) where.clientId = activeClient.id;
   if (brand) where.detectedBrand = { name: brand };
   if (q) {
     where.AND = [{ OR: [{ sourceText: { contains: q } }, { sourceAuthor: { contains: q } }] }];

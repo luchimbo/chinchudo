@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { assertClientAccess } from "@/lib/auth";
+import { requireAdmin } from "@/lib/auth-guards";
 
 function toJsonList(raw: FormDataEntryValue | null): string {
   const items = String(raw ?? "")
@@ -55,7 +56,10 @@ function parseBranding(formData: FormData) {
   };
 }
 
+// Crear un cliente da de alta un tenant nuevo: es una operación de
+// plataforma, no de un cliente existente. Piso mínimo: sólo admin.
 export async function createClient(formData: FormData) {
+  await requireAdmin();
   const data = parseBase(formData);
   const branding = parseBranding(formData);
   const apiKey = str(formData, "openrouterApiKey");

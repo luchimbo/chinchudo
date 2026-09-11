@@ -1,4 +1,4 @@
-import { getVisibleClients } from "@/lib/auth";
+import { getVisibleClients, requirePageClient } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import TendenciasClient from "./TendenciasClient";
 
@@ -14,12 +14,10 @@ const CONTEXT_PLATFORMS = [
 ];
 
 export default async function TendenciasPage({ searchParams }: PageProps) {
-  const clients = await getVisibleClients(prisma);
-  const activeClient = clients.find((client) => client.slug === searchParams.client) ?? clients[0] ?? null;
-
-  if (!activeClient) {
-    return <div className="mx-auto max-w-4xl px-5 py-10"><h1 className="font-display text-3xl font-bold text-ink">Tendencias</h1><p className="mt-2 text-slate">No hay clientes configurados en el sistema.</p></div>;
-  }
+  const [activeClient, clients] = await Promise.all([
+    requirePageClient(prisma, searchParams.client),
+    getVisibleClients(prisma),
+  ]);
 
   const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
   const signals = await prisma.trend.findMany({

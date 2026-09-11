@@ -3,7 +3,10 @@ import { prisma } from "@/lib/db";
 import { signJwt } from "@/lib/auth-crypto";
 import { hashSupportExchangeCode } from "@/lib/support-auth";
 
-const SUPPORT_SESSION_TTL_SECONDS = 60 * 60 * 24 * 365;
+// Sesión de soporte delegado: acotada, no una sesión estándar. Documentada
+// como 30 min en docs/platform-admin.md; 8h da margen para una intervención
+// larga sin acercarse al año que tenía antes.
+const SUPPORT_SESSION_TTL_SECONDS = 60 * 60 * 8;
 
 function requestIp(request: NextRequest): string {
   return request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()

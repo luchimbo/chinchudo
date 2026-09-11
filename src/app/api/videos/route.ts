@@ -191,13 +191,10 @@ export async function POST(req: NextRequest) {
       }
 
       const script = await prisma.videoScript.findUnique({ where: { id: scriptId } });
-      if (!script) {
+      if (!script?.clientId) {
         return NextResponse.json({ error: "Guion no encontrado" }, { status: 404 });
       }
-
-      if (script.clientId) {
-        await assertClientAccess(prisma, script.clientId);
-      }
+      await assertClientAccess(prisma, script.clientId);
 
       const updated = await prisma.videoScript.update({
         where: { id: scriptId },

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
-import { getVisibleClients } from "@/lib/auth";
+import { requirePageClient } from "@/lib/auth";
 import { PERSONA_NAME_SET } from "@/lib/persona-router";
 import { createPersona, updatePersona, deletePersona } from "./actions";
 
@@ -8,10 +8,9 @@ const inputCls = "rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm tex
 const labelCls = "grid gap-1 text-xs font-semibold text-slate";
 
 export default async function PersonasPage({ searchParams }: { searchParams: { client?: string } }) {
-  const clients = await getVisibleClients(prisma);
-  const activeClient = clients.find((client) => client.slug === searchParams.client) ?? clients[0] ?? null;
+  const activeClient = await requirePageClient(prisma, searchParams.client);
   const personas = await prisma.persona.findMany({
-    where: activeClient ? { clientId: activeClient.id } : undefined,
+    where: { clientId: activeClient.id },
     include: { _count: { select: { responses: true } } },
     orderBy: { name: "asc" }
   });

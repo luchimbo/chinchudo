@@ -43,9 +43,9 @@ export async function POST(req: NextRequest) {
 
     // Rate limit por correo y por IP (independientes).
     const emailKey = username.toLowerCase();
-    const rlEmail = checkRateLimit(`login:email:${emailKey}`, 10, 15 * 60 * 1000);
+    const rlEmail = await checkRateLimit(`login:email:${emailKey}`, 10, 15 * 60 * 1000);
     if (!rlEmail.allowed) return rateLimitResponse(rlEmail.resetInMs);
-    const rlIp = checkRateLimit(`login:ip:${ip}`, 30, 15 * 60 * 1000);
+    const rlIp = await checkRateLimit(`login:ip:${ip}`, 30, 15 * 60 * 1000);
     if (!rlIp.allowed) return rateLimitResponse(rlIp.resetInMs);
 
     const secret = process.env.AUTH_SECRET;

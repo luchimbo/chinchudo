@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ANALYTICS_PERIODS, analyticsPeriodStart, getAnalyticsData, type AnalyticsPeriod } from "@/lib/analytics";
 import { prisma } from "@/lib/db";
-import { getVisibleClients } from "@/lib/auth";
+import { requirePageClient } from "@/lib/auth";
 import { deleteSystemLog, clearAllSystemErrors } from "./actions";
 import {
   BrandChart,
@@ -170,16 +170,15 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
     ? searchParams.period as AnalyticsPeriod
     : "30d";
 
-  const clients = await getVisibleClients(prisma);
-  const activeClient = clients.find((c) => c.slug === clientSlug) ?? clients[0] ?? null;
+  const activeClient = await requirePageClient(prisma, clientSlug);
 
   const range = { from: dateParam(searchParams.from), to: dateParam(searchParams.to, true) };
   const hasCustomRange = Boolean(range.from || range.to);
-  const data = await getAnalyticsData(activeClient?.id, period, range);
+  const data = await getAnalyticsData(activeClient.id, period, range);
   const comparisonPeriod = priorPeriod(period, range);
-  const previousData = comparisonPeriod ? await getAnalyticsData(activeClient?.id, period, comparisonPeriod) : null;
+  const previousData = comparisonPeriod ? await getAnalyticsData(activeClient.id, period, comparisonPeriod) : null;
   const brandSnapshots = await prisma.brandSnapshot.findMany({
-    where: activeClient ? { clientId: activeClient.id } : { id: "__no_client__" },
+    where: { clientId: activeClient.id },
     orderBy: { capturedAt: "asc" },
   });
 
@@ -198,7 +197,7 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
     ? { createdAt: { ...(periodStart ? { gte: periodStart } : {}), ...(range.to ? { lte: range.to } : {}) } }
     : {};
   const since7  = new Date(Date.now() - 7  * 24 * 60 * 60 * 1000);
-  const cf = activeClient ? { clientId: activeClient.id } : {};
+  const cf = { clientId: activeClient.id };
 
   const [
     // Blog / landings

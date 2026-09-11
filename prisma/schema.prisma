@@ -118,6 +118,7 @@ model Client {
   adminAuditEvents       AdminAuditEvent[]
   memories               ClientMemory[]
   onboarding             ClientOnboarding?
+  userInvitations        UserInvitation[]
 }
 
 model BrandSnapshot {
@@ -140,19 +141,65 @@ model BrandSnapshot {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  passwordHash String
-  authUserId   String?  @unique @db.Uuid
-  name         String
-  role         String   @default("operator") // "admin" | "operator"
-  clientId     String
-  client       Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  tokenVersion Int      @default(0)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id              String    @id @default(cuid())
+  email           String    @unique
+  passwordHash    String
+  authUserId      String?   @unique @db.Uuid
+  name            String
+  role            String    @default("operator") // "admin" | "operator"
+  clientId        String
+  client          Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  tokenVersion    Int       @default(0)
+  emailVerifiedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   @@index([clientId])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model EmailVerificationToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model UserInvitation {
+  id          String    @id @default(cuid())
+  clientId    String
+  client      Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  email       String
+  role        String    @default("operator") // "admin" | "operator"
+  tokenHash   String    @unique
+  invitedById String
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([clientId])
+}
+
+model RateLimitHit {
+  id    String   @id @default(cuid())
+  key   String
+  hitAt DateTime @default(now())
+
+  @@index([key, hitAt])
 }
 
 model LoginAuditEvent {
@@ -853,6 +900,7 @@ model Landing {
   @@index([status])
   @@index([createdAt])
 }
+
 
 model Lead {
   id           String        @id @default(cuid())

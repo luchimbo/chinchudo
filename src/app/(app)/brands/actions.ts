@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { assertClientAccess } from "@/lib/auth";
+import { requireOwnedClientId } from "@/lib/auth-guards";
 
 const brandSchema = z.object({
   clientId: z.string().min(1),
@@ -44,6 +45,8 @@ export async function updateBrand(formData: FormData) {
 
 export async function deleteBrand(formData: FormData) {
   const id = z.string().min(1).parse(formData.get("id"));
+  const brand = await prisma.brand.findUniqueOrThrow({ where: { id }, select: { clientId: true } });
+  await requireOwnedClientId(brand.clientId);
   // Borrar una marca arrastra productos (cascade) y rompe respuestas/oportunidades (Restrict).
   const [responses, opportunities] = await Promise.all([
     prisma.response.count({ where: { brandId: id } }),

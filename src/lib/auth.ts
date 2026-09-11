@@ -21,14 +21,21 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
     if (decoded?.email && decoded?.clientSlug && decoded?.clientId && decoded?.legacy !== true) {
       const { prisma } = await import("./db");
       const current = await prisma.user
-        .findUnique({ where: { email: decoded.email }, select: { tokenVersion: true } })
+        .findUnique({
+          where: { email: decoded.email },
+          select: { tokenVersion: true, role: true, client: { select: { slug: true } } },
+        })
         .catch(() => null);
-      if (current && (decoded.tv ?? 0) !== current.tokenVersion) return null;
+      // Fail-closed: si el usuario fue borrado o la consulta falló, no hay
+      // sesión válida (antes esto dejaba pasar el claim del JWT sin más).
+      if (!current || (decoded.tv ?? 0) !== current.tokenVersion) return null;
       return {
         username: decoded.email,
         label: decoded.email.split("@")[0],
-        role: decoded.role === "admin" ? "admin" : "operator",
-        clientSlugs: [decoded.clientSlug],
+        // El rol se lee siempre de la DB, no del claim: así un cambio de rol
+        // surte efecto en el próximo request sin esperar a que expire el JWT.
+        role: current.role === "admin" ? "admin" : "operator",
+        clientSlugs: [current.client.slug],
         accessType: "tenant_user",
       };
     }

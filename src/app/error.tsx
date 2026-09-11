@@ -3,6 +3,34 @@
 import Link from "next/link";
 import { useEffect } from "react";
 
+function reportError(error: Error & { digest?: string }) {
+  try {
+    const path = window.location.pathname;
+    const key = `cafishia:reported-error:${error.digest ?? error.message}:${path}`;
+
+    // La misma pantalla puede renderizarse más de una vez; evitamos repetir el incidente.
+    if (window.sessionStorage.getItem(key)) return;
+    window.sessionStorage.setItem(key, "1");
+
+    void fetch("/api/client-errors", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      keepalive: true,
+      body: JSON.stringify({
+        name: error.name,
+        message: error.message || "Error sin mensaje",
+        digest: error.digest,
+        // No se envían query strings: pueden contener datos de operación o tokens.
+        path,
+      }),
+    }).catch(() => {
+      // La pantalla de error debe seguir siendo útil aunque falle el reporte.
+    });
+  } catch {
+    // Algunas configuraciones del navegador bloquean storage; no agravamos el incidente.
+  }
+}
+
 export default function Error({
   error,
   reset
@@ -12,6 +40,7 @@ export default function Error({
 }) {
   useEffect(() => {
     console.error(error);
+    reportError(error);
   }, [error]);
 
   return (

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
-import { getVisibleClients } from "@/lib/auth";
+import { requirePageClient } from "@/lib/auth";
 import { deleteLanding, publishAllOnlineLandings, publishLandingPreview, publishSelectedLandings, updateLandingStatus } from "./actions";
 import { DeleteLandingButton } from "./delete-landing-button";
 import { GenerationProgressCard } from "./generation-progress-card";
@@ -31,10 +31,9 @@ export default async function LandingsPage({
   searchParams: { status?: string; client?: string };
 }) {
   const { status = "PREVIEW_ONLINE", client: clientSlug } = searchParams;
-  const clients = await getVisibleClients(prisma);
-  const activeClient = clients.find((c) => c.slug === clientSlug) ?? clients[0] ?? null;
+  const activeClient = await requirePageClient(prisma, clientSlug);
 
-  const clientFilter = activeClient ? { clientId: activeClient.id } : {};
+  const clientFilter = { clientId: activeClient.id };
 
   const [counts, landings] = await Promise.all([
     prisma.landing.groupBy({
@@ -55,7 +54,7 @@ export default async function LandingsPage({
 
   const countMap = Object.fromEntries(counts.map((c) => [c.status, c._count.id]));
   const readyCount = (countMap.APPROVED || 0) + (countMap.PREVIEW_ONLINE || 0);
-  const clientParam = activeClient ? `&client=${activeClient.slug}` : "";
+  const clientParam = `&client=${activeClient.slug}`;
 
   const tabs = [
     { status: "PREVIEW_ONLINE", label: "Listas para publicar" },

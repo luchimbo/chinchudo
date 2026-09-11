@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { getVisibleClients } from "@/lib/auth";
+import { requirePageClient } from "@/lib/auth";
 
 const CANAL_EMOJI: Record<string, string> = {
   REDDIT: "🟠",
@@ -54,15 +54,12 @@ type PageProps = {
 export default async function BitacoraPage({ searchParams }: PageProps) {
   const { client: clientSlug } = searchParams;
 
-  const clients = await getVisibleClients(prisma);
-  const activeClient = clients.find((c) => c.slug === clientSlug) ?? clients[0] ?? null;
+  const activeClient = await requirePageClient(prisma, clientSlug);
 
   const [apostolLogs, enjambrePubs] = await Promise.all([
     // Respuestas publicadas en redes (comentarios en posts ajenos)
     prisma.publishingLog.findMany({
-      where: activeClient
-        ? { opportunity: { OR: [{ detectedBrand: { clientId: activeClient.id } }, { monitoredSource: { clientId: activeClient.id } }] } }
-        : {},
+      where: { opportunity: { OR: [{ detectedBrand: { clientId: activeClient.id } }, { monitoredSource: { clientId: activeClient.id } }] } },
       orderBy: { publishedAt: "desc" },
       take: 50,
       select: {
@@ -95,7 +92,7 @@ export default async function BitacoraPage({ searchParams }: PageProps) {
       where: {
         status: "PUBLISHED",
         opportunityId: null,
-        ...(activeClient ? { clientId: activeClient.id } : {}),
+        clientId: activeClient.id,
       },
       orderBy: { publishedAt: "desc" },
       take: 80,

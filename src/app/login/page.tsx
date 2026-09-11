@@ -30,7 +30,7 @@ export default async function LoginPage({ searchParams }: Props) {
         <div className="rounded-2xl border border-ink/10 bg-white/90 p-8 shadow-xl backdrop-blur-md">
           {error && (
             <div className="mb-4 rounded-lg border border-signal/20 bg-signal/10 px-4 py-3 text-sm font-medium text-signal">
-              {error === "wrong"
+              {error === "wrong" || error === "invalid"
                 ? "Usuario o contrase\u00f1a incorrecta. Intent\u00e1 de nuevo."
                 : error === "config"
                 ? "Error de configuraci\u00f3n de seguridad."
@@ -78,6 +78,11 @@ export default async function LoginPage({ searchParams }: Props) {
             >
               Entrar
             </button>
+            <p className="mt-3 text-center text-xs text-slate">
+              <a href="/recuperar" className="font-semibold text-ink underline decoration-ink/25 underline-offset-4">
+                ¿Olvidaste tu contraseña?
+              </a>
+            </p>
           </form>
 
           <div className="mt-6 text-center text-xs text-slate">

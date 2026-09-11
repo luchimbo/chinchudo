@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
-import { getVisibleClients } from "@/lib/auth";
+import { requirePageClient } from "@/lib/auth";
 import { createProduct, updateProduct, deleteProduct } from "./actions";
 
 type BrandOpt = { id: string; name: string };
@@ -23,12 +23,11 @@ function BrandSelect({ brands, value }: { brands: BrandOpt[]; value?: string }) 
 }
 
 export default async function ProductsPage({ searchParams }: { searchParams: { client?: string } }) {
-  const clients = await getVisibleClients(prisma);
-  const activeClient = clients.find((client) => client.slug === searchParams.client) ?? clients[0] ?? null;
+  const activeClient = await requirePageClient(prisma, searchParams.client);
   const [brands, products] = await Promise.all([
-    prisma.brand.findMany({ where: activeClient ? { clientId: activeClient.id } : undefined, orderBy: { name: "asc" } }),
+    prisma.brand.findMany({ where: { clientId: activeClient.id }, orderBy: { name: "asc" } }),
     prisma.product.findMany({
-      where: activeClient ? { brand: { clientId: activeClient.id } } : undefined,
+      where: { brand: { clientId: activeClient.id } },
       include: { brand: true },
       orderBy: [{ brand: { name: "asc" } }, { name: "asc" }]
     })

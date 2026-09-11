@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { getRelayUrl } from "@/lib/settings";
+import { assertClientAccess } from "@/lib/auth";
+import { prisma } from "@/lib/db";
 
 // GET /api/publish-result?opportunityId=xxx
 // Devuelve el resultado de una publicacion pendiente.
@@ -11,6 +13,19 @@ export async function GET(req: NextRequest) {
   const attemptId = req.nextUrl.searchParams.get("attemptId");
   if (!opportunityId) {
     return NextResponse.json({ error: "missing opportunityId" }, { status: 400 });
+  }
+
+  const opportunity = await prisma.opportunity.findUnique({
+    where: { id: opportunityId },
+    select: { clientId: true },
+  });
+  if (!opportunity?.clientId) {
+    return NextResponse.json({ error: "not found" }, { status: 404 });
+  }
+  try {
+    await assertClientAccess(prisma, opportunity.clientId);
+  } catch {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
   // --- Path local: leer del archivo ---

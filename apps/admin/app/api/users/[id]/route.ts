@@ -17,9 +17,12 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   }
   const parsed = schema.safeParse(await request.json());
   if (!parsed.success) return NextResponse.json({ error: "Datos inválidos." }, { status: 400 });
+  const existing = await prisma.user.findUnique({ where: { id: params.id }, select: { role: true } });
+  const roleChanged = existing && existing.role !== parsed.data.role;
   const updated = await prisma.user.update({
     where: { id: params.id },
-    data: parsed.data,
+    // Un cambio de rol cierra las sesiones abiertas de ese usuario.
+    data: roleChanged ? { ...parsed.data, tokenVersion: { increment: 1 } } : parsed.data,
     select: { id: true, clientId: true, email: true, name: true, role: true },
   });
   await prisma.adminAuditEvent.create({

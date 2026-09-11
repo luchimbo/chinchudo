@@ -3,6 +3,9 @@ import { prisma } from "@/lib/db";
 import { hashPassword, signJwt } from "@/lib/auth-crypto";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { defaultDraft } from "@/lib/onboarding";
+import { validatePassword } from "@/lib/password-policy";
+import { generateAccountToken, hashAccountToken, EMAIL_VERIFICATION_TTL_MS } from "@/lib/account-tokens";
+import { sendAccountEmail } from "@/lib/mailer";
 
 const AUTH_SESSION_TTL_SECONDS = 24 * 60 * 60; // 24h (sesión de panel)
 
@@ -38,7 +41,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Rate limit por IP (5 intentos cada 15 min).
-    const rlIp = checkRateLimit(`register:ip:${clientIp(req)}`, 5, 15 * 60 * 1000);
+    const rlIp = await checkRateLimit(`register:ip:${clientIp(req)}`, 5, 15 * 60 * 1000);
     if (!rlIp.allowed) return rateLimitResponse(rlIp.resetInMs);
 
     const secret = process.env.AUTH_SECRET;
@@ -51,6 +54,11 @@ export async function POST(req: NextRequest) {
 
     // Normalizar email
     const emailNormalized = email.toLowerCase().trim();
+
+    const passwordCheck = validatePassword(password, emailNormalized);
+    if (!passwordCheck.valid) {
+      return NextResponse.json({ error: passwordCheck.error }, { status: 400 });
+    }
 
     // Validar usuario duplicado
     const existingUser = await prisma.user.findUnique({
@@ -132,6 +140,29 @@ export async function POST(req: NextRequest) {
 
       return { client: newClient, user: newUser };
     });
+
+    // Verificación de email en modo "soft": se emite y se envía, pero no
+    // bloquea el acceso todavía (evita romper a usuarios ya registrados
+    // cuando esto se active). No interrumpe el registro si el envío falla.
+    try {
+      const token = generateAccountToken();
+      await prisma.emailVerificationToken.create({
+        data: {
+          userId: user.id,
+          tokenHash: hashAccountToken(token),
+          expiresAt: new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS),
+        },
+      });
+      const verifyUrl = `${process.env.CLIENT_APP_URL || ""}/verificar-email?token=${token}`;
+      await sendAccountEmail({
+        to: user.email,
+        subject: "Verificá tu email",
+        text: `Confirmá tu cuenta: ${verifyUrl}`,
+        html: `<p>Confirmá tu cuenta en pcmidi-suite:</p><p><a href="${verifyUrl}">${verifyUrl}</a></p>`,
+      });
+    } catch (err) {
+      console.error("[register] No se pudo emitir/enviar la verificación de email", err);
+    }
 
     // Generar JWT
     const tokenPayload = {

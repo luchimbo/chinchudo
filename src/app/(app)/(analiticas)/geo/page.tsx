@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { getVisibleClients } from "@/lib/auth";
+import { requirePageClient } from "@/lib/auth";
 
 // Marcas exclusivas de PC MIDI Center (solo nosotros las vendemos en Argentina)
 // Orden: modelos específicos primero, marca sola al final como fallback
@@ -93,9 +93,8 @@ export default async function GeoPage({
   searchParams: { client?: string };
 }) {
   const { client: clientSlug } = searchParams;
-  const clients = await getVisibleClients(prisma);
-  const activeClient = clients.find((c) => c.slug === clientSlug) ?? clients[0] ?? null;
-  const clientFilter = activeClient ? { clientId: activeClient.id } : {};
+  const activeClient = await requirePageClient(prisma, clientSlug);
+  const clientFilter = { clientId: activeClient.id };
 
   const [audits, avg] = await Promise.all([
     prisma.geoAudit.findMany({

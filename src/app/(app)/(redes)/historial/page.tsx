@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { FilterBar } from "@/components/filter-bar";
 import { OpportunityList } from "@/components/opportunity-list";
-import { getVisibleClients } from "@/lib/auth";
+import { requirePageClient } from "@/lib/auth";
 import { OPPORTUNITY_CHANNEL_NAMES, operationalOpportunityWhere } from "@/lib/opportunity-channels";
 
 const PAGE_SIZE = 12;
@@ -16,14 +16,13 @@ type PageProps = {
 };
 
 export default async function HistorialPage({ searchParams }: PageProps) {
-  const [channelsList, clients] = await Promise.all([
+  const [channelsList, activeClient] = await Promise.all([
     prisma.channel.findMany({
       where: { name: { in: [...OPPORTUNITY_CHANNEL_NAMES] } },
       orderBy: { name: "asc" },
     }),
-    getVisibleClients(prisma),
+    requirePageClient(prisma, searchParams.client),
   ]);
-  const activeClient = clients.find((c) => c.slug === searchParams.client) ?? clients[0] ?? null;
 
   const validChannel = channelsList.find((c) => c.name === searchParams.channel)?.name ?? "";
   const q = (searchParams.q ?? "").trim();
