@@ -2,8 +2,7 @@ import React from "react";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { getVisibleClients, requirePageClient } from "@/lib/auth";
-import { operationalOpportunityWhere } from "@/lib/opportunity-channels";
-import { deleteClientMemoryAction, createManualClientMemoryAction, updateClientMemoryAction } from "../opportunities/actions";
+import { deleteClientMemoryAction, createManualClientMemoryAction, unmarkAcceptedResponseAction, updateClientMemoryAction } from "../opportunities/actions";
 import { SubmitButton } from "../opportunities/[id]/SubmitButton";
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -11,6 +10,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   warranty: "bg-blue-100 text-blue-800 border-blue-200",
   product: "bg-emerald-100 text-emerald-800 border-emerald-200",
   store: "bg-amber-100 text-amber-800 border-amber-200",
+  mistake: "bg-red-100 text-red-800 border-red-200",
   general: "bg-slate-100 text-slate-800 border-slate-200",
 };
 
@@ -22,22 +22,18 @@ export default async function AprendizajePage({ searchParams }: PageProps) {
     getVisibleClients(prisma),
   ]);
 
-  const [memories, learningRows] = await Promise.all([
+  const [memories, acceptedResponses] = await Promise.all([
     prisma.clientMemory.findMany({
       where: { clientId: activeClient.id, active: true },
       orderBy: { createdAt: "desc" },
     }),
-    prisma.opportunity.findMany({ where: { clientId: activeClient.id, ...operationalOpportunityWhere() }, select: { contextAssessment: true }, orderBy: { updatedAt: "desc" }, take: 500 }),
+    prisma.response.findMany({
+      where: { acceptedAsCorrectAt: { not: null }, opportunity: { clientId: activeClient.id } },
+      select: { id: true, draftText: true, editedText: true, acceptedAsCorrectAt: true, brand: { select: { name: true } }, opportunity: { select: { sourceText: true } } },
+      orderBy: { acceptedAsCorrectAt: "desc" },
+      take: 20,
+    }),
   ]);
-  const feedbackEvents = learningRows.flatMap((row) => {
-    const context = row.contextAssessment && typeof row.contextAssessment === "object" ? row.contextAssessment as Record<string, unknown> : {};
-    const copilot = context.copilot && typeof context.copilot === "object" ? context.copilot as Record<string, unknown> : {};
-    const feedback = Array.isArray(copilot.feedback) ? copilot.feedback as { type?: string }[] : [];
-    const pulse = copilot.pulse && typeof copilot.pulse === "object" ? copilot.pulse as { platform?: string } : null;
-    return feedback.map((event) => ({ type: event.type || "SIN_TIPO", platform: pulse?.platform || "SIN_CONTEXTO" }));
-  });
-  const feedbackCount = (type: string) => feedbackEvents.filter((event) => event.type === type).length;
-  const contextUsage = Object.entries(feedbackEvents.reduce<Record<string, number>>((acc, event) => ({ ...acc, [event.platform]: (acc[event.platform] || 0) + 1 }), {}));
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col px-5 py-8 lg:px-8">
@@ -67,8 +63,8 @@ export default async function AprendizajePage({ searchParams }: PageProps) {
         {clients.map((client) => <Link key={client.id} href={`/aprendizaje?client=${encodeURIComponent(client.slug)}`} className={`rounded-full border px-3 py-1.5 text-xs font-bold transition ${client.id === activeClient?.id ? "border-ink bg-ink text-paper" : "border-ink/15 bg-white text-slate hover:border-ink/40"}`}>{client.name}</Link>)}
       </nav> : null}
 
-      <section className="mb-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {[['Feedback recibido', feedbackEvents.length], ['Sirvió', feedbackCount('SIRVIO')], ['Ajustes de tono', feedbackCount('MAS_DIRECTO') + feedbackCount('MENOS_VENTA') + feedbackCount('MENOS_HUMOR')], ['Tema sensible / no aportó', feedbackCount('TEMA_SENSIBLE') + feedbackCount('NO_APORTO')]].map(([label, value]) => <div key={String(label)} className="rounded-2xl border border-ink/10 bg-white/75 p-4 shadow-panel"><p className="text-[10px] font-bold uppercase tracking-[0.13em] text-slate/60">{label}</p><p className="mt-2 font-display text-3xl text-ink">{value}</p></div>)}
+      <section className="mb-8 grid gap-3 sm:grid-cols-2">
+        {[["Reglas aprendidas", memories.length], ["Respuestas correctas", acceptedResponses.length]].map(([label, value]) => <div key={String(label)} className="rounded-2xl border border-ink/10 bg-white/75 p-4 shadow-panel"><p className="text-[10px] font-bold uppercase tracking-[0.13em] text-slate/60">{label}</p><p className="mt-2 font-display text-3xl text-ink">{value}</p></div>)}
       </section>
 
       <div className="grid gap-8 lg:grid-cols-[1fr_360px]">
@@ -146,15 +142,39 @@ export default async function AprendizajePage({ searchParams }: PageProps) {
               })}
             </div>
           )}
+
+          <div className="flex items-center justify-between pt-6">
+            <h2 className="font-display text-2xl text-ink">
+              Respuestas correctas ({acceptedResponses.length})
+            </h2>
+            <span className="text-xs text-slate/70">Se usan como ejemplos al generar</span>
+          </div>
+
+          {acceptedResponses.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-ink/20 bg-white/50 p-8 text-center text-xs text-slate">
+              Cuando aceptes una respuesta desde el chat del Copiloto CM, va a aparecer acá y la IA la va a tomar como referencia.
+            </div>
+          ) : (
+            <div className="grid gap-3">
+              {acceptedResponses.map((accepted) => (
+                <article key={accepted.id} className="rounded-xl border border-ink/10 bg-white p-5 shadow-panel">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate/60">
+                    <span>{accepted.brand.name} • {accepted.acceptedAsCorrectAt ? new Date(accepted.acceptedAsCorrectAt).toLocaleDateString("es-AR") : ""}</span>
+                    <form action={unmarkAcceptedResponseAction}>
+                      <input type="hidden" name="responseId" value={accepted.id} />
+                      <button type="submit" className="rounded-lg border border-red-200 bg-red-50/50 px-3 py-1.5 text-xs font-bold text-red-700 transition hover:bg-red-100">Quitar de ejemplos</button>
+                    </form>
+                  </div>
+                  <p className="mt-2 line-clamp-3 text-xs leading-5 text-slate">Comentario: {accepted.opportunity.sourceText}</p>
+                  <p className="mt-2 rounded-lg bg-moss/[0.06] px-3 py-2 text-sm leading-6 text-ink">{accepted.editedText || accepted.draftText}</p>
+                </article>
+              ))}
+            </div>
+          )}
         </section>
 
         {/* Sidebar: Add Manual Rule */}
         <aside>
-          <div className="mb-5 rounded-2xl border border-ink/10 bg-paper/70 p-5">
-            <h3 className="font-display text-xl text-ink">Contexto que generó feedback</h3>
-            <p className="mt-1 text-xs leading-5 text-slate">Mide qué contexto estaba activo cuando el CM dio feedback; no mide alcance ni ventas.</p>
-            <div className="mt-4 space-y-2">{contextUsage.length ? contextUsage.map(([platform, count]) => <div key={platform} className="flex items-center justify-between rounded-lg bg-white px-3 py-2 text-xs"><span className="font-semibold text-ink">{platform.replaceAll('_', ' ')}</span><span className="text-slate">{count}</span></div>) : <p className="text-xs text-slate">Todavía no hay feedback asociado a contexto.</p>}</div>
-          </div>
           <div className="rounded-2xl border border-ink/10 bg-white p-6 shadow-panel">
             <h3 className="font-display text-xl text-ink">Agregar Regla Manual</h3>
             <p className="mt-1 text-xs text-slate">
@@ -178,6 +198,7 @@ export default async function AprendizajePage({ searchParams }: PageProps) {
                   <option value="warranty">Garantía / Soporte</option>
                   <option value="product">Producto / Especificación</option>
                   <option value="store">Tienda / Cuotas / Stock</option>
+                  <option value="mistake">Error a evitar</option>
                 </select>
               </div>
 

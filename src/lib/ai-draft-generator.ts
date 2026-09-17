@@ -26,6 +26,7 @@ type DraftContext = {
   competitorEvidence?: CompetitorEvidence[];
   avoidDrafts?: string[];
   clientMemories?: { rule: string }[];
+  acceptedExamples?: { comment: string; response: string }[];
   editorialGuidance?: string;
   styleCorrection?: string;
 };
@@ -171,6 +172,10 @@ export function buildPrompt(ctx: DraftContext): string {
   const memoriesBlock = memories.length > 0
     ? `\n## Reglas aprendidas de interacciones anteriores (aplicá siempre que encajen)\n${memories.map((m) => `- ${m.rule}`).join("\n")}\n`
     : "";
+  const acceptedExamples = ctx.acceptedExamples ?? [];
+  const acceptedExamplesBlock = acceptedExamples.length > 0
+    ? `\n## Respuestas aprobadas como correctas por el CM (imitá criterio, tono y largo; no copies frases)\n${acceptedExamples.map((example) => `- Comentario: "${example.comment.replace(/\s+/g, " ").slice(0, 300)}" → Respuesta correcta: "${example.response.slice(0, 300)}"`).join("\n")}\n`
+    : "";
 
   const knowledge = ctx.knowledge ?? [];
   const objections = ctx.objections ?? [];
@@ -284,7 +289,7 @@ export function buildPrompt(ctx: DraftContext): string {
 
 ## Reglas absolutas (NUNCA romper)
 ${absoluteRules}
-${memoriesBlock}
+${memoriesBlock}${acceptedExamplesBlock}
 - **IDIOMA DE LA RESPUESTA**: Identificá el idioma del comentario al que vas a responder (Texto: "${opportunity.sourceText.slice(0, 400)}"). Debés responder en ese mismo idioma (Español, Inglés o Portugués).
   - Si el comentario está en español: Escribí la respuesta en español argentino (usá "vos", no "tú" ni modismos neutros; usá "tenés", "mirá", "comprá", etc.)${forbiddenExtra}
   - Si el comentario está en inglés: Escribí la respuesta en inglés natural, fluido y coloquial, adaptado al tono de tu perfil${forbiddenExtra}

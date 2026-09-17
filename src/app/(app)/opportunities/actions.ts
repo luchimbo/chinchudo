@@ -26,7 +26,7 @@ import { loadObservedProfileContext, overrideObservedProfileSignals, recordObser
 import { loadRelevantCompetitorEvidence } from "@/lib/competitor-evidence";
 import { selectVoiceVariant } from "@/lib/persona-router";
 import { chatRefinementStep, compileResponseFromChat, type ChatMessage } from "@/lib/refine-draft";
-import { addClientMemory, deleteClientMemory, extractLearningFromChat, getClientMemories } from "@/lib/client-memory";
+import { addClientMemory, deleteClientMemory, extractLearningsFromChat, getAcceptedExamples, getClientMemories, replaceChatLearnings } from "@/lib/client-memory";
 import { publishYouTubeComment } from "@/lib/youtube-publisher";
 import { assertOperationalOpportunityChannel } from "@/lib/opportunity-channels";
 
@@ -331,6 +331,11 @@ export async function publishCopilotYouTubeResponse(formData: FormData) {
     }),
   ]);
   await closeSiblingOpportunities(prisma, opportunity.id, opportunity.channelId, opportunity.sourceUrl, "youtube");
+  try {
+    await learnFromRefinementChat(response.id, parsed.editedText);
+  } catch (error) {
+    logger.error("copilot_publish_learning_failed", "No se pudo extraer el aprendizaje del chat", error).catch(() => { });
+  }
   revalidatePath("/copiloto");
   revalidatePath(`/opportunities/${opportunity.id}`);
 }
@@ -492,7 +497,7 @@ export async function generateResponseDrafts(formData: FormData) {
       : (selectedProduct ?? opportunity.detectedProduct),
   };
 
-  const [{ knowledge, objections }, activeSystemPrompt, clientMemories] = await Promise.all([
+  const [{ knowledge, objections }, activeSystemPrompt, clientMemories, acceptedExamples] = await Promise.all([
     loadRelevantKnowledge(prisma, {
       sourceText: opportunity.sourceText,
       clientId: resolution.client.id,
@@ -500,7 +505,8 @@ export async function generateResponseDrafts(formData: FormData) {
       productId: opportunityForDraft.detectedProductId
     }),
     loadActivePrompt(prisma),
-    getClientMemories(prisma, resolution.client.id)
+    getClientMemories(prisma, resolution.client.id),
+    getAcceptedExamples(prisma, { clientId: resolution.client.id, brandId, limit: 5 })
   ]);
   const [observedProfile, competitorEvidence] = await Promise.all([
     loadObservedProfileContext(prisma, opportunity.id),
@@ -556,6 +562,7 @@ export async function generateResponseDrafts(formData: FormData) {
     observedProfile,
     competitorEvidence,
     clientMemories: clientMemories.map((m) => ({ rule: m.rule })),
+    acceptedExamples,
     editorialGuidance: copilotGuidance(opportunity.contextAssessment, pulse ? { title: pulse.title } : null),
   };
   const voiceVariant = selectVoiceVariant(persona.name, observedProfile);
@@ -699,27 +706,7 @@ export async function approveResponse(formData: FormData) {
     }),
   ]);
 
-  // Extraer y guardar aprendizaje si hubo chat de refinimiento
-  const chatHistory = (response.chatHistory as ChatMessage[] | undefined) ?? [];
-  if (chatHistory.length > 0 && opportunity.clientId) {
-    const learning = await extractLearningFromChat({
-      opportunityText: opportunity.sourceText,
-      finalResponseText: parsed.editedText,
-      chatHistory: chatHistory.map((m) => ({ sender: m.sender, text: m.text })),
-      brandName: response.brand.name,
-    });
-    if (learning) {
-      await addClientMemory(prisma, {
-        clientId: opportunity.clientId,
-        rule: learning.rule,
-        summary: learning.summary,
-        category: learning.category,
-        source: "chat_refinement",
-        opportunityId: parsed.opportunityId,
-        responseId: parsed.responseId,
-      });
-    }
-  }
+  await learnFromRefinementChat(parsed.responseId, parsed.editedText);
 
   revalidatePath("/");
   revalidatePath(`/opportunities/${parsed.opportunityId}`);
@@ -841,27 +828,7 @@ export async function approveAndPublishResponse(formData: FormData) {
     channelLower
   );
 
-  // Extraer y guardar aprendizaje si hubo chat de refinimiento
-  const chatHistory = (response.chatHistory as ChatMessage[] | undefined) ?? [];
-  if (chatHistory.length > 0 && opportunity.clientId) {
-    const learning = await extractLearningFromChat({
-      opportunityText: opportunity.sourceText,
-      finalResponseText: parsed.editedText,
-      chatHistory: chatHistory.map((m) => ({ sender: m.sender, text: m.text })),
-      brandName: response.brand.name,
-    });
-    if (learning) {
-      await addClientMemory(prisma, {
-        clientId: opportunity.clientId,
-        rule: learning.rule,
-        summary: learning.summary,
-        category: learning.category,
-        source: "chat_refinement",
-        opportunityId: parsed.opportunityId,
-        responseId: parsed.responseId,
-      });
-    }
-  }
+  await learnFromRefinementChat(parsed.responseId, parsed.editedText);
 
   const client = parsed.client;
   const clientQuery = client ? `&client=${encodeURIComponent(client)}` : "";
@@ -946,32 +913,11 @@ export async function markAsPublished(formData: FormData) {
     ...siblingUpdate
   ]);
 
-  // Extraer y guardar aprendizaje si hubo chat de refinimiento
   const response = await prisma.response.findUniqueOrThrow({
     where: { id: parsed.responseId },
-    include: { brand: true }
+    select: { editedText: true, draftText: true },
   });
-  const chatHistory = (response.chatHistory as ChatMessage[] | undefined) ?? [];
-  if (chatHistory.length > 0 && opportunity.clientId) {
-    const finalText = response.editedText || response.draftText;
-    const learning = await extractLearningFromChat({
-      opportunityText: opportunity.sourceText,
-      finalResponseText: finalText,
-      chatHistory: chatHistory.map((m) => ({ sender: m.sender, text: m.text })),
-      brandName: response.brand.name,
-    });
-    if (learning) {
-      await addClientMemory(prisma, {
-        clientId: opportunity.clientId,
-        rule: learning.rule,
-        summary: learning.summary,
-        category: learning.category,
-        source: "chat_refinement",
-        opportunityId: parsed.opportunityId,
-        responseId: parsed.responseId,
-      });
-    }
-  }
+  await learnFromRefinementChat(parsed.responseId, response.editedText || response.draftText);
 
   revalidatePath("/");
   revalidatePath(`/opportunities/${parsed.opportunityId}`);
@@ -1423,9 +1369,13 @@ export async function sendRefinementMessageAction(formData: FormData) {
 
   const resolution = await resolveOpportunityClient(prisma, response.opportunity);
   await assertClientAccess(prisma, resolution.client.id);
-  const clientMemories = await getClientMemories(prisma, resolution.client.id);
+  const [clientMemories, acceptedExamples] = await Promise.all([
+    getClientMemories(prisma, resolution.client.id),
+    getAcceptedExamples(prisma, { clientId: resolution.client.id, brandId: response.brandId, limit: 5 }),
+  ]);
 
   const assistantReply = await chatRefinementStep({
+    acceptedExamples,
     opportunityText: response.opportunity.sourceText,
     currentResponseText: response.editedText || response.draftText,
     chatHistory: parsed.chatHistory,
@@ -1503,9 +1453,16 @@ export async function applyRefinedResponseAction(formData: FormData) {
 
   const resolution = await resolveOpportunityClient(prisma, response.opportunity);
   await assertClientAccess(prisma, resolution.client.id);
-  const clientMemories = await getClientMemories(prisma, resolution.client.id);
+  const [clientMemories, acceptedExamples] = await Promise.all([
+    getClientMemories(prisma, resolution.client.id),
+    getAcceptedExamples(prisma, { clientId: resolution.client.id, brandId: response.brandId, limit: 5 }),
+  ]);
+  const context = response.opportunity.contextAssessment;
+  const isCopilotOpportunity = Boolean(context && typeof context === "object" && "copilot" in context);
 
   const compiledText = await compileResponseFromChat({
+    acceptedExamples,
+    maxCharacters: isCopilotOpportunity ? COPILOT_MAX_CHARACTERS : undefined,
     opportunityText: response.opportunity.sourceText,
     chatHistory: parsed.chatHistory,
     currentResponseText: response.editedText || response.draftText,
@@ -1530,7 +1487,96 @@ export async function applyRefinedResponseAction(formData: FormData) {
   ]);
 
   revalidatePath(`/opportunities/${response.opportunityId}`);
+  revalidatePath("/copiloto");
   return { success: true, compiledText };
+}
+
+/** Extrae todos los aprendizajes de la conversación completa y los guarda como memoria del cliente. */
+async function learnFromRefinementChat(responseId: string, finalText: string): Promise<string[]> {
+  const response = await prisma.response.findUniqueOrThrow({
+    where: { id: responseId },
+    select: {
+      opportunityId: true,
+      chatHistory: true,
+      brand: { select: { name: true } },
+      opportunity: { select: { clientId: true, sourceText: true } },
+    },
+  });
+  const chatHistory = (response.chatHistory as ChatMessage[] | undefined) ?? [];
+  if (chatHistory.length === 0 || !response.opportunity.clientId) return [];
+  const learnings = await extractLearningsFromChat({
+    opportunityText: response.opportunity.sourceText,
+    finalResponseText: finalText,
+    chatHistory: chatHistory.map((m) => ({ sender: m.sender, text: m.text })),
+    brandName: response.brand.name,
+  });
+  // Si el LLM no devolvió nada (o falló), conservamos lo aprendido antes para esta respuesta.
+  if (learnings.length === 0) return [];
+  return replaceChatLearnings(prisma, {
+    clientId: response.opportunity.clientId,
+    opportunityId: response.opportunityId,
+    responseId,
+    learnings,
+  });
+}
+
+const acceptCopilotRefinementSchema = z.object({
+  opportunityId: z.string().min(1),
+  responseId: z.string().min(1),
+  editedText: z.string().trim().min(3).max(COPILOT_MAX_CHARACTERS),
+});
+
+/**
+ * Acepta la versión trabajada en el chat del Copiloto como respuesta correcta:
+ * queda como ejemplo para próximas generaciones y se extraen los aprendizajes de todo el chat.
+ * No cambia el estado de la oportunidad, así sigue visible hasta publicarla.
+ */
+export async function acceptCopilotRefinementAction(formData: FormData) {
+  const parsed = acceptCopilotRefinementSchema.parse({
+    opportunityId: formData.get("opportunityId"),
+    responseId: formData.get("responseId"),
+    editedText: formData.get("editedText"),
+  });
+  const response = await prisma.response.findUniqueOrThrow({
+    where: { id: parsed.responseId },
+    select: { opportunityId: true, opportunity: { select: { clientId: true } } },
+  });
+  if (response.opportunityId !== parsed.opportunityId) throw new Error("La respuesta no corresponde a esta oportunidad.");
+  await requireOwnedClientId(response.opportunity.clientId);
+
+  await prisma.$transaction([
+    prisma.response.updateMany({
+      where: { opportunityId: parsed.opportunityId, id: { not: parsed.responseId } },
+      data: { isPrimary: false },
+    }),
+    prisma.response.update({
+      where: { id: parsed.responseId },
+      data: { editedText: parsed.editedText, approvedBy: "CM", isPrimary: true, acceptedAsCorrectAt: new Date() },
+    }),
+  ]);
+
+  let learnedRules: string[] = [];
+  try {
+    learnedRules = await learnFromRefinementChat(parsed.responseId, parsed.editedText);
+  } catch (error) {
+    // La respuesta ya quedó guardada como correcta; un fallo del LLM no debe perderla.
+    logger.error("copilot_accept_learning_failed", "No se pudo extraer el aprendizaje del chat", error).catch(() => { });
+  }
+
+  revalidatePath("/copiloto");
+  revalidatePath("/aprendizaje");
+  return { success: true, learnedRules };
+}
+
+export async function unmarkAcceptedResponseAction(formData: FormData) {
+  const responseId = idSchema.parse(formData.get("responseId"));
+  const response = await prisma.response.findUniqueOrThrow({
+    where: { id: responseId },
+    select: { opportunity: { select: { clientId: true } } },
+  });
+  await requireOwnedClientId(response.opportunity.clientId);
+  await prisma.response.update({ where: { id: responseId }, data: { acceptedAsCorrectAt: null } });
+  revalidatePath("/aprendizaje");
 }
 
 export async function createManualClientMemoryAction(formData: FormData) {

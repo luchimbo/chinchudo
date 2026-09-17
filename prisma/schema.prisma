@@ -519,6 +519,7 @@ model Response {
   evidence           Json                @default("[]")
   chatHistory        Json                @default("[]")
   approvedBy         String              @default("")
+  acceptedAsCorrectAt DateTime?
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
   publishingLog      PublishingLog?
@@ -530,6 +531,7 @@ model Response {
   @@index([opportunityId])
   @@index([personaId])
   @@index([brandId])
+  @@index([acceptedAsCorrectAt])
 }
 
 model ClientMemory {
@@ -537,7 +539,7 @@ model ClientMemory {
   clientId      String
   rule          String
   summary       String      @default("")
-  category      String      @default("general") // tone | warranty | product | store | general
+  category      String      @default("general") // tone | warranty | product | store | mistake | general
   source        String      @default("chat_refinement") // chat_refinement | manual
   opportunityId String?
   responseId    String?
@@ -551,7 +553,7 @@ model ClientMemory {
   @@index([clientId])
   @@index([opportunityId])
   @@index([responseId])
-  @@unique([responseId, source])
+  @@index([responseId, source])
 }
 
 model Service {

@@ -25,27 +25,18 @@ export default async function HomePage({ searchParams }: PageProps) {
   const opportunityWhere = { ...clientWhere, ...operationalOpportunityWhere() };
   const workStatuses = ["NEW", "NEEDS_REVIEW", "DRAFTED", "APPROVED", "FOLLOW_UP"] as const;
 
-  const [pending, published, converted, landings, leads, recent, onboarding, activeSources] = await Promise.all([
+  const [pending, published, converted, landings, leads, onboarding] = await Promise.all([
     prisma.opportunity.count({ where: { ...opportunityWhere, status: { in: [...workStatuses] } } }),
     prisma.opportunity.count({ where: { ...opportunityWhere, status: "PUBLISHED" } }),
     prisma.opportunity.count({ where: { ...opportunityWhere, status: "CONVERTED" } }),
     prisma.landing.count({ where: clientWhere }),
     prisma.lead.count({ where: clientWhere }),
-    prisma.opportunity.findMany({
-      where: opportunityWhere,
-      select: { id: true, sourceText: true, sourceAuthor: true, status: true, channel: { select: { name: true } } },
-      orderBy: [{ opportunityScore: "desc" }, { createdAt: "desc" }],
-      take: 4,
-    }),
     client
       ? (prisma as any).clientOnboarding.findUnique({
           where: { clientId: client.id },
           select: { status: true, currentStep: true, sourceUrl: true, draft: true },
         })
       : Promise.resolve(null),
-    client
-      ? prisma.monitoredSource.count({ where: { clientId: client.id, active: true } })
-      : Promise.resolve(0),
   ]);
 
   const withClient = (href: string) => client ? `${href}?client=${encodeURIComponent(client.slug)}` : href;
@@ -61,26 +52,6 @@ export default async function HomePage({ searchParams }: PageProps) {
         clientSlug: client.slug,
       })
     : null;
-
-  type EmptyOpportunityState = { text: string; cta?: { label: string; href: string } };
-  const emptyOpportunityState: EmptyOpportunityState = !client
-    ? { text: "Todavía no hay oportunidades para este cliente." }
-    : onboardingProgress?.visible
-      ? {
-          text: "Terminá de configurar tu espacio para empezar a detectar oportunidades.",
-          cta: { label: "Continuar configuración →", href: withClient("/onboarding") },
-        }
-      : !onboarding
-        ? { text: "Todavía no hay oportunidades para este cliente." }
-        : activeSources === 0
-          ? {
-              text: "Elegí en qué redes escuchar para empezar a recibir oportunidades.",
-              cta: { label: "Elegir redes →", href: `${withClient("/onboarding")}&step=2&from=configuracion` },
-            }
-          : {
-              text: "El radar está activo, todavía sin oportunidades.",
-              cta: { label: "Buscar oportunidades manualmente →", href: withClient("/oportunidades") },
-            };
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-7 px-5 py-8 lg:px-8">
@@ -104,43 +75,6 @@ export default async function HomePage({ searchParams }: PageProps) {
         <Metric label="Conversiones" value={converted} note="Resultados atribuidos" tone="moss" />
         <Metric label="Landings" value={landings} note="Piezas de contenido" />
         <Metric label="Leads" value={leads} note="Contactos captados" />
-      </section>
-
-      <section className="grid gap-5">
-        <div className="overflow-hidden rounded-xl border border-ink/10 bg-white/75 shadow-panel">
-          <div className="flex items-center justify-between border-b border-ink/10 px-5 py-4">
-            <div>
-              <h2 className="font-display text-2xl text-ink">Prioridad de hoy</h2>
-              <p className="mt-1 text-xs text-slate/65">Oportunidades con mayor señal comercial.</p>
-            </div>
-            <Link href={withClient("/copiloto")} className="text-xs font-bold text-moss hover:text-ink">Abrir Copiloto</Link>
-          </div>
-          {recent.length ? (
-            <div className="divide-y divide-ink/8">
-              {recent.map((opportunity) => (
-                <Link key={opportunity.id} href={withClient(`/opportunities/${opportunity.id}`)} className="block px-5 py-4 transition hover:bg-moss/[0.05]">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-semibold text-ink">{opportunity.sourceAuthor || "Usuario de red"}</p>
-                    <span className="rounded-full bg-ink/5 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-slate">{opportunity.channel.name}</span>
-                  </div>
-                  <p className="mt-1 line-clamp-2 text-sm text-slate">{opportunity.sourceText}</p>
-                </Link>
-              ))}
-            </div>
-          ) : (
-            <div className="px-5 py-10 text-sm text-slate/65">
-              <p>{emptyOpportunityState.text}</p>
-              {emptyOpportunityState.cta ? (
-                <Link
-                  href={emptyOpportunityState.cta.href}
-                  className="mt-2 inline-block font-bold text-moss hover:text-ink"
-                >
-                  {emptyOpportunityState.cta.label}
-                </Link>
-              ) : null}
-            </div>
-          )}
-        </div>
       </section>
     </div>
   );

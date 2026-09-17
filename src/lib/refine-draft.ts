@@ -7,6 +7,25 @@ export type ChatMessage = {
   timestamp?: string;
 };
 
+export type AcceptedExample = { comment: string; response: string };
+
+function formatAcceptedExamples(examples?: AcceptedExample[]): string {
+  if (!examples?.length) return "";
+  const lines = examples.map((example) => `- Comentario: "${example.comment.replace(/\s+/g, " ").slice(0, 300)}" → Respuesta correcta: "${example.response.slice(0, 300)}"`);
+  return `Respuestas que el CM aprobó como correctas (referencia de criterio y tono, no las copies):\n${lines.join("\n")}\n`;
+}
+
+/** Recorta sin partir palabras, prefiriendo cerrar en una oración completa. */
+function fitToMaxCharacters(text: string, maxCharacters?: number): string {
+  const clean = text.trim().replace(/^["“]+|["”]+$/g, "").trim();
+  if (!maxCharacters || clean.length <= maxCharacters) return clean;
+  const cut = clean.slice(0, maxCharacters);
+  const sentenceEnd = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
+  if (sentenceEnd > maxCharacters * 0.6) return cut.slice(0, sentenceEnd + 1).trim();
+  const lastSpace = cut.lastIndexOf(" ");
+  return (lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trim();
+}
+
 export async function chatRefinementStep(params: {
   opportunityText: string;
   currentResponseText: string;
@@ -16,6 +35,7 @@ export async function chatRefinementStep(params: {
   personaName: string;
   clientName?: string;
   clientMemories?: { rule: string }[];
+  acceptedExamples?: AcceptedExample[];
 }): Promise<string> {
   const llmConfig = resolveLLMConfig();
   const memoriesList = (params.clientMemories ?? []).map((m) => `- ${m.rule}`).join("\n");
@@ -31,7 +51,7 @@ Borrador de respuesta actual:
 "${params.currentResponseText}"
 
 ${memoriesList ? `Reglas/Preferencias aprendidas de la marca:\n${memoriesList}\n` : ""}
-
+${formatAcceptedExamples(params.acceptedExamples)}
 Tu rol en este chat es dialogar de forma clara, directa y concisa con el operador. Podés opinar, proponer cambios o redactar una opción alternativa si el usuario te lo pide. Mantené un tono profesional, colaborador y muy claro.`;
 
   const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
@@ -77,6 +97,8 @@ export async function compileResponseFromChat(params: {
   brandName: string;
   personaName: string;
   clientMemories?: { rule: string }[];
+  acceptedExamples?: AcceptedExample[];
+  maxCharacters?: number;
 }): Promise<string> {
   const llmConfig = resolveLLMConfig();
   const memoriesList = (params.clientMemories ?? []).map((m) => `- ${m.rule}`).join("\n");
@@ -93,12 +115,12 @@ Conversación e indicaciones dadas por el Operador:
 ${formattedChat}
 
 ${memoriesList ? `Reglas/Preferencias aprendidas de la marca:\n${memoriesList}\n` : ""}
-
+${formatAcceptedExamples(params.acceptedExamples)}
 REGLAS ABSOLUTAS:
 - Generá exclusivamente el TEXTO FINAL de la respuesta perfeccionada.
 - NO incluyas explicaciones, ni comillas extra, ni saludos al operador.
 - No incluyas preguntas (solo afirmaciones, recomendaciones o datos útiles).
-- Mantené el tono del perfil ${params.personaName} incorporando fielmente lo que pidió el operador en el chat.
+- Mantené el tono del perfil ${params.personaName} incorporando fielmente lo que pidió el operador en el chat.${params.maxCharacters ? `\n- Máximo ${params.maxCharacters} caracteres en total.` : ""}
 
 Respuesta final (únicamente el texto a publicar):`;
 
@@ -110,15 +132,15 @@ Respuesta final (únicamente el texto a publicar):`;
     }, "10 Apostoles - Compile Draft Response");
 
     if (!res.ok) {
-      return params.currentResponseText;
+      return fitToMaxCharacters(params.currentResponseText, params.maxCharacters);
     }
 
     const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
     const compiled = data.choices?.[0]?.message?.content?.trim();
 
-    return compiled || params.currentResponseText;
+    return fitToMaxCharacters(compiled || params.currentResponseText, params.maxCharacters);
   } catch (err) {
     logger.error("compile_response_error", "Error en compileResponseFromChat", err).catch(() => { });
-    return params.currentResponseText;
+    return fitToMaxCharacters(params.currentResponseText, params.maxCharacters);
   }
 }

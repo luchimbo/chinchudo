@@ -6,6 +6,15 @@ import { selectCopilotPulse } from "@/lib/radar-editorial";
 import { CopilotWorkspace } from "./workspace";
 
 const COPILOT_OPEN_STATUSES: OpportunityStatus[] = ["NEW", "NEEDS_REVIEW", "DRAFTED"];
+
+function parseChatHistory(value: Prisma.JsonValue): { sender: "user" | "assistant"; text: string }[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const { sender, text } = item as Record<string, unknown>;
+    return (sender === "user" || sender === "assistant") && typeof text === "string" ? [{ sender, text }] : [];
+  });
+}
 type PageProps = {
   searchParams: { client?: string; view?: string; brand?: string; channel?: string; response?: string; sort?: string };
 };
@@ -118,6 +127,8 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
           variantType: response.variantType,
           isPrimary: response.isPrimary,
           persona: response.persona.name,
+          acceptedAsCorrect: Boolean(response.acceptedAsCorrectAt),
+          chatHistory: parseChatHistory(response.chatHistory),
         })),
       }))}
     />
