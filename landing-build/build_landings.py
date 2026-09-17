@@ -914,8 +914,13 @@ def deploy_with_vercel(base_url: str, build_summary: dict | None = None) -> dict
     if scope:
         safe_command.extend(["--scope", scope])
 
+    # Se sube el sitio ya construido (el build necesita la base y el repo
+    # completo): el directorio lleva el enlace del proyecto y la config
+    # estática (URLs limpias y /api/* hacia el suite).
+    shutil.copytree(ROOT / ".vercel", SITE_DIR / ".vercel", dirs_exist_ok=True)
+    shutil.copy2(ROOT / "vercel.json", SITE_DIR / "vercel.json")
     started_at = datetime.now(timezone.utc).isoformat()
-    result = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, timeout=1800)
+    result = subprocess.run(command, cwd=SITE_DIR, text=True, capture_output=True, timeout=1800)
     finished_at = datetime.now(timezone.utc).isoformat()
     stdout_lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
     stderr_lines = [line.strip() for line in result.stderr.splitlines() if line.strip()]

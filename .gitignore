@@ -50,3 +50,6 @@ tmp/
 # Skills instaladas (se rehidratan desde skills-lock.json)
 .agents/
 .claude/skills/
+
+# Blog estático generado por landing-build (se despliega ya construido)
+landing-build/site/
