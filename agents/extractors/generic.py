@@ -84,7 +84,10 @@ def extract_visible_items(client: CDPClient, channel: str, max_items: int) -> li
         if (channel === 'linkedin' && !/linkedin\\.com\\/(posts|feed\\/update)\\//.test(href)) continue;
         if (context.length < 25) continue;
         seen.add(href);
-        out.push({{url: href, title: title.slice(0, 220), context: context.slice(0, 1600)}});
+        // YouTube muestra el canal dentro de la tarjeta del resultado.
+        const ytCard = channel === 'youtube' ? a.closest('ytd-video-renderer, ytd-rich-item-renderer, ytd-compact-video-renderer') : null;
+        const author = ((ytCard?.querySelector('ytd-channel-name #text, ytd-channel-name a, #channel-name #text')?.innerText) || '').replace(/\\s+/g, ' ').trim();
+        out.push({{url: href, title: title.slice(0, 220), context: context.slice(0, 1600), author}});
         if (out.length >= maxItems) break;
       }}
       return out;

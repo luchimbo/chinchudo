@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { discardCopilotOpportunity, generateCopilotDrafts, markCopilotResponse, publishCopilotYouTubeResponse } from "@/app/(app)/opportunities/actions";
+import { communityFromUrl, formatAuthor } from "@/lib/source-author";
 import { RefinementChat, type ChatMessage } from "./RefinementChat";
 
 type Response = { id: string; text: string; variantType: string; isPrimary: boolean; persona: string; acceptedAsCorrect: boolean; chatHistory: ChatMessage[] };
@@ -124,6 +125,22 @@ function ResponseWithChat({ response, opportunityId, sourceUrl, channel, clientS
   </div>;
 }
 
+function AuthorLine({ author, channel, sourceUrl }: { author: string; channel: string; sourceUrl: string }) {
+  const display = useMemo(() => formatAuthor(author, channel, sourceUrl), [author, channel, sourceUrl]);
+  if (!display) {
+    const community = communityFromUrl(sourceUrl);
+    return <p className="mt-4 text-xs font-medium text-slate/55">Autor no identificado{community ? ` · ${community}` : ""}</p>;
+  }
+  const name = <span className="truncate text-sm font-bold text-ink">{display.name}</span>;
+  return <div className="mt-4 flex min-w-0 items-center gap-2.5">
+    <span aria-hidden="true" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-ink text-xs font-bold text-paper">{display.initial}</span>
+    <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+      {display.profileUrl ? <a href={display.profileUrl} target="_blank" rel="noreferrer" className="min-w-0 truncate hover:underline">{name}</a> : name}
+      {display.handle ? <span className="truncate text-xs text-slate/65">{display.handle}</span> : null}
+    </div>
+  </div>;
+}
+
 function OpportunityCard({ opportunity, clientSlug, youtube }: { opportunity: Opportunity; clientSlug: string; youtube: { account: string; connected: boolean; channelTitle: string } | null }) {
   const [discardOpen, setDiscardOpen] = useState(false);
   const date = new Date(opportunity.createdAt).toLocaleDateString("es-AR", { day: "numeric", month: "short" });
@@ -134,7 +151,7 @@ function OpportunityCard({ opportunity, clientSlug, youtube }: { opportunity: Op
   const [reasonOpen, setReasonOpen] = useState(false);
 
   return <article id={`op-${opportunity.id}`} className="scroll-mt-6 overflow-hidden rounded-2xl border border-ink/10 bg-white/85 shadow-panel">
-    <div className="border-b border-ink/10 px-5 py-4"><div className="flex flex-wrap items-center justify-between gap-3 text-xs font-semibold text-slate/70"><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-ink/7 px-2.5 py-1 text-ink">{opportunity.channel}</span><span>{opportunity.brand}</span>{opportunity.product ? <span className="text-slate/50">{opportunity.product}</span> : null}</div><span>{date}</span></div><div className="mt-4 max-w-3xl">{title ? <p className="font-display text-lg font-bold leading-6 text-ink">{title}</p> : null}<ExpandableText text={description} limit={240} className={`whitespace-pre-wrap text-[15px] leading-7 text-slate/80 ${title ? "mt-1.5" : ""}`} /></div><div className="mt-4 flex flex-wrap items-center gap-2"><a href={opportunity.sourceUrl} target="_blank" rel="noreferrer" className="rounded-full border border-ink/15 px-3 py-1.5 text-xs font-bold text-ink transition hover:border-ink/40">Abrir fuente</a>{opportunity.author ? <span className="px-2 py-1.5 text-xs text-slate/65">{opportunity.author}</span> : null}{aiReason ? <button type="button" onClick={() => setReasonOpen((value) => !value)} className="flex items-center gap-1 px-2 py-1.5 text-xs font-semibold text-slate/65 underline decoration-slate/25 underline-offset-4 hover:text-ink">Razón IA<span aria-hidden="true" className={`transition-transform ${reasonOpen ? "rotate-180" : ""}`}>▾</span></button> : null}</div>{aiReason && reasonOpen ? <div className="mt-3 max-w-3xl rounded-md bg-paper p-3 text-sm leading-6 text-slate">{aiReason}</div> : null}</div>
+    <div className="border-b border-ink/10 px-5 py-4"><div className="flex flex-wrap items-center justify-between gap-3 text-xs font-semibold text-slate/70"><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-ink/7 px-2.5 py-1 text-ink">{opportunity.channel}</span><span>{opportunity.brand}</span>{opportunity.product ? <span className="text-slate/50">{opportunity.product}</span> : null}</div><span>{date}</span></div><AuthorLine author={opportunity.author} channel={opportunity.channel} sourceUrl={opportunity.sourceUrl} /><div className="mt-3 max-w-3xl">{title ? <p className="font-display text-lg font-bold leading-6 text-ink">{title}</p> : null}<ExpandableText text={description} limit={240} className={`whitespace-pre-wrap text-[15px] leading-7 text-slate/80 ${title ? "mt-1.5" : ""}`} /></div><div className="mt-4 flex flex-wrap items-center gap-2"><a href={opportunity.sourceUrl} target="_blank" rel="noreferrer" className="rounded-full border border-ink/15 px-3 py-1.5 text-xs font-bold text-ink transition hover:border-ink/40">Abrir fuente</a>{aiReason ? <button type="button" onClick={() => setReasonOpen((value) => !value)} className="flex items-center gap-1 px-2 py-1.5 text-xs font-semibold text-slate/65 underline decoration-slate/25 underline-offset-4 hover:text-ink">Razón IA<span aria-hidden="true" className={`transition-transform ${reasonOpen ? "rotate-180" : ""}`}>▾</span></button> : null}</div>{aiReason && reasonOpen ? <div className="mt-3 max-w-3xl rounded-md bg-paper p-3 text-sm leading-6 text-slate">{aiReason}</div> : null}</div>
     <div className="px-5 py-5">
       {!response ? <form action={generateCopilotDrafts} className="rounded-xl bg-paper p-4"><input type="hidden" name="opportunityId" value={opportunity.id} /><PendingSubmit pendingLabel="Generando respuesta..." className="rounded-full bg-ink px-4 py-2.5 text-sm font-bold text-paper transition hover:bg-slate">Generar respuesta</PendingSubmit><p className="mt-2 text-xs text-slate/70">Se genera con las reglas y respuestas correctas que la IA aprendió de los chats. Después la podés ajustar acá mismo.</p></form> : <ResponseWithChat key={response.id} response={response} opportunityId={opportunity.id} sourceUrl={opportunity.sourceUrl} channel={opportunity.channel} clientSlug={clientSlug} youtube={youtube} />}
       <div className="mt-4">{discardOpen ? <form action={discardCopilotOpportunity} className="flex flex-wrap items-center gap-2 rounded-xl border border-signal/20 bg-signal/[0.04] p-3"><input type="hidden" name="opportunityId" value={opportunity.id} /><select name="reason" defaultValue="NO_RELEVANTE" className="rounded-lg border border-ink/15 bg-white px-2 py-2 text-xs text-ink"><option value="NO_RELEVANTE">No era relevante</option><option value="NO_ES_EL_TONO">No era el tono</option><option value="FALTA_INFO">Faltaba información</option><option value="NO_CONVIENE">No conviene responder</option></select><PendingSubmit pendingLabel="Descartando..." className="rounded-full bg-signal px-3 py-2 text-xs font-bold text-white">Confirmar descarte</PendingSubmit><button type="button" onClick={() => setDiscardOpen(false)} className="px-2 py-2 text-xs font-semibold text-slate">Cancelar</button></form> : <button type="button" onClick={() => setDiscardOpen(true)} className="text-xs font-semibold text-slate/65 underline decoration-slate/30 underline-offset-4 hover:text-signal">Descartar oportunidad</button>}</div>

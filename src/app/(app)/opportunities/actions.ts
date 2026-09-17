@@ -22,6 +22,7 @@ import { getRelayUrl } from "@/lib/settings";
 import { loadClientContext, resolveOpportunityClient } from "@/lib/client-context";
 import { detectCrossClientTerms, validateClientScopedActors } from "@/lib/guardrails";
 import { triageOpportunity } from "@/lib/opportunity-triage";
+import { authorFromUrl } from "@/lib/source-author";
 import { loadObservedProfileContext, overrideObservedProfileSignals, recordObservedProfileEvent } from "@/lib/observed-profiles";
 import { loadRelevantCompetitorEvidence } from "@/lib/competitor-evidence";
 import { selectVoiceVariant } from "@/lib/persona-router";
@@ -59,6 +60,7 @@ export async function createOpportunity(formData: FormData) {
   const clientObj = clientSlug ? await resolveClientForSlug(prisma, clientSlug) : null;
   const channel = await prisma.channel.findUniqueOrThrow({ where: { id: parsed.channelId }, select: { name: true } });
   assertOperationalOpportunityChannel(channel.name);
+  if (!parsed.sourceAuthor) parsed.sourceAuthor = authorFromUrl(channel.name, parsed.sourceUrl)?.name ?? "";
 
   await prisma.opportunity.create({
     data: {

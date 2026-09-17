@@ -369,7 +369,10 @@ async function main() {
   // progressing even if another account has a temporarily empty network.
   const perClientConcurrency = Math.min(2, Math.max(1, Math.floor(MAX_CONCURRENCY / Math.max(clients.length, 1))));
   const report = await Promise.all(clients.map((client) => runClient(client, since, maxRounds, runId, perClientConcurrency)));
-  const payload = { command: "daily-opportunity-quota", since: since.toISOString(), maxRounds, concurrency: MAX_CONCURRENCY, clients: report };
+  // Videos que pasaron a privados o se eliminaron después de importarse ya no
+  // se pueden responder: se descartan para que no queden en el Copiloto.
+  const unavailableSweep = await run("npx", ["tsx", "scripts/discard-unavailable-youtube.mts", ...(clientSlug ? ["--client", clientSlug] : [])], 10 * 60_000);
+  const payload = { command: "daily-opportunity-quota", since: since.toISOString(), maxRounds, concurrency: MAX_CONCURRENCY, clients: report, unavailableYouTubeSweep: { code: unavailableSweep.code, timedOut: unavailableSweep.timedOut, output: unavailableSweep.output.slice(-500) } };
   await mkdir(join(process.cwd(), "reports"), { recursive: true });
   const reportPath = join(process.cwd(), "reports", `${new Date().toISOString().replace(/[:.]/g, "-")}-daily-opportunity-quota.json`);
   await writeFile(reportPath, JSON.stringify(payload, null, 2));

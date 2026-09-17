@@ -12,6 +12,7 @@ import {
 } from "../src/lib/client-context";
 import { classifyOpportunity } from "../src/lib/ai-opportunity-classifier";
 import { recordObservedProfileEvent } from "../src/lib/observed-profiles";
+import { checkYouTubeAvailability, resolveSourceAuthor, storedAuthor, youtubeVideoId } from "../src/lib/source-author";
 import { calculateOpportunityScore, normalizeAssessment, prestigeFallbackAssessment, priorityFromOpportunityScore } from "../src/lib/contextual-opportunity";
 // @ts-ignore -- shared ESM helper used by operational scripts.
 import { isPrestigeRadarCandidate, normalizedRadarText } from "../src/lib/prestige-radar.mjs";
@@ -192,6 +193,22 @@ async function main() {
     if (!sourceUrl || sourceText.length < 10) {
       skipped += 1;
       continue;
+    }
+
+    // Un video privado o eliminado no se puede responder: no entra como oportunidad.
+    if (youtubeVideoId(sourceUrl)) {
+      const availability = await checkYouTubeAvailability(sourceUrl);
+      if (availability === "private" || availability === "removed") {
+        console.log(`[Skip] Video de YouTube ${availability === "private" ? "privado" : "eliminado"}: ${sourceUrl}`);
+        skipped += 1;
+        continue;
+      }
+    }
+
+    // Las fuentes que no traen autor (resultados de búsqueda, videos) se
+    // completan desde la URL, oEmbed de YouTube o el JSON público de Reddit.
+    if (!String(row.sourceAuthor || "").trim()) {
+      row.sourceAuthor = storedAuthor(await resolveSourceAuthor(String(row.channel || ""), sourceUrl));
     }
 
     // Filtrar por autor propio o marcas propias
