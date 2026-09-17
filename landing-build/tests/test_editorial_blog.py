@@ -30,6 +30,16 @@ PRODUCTS = {
     "minilab-3": {"id": "minilab-3", "nombre": "Arturia MiniLab 3", "marca": "Arturia", "modelo": "MiniLab 3", "categoria_id": "controladores-midi", "uso": "Producir", "url": f"{STORE}/productos/minilab-3/"},
 }
 
+# Cuerpo mínimo válido: secciones con marcadores del catálogo y cierre de marca.
+BODY = {
+    "sections": [
+        {"h2": "Qué resuelve un controlador", "body": "Un [[c:controladores-midi|controlador MIDI]] te deja tocar instrumentos virtuales.\n\nSi además grabás voces, sumá una [[c:interfaces|interfaz de audio]]."},
+        {"h2": "Un ejemplo compacto", "body": "El [[p:minilab-3]] entra en cualquier escritorio. Otra mención del [[p:minilab-3]] no se enlaza dos veces."},
+        {"h2": "Cómo decidir", "body": "Definí el software y el espacio antes de comparar. [[p:no-existe|Modelo inventado]] queda como texto."},
+    ],
+    "brand_solution": {"title": "Dónde conseguirlo", "body": "En PC MIDI Center comparás controladores por uso."},
+}
+
 
 def article(slug: str, cluster: str, content_type: str = "GUIDE", days_ago: int = 30, category: str = "controladores-midi", **extra) -> dict:
     moment = (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()
@@ -89,6 +99,11 @@ def site(tmp_path, monkeypatch):
         *(article(f"controlador-guia-{index}", "controladores-midi", days_ago=30 - index) for index in range(1, 8)),
         article("guia-completa-grabacion", "grabacion-en-casa", "PILLAR", days_ago=20, category="interfaces"),
         article("interfaz-para-voz", "grabacion-en-casa", days_ago=5, category="interfaces"),
+        article(
+            "interfaz-con-cuerpo", "grabacion-en-casa", days_ago=6, category="interfaces", product_ids=["minilab-3"],
+            common_mistakes=["Comprar sin pensar en la voz."],
+            **{**BODY, "sections": [*BODY["sections"], {"h2": "Seguí", "body": "Empezá por [[g:guia-completa-grabacion|la guía completa]]."}]},
+        ),
     ]
     monkeypatch.setattr(bl, "load_landings", lambda: [dict(item) for item in landings])
     summary = bl.build(base_url=BASE)
@@ -108,7 +123,7 @@ def test_build_passes_audit(site):
     assert summary["status"] == "ok"
     assert summary["broken_links"] == 0
     assert summary["orphans"] == []
-    assert summary["published_articles"] == 10
+    assert summary["published_articles"] == 11
     assert summary["noindex_pages"] == 2
 
 
@@ -176,7 +191,7 @@ def test_sitemap_uses_real_lastmod(site):
     sitemap = (site_dir / "sitemap.xml").read_text(encoding="utf-8")
     locs = re.findall(r"<loc>([^<]+)</loc>", sitemap)
     assert f"{BASE}/" in locs and f"{BASE}/guias/controladores-midi/" in locs
-    assert len(locs) == 1 + 2 + 10
+    assert len(locs) == 1 + 2 + 11
     expected = (datetime.now(timezone.utc) - timedelta(days=5)).date().isoformat()
     assert f"<loc>{BASE}/guias/grabacion-en-casa/interfaz-para-voz/</loc><lastmod>{expected}</lastmod>" in sitemap
 
@@ -272,6 +287,7 @@ def test_generation_publishes_three_then_queues(tmp_path, monkeypatch):
         generated = article(bl.slugify(keyword), "controladores-midi", keyword=keyword, h1=f"Cómo elegir: {keyword}", seo_title=f"{keyword} | Guía", meta_description=f"Criterios para {keyword}.")
         for key in ("content_type", "indexing_state", "cluster_slug", "cluster_name", "published_at", "updated_at", "id"):
             generated.pop(key, None)
+        generated.update(BODY)
         return generated
 
     monkeypatch.setattr(bl, "chat_json", fake_chat)
@@ -285,3 +301,89 @@ def test_generation_publishes_three_then_queues(tmp_path, monkeypatch):
     again = bl.generate_landings(limit=10, model="test")
     assert again["created_count"] == 0
     assert again["stopped_reason"] == "weekly_quota_reached"
+
+
+def test_article_body_links_store_inside_text(site):
+    _, site_dir = site
+    html_text = read(site_dir, "/guias/grabacion-en-casa/interfaz-con-cuerpo/")
+    body = html_text[html_text.index('article-body"'):html_text.index('class="mega article-solution"')]
+    assert f'<a href="{STORE}/controladores-midi/" data-store-link="true" data-link-type="category" data-target="controladores-midi">controlador MIDI</a>' in body
+    assert f'href="{STORE}/interfaces/"' in body
+    assert body.count(f'href="{STORE}/productos/minilab-3/"') == 1  # primera mención
+    assert "Modelo inventado" in body and "no-existe" not in body
+    assert 'target="_blank"' not in body
+    assert '<a href="/guias/grabacion-en-casa/guia-completa-grabacion/" data-internal-link="true" data-link-type="inline"' in body
+    assert "[[" not in html_text
+
+
+def test_editorial_article_uses_landing_design_with_article_content(site):
+    _, site_dir = site
+    html_text = read(site_dir, "/guias/grabacion-en-casa/interfaz-con-cuerpo/")
+    # Misma base visual que las landings: template activo, header y clases.
+    assert '<body class="article-page tpl-' in html_text and 'class="site-header"' in html_text
+    assert 'class="hero-title' in html_text and 'class="faq-grid"' in html_text
+    assert "Dónde conseguirlo" in html_text and 'class="mega article-solution"' in html_text
+    assert 'data-link-type="solution_product"' in html_text and 'data-link-type="solution_cta"' in html_text
+    for landing_block in ('class="comp-card"', "Opciones recomendadas", 'class="hero-ctas', 'class="steps-list"', 'href="#productos"'):
+        assert landing_block not in html_text[html_text.index("<body"):]
+    assert '"@type": "FAQPage"' in html_text and '"@type": "Product"' in html_text
+    assert html_text.index("Errores frecuentes") < html_text.index('class="mega article-solution"')
+
+
+def test_editorial_without_body_uses_its_criteria(site):
+    _, site_dir = site
+    html_text = read(site_dir, "/guias/controladores-midi/guia-completa-controladores/")
+    assert '<section id="seccion-1"><h2>MIDI</h2>' in html_text
+    assert 'data-link-type="category" data-target="controladores-midi"' in html_text
+    assert "Paso a paso para decidir" in html_text
+
+
+def test_legacy_page_keeps_landing_template(site):
+    _, site_dir = site
+    html_text = read(site_dir, "/controlador-midi-para-fl-studio/")
+    assert 'article-body"' not in html_text
+    assert "product-pill" in html_text
+
+
+def test_editorial_validation_requires_body_markers_and_solution(monkeypatch):
+    monkeypatch.setattr(bl, "_CLIENT_CONFIG", {"slug": "pcmidi"})
+    clusters = [{"slug": "controladores-midi", "name": "Controladores"}]
+    validate = lambda candidate: bl.validate_editorial_candidate(candidate, [], clusters, {"controladores-midi"}, CATEGORIES, PRODUCTS)
+    assert validate(article("con-cuerpo", "controladores-midi", **BODY)) == []
+    errors = validate(article("sin-cuerpo", "controladores-midi"))
+    assert any("secciones" in error for error in errors) and any("brand_solution" in error for error in errors)
+    unknown = {**BODY, "sections": [{"h2": f"S{index}", "body": "[[p:no-existe]] y [[c:tampoco]]"} for index in range(3)]}
+    assert any("cita menos" in error for error in validate(article("marcadores-falsos", "controladores-midi", **unknown)))
+
+
+def test_catalogue_fallback_passes_editorial_validation(monkeypatch):
+    monkeypatch.setattr(bl, "_CLIENT_CONFIG", {"slug": "pcmidi", "name": "PC MIDI Center"})
+    landing = bl.normalize_generated_landing(bl.catalogue_fallback_landing({"keyword": "controlador midi", "categorias_sugeridas": "controladores-midi;interfaces"}, CATEGORIES, PRODUCTS))
+    landing.update({"content_type": "GUIDE", "cluster_slug": "controladores-midi"})
+    assert bl.validate_editorial_candidate(landing, [], [{"slug": "controladores-midi"}], {"controladores-midi"}, CATEGORIES, PRODUCTS) == []
+
+
+def test_regenerate_keeps_identity_and_blocks_invalid_output(tmp_path, monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setattr(bl, "_CLIENT_CONFIG", {"slug": "pcmidi", "name": "PC MIDI Center", "storeUrl": STORE, "blogBaseUrl": BASE})
+    monkeypatch.setattr(bl, "REPORTS_DIR", tmp_path / "reports")
+    monkeypatch.setattr(bl, "load_categories", lambda: CATEGORIES)
+    monkeypatch.setattr(bl, "load_products", lambda: PRODUCTS)
+    monkeypatch.setattr(bl, "load_content_clusters", lambda: [{"slug": "controladores-midi", "name": "Controladores MIDI y DAW"}])
+    pillar = article("guia-completa-controladores", "controladores-midi", "PILLAR", days_ago=10)
+    monkeypatch.setattr(bl, "load_landings", lambda: [dict(pillar)])
+    saved: list[dict] = []
+    monkeypatch.setattr(bl, "persist_regenerated_landing", saved.append)
+    responses = [
+        {**article("otro-slug", "", h1="Sin cuerpo"), "content_type": None},
+        {**article("otro-slug", "", h1="Guía nueva de controladores", seo_title="Controladores MIDI | Guía nueva"), **BODY},
+    ]
+    monkeypatch.setattr(bl, "chat_json", lambda system, user, model, temperature=0.35: responses.pop(0))
+
+    summary = bl.regenerate_editorial(["guia-completa-controladores", "no-existe"], model="test")
+    assert [item["status"] for item in summary["results"]] == ["updated", "not_found"]
+    assert len(saved) == 1
+    regenerated = saved[0]
+    assert regenerated["slug"] == pillar["slug"] and regenerated["published_at"] == pillar["published_at"]
+    assert regenerated["content_type"] == "PILLAR" and regenerated["cluster_slug"] == "controladores-midi"
+    assert regenerated["h1"] == "Guía nueva de controladores" and len(regenerated["sections"]) == 3

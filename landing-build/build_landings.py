@@ -64,6 +64,14 @@ def client_logo_url() -> str:
     return _CLIENT_CONFIG.get("logoUrl") or ""
 
 
+def bundled_logo_path() -> str:
+    """Logo blanco de PC MIDI (el mismo de las landings originales). El build
+    lo copia a /assets; va sobre los fondos oscuros del template."""
+    if client_slug_active() == "pcmidi" and (ROOT / "LogoPCMIDIBlanco.png").exists():
+        return "/assets/LogoPCMIDIBlanco.png"
+    return ""
+
+
 def client_slug_active() -> str:
     return _CLIENT_CONFIG.get("slug") or "pcmidi"
 
@@ -776,7 +784,8 @@ def validate_landings(landings: list[dict], categories: dict[str, dict], product
             if product_url.scheme not in ("http", "https") or product_host != store_host:
                 errors.append(f"{label}: URL de producto invalida: {product_id}")
 
-        text = json.dumps(landing, ensure_ascii=False).lower()
+        # Los campos "_" son datos de render (enlaces, recursos) de otros registros.
+        text = json.dumps({key: value for key, value in landing.items() if not str(key).startswith("_")}, ensure_ascii=False).lower()
         for claim in FORBIDDEN_CLAIMS:
             if claim.lower() in text:
                 errors.append(f"{label}: claim prohibido detectado: {claim}")
@@ -1064,14 +1073,14 @@ def chat_json(system: str, user: str, model: str, temperature: float = 0.35) -> 
     return extract_json_object(content)
 
 
-def generation_prompt(topic: dict, categories: dict[str, dict], products: dict[str, dict]) -> tuple[str, str]:
+def generation_prompt(topic: dict, categories: dict[str, dict], products: dict[str, dict], articles: list[dict] | None = None) -> tuple[str, str]:
     catalog = compact_catalog(categories, products)
     brand = client_name()
     has_products = bool(catalog["productos"])
     if has_products:
-        system = f"""Sos estratega SEO y editor de guías de compra para el blog de {brand}.
+        system = f"""Sos estratega SEO y editor del blog de {brand}, que hace marketing de contenidos (inbound).
 Devolves solo JSON valido, sin markdown ni explicaciones.
-El artículo debe ser único, concreto, útil para una persona y relacionado con productos vendidos por {brand}. Respondé primero la búsqueda y recién después orientá hacia categorías o productos.
+El artículo debe ser único, concreto, útil para una persona y relacionado con productos vendidos por {brand}. Respondé primero la búsqueda con información que genere confianza y recién después presentá las categorías y productos de {brand} como la solución natural.
 No inventes categorias, productos, marcas, modelos ni URLs. Solo usa IDs del catalogo recibido.
 No menciones precios, stock, disponibilidad, distribuidor oficial, soporte tecnico oficial, exclusividad, reparaciones, alquileres, clases formales, grabacion, mezcla ni mastering.
 No incluyas software Arturia tipo Modular V, CS-80 V, CMI V, Synclavier V ni packs de plugins.
@@ -1099,11 +1108,32 @@ Usa español rioplatense claro y humano."""
             f"\nTipo editorial: {topic.get('editorial_content_type', 'GUIDE')}"
             f"\nCluster editorial: {topic.get('cluster_name') or topic.get('cluster_slug')}\n"
         )
+        linkable = [
+            {"slug": item.get("slug"), "titulo": item.get("h1") or item.get("keyword"), "tipo": item.get("content_type")}
+            for item in (articles or [])
+            if item.get("slug")
+        ][:15]
+        if linkable:
+            editorial_brief += "Guías ya publicadas del blog (podés enlazarlas con [[g:slug|texto]]):\n" + json.dumps(linkable, ensure_ascii=False) + "\n"
         editorial_fields = """
   "direct_answer": "respuesta directa a la búsqueda en 2 o 3 frases, sin rodeos",
-  "common_mistakes": ["error frecuente concreto y cómo evitarlo", "error frecuente concreto y cómo evitarlo", "error frecuente concreto y cómo evitarlo"],"""
-        editorial_rules = """
-- Estructura editorial: primero la respuesta directa (direct_answer), después criterios prácticos (components: why = para qué sirve, look = qué comparar), una comparativa cuando haya alternativas reales, errores frecuentes (common_mistakes), productos relacionados del catálogo y preguntas frecuentes útiles.
+  "sections": [
+    {"h2": "subtítulo que responde una duda concreta", "body": "2 a 4 párrafos separados por una línea en blanco, con marcadores [[p:id_producto]] y [[c:id_categoria|texto]] donde ayuden"},
+    {"h2": "subtítulo", "body": "párrafos"},
+    {"h2": "subtítulo", "body": "párrafos"},
+    {"h2": "subtítulo", "body": "párrafos"}
+  ],
+  "common_mistakes": ["error frecuente concreto y cómo evitarlo", "error frecuente concreto y cómo evitarlo", "error frecuente concreto y cómo evitarlo"],
+  "brand_solution": {"title": "título del cierre, por ejemplo: Dónde conseguirlo en la tienda", "body": "2 o 3 frases que presenten a la marca como el lugar natural para resolver esta decisión"},"""
+        editorial_rules = f"""
+- Recorrido inbound: la persona llega desde Google con una duda. Primero la resolvés de verdad (direct_answer y sections), así gana confianza; recién al final {brand} aparece como la solución natural (brand_solution).
+- sections: 4 a 6 secciones de texto corrido y útil (PILLAR más amplio, GUIDE más enfocado). Explicá criterios, comparaciones y ejemplos de uso reales; nada de listas genéricas de productos.
+- Dentro del body de sections citá productos del catálogo con [[p:id_producto]] (se muestra el modelo) y categorías con [[c:id_categoria|texto natural]]. Usá al menos 3 marcadores en total, solo con IDs del catálogo, y solo donde el producto ejemplifique el criterio que estás explicando.
+- Si hay guías publicadas relacionadas, enlazá 1 o 2 con [[g:slug|texto natural]] donde amplíen el tema.
+- Nombrá a {brand} en sections como máximo 2 veces y nunca en la primera sección: el cuerpo tiene que valer por sí mismo.
+- brand_solution: cerrá conectando la decisión del artículo con lo que {brand} ofrece (variedad del catálogo para comparar, categorías y modelos citados). Sin precios, stock, envíos, promociones ni superlativos vacíos.
+- No escribas URLs ni HTML: los enlaces salen solo de los marcadores.
+- Estructura editorial: respuesta directa, secciones, criterios prácticos (components: why = para qué sirve, look = qué comparar), errores frecuentes (common_mistakes), cierre de marca (brand_solution) y preguntas frecuentes útiles.
 - Las preguntas frecuentes deben aportar información nueva; no repitas el H1 ni la respuesta directa.
 - Si el tipo editorial es PILLAR, cubrí el tema principal de forma amplia y conectá los criterios que luego desarrollarán guías específicas.
 - Si el tipo editorial es GUIDE, resolvé un problema, comparación o decisión puntual dentro del cluster; no repitas la guía general."""
@@ -1162,7 +1192,46 @@ def normalize_generated_landing(landing: dict) -> dict:
     landing["secondary_category_ids"] = list(dict.fromkeys(landing.get("secondary_category_ids", [])))[:5]
     landing["product_ids"] = [PRODUCT_ALIASES.get(item, item) for item in landing.get("product_ids", [])]
     landing["product_ids"] = list(dict.fromkeys(landing.get("product_ids", [])))[:5]
+    if "sections" in landing:
+        sections = []
+        for section in landing.get("sections") or []:
+            if not isinstance(section, dict):
+                continue
+            h2, body = str(section.get("h2") or section.get("title") or "").strip(), str(section.get("body") or "").strip()
+            if h2 and body:
+                sections.append({"h2": h2, "body": body})
+        landing["sections"] = sections[:8]
+    if "brand_solution" in landing:
+        solution = landing.get("brand_solution")
+        solution = solution if isinstance(solution, dict) else {}
+        landing["brand_solution"] = {"title": str(solution.get("title") or "").strip(), "body": str(solution.get("body") or "").strip()}
     return landing
+
+
+# Marcadores del cuerpo: [[p:producto]], [[c:categoria|texto]], [[g:slug|texto]].
+ARTICLE_MARKER_RE = re.compile(r"\[\[([pcg]):([^\]|]+?)(?:\|([^\]]+))?\]\]")
+MIN_BODY_SECTIONS = 3
+MIN_CATALOG_MARKERS = 2
+
+
+def resolve_marker_id(kind: str, ref: str) -> str:
+    ref = ref.strip()
+    if kind == "p":
+        return PRODUCT_ALIASES.get(ref, ref)
+    if kind == "c":
+        return CATEGORY_ALIASES.get(ref, ref)
+    return ref
+
+
+def catalog_marker_count(landing: dict, categories: dict[str, dict], products: dict[str, dict]) -> int:
+    """Productos y categorías reales citados dentro del cuerpo."""
+    text = "\n".join(str(section.get("body") or "") for section in landing.get("sections") or [])
+    count = 0
+    for kind, ref, _ in ARTICLE_MARKER_RE.findall(text):
+        target = resolve_marker_id(kind, ref)
+        if (kind == "p" and target in products) or (kind == "c" and target in categories):
+            count += 1
+    return count
 
 
 def cluster_terms(cluster: dict) -> tuple[str, ...]:
@@ -1266,11 +1335,26 @@ def editorial_overlap_reason(candidate: str, existing: list[dict]) -> str:
     return ""
 
 
-def validate_editorial_candidate(landing: dict, existing: list[dict], clusters: list[dict], pillar_slugs: set[str]) -> list[str]:
+def validate_editorial_candidate(
+    landing: dict,
+    existing: list[dict],
+    clusters: list[dict],
+    pillar_slugs: set[str],
+    categories: dict[str, dict] | None = None,
+    products: dict[str, dict] | None = None,
+) -> list[str]:
     """Validaciones obligatorias antes de autopublicar. Si alguna falla, el
-    artículo queda bloqueado y reportado; nunca se publica a medias."""
+    artículo queda bloqueado y reportado; nunca se publica a medias. Con el
+    catálogo, además exige cuerpo propio que cite la tienda y cierre de marca."""
     errors: list[str] = []
     label = landing.get("slug") or landing.get("keyword") or "articulo"
+    if categories is not None and products is not None:
+        if len(landing.get("sections") or []) < MIN_BODY_SECTIONS:
+            errors.append(f"{label}: el cuerpo necesita al menos {MIN_BODY_SECTIONS} secciones")
+        if catalog_marker_count(landing, categories, products) < MIN_CATALOG_MARKERS:
+            errors.append(f"{label}: el cuerpo cita menos de {MIN_CATALOG_MARKERS} productos o categorías del catálogo")
+        if not (landing.get("brand_solution") or {}).get("body"):
+            errors.append(f"{label}: falta el cierre de marca (brand_solution)")
     for field in ("slug", "seo_title", "h1", "meta_description"):
         value = str(landing.get(field) or "").strip().lower()
         if not value:
@@ -1324,7 +1408,25 @@ def catalogue_fallback_landing(topic: dict, categories: dict[str, dict], product
         selected_products = list(products)[:5]
     primary = categories[primary_id]
     title_keyword = keyword[:65]
+    example_products = " y ".join(f"[[p:{pid}]]" for pid in selected_products[:2])
+    sections = [
+        {
+            "h2": "Qué resuelve cada opción",
+            "body": "\n\n".join(f"[[c:{item}|{categories[item]['nombre']}]]: {categories[item].get('descripcion', '')}" for item in [primary_id, *secondary_ids]),
+        },
+        {
+            "h2": "Cómo compararlas",
+            "body": f"Antes de elegir, definí el uso principal y el espacio donde lo vas a usar. Modelos como {example_products} sirven para ver cómo cambian esos criterios en la práctica.",
+        },
+        {"h2": "Por dónde empezar", "body": "Definí el uso, elegí la categoría que mejor lo resuelve y compará dos o tres modelos con el mismo criterio."},
+    ]
+    brand_solution = {
+        "title": f"Dónde comparar opciones en {client_name()}",
+        "body": f"En {client_name()} vas a encontrar {primary['nombre']} y alternativas relacionadas organizadas por uso, para comparar modelos con los criterios de esta guía.",
+    }
     return {
+        "sections": sections,
+        "brand_solution": brand_solution,
         "slug": slugify(keyword), "keyword": keyword, "intent": str(topic.get("intencion") or "guía de compra"),
         "seo_title": f"{title_keyword}: guía para elegir mejor"[:65],
         "meta_description": f"Guía para elegir {keyword.lower()} según tu uso, comodidad y el tipo de entrenamiento que hacés.",
@@ -1998,7 +2100,8 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
             if client_slug_active() == "prestige-running":
                 landing = normalize_generated_landing(catalogue_fallback_landing(topic, categories, products))
             else:
-                system, user = generation_prompt(topic, categories, products)
+                related_articles = [item for item in existing if is_editorial(item) and item.get("cluster_slug") == topic.get("cluster_slug")] if editorial_mode else None
+                system, user = generation_prompt(topic, categories, products, related_articles)
                 landing = normalize_generated_landing(chat_json(system, user, model=model))
         except Exception as exc:
             blocked = {"keyword": topic.get("keyword") or topic.get("busqueda_objetivo"), "reason": "generation_error", "error": str(exc)}
@@ -2017,7 +2120,7 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
         # puede bloquear un cliente por registros viejos de otro catálogo.
         errors = validate_landings([landing], categories, products)
         if editorial_mode and not errors:
-            errors = validate_editorial_candidate(landing, existing, clusters, pillar_slugs)
+            errors = validate_editorial_candidate(landing, existing, clusters, pillar_slugs, categories, products)
             if not errors:
                 blog_url = client_blog_url().rstrip("/")
                 rendered = render_landing(landing, categories, products, blog_url, {})
@@ -2101,6 +2204,110 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
     return {**summary, "report": str(report_path)}
 
 
+# Campos que definen la identidad pública del artículo: una regeneración
+# reescribe el contenido pero nunca cambia URL, cluster ni fecha de publicación.
+REGENERATION_KEPT_FIELDS = ("id", "slug", "content_type", "indexing_state", "cluster_slug", "cluster_name", "author_name", "published_at", "created_at", "source_refs")
+
+
+def persist_regenerated_landing(landing: dict) -> None:
+    """Actualiza en su lugar un artículo existente (Postgres y respaldo jsonl)."""
+    public = {key: value for key, value in landing.items() if not str(key).startswith("_")}
+    client_id = str(_CLIENT_CONFIG.get("id") or "")
+    if os.environ.get("DATABASE_URL") and client_id:
+        sys.path.insert(0, str(ROOT.parent / "agents"))
+        from db_pg import rebuild_editorial_internal_links, upsert_landing  # type: ignore
+
+        upsert_landing(
+            slug=public["slug"],
+            keyword=public.get("keyword", ""),
+            html_content=json.dumps(public, ensure_ascii=False),
+            clientId=client_id,
+            titulo=public.get("h1") or public.get("seo_title") or "",
+            intent=public.get("intent", ""),
+            seoTitle=public.get("seo_title", ""),
+            seoDescription=public.get("meta_description", ""),
+        )
+        rebuild_editorial_internal_links(client_id)
+    path = _landings_path()
+    if not path.exists():
+        return
+    lines = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip() and json.loads(line).get("slug") == public["slug"]:
+            line = json.dumps(public, ensure_ascii=False, separators=(",", ":"))
+        lines.append(line)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def regenerate_editorial(slugs: list[str], model: str, dry_run: bool = False, attempts: int = 2) -> dict:
+    """Reescribe artículos editoriales ya publicados con el prompt vigente.
+    Pasa las mismas validaciones que un artículo nuevo; si no las pasa, el
+    original queda intacto. El reporte guarda el original como respaldo."""
+    categories = load_categories()
+    products = load_products()
+    existing = load_landings()
+    clusters = load_content_clusters()
+    pillar_slugs = pillar_cluster_slugs(clusters, existing)
+    blog_url = client_blog_url().rstrip("/")
+    by_slug = {str(item.get("slug")): item for item in existing if is_editorial(item)}
+    results = []
+    for slug in slugs:
+        original = by_slug.get(slug)
+        if not original:
+            results.append({"slug": slug, "status": "not_found"})
+            print(f"No encontrado: {slug}")
+            continue
+        others = [item for item in existing if item is not original]
+        topic = {
+            "keyword": original.get("keyword") or original.get("h1"),
+            "intencion": original.get("intent") or "guía editorial",
+            "categorias_sugeridas": ";".join(category_ids_for(original)),
+            "cluster_slug": original.get("cluster_slug"),
+            "cluster_name": original.get("cluster_name"),
+            "editorial_content_type": original.get("content_type"),
+        }
+        related = [item for item in others if is_editorial(item) and item.get("cluster_slug") == original.get("cluster_slug")]
+        candidate, errors = None, []
+        for attempt in range(1, attempts + 1):
+            print(f"Regenerando {slug} (intento {attempt})")
+            try:
+                system, user = generation_prompt(topic, categories, products, related)
+                generated = normalize_generated_landing(chat_json(system, user, model=model))
+            except Exception as exc:
+                errors = [f"generation_error: {exc}"]
+                print(f"- {errors[0]}")
+                continue
+            generated.update({key: original[key] for key in REGENERATION_KEPT_FIELDS if key in original})
+            generated["updated_at"] = datetime.now(timezone.utc).isoformat()
+            errors = validate_landings([generated], categories, products) or validate_editorial_candidate(generated, others, clusters, pillar_slugs, categories, products)
+            if not errors:
+                rendered = render_landing(generated, categories, products, blog_url, {})
+                errors = validate_rendered_article(rendered, landing_url(generated, blog_url))
+            if not errors:
+                candidate = generated
+                break
+            for error in errors:
+                print(f"- {error}")
+        if candidate is None:
+            results.append({"slug": slug, "status": "blocked", "errors": errors})
+            continue
+        if not dry_run:
+            persist_regenerated_landing(candidate)
+        results.append({
+            "slug": slug,
+            "status": "dry_run" if dry_run else "updated",
+            "sections": len(candidate.get("sections") or []),
+            "catalog_markers": catalog_marker_count(candidate, categories, products),
+            "original": {key: value for key, value in original.items() if not str(key).startswith("_")},
+            "regenerated": candidate,
+        })
+        print(f"{'Validado (dry-run)' if dry_run else 'Actualizado'}: {slug} · {len(candidate.get('sections') or [])} secciones · {catalog_marker_count(candidate, categories, products)} citas del catálogo")
+    summary = {"command": "regenerate", "status": "ok", "model": model, "dry_run": dry_run, "results": results}
+    report_path = write_report("regenerate", summary)
+    print(f"Reporte generado: {report_path}")
+    return {**summary, "report": str(report_path)}
+
+
 def render_landing(landing: dict, categories: dict[str, dict], products: dict[str, dict], base_url: str, lead_magnets: dict[str, dict] | None = None) -> str:
     primary = categories[landing["primary_category_id"]]
     category_ids = category_ids_for(landing)
@@ -2111,6 +2318,11 @@ def render_landing(landing: dict, categories: dict[str, dict], products: dict[st
     lead_magnet_html = ""
     slug = landing.get("slug") or slugify(landing.get("keyword", ""))
     magnet = (lead_magnets or {}).get(slug)
+    magnet_slug, magnet_keyword = slug, landing.get("keyword", "")
+    borrowed = landing.get("_lead_magnet")
+    if not magnet and borrowed:
+        # El recurso se entrega por el slug de su landing de origen.
+        magnet, magnet_slug, magnet_keyword = borrowed["magnet"], borrowed["slug"], borrowed.get("keyword") or magnet_keyword
     if magnet:
         magnet_title = esc(magnet.get("title", ""))
         magnet_desc = esc(magnet.get("description", ""))
@@ -2133,8 +2345,8 @@ def render_landing(landing: dict, categories: dict[str, dict], products: dict[st
             <input type="email" name="email" placeholder="tu@email.com" required class="lm-input" aria-label="Email">
             <input type="text" name="nombre" placeholder="Nombre (opcional)" class="lm-input" aria-label="Nombre">
             <label class="lm-privacy" style="display:flex; gap:.55rem; align-items:flex-start; margin:.2rem 0 .9rem;"><input type="checkbox" name="consentimiento" value="true" required style="margin-top:.2rem;">Acepto recibir este recurso, informacion util y novedades de {esc(client_lab_name())}.</label>
-            <input type="hidden" name="slug" value="{esc(slug)}">
-            <input type="hidden" name="keyword" value="{esc(landing.get('keyword', ''))}">
+            <input type="hidden" name="slug" value="{esc(magnet_slug)}">
+            <input type="hidden" name="keyword" value="{esc(magnet_keyword)}">
             <input type="hidden" name="lead_magnet" value="{magnet_title}">
             <button type="submit" class="lm-submit">{magnet_cta}</button>
             <div class="lm-status" role="status" aria-live="polite" style="margin-top:.8rem; font-size:13px;"></div>
@@ -2195,7 +2407,7 @@ def render_landing(landing: dict, categories: dict[str, dict], products: dict[st
     brand = client_name()
     store_url = client_store_url().rstrip("/") or "#"
     blog_url = client_blog_url().rstrip("/")
-    logo_url = client_logo_url()
+    logo_url = client_logo_url() or bundled_logo_path()
     logo_markup = f'<img src="{esc(logo_url)}" alt="{esc(brand)}" class="logo-img">' if logo_url else f'<span class="brand-text">{esc(brand)}</span>'
     logo_light_markup = f'<img src="{esc(logo_url)}" alt="{esc(brand)}" class="brand-mark-light reveal" style="--delay: 0ms;">' if logo_url else f'<span class="brand-mark-light brand-wordmark reveal" style="--delay: 0ms;">{esc(brand)}</span>'
     logo_light_plain = f'<img src="{esc(logo_url)}" alt="{esc(brand)}" class="brand-mark-light">' if logo_url else f'<span class="brand-mark-light brand-wordmark">{esc(brand)}</span>'
@@ -2263,17 +2475,9 @@ def render_landing(landing: dict, categories: dict[str, dict], products: dict[st
     }
     template_text = active_template_path().read_text(encoding="utf-8-sig")
     rendered = render_template(template_text, values)
-
-    if not is_editorial(landing):
-        return rendered
-    return decorate_editorial_article(rendered, landing, canonical_url, brand, blog_url or base_url.rstrip("/"))
-
-
-# Algunos templates ordenan <main> con flexbox: `order` ubica los bloques
-# editoriales después de las FAQ (errores) y al final (enlaces).
-EDITORIAL_SECTION_STYLE = "width:100%;max-width:1180px;margin:0 auto;padding:28px 16px;border-top:1px solid rgba(29,29,27,.16);"
-EDITORIAL_KICKER_STYLE = "font:800 12px/1 Arial,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:#706b61;"
-EDITORIAL_H2_STYLE = "margin:10px 0;font:700 clamp(26px,4vw,42px)/1 Georgia,serif;"
+    if is_editorial(landing):
+        return render_editorial_article(rendered, landing, categories, products, values, lead_magnet_html, faq_entities, blog_url or base_url.rstrip("/"))
+    return rendered
 
 
 def internal_link(item: dict, link_type: str, text: str | None = None) -> str:
@@ -2284,72 +2488,323 @@ def internal_link(item: dict, link_type: str, text: str | None = None) -> str:
     )
 
 
-def decorate_editorial_article(rendered: str, landing: dict, canonical_url: str, brand: str, blog_url: str) -> str:
-    """Capa editorial sobre cualquier template: miga de pan, respuesta directa,
-    enlace al pilar, errores frecuentes, relacionadas y datos estructurados."""
+def store_link(url: str, label: str, link_type: str, target: str) -> str:
+    """Enlace a la tienda dentro del artículo: misma pestaña, así la lectura
+    sigue de corrido hacia la categoría o el producto."""
+    return (
+        f'<a href="{esc(url)}" data-store-link="true" data-link-type="{esc(link_type)}" '
+        f'data-target="{esc(target)}">{esc(label)}</a>'
+    )
+
+
+def article_sections(landing: dict, categories: dict[str, dict]) -> list[dict]:
+    """Cuerpo del artículo. Los registros editoriales previos al cuerpo propio
+    se arman con sus criterios y pasos para no perder contenido."""
+    if landing.get("sections"):
+        return list(landing["sections"])
+    category_ids = [item for item in category_ids_for(landing) if item in categories]
+    sections: list[dict] = []
+    if landing.get("components_subtitle"):
+        sections.append({"h2": str(landing.get("components_title") or "Qué tener en cuenta"), "body": str(landing["components_subtitle"])})
+    for index, component in enumerate(landing.get("components") or []):
+        paragraphs = [str(component.get("why") or "").strip()]
+        if component.get("look"):
+            paragraphs.append(f"Qué mirar: {str(component['look']).strip()}")
+        if category_ids:
+            category_id = category_ids[min(index, len(category_ids) - 1)]
+            paragraphs.append(f"Para comparar modelos, mirá [[c:{category_id}|{categories[category_id]['nombre']}]].")
+        sections.append({"h2": str(component.get("cat") or "Criterio"), "body": "\n\n".join(item for item in paragraphs if item)})
+    steps = [step for step in landing.get("steps") or [] if step.get("t")]
+    if steps:
+        sections.append({"h2": "Paso a paso para decidir", "body": "\n\n".join(f"{step['t']}. {step.get('b', '')}".strip() for step in steps)})
+    return sections
+
+
+class ArticleLinker:
+    """Resuelve marcadores y menciones de productos en texto plano. Cada
+    destino se enlaza una sola vez por artículo; lo desconocido queda como texto."""
+
+    def __init__(self, landing: dict, categories: dict[str, dict], products: dict[str, dict]):
+        self.landing = landing
+        self.categories = categories
+        self.products = products
+        self.guides = landing.get("_guides") or {}
+        self.omit_brand = catalog_has_single_brand(products)
+        self.mentioned = [products[item] for item in landing.get("product_ids") or [] if item in products]
+        # Productos del artículo: por modelo o nombre completo. Resto del
+        # catálogo: sólo por marca + modelo, para no enlazar palabras sueltas.
+        self.candidates = [(product, True) for product in self.mentioned] + [
+            (product, False) for product_id, product in products.items() if product_id not in set(landing.get("product_ids") or [])
+        ]
+        self.linked: set[str] = set()
+        self.store_links = 0
+
+    def paragraphs(self, text: str) -> str:
+        return "".join(f"<p>{self.inline(part.strip())}</p>" for part in re.split(r"\n\s*\n", text) if part.strip())
+
+    def inline(self, text: str) -> str:
+        out, position = [], 0
+        for match in ARTICLE_MARKER_RE.finditer(text):
+            out.append(self.mentions(text[position:match.start()]))
+            out.append(self.marker(*match.groups()))
+            position = match.end()
+        out.append(self.mentions(text[position:]))
+        return "".join(out)
+
+    def marker(self, kind: str, ref: str, label: str | None) -> str:
+        target = resolve_marker_id(kind, ref)
+        key = f"{kind}:{target}"
+        if kind == "p" and target in self.products:
+            product = self.products[target]
+            text = label or product_display_name(product, self.omit_brand)
+            return esc(text) if key in self.linked else self._store(key, product["url"], text, "product", target)
+        if kind == "c" and target in self.categories:
+            category = self.categories[target]
+            text = label or category["nombre"]
+            return esc(text) if key in self.linked else self._store(key, category["url"], text, "category", target)
+        guide = self.guides.get(target)
+        if kind == "g" and guide and target != self.landing.get("slug"):
+            text = label or guide.get("h1") or guide.get("keyword") or target
+            if key in self.linked:
+                return esc(text)
+            self.linked.add(key)
+            return internal_link(guide, "inline", text)
+        return esc(label or "")
+
+    def mentions(self, text: str) -> str:
+        """Enlaza la primera mención escrita de productos del catálogo."""
+        parts: list[tuple[bool, str]] = [(False, text)]
+        for product, own in self.candidates:
+            key = f"p:{product['id']}"
+            if key in self.linked or not product.get("url"):
+                continue
+            names = [product_display_name(product, False), str(product.get("modelo") or "")] if own else [product_display_name(product, False)]
+            for name in (item.strip() for item in names):
+                if len(name) < 4:
+                    continue
+                pattern = re.compile(rf"(?<!\w){re.escape(name)}(?!\w)", re.IGNORECASE)
+                hit = next(((index, found) for index, (is_html, chunk) in enumerate(parts) if not is_html for found in [pattern.search(chunk)] if found), None)
+                if hit:
+                    index, found = hit
+                    chunk = parts[index][1]
+                    parts[index:index + 1] = [
+                        (False, chunk[:found.start()]),
+                        (True, self._store(key, product["url"], found.group(0), "product", product["id"])),
+                        (False, chunk[found.end():]),
+                    ]
+                    break
+        return "".join(chunk if is_html else esc(chunk) for is_html, chunk in parts)
+
+    def _store(self, key: str, url: str, label: str, link_type: str, target: str) -> str:
+        self.linked.add(key)
+        self.store_links += 1
+        return store_link(url, label, link_type, target)
+
+
+def editorial_lead_magnet(landing: dict, landings: list[dict], lead_magnets: dict[str, dict]) -> dict | None:
+    """Un artículo sin recurso propio usa el de una landing de su misma
+    categoría principal (orden estable por slug)."""
+    if landing.get("slug") in lead_magnets:
+        return None
+    category = landing.get("primary_category_id")
+    for item in sorted(landings, key=lambda row: str(row.get("slug") or "")):
+        if item is not landing and item.get("primary_category_id") == category and item.get("slug") in lead_magnets:
+            return {"slug": item["slug"], "keyword": item.get("keyword") or "", "magnet": lead_magnets[item["slug"]]}
+    return None
+
+
+# Ajustes de lectura sobre la base visual del template activo: sólo usa sus
+# variables (--paper, --ink, --accent, --font-sans...), así cada cliente
+# conserva el diseño de sus landings.
+ARTICLE_CSS = """<style>
+    .article-page main > section { order: 0 !important; }
+    .article-page .reveal.in { transform: none; }
+    .article-page .section.article-flow { padding: clamp(28px, 4vw, 52px) 0; }
+    .article-page .article-prose { max-width: calc(780px + 2 * var(--container-pad)); }
+    .article-page .article-crumbs { position: relative; z-index: 1; margin-bottom: 1.4rem; font-family: var(--font-mono); font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase; opacity: .72; }
+    .article-page .article-byline { display: block; margin: 1.6rem 0 0; }
+    .article-page .article-crumbs a { text-decoration: underline; text-underline-offset: 3px; }
+    .article-page .article-answer { padding: clamp(20px, 3vw, 32px); background: var(--paper-2); border-left: 4px solid var(--accent); }
+    .article-page .article-answer p:last-child { margin: .7rem 0 0; font-size: clamp(19px, 1.8vw, 23px); line-height: 1.45; color: var(--ink); }
+    .article-page .article-note { margin: 1.4rem 0 0; font-size: 17px; color: var(--ink-3); }
+    .article-page .article-toc { margin-top: 1.8rem; padding: 1.2rem 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+    .article-page .article-toc ol { margin: .8rem 0 0; padding-left: 1.3rem; color: var(--ink-3); }
+    .article-page .article-toc li { margin: .35rem 0; }
+    .article-page .article-body section + section { margin-top: clamp(28px, 4vw, 48px); }
+    .article-page .article-body h2 { margin: 0 0 1rem; font-size: clamp(28px, 3.2vw, 42px); line-height: 1.02; letter-spacing: -.04em; }
+    .article-page .article-body p, .article-page .article-list li { margin: 0 0 1.1rem; font-size: clamp(17px, 1.4vw, 19px); line-height: 1.7; color: var(--ink-2); }
+    .article-page .article-body a, .article-page .article-answer a, .article-page .article-note a, .article-page .article-list a, .article-page .mega p a { text-decoration: underline; text-decoration-color: var(--accent); text-decoration-thickness: 2px; text-underline-offset: 3px; }
+    .article-page .article-list { padding-left: 1.3rem; }
+    .article-page .article-links { list-style: none; margin: 0; padding: 0; }
+    .article-page .article-links li { padding: 1rem 0; border-bottom: 1px solid var(--rule); font-size: clamp(19px, 1.8vw, 24px); font-weight: 700; letter-spacing: -.02em; }
+    .article-page .mega .product-strip { color: var(--ink); }
+    .article-page .mega .product-strip .mono-label { color: var(--ink-mute); }
+    .article-page .mega .reveal > .mono-label { display: flex; margin-top: .4rem; }
+    .article-page .mega p { max-width: 720px; font-size: clamp(17px, 1.5vw, 21px); }
+    .article-page .mega h2 { font-size: clamp(36px, 5vw, 72px); }
+  </style>"""
+
+
+def render_editorial_article(
+    rendered: str,
+    landing: dict,
+    categories: dict[str, dict],
+    products: dict[str, dict],
+    values: dict[str, str],
+    lead_magnet_html: str,
+    faq_entities: list[dict],
+    blog_url: str,
+) -> str:
+    """Artículo de blog (inbound) dentro del mismo template que las landings:
+    se conservan head, estilos, header, footer y scripts; sólo cambia <main>.
+    Responde la búsqueda, enlaza la tienda dentro del texto y cierra con la
+    marca como solución."""
+    brand = client_name()
+    store_url = client_store_url().rstrip("/")
+    canonical_url = landing_url(landing, blog_url)
+    primary = categories[landing["primary_category_id"]]
     cluster_slug = str(landing.get("cluster_slug") or "")
     cluster_name = str(landing.get("cluster_name") or "Guías")
     hub_path = f"/guias/{quote(cluster_slug)}/"
-    title = landing.get("h1") or landing.get("keyword")
-    breadcrumb = (
-        '<nav aria-label="Miga de pan" style="max-width:1180px;margin:18px auto 0;padding:0 16px;font:12px/1.4 Arial,sans-serif;color:#706b61;">'
-        f'<a href="/">Blog</a> &nbsp;/&nbsp; <a href="{esc(hub_path)}" data-internal-link="true" data-link-type="hub">{esc(cluster_name)}</a> &nbsp;/&nbsp; <span>{esc(title)}</span></nav>'
+    title = str(landing.get("h1") or landing.get("keyword") or "")
+    is_pillar = landing.get("content_type") == "PILLAR"
+    linker = ArticleLinker(landing, categories, products)
+
+    date_published = iso_datetime(landing.get("published_at") or landing.get("created_at"))
+    date_modified = iso_datetime(landing.get("updated_at")) or date_published
+    author = landing.get("author_name") or f"Equipo {brand}"
+    byline = f"Por {author}"
+    if date_modified:
+        byline += f" · Actualizado el {datetime.fromisoformat(date_modified).strftime('%d/%m/%Y')}"
+    kicker = f"{cluster_name} · {'Guía completa' if is_pillar else 'Guía práctica'}"
+
+    hero_html = (
+        '<section class="hero"><div class="hero-bg-grid" aria-hidden="true"></div><div class="hero-bg-glow" aria-hidden="true"></div>'
+        '<div class="container hero-grid"><div>'
+        '<nav class="article-crumbs" aria-label="Miga de pan"><a href="/">Blog</a> / '
+        f'<a href="{esc(hub_path)}" data-internal-link="true" data-link-type="hub">{esc(cluster_name)}</a> / <span>{esc(title)}</span></nav>'
+        f'<div class="hero-eyebrow reveal" style="--delay: 90ms;"><span class="rec-dot" aria-hidden="true"></span><span class="mono-label">{esc(kicker)}</span></div>'
+        f'<h1 class="hero-title reveal" style="--delay: 180ms;">{values["h1"]}</h1>'
+        f'<p class="hero-lede reveal" style="--delay: 300ms;">{values["hero_lede"]}</p>'
+        f'<p class="mono-label dim article-byline reveal" style="--delay: 420ms;">{esc(byline)}</p>'
+        "</div></div></section>"
     )
 
     intro_parts = []
     if landing.get("direct_answer"):
-        intro_parts.append(
-            f'<p style="{EDITORIAL_KICKER_STYLE}">Respuesta rápida</p>'
-            f'<p style="margin:8px 0 0;font:500 19px/1.5 Georgia,serif;">{esc(landing["direct_answer"])}</p>'
-        )
+        intro_parts.append(f'<aside class="article-answer"><span class="mono-label dim">Respuesta rápida</span><p>{linker.inline(str(landing["direct_answer"]))}</p></aside>')
     pillar = landing.get("_pillar")
-    if pillar and landing.get("content_type") != "PILLAR":
+    if pillar and not is_pillar:
         intro_parts.append(
-            '<p style="margin:14px 0 0;font:15px/1.5 Arial,sans-serif;">Esta guía forma parte de '
-            f'{internal_link(pillar, "pillar")}, la guía completa sobre {esc(cluster_name.lower())}.</p>'
+            f'<p class="article-note">Esta guía forma parte de {internal_link(pillar, "pillar")}, '
+            f'la guía completa sobre {esc(cluster_name.lower())}.</p>'
         )
-    intro_html = f'<section aria-label="Resumen" style="max-width:1180px;margin:0 auto;padding:18px 16px 0;">{"".join(intro_parts)}</section>' if intro_parts else ""
+    sections = article_sections(landing, categories)
+    if len(sections) >= 3:
+        items = "".join(f'<li><a href="#seccion-{index}">{esc(section["h2"])}</a></li>' for index, section in enumerate(sections, start=1))
+        intro_parts.append(f'<nav class="article-toc" aria-label="En esta guía"><span class="mono-label dim">En esta guía</span><ol>{items}</ol></nav>')
+    intro_html = f'<section class="section article-flow"><div class="container article-prose">{"".join(intro_parts)}</div></section>' if intro_parts else ""
+
+    body_html = (
+        '<section class="section article-flow"><div class="container article-prose article-body">'
+        + "".join(
+            f'<section id="seccion-{index}"><h2>{esc(section["h2"])}</h2>{linker.paragraphs(str(section["body"]))}</section>'
+            for index, section in enumerate(sections, start=1)
+        )
+        + "</div></section>"
+    )
 
     mistakes = [str(item) for item in landing.get("common_mistakes") or [] if str(item).strip()]
     mistakes_html = ""
     if mistakes:
-        items = "".join(f'<li style="margin:.5rem 0;">{esc(item)}</li>' for item in mistakes[:6])
+        items = "".join(f"<li>{linker.inline(item)}</li>" for item in mistakes[:6])
         mistakes_html = (
-            f'<section aria-label="Errores frecuentes" style="{EDITORIAL_SECTION_STYLE}order:4;">'
-            f'<p style="{EDITORIAL_KICKER_STYLE}">Antes de decidir</p><h2 style="{EDITORIAL_H2_STYLE}">Errores frecuentes</h2>'
-            f'<ul style="margin:0;padding-left:20px;font:16px/1.5 Arial,sans-serif;">{items}</ul></section>'
+            '<section class="section article-flow" aria-label="Errores frecuentes"><div class="container article-prose">'
+            f'<div class="section-head"><span class="mono-label">Antes de decidir</span><h2 class="section-title">Errores frecuentes</h2></div>'
+            f'<ul class="article-list">{items}</ul></div></section>'
         )
 
-    links_html = ""
-    if landing.get("content_type") == "PILLAR" and landing.get("_pillar_index"):
-        items = "".join(f'<li style="margin:.65rem 0;">{internal_link(item, "pillar_index")}</li>' for item in landing["_pillar_index"])
-        links_html = (
-            f'<section aria-label="Guías de este tema" style="{EDITORIAL_SECTION_STYLE}padding-bottom:54px;order:7;">'
-            f'<p style="{EDITORIAL_KICKER_STYLE}">{esc(cluster_name)}</p><h2 style="{EDITORIAL_H2_STYLE}">Guías de este tema</h2>'
-            f'<ul style="margin:0;padding-left:20px;font:600 17px/1.45 Arial,sans-serif;">{items}</ul></section>'
+    solution = landing.get("brand_solution") or {}
+    solution_title = solution.get("title") or f"Dónde conseguirlo en {brand}"
+    solution_body = solution.get("body") or (
+        f"En {brand} podés comparar {primary['nombre']} y las alternativas que mencionamos en esta guía, "
+        "organizadas por uso para elegir con los mismos criterios."
+    )
+    omit_brand = catalog_has_single_brand(products)
+    pills = "".join(
+        f'<a class="product-pill" href="{esc(product["url"])}" data-store-link="true" data-link-type="solution_product" data-target="{esc(product["id"])}">'
+        f'<span>{esc(product_display_name(product, omit_brand))}</span><small>{esc(product.get("uso", ""))}</small></a>'
+        for product in linker.mentioned
+    )
+    strip_html = f'<div class="product-strip"><span class="mono-label dim">Productos de esta guía</span><div class="product-strip-grid">{pills}</div></div>' if pills else ""
+    other_categories = [categories[item] for item in category_ids_for(landing)[1:] if item in categories]
+    other_html = ""
+    if other_categories:
+        other_html = "<p>También te puede servir: " + ", ".join(
+            store_link(category["url"], category["nombre"], "solution_category", category["id"]) for category in other_categories
+        ) + ".</p>"
+    solution_html = (
+        f'<section class="mega article-solution" id="donde-conseguirlo" aria-label="Solución en {esc(brand)}"><div class="container mega-grid"><div class="reveal">'
+        f'{values["logo_light_plain"]}<span class="mono-label">{esc(cluster_name)}</span><h2>{esc(solution_title)}</h2>'
+        f"<p>{linker.inline(str(solution_body))}</p>{other_html}{strip_html}</div>"
+        f'<a class="cta cta-mega" href="{esc(primary["url"])}" data-link-type="solution_cta"><span>Ver {esc(primary["nombre"])}</span><span class="cta-arrow">&rarr;</span></a>'
+        "</div></section>"
+    )
+
+    faqs_html = ""
+    if faq_entities:
+        items = "".join(
+            f'<article class="faq-item"><h3>{esc(item["name"])}</h3><p>{esc(item["acceptedAnswer"]["text"])}</p></article>'
+            for item in faq_entities
         )
+        faqs_html = (
+            '<section class="section" id="preguntas"><div class="container">'
+            '<div class="section-head reveal"><span class="mono-label">Dudas comunes</span><h2 class="section-title">Preguntas frecuentes</h2></div>'
+            f'<div class="faq-grid">{items}</div></div></section>'
+        )
+
+    related_html = ""
+    related_title, related_kicker, related_items, related_type = "", "", [], ""
+    if is_pillar and landing.get("_pillar_index"):
+        related_title, related_kicker, related_items, related_type = "Guías de este tema", cluster_name, landing["_pillar_index"], "pillar_index"
     elif landing.get("_related"):
-        items = "".join(f'<li style="margin:.65rem 0;">{internal_link(item, "related")}</li>' for item in landing["_related"])
-        links_html = (
-            f'<section aria-label="Guías relacionadas" style="{EDITORIAL_SECTION_STYLE}padding-bottom:54px;order:7;">'
-            f'<p style="{EDITORIAL_KICKER_STYLE}">Seguí explorando</p><h2 style="{EDITORIAL_H2_STYLE}">Guías relacionadas</h2>'
-            f'<ul style="margin:0;padding-left:20px;font:600 17px/1.45 Arial,sans-serif;">{items}</ul></section>'
+        related_title, related_kicker, related_items, related_type = "Guías relacionadas", "Seguí explorando", landing["_related"], "related"
+    if related_items:
+        items = "".join(f"<li>{internal_link(item, related_type)}</li>" for item in related_items)
+        related_html = (
+            f'<section class="section article-flow" aria-label="{esc(related_title)}"><div class="container article-prose">'
+            f'<div class="section-head"><span class="mono-label">{esc(related_kicker)}</span><h2 class="section-title">{esc(related_title)}</h2></div>'
+            f'<ul class="article-links">{items}</ul></div></section>'
         )
 
-    date_published = iso_datetime(landing.get("published_at") or landing.get("created_at"))
-    date_modified = iso_datetime(landing.get("updated_at")) or date_published
+    main_html = "<main>" + hero_html + intro_html + body_html + mistakes_html + solution_html + lead_magnet_html + faqs_html + related_html + "</main>"
+
+    logo_url = client_logo_url() or (f"{blog_url}{bundled_logo_path()}" if bundled_logo_path() and blog_url else "")
+    organization = {"@type": "Organization", "name": brand, "url": f"{store_url}/"}
+    if logo_url:
+        organization["logo"] = {"@type": "ImageObject", "url": logo_url}
+    same_as = [item for item in _CLIENT_CONFIG.get("sameAs") or [] if isinstance(item, str)]
+    if same_as:
+        organization["sameAs"] = same_as
     article_schema = {
         "@context": "https://schema.org",
         "@type": "BlogPosting",
         "headline": title,
         "description": landing.get("meta_description"),
         "mainEntityOfPage": canonical_url,
-        "author": {"@type": "Organization", "name": landing.get("author_name") or f"Equipo {brand}"},
-        "publisher": {"@type": "Organization", "name": brand},
+        "author": {"@type": "Organization", "name": author},
+        "publisher": organization,
         "datePublished": date_published,
         "dateModified": date_modified,
         "articleSection": cluster_name,
+        "about": {"@type": "Thing", "name": primary["nombre"], "url": primary["url"]},
+        "mentions": [
+            {"@type": "Product", "name": product_display_name(product, False), "url": product["url"], "brand": {"@type": "Brand", "name": product.get("marca", "")}}
+            for product in linker.mentioned
+        ],
     }
+    if logo_url:
+        article_schema["image"] = logo_url
     breadcrumb_schema = {
         "@context": "https://schema.org",
         "@type": "BreadcrumbList",
@@ -2359,7 +2814,7 @@ def decorate_editorial_article(rendered: str, landing: dict, canonical_url: str,
             {"@type": "ListItem", "position": 3, "name": title, "item": canonical_url},
         ],
     }
-    social_meta = (
+    head_meta = (
         f'<meta property="og:type" content="article"><meta property="og:title" content="{esc(landing.get("seo_title"))}">'
         f'<meta property="og:description" content="{esc(landing.get("meta_description"))}"><meta property="og:url" content="{esc(canonical_url)}">'
         f'<meta property="og:site_name" content="{esc(brand)}"><meta property="article:published_time" content="{esc(date_published)}"><meta property="article:modified_time" content="{esc(date_modified)}">'
@@ -2367,18 +2822,27 @@ def decorate_editorial_article(rendered: str, landing: dict, canonical_url: str,
         f'<meta name="twitter:description" content="{esc(landing.get("meta_description"))}">'
         f'<script type="application/ld+json">{json_for_script(article_schema)}</script>'
         f'<script type="application/ld+json">{json_for_script(breadcrumb_schema)}</script>'
+        + ARTICLE_CSS
     )
     tracking = (
         "<script>(function(){document.addEventListener('click',function(event){"
-        "var link=event.target&&event.target.closest?event.target.closest('a[data-internal-link]'):null;if(!link)return;"
-        "try{navigator.sendBeacon('/api/events',JSON.stringify({event_type:'internal_link_click',"
-        f"slug:{json_for_script(landing.get('slug') or '')},client_slug:{json_for_script(client_slug_active())},"
-        "meta:{target_slug:link.getAttribute('data-target-slug')||'',link_type:link.getAttribute('data-link-type')||'',href:link.getAttribute('href')||''}}));}catch(e){}"
+        "var link=event.target&&event.target.closest?event.target.closest('a[data-internal-link],a[data-store-link]'):null;if(!link)return;"
+        "var internal=link.hasAttribute('data-internal-link');"
+        "try{navigator.sendBeacon('/api/events',JSON.stringify({event_type:internal?'internal_link_click':'cta_click',"
+        f"slug:{json_for_script(landing.get('slug') or '')},client_slug:{json_for_script(client_slug_active())},url:link.href,"
+        "meta:{target_slug:link.getAttribute('data-target-slug')||link.getAttribute('data-target')||'',link_type:link.getAttribute('data-link-type')||'',href:link.getAttribute('href')||''}}));}catch(e){}"
         "});})();</script>"
     )
-    rendered = rendered.replace("</head>", social_meta + "</head>", 1)
-    rendered = rendered.replace("<main>", "<main>" + breadcrumb + intro_html, 1)
-    rendered = rendered.replace("</main>", mistakes_html + links_html + "</main>", 1)
+    nav_html = (
+        '<nav class="site-nav"><a href="#seccion-1">Guía</a>'
+        + ('<a href="#preguntas">FAQ</a>' if faqs_html else "")
+        + '<a href="#donde-conseguirlo">Dónde conseguirlo</a></nav>'
+    )
+
+    rendered = re.sub(r"<main>.*</main>", lambda _: main_html, rendered, count=1, flags=re.DOTALL)
+    rendered = re.sub(r'<nav class="site-nav">.*?</nav>', lambda _: nav_html, rendered, count=1, flags=re.DOTALL)
+    rendered = rendered.replace('<body class="', '<body class="article-page ', 1)
+    rendered = rendered.replace("</head>", head_meta + "</head>", 1)
     return rendered.replace("</body>", tracking + "</body>", 1)
 
 
@@ -2431,6 +2895,14 @@ def attach_internal_links(landings: list[dict]) -> None:
     editorial = [landing for landing in landings if is_editorial(landing)]
     if not editorial:
         return
+    # Destinos que el cuerpo puede enlazar con [[g:slug]] (datos mínimos, sin
+    # referencias cruzadas entre registros).
+    guides = {
+        str(landing["slug"]): {key: landing.get(key) for key in ("slug", "h1", "keyword", "content_type", "indexing_state", "cluster_slug")}
+        for landing in editorial
+    }
+    for landing in editorial:
+        landing["_guides"] = guides
     rows = load_persisted_internal_links() if os.environ.get("DATABASE_URL") and _CLIENT_CONFIG.get("id") else None
     if rows is None:
         rows = plan_local_internal_links(editorial)
@@ -2448,6 +2920,7 @@ def attach_internal_links(landings: list[dict]) -> None:
         item.pop("_related", None)
         item.pop("_pillar_index", None)
         item.pop("_pillar", None)
+        item.pop("_guides", None)
         same_cluster = source.get("cluster_slug") == target.get("cluster_slug")
         if source.get("content_type") == "PILLAR" and same_cluster:
             source["_pillar_index"].append(item)
@@ -2797,6 +3270,9 @@ def build(base_url: str = "") -> dict:
     clusters = load_content_clusters()
     attach_internal_links(landings)
     lead_magnets = load_lead_magnets()
+    for landing in landings:
+        if is_editorial(landing):
+            landing["_lead_magnet"] = editorial_lead_magnet(landing, landings, lead_magnets)
     errors = validate_landings(landings, categories, products)
     if errors:
         report_path = write_report("build-blocked", {"command": "build", "status": "blocked", "stage": "data_validation", "errors": errors})
@@ -3062,6 +3538,11 @@ def main() -> None:
     deploy_parser.add_argument("--base-url", default="", help="URL del subdominio para canonical/sitemap")
     audit_parser = sub.add_parser("audit-graph", help="Reconstruye el sitio y audita enlaces, canonicals, huérfanas y sitemap")
     audit_parser.add_argument("--base-url", default="", help="URL del subdominio para canonical/sitemap")
+    regenerate_parser = sub.add_parser("regenerate", help="Reescribe artículos editoriales publicados con el prompt vigente, sin cambiar su URL")
+    regenerate_parser.add_argument("--slug", action="append", required=True, help="Slug del artículo (repetible)")
+    regenerate_parser.add_argument("--model", default=os.environ.get("OPENROUTER_MODEL", DEFAULT_MODEL), help="Modelo OpenRouter")
+    regenerate_parser.add_argument("--dry-run", action="store_true", help="Genera y valida sin guardar")
+    regenerate_parser.add_argument("--attempts", type=int, default=2, help="Intentos por artículo si la salida no valida")
     sub.add_parser("rebuild-links", help="Recalcula los enlaces internos AUTO respetando PINNED/EXCLUDED")
     sub.add_parser("rollback")
     sub.add_parser("selftest")
@@ -3108,6 +3589,8 @@ def main() -> None:
         deploy(base_url=args.base_url)
     elif args.command == "audit-graph":
         audit_graph_command(base_url=args.base_url)
+    elif args.command == "regenerate":
+        regenerate_editorial(args.slug, model=args.model, dry_run=args.dry_run, attempts=args.attempts)
     elif args.command == "rebuild-links":
         rebuild_links_command()
     elif args.command == "rollback":
