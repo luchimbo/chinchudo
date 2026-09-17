@@ -18,12 +18,12 @@ async function handleUnsubscribe(email: string, token: string) {
   if (!validUnsubToken(email, token)) {
     return NextResponse.json({ error: "Token inválido" }, { status: 403 });
   }
-  // Marcamos todos los nurture steps del lead como SKIPPED
+  // Cortamos la secuencia: lo pendiente y lo fallido (que el cron reintentaría) queda SKIPPED
   const leads = await prisma.lead.findMany({ where: { email } });
   const leadIds = leads.map((l) => l.id);
   if (leadIds.length > 0) {
     await prisma.nurtureStep.updateMany({
-      where: { leadId: { in: leadIds }, status: "PENDING" },
+      where: { leadId: { in: leadIds }, status: { in: ["PENDING", "FAILED"] } },
       data: { status: "SKIPPED" },
     });
   }

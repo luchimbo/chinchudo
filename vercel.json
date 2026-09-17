@@ -4,6 +4,9 @@
   "installCommand": "npm install",
   "devCommand": "next dev",
   "regions": ["gru1"],
+  "crons": [
+    { "path": "/api/nurture", "schedule": "0 10 * * *" }
+  ],
   "functions": {
     "src/app/**/*.ts": {
       "maxDuration": 30
