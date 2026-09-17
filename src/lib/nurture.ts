@@ -9,7 +9,9 @@ import { sendNurtureEmail } from "@/lib/mailer";
 // y se agenda el resto de la secuencia; el cron envía lo que vence.
 // Las secuencias salen del mismo archivo que usa el build del blog.
 
-const DATA_DIR = path.join(process.cwd(), "landing-build", "data");
+// Rutas literales: el trazado de archivos de Next las detecta y las incluye en la función.
+const LEAD_MAGNETS_FILE = path.join(process.cwd(), "landing-build/data/lead_magnets.jsonl");
+const CATEGORIES_FILE = path.join(process.cwd(), "landing-build/data/categorias_pcmidi.json");
 const MAX_RETRY_AGE_MS = 3 * 24 * 60 * 60 * 1000;
 
 export type SequenceMessage = { subject: string; body: string };
@@ -30,10 +32,12 @@ type Category = { id: string; nombre: string; url: string };
 let magnetsCache: Map<string, LeadMagnetData> | null = null;
 let categoriesCache: Map<string, Category> | null = null;
 
-export function loadLeadMagnets(file = path.join(DATA_DIR, "lead_magnets.jsonl")): Map<string, LeadMagnetData> {
+export function loadLeadMagnets(file = LEAD_MAGNETS_FILE): Map<string, LeadMagnetData> {
   if (magnetsCache) return magnetsCache;
   const magnets = new Map<string, LeadMagnetData>();
-  if (fs.existsSync(file)) {
+  if (!fs.existsSync(file)) {
+    console.error(`[nurture] No se encontró ${file}: los leads no reciben secuencia.`);
+  } else {
     for (const line of fs.readFileSync(file, "utf-8").split("\n")) {
       if (!line.trim()) continue;
       try {
@@ -51,9 +55,8 @@ export function loadLeadMagnets(file = path.join(DATA_DIR, "lead_magnets.jsonl")
 function loadCategories(): Map<string, Category> {
   if (categoriesCache) return categoriesCache;
   const categories = new Map<string, Category>();
-  const file = path.join(DATA_DIR, "categorias_pcmidi.json");
-  if (fs.existsSync(file)) {
-    for (const item of JSON.parse(fs.readFileSync(file, "utf-8")) as Category[]) {
+  if (fs.existsSync(CATEGORIES_FILE)) {
+    for (const item of JSON.parse(fs.readFileSync(CATEGORIES_FILE, "utf-8")) as Category[]) {
       if (item.id) categories.set(item.id, item);
     }
   }

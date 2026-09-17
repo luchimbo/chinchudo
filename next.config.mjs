@@ -7,7 +7,9 @@ const nextConfig = {
     // Las secuencias de nurturing y las categorías viven en los datos del blog.
     outputFileTracingIncludes: {
       "/api/leads": ["./landing-build/data/lead_magnets.jsonl", "./landing-build/data/categorias_pcmidi.json"],
-      "/api/nurture": ["./landing-build/data/categorias_pcmidi.json"]
+      "/api/leads/route": ["./landing-build/data/lead_magnets.jsonl", "./landing-build/data/categorias_pcmidi.json"],
+      "/api/nurture": ["./landing-build/data/categorias_pcmidi.json"],
+      "/api/nurture/route": ["./landing-build/data/categorias_pcmidi.json"]
     }
   }
 };

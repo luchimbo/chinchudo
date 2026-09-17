@@ -1,5 +1,6 @@
 session/
-data/
+# Sólo la carpeta data/ de la raíz: landing-build/data alimenta /api/leads y /api/nurture.
+/data/
 reports/
 exports/
 models/wav2lip/
