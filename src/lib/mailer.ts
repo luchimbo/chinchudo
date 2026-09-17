@@ -1,7 +1,8 @@
 import nodemailer from "nodemailer";
 
-// SMTP compartido (variables NURTURE_SMTP_*): correo transaccional de cuentas
-// (reset, verificación, invitaciones) y secuencias de nurturing del blog.
+// Dos transportes: Resend (HTTP, preferido cuando hay RESEND_API_KEY) y el SMTP
+// del hosting (NURTURE_SMTP_*) como respaldo. El SMTP del hosting entrega, pero
+// su firma DKIM no valida en destino y Gmail descarta los mensajes.
 
 let transporter: ReturnType<typeof nodemailer.createTransport> | null = null;
 
@@ -21,36 +22,68 @@ function getTransporter() {
   return transporter;
 }
 
-export async function sendAccountEmail(opts: { to: string; subject: string; html: string; text: string }): Promise<boolean> {
-  const client = getTransporter();
-  if (!client) {
-    console.error("[mailer] NURTURE_SMTP_* no configurado; no se pudo enviar el email de cuenta.");
-    return false;
-  }
-  const from = process.env.NURTURE_FROM_EMAIL || process.env.NURTURE_SMTP_USER || "no-reply@pcmidicenter.com";
+type Message = { to: string; subject: string; html: string; text: string; fromName?: string };
+
+function fromAddress(): string {
+  return process.env.NURTURE_FROM_EMAIL || process.env.NURTURE_SMTP_USER || "lab@pcmidicenter.com";
+}
+
+async function sendWithResend(message: Message, apiKey: string): Promise<boolean> {
+  const address = fromAddress();
+  const from = message.fromName ? `${message.fromName} <${address}>` : address;
   try {
-    await client.sendMail({ from, to: opts.to, subject: opts.subject, html: opts.html, text: opts.text });
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+      body: JSON.stringify({ from, to: [message.to], subject: message.subject, html: message.html, text: message.text }),
+    });
+    const payload = (await response.json().catch(() => ({}))) as { id?: string; message?: string; name?: string };
+    if (!response.ok) {
+      console.error(`[mailer] Resend rechazó el envío (${response.status}): ${payload.name ?? ""} ${payload.message ?? ""}`);
+      return false;
+    }
+    console.log(`[mailer] Resend aceptó el envío a ${message.to} (id ${payload.id ?? "sin id"})`);
     return true;
   } catch (err) {
-    console.error("[mailer] Falló el envío", err);
+    console.error("[mailer] Falló la llamada a Resend", err);
     return false;
   }
 }
 
-/** Emails de nurturing: remitente con nombre ("Bruno de PC MIDI Labs"). */
-export async function sendNurtureEmail(opts: { to: string; subject: string; html: string; text: string }): Promise<boolean> {
+async function sendWithSmtp(message: Message): Promise<boolean> {
   const client = getTransporter();
   if (!client) {
-    console.error("[mailer] NURTURE_SMTP_* no configurado; no se pudo enviar el email de nurturing.");
+    console.error("[mailer] Sin RESEND_API_KEY ni NURTURE_SMTP_*: no se pudo enviar el email.");
     return false;
   }
-  const address = process.env.NURTURE_FROM_EMAIL || process.env.NURTURE_SMTP_USER || "lab@pcmidicenter.com";
-  const name = process.env.NURTURE_FROM_NAME || "Bruno de PC MIDI Labs";
+  const address = fromAddress();
   try {
-    await client.sendMail({ from: { name, address }, to: opts.to, subject: opts.subject, html: opts.html, text: opts.text });
+    const info = await client.sendMail({
+      from: message.fromName ? { name: message.fromName, address } : address,
+      to: message.to,
+      subject: message.subject,
+      html: message.html,
+      text: message.text,
+    });
+    console.log(`[mailer] SMTP aceptó el envío a ${message.to} (${info.messageId}): ${info.response}`);
     return true;
   } catch (err) {
-    console.error("[mailer] Falló el envío de nurturing", err);
+    console.error("[mailer] Falló el envío por SMTP", err);
     return false;
   }
+}
+
+/** Envía por Resend si hay API key; si no, por el SMTP del hosting. */
+export async function sendEmail(message: Message): Promise<boolean> {
+  const apiKey = process.env.RESEND_API_KEY;
+  return apiKey ? sendWithResend(message, apiKey) : sendWithSmtp(message);
+}
+
+export async function sendAccountEmail(opts: { to: string; subject: string; html: string; text: string }): Promise<boolean> {
+  return sendEmail(opts);
+}
+
+/** Emails de nurturing: remitente con nombre ("Bruno de PC MIDI Labs"). */
+export async function sendNurtureEmail(opts: { to: string; subject: string; html: string; text: string }): Promise<boolean> {
+  return sendEmail({ ...opts, fromName: process.env.NURTURE_FROM_NAME || "Bruno de PC MIDI Labs" });
 }
