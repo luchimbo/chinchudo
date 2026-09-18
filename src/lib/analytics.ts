@@ -60,7 +60,7 @@ const RESULT_LABELS: Record<string, string> = {
 };
 
 const STATUS_ORDER: OpportunityStatusValue[] = [
-  "NEW", "NEEDS_REVIEW", "DRAFTED", "APPROVED", "PUBLISHED", "FOLLOW_UP", "CONVERTED", "DISCARDED",
+  "NEW", "NEEDS_REVIEW", "DRAFTED", "APPROVED", "ARCHIVED", "PUBLISHED", "FOLLOW_UP", "CONVERTED", "DISCARDED",
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

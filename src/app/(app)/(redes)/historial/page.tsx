@@ -8,8 +8,8 @@ import { OPPORTUNITY_CHANNEL_NAMES, operationalOpportunityWhere } from "@/lib/op
 
 const PAGE_SIZE = 12;
 
-// "Historial" = todo lo que ya fue respondido (publicado o convertido).
-const RESPONDED_STATUSES = ["PUBLISHED", "FOLLOW_UP", "CONVERTED"] as const;
+// "Historial" conserva respuestas archivadas y publicaciones confirmadas.
+const RESPONDED_STATUSES = ["ARCHIVED", "PUBLISHED", "FOLLOW_UP", "CONVERTED"] as const;
 
 type PageProps = {
   searchParams: { channel?: string; q?: string; page?: string; client?: string; sort?: string };
@@ -42,7 +42,7 @@ export default async function HistorialPage({ searchParams }: PageProps) {
   }
 
   const orderBy: Prisma.OpportunityOrderByWithRelationInput =
-    sort === "oldest" ? { createdAt: "asc" } : { createdAt: "desc" };
+    sort === "oldest" ? { updatedAt: "asc" } : { updatedAt: "desc" };
 
   const [opportunities, matchingCount] = await Promise.all([
     prisma.opportunity.findMany({
@@ -56,6 +56,9 @@ export default async function HistorialPage({ searchParams }: PageProps) {
         responses: {
           select: {
             id: true,
+            draftText: true,
+            editedText: true,
+            isPrimary: true,
             voiceVariant: true,
             persona: { select: { name: true } },
           },
@@ -85,7 +88,7 @@ export default async function HistorialPage({ searchParams }: PageProps) {
     <div className="mx-auto flex w-full max-w-5xl flex-col px-5 py-8 lg:px-8">
       <header className="mb-6">
         <h1 className="font-display text-4xl leading-none text-ink md:text-5xl">Historial</h1>
-        <p className="mt-2 text-sm text-slate">Todo lo que ya fue respondido: publicado o convertido.</p>
+        <p className="mt-2 text-sm text-slate">Respuestas archivadas, publicadas y convertidas.</p>
       </header>
 
       <div className="overflow-hidden rounded-lg border border-ink/10 bg-white/75 shadow-panel backdrop-blur">

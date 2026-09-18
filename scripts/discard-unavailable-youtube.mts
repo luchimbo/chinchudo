@@ -19,7 +19,7 @@ const CONCURRENCY = 4;
 async function main() {
   const opportunities = await prisma.opportunity.findMany({
     where: {
-      status: { notIn: ["DISCARDED", "PUBLISHED"] },
+      status: { in: ["NEW", "NEEDS_REVIEW", "DRAFTED", "APPROVED"] },
       channel: { name: "YouTube" },
       ...(clientSlug ? { client: { slug: clientSlug } } : {}),
     },

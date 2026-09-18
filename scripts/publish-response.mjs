@@ -42,6 +42,9 @@ async function main() {
   const channel = opportunity.channel.name.toLowerCase();
   const sourceUrl = opportunity.sourceUrl;
 
+  if (response.opportunityId !== opportunityId || !["NEW", "NEEDS_REVIEW", "DRAFTED", "APPROVED"].includes(opportunity.status)) {
+    throw new Error("La oportunidad ya fue respondida o la respuesta no le pertenece.");
+  }
   if (!response.approvedBy) {
     throw new Error("La respuesta debe estar aprobada antes de publicar.");
   }

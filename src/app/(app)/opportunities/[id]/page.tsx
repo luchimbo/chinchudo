@@ -70,7 +70,7 @@ function scoreResponseAlignment(
 }
 
 function statusClass(status: string) {
-  if (status === "PUBLISHED" || status === "CONVERTED") return "bg-moss text-white";
+  if (status === "ARCHIVED" || status === "PUBLISHED" || status === "CONVERTED") return "bg-moss text-white";
   if (status === "APPROVED" || status === "FOLLOW_UP") return "bg-brass text-white";
   if (status === "DISCARDED") return "bg-ink/20 text-ink";
   return "bg-signal text-white";
@@ -169,6 +169,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
   const approvedResponse = opportunity.responses.find((response) => response.approvedBy);
   const aiReason = getAiReason(opportunity.notes);
   const isAlreadyPublished =
+    opportunity.status === "ARCHIVED" ||
     opportunity.status === "PUBLISHED" ||
     opportunity.status === "CONVERTED" ||
     opportunity.status === "FOLLOW_UP" ||

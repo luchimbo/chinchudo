@@ -218,35 +218,32 @@ export async function markCopilotResponse(formData: FormData) {
     editedText: formData.get("editedText"),
     wasEdited: formData.get("wasEdited") || "false",
   });
-  const response = await prisma.response.findUniqueOrThrow({
-    where: { id: parsed.responseId },
-    select: { opportunityId: true },
-  });
+  const [response, opportunity] = await Promise.all([
+    prisma.response.findUniqueOrThrow({
+      where: { id: parsed.responseId },
+      select: { opportunityId: true },
+    }),
+    prisma.opportunity.findUniqueOrThrow({
+      where: { id: parsed.opportunityId },
+      select: { clientId: true, contextAssessment: true, channel: { select: { name: true } } },
+    }),
+  ]);
   if (response.opportunityId !== parsed.opportunityId) {
     throw new Error("La respuesta no corresponde a esta oportunidad.");
   }
-
-  const delegatedFormData = new FormData();
-  delegatedFormData.set("opportunityId", parsed.opportunityId);
-  delegatedFormData.set("responseId", parsed.responseId);
-  delegatedFormData.set("editedText", parsed.editedText);
-  delegatedFormData.set("approvedBy", "CM");
-  await approveResponse(delegatedFormData);
-  const opportunity = await prisma.opportunity.findUniqueOrThrow({
-    where: { id: parsed.opportunityId },
-    select: { contextAssessment: true },
-  });
-  const currentContext = opportunity.contextAssessment && typeof opportunity.contextAssessment === "object"
+  assertOperationalOpportunityChannel(opportunity.channel.name);
+  await requireOwnedClientId(opportunity.clientId);
+  const currentContext = opportunity.contextAssessment && typeof opportunity.contextAssessment === "object" && !Array.isArray(opportunity.contextAssessment)
     ? opportunity.contextAssessment as Record<string, unknown>
     : {};
   const currentCopilot = currentContext.copilot && typeof currentContext.copilot === "object"
     ? currentContext.copilot as Record<string, unknown>
     : {};
-  await prisma.$transaction([
-    prisma.response.update({ where: { id: parsed.responseId }, data: { isPrimary: true } }),
-    prisma.opportunity.update({
-      where: { id: parsed.opportunityId },
+  await prisma.$transaction(async (tx) => {
+    const archived = await tx.opportunity.updateMany({
+      where: { id: parsed.opportunityId, status: { in: ["NEW", "NEEDS_REVIEW", "DRAFTED"] } },
       data: {
+        status: OpportunityStatus.ARCHIVED,
         contextAssessment: {
           ...currentContext,
           copilot: {
@@ -257,9 +254,25 @@ export async function markCopilotResponse(formData: FormData) {
           },
         },
       },
-    }),
-  ]);
+    });
+    if (archived.count !== 1) throw new Error("Esta oportunidad ya fue respondida o dejó de estar abierta.");
+    await tx.response.updateMany({
+      where: { opportunityId: parsed.opportunityId, id: { not: parsed.responseId } },
+      data: { isPrimary: false },
+    });
+    await tx.response.update({
+      where: { id: parsed.responseId },
+      data: { editedText: parsed.editedText, approvedBy: "CM", isPrimary: true },
+    });
+  });
   revalidatePath("/copiloto");
+  revalidatePath("/historial");
+  revalidatePath(`/opportunities/${parsed.opportunityId}`);
+  try {
+    await learnFromRefinementChat(parsed.responseId, parsed.editedText);
+  } catch (error) {
+    logger.error("copilot_archive_learning_failed", "No se pudo extraer el aprendizaje del chat", error).catch(() => { });
+  }
 }
 
 const copilotYouTubePublishSchema = z.object({
@@ -292,7 +305,7 @@ export async function publishCopilotYouTubeResponse(formData: FormData) {
   if (!opportunity.clientId) throw new Error("La oportunidad debe pertenecer a un cliente antes de publicar.");
   await assertClientAccess(prisma, opportunity.clientId);
   if (opportunity.channel.name.toLowerCase() !== "youtube") throw new Error("Este botón solo publica oportunidades de YouTube.");
-  if (["PUBLISHED", "CONVERTED", "FOLLOW_UP"].includes(opportunity.status)) throw new Error("Esta oportunidad ya fue publicada.");
+  if (["ARCHIVED", "PUBLISHED", "CONVERTED", "FOLLOW_UP"].includes(opportunity.status)) throw new Error("Esta oportunidad ya fue respondida.");
 
   const rateLimit = await checkPublishRateLimits(prisma, parsed.account);
   if (!rateLimit.ok) {
@@ -339,6 +352,7 @@ export async function publishCopilotYouTubeResponse(formData: FormData) {
     logger.error("copilot_publish_learning_failed", "No se pudo extraer el aprendizaje del chat", error).catch(() => { });
   }
   revalidatePath("/copiloto");
+  revalidatePath("/historial");
   revalidatePath(`/opportunities/${opportunity.id}`);
 }
 
@@ -419,8 +433,8 @@ export async function discardCopilotOpportunity(formData: FormData) {
     ? opportunity.contextAssessment as Record<string, unknown>
     : {};
 
-  await prisma.opportunity.update({
-    where: { id: parsed.opportunityId },
+  const discarded = await prisma.opportunity.updateMany({
+    where: { id: parsed.opportunityId, status: { in: ["NEW", "NEEDS_REVIEW", "DRAFTED"] } },
     data: {
       status: OpportunityStatus.DISCARDED,
       contextAssessment: {
@@ -433,6 +447,7 @@ export async function discardCopilotOpportunity(formData: FormData) {
       },
     },
   });
+  if (discarded.count !== 1) throw new Error("Esta oportunidad ya no está abierta.");
   revalidatePath("/copiloto");
 }
 
@@ -467,7 +482,7 @@ export async function generateResponseDrafts(formData: FormData) {
     productId ? prisma.product.findUnique({ where: { id: productId }, include: { brand: true } }) : Promise.resolve(null)
   ]);
 
-  if (opportunity.status === "PUBLISHED" || opportunity.status === "CONVERTED" || opportunity.status === "FOLLOW_UP") {
+  if (opportunity.status === "ARCHIVED" || opportunity.status === "PUBLISHED" || opportunity.status === "CONVERTED" || opportunity.status === "FOLLOW_UP") {
     throw new Error("Esta oportunidad ya fue respondida/publicada y no se pueden generar más borradores.");
   }
   assertOperationalOpportunityChannel(opportunity.channel.name);
@@ -634,7 +649,7 @@ export async function createManualResponse(formData: FormData) {
   const parsed = manualResponseSchema.parse({ opportunityId: formData.get("opportunityId"), brandId: formData.get("brandId"), productId: formData.get("productId") || undefined, personaId: formData.get("personaId"), editedText: formData.get("editedText") });
   const opportunity = await prisma.opportunity.findUniqueOrThrow({ where: { id: parsed.opportunityId }, include: { channel: true, detectedBrand: { include: { client: true } }, detectedProduct: true, monitoredSource: { include: { client: true } } } });
   assertOperationalOpportunityChannel(opportunity.channel.name);
-  if (["PUBLISHED", "CONVERTED", "FOLLOW_UP"].includes(opportunity.status)) throw new Error("Esta oportunidad ya fue respondida.");
+  if (["ARCHIVED", "PUBLISHED", "CONVERTED", "FOLLOW_UP"].includes(opportunity.status)) throw new Error("Esta oportunidad ya fue respondida.");
   const resolution = await resolveOpportunityClient(prisma, opportunity);
   await assertClientAccess(prisma, resolution.client.id);
   const [brand, persona, product] = await Promise.all([
@@ -677,7 +692,7 @@ export async function approveResponse(formData: FormData) {
   assertOperationalOpportunityChannel(opportunity.channel.name);
   await requireOwnedClientId(opportunity.clientId);
 
-  if (opportunity.status === "PUBLISHED" || opportunity.status === "CONVERTED" || opportunity.status === "FOLLOW_UP") {
+  if (opportunity.status === "ARCHIVED" || opportunity.status === "PUBLISHED" || opportunity.status === "CONVERTED" || opportunity.status === "FOLLOW_UP") {
     throw new Error("La oportunidad ya está publicada/respondida y no se puede modificar la aprobación.");
   }
 
@@ -751,7 +766,7 @@ export async function approveAndPublishResponse(formData: FormData) {
     }),
   ]);
 
-  if (opportunity.status === "PUBLISHED" || opportunity.status === "CONVERTED" || opportunity.status === "FOLLOW_UP") {
+  if (opportunity.status === "ARCHIVED" || opportunity.status === "PUBLISHED" || opportunity.status === "CONVERTED" || opportunity.status === "FOLLOW_UP") {
     throw new Error("La oportunidad ya está publicada/respondida.");
   }
   await requireOwnedClientId(opportunity.clientId);
@@ -865,7 +880,7 @@ export async function markAsPublished(formData: FormData) {
   assertOperationalOpportunityChannel(opportunity.channel.name);
   await requireOwnedClientId(opportunity.clientId);
 
-  if (opportunity.status === "PUBLISHED" || opportunity.status === "CONVERTED" || opportunity.status === "FOLLOW_UP") {
+  if (opportunity.status === "ARCHIVED" || opportunity.status === "PUBLISHED" || opportunity.status === "CONVERTED" || opportunity.status === "FOLLOW_UP") {
     throw new Error("Esta oportunidad ya fue respondida/publicada.");
   }
 
@@ -1036,7 +1051,7 @@ export async function publishViaAgent(formData: FormData) {
     throw new Error("La respuesta no pertenece a esta oportunidad.");
   }
 
-  if (opportunity.status === "PUBLISHED" || opportunity.status === "CONVERTED" || opportunity.status === "FOLLOW_UP") {
+  if (opportunity.status === "ARCHIVED" || opportunity.status === "PUBLISHED" || opportunity.status === "CONVERTED" || opportunity.status === "FOLLOW_UP") {
     throw new Error("La oportunidad ya está publicada/respondida y no se puede publicar de nuevo.");
   }
 

@@ -1,0 +1,1 @@
+ALTER TYPE "OpportunityStatus" ADD VALUE 'ARCHIVED';

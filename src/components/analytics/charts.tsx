@@ -37,6 +37,7 @@ const STATUS_COLORS: Record<string, string> = {
   NEEDS_REVIEW: BRASS,
   DRAFTED:      "#c8a84b",
   APPROVED:     MOSS,
+  ARCHIVED:     SLATE,
   PUBLISHED:    MOSS,
   FOLLOW_UP:    SLATE,
   CONVERTED:    "#2e6b3e",

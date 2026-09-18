@@ -2,10 +2,11 @@ import Link from "next/link";
 import { Prisma } from "@prisma/client";
 import { updateOpportunityStatus } from "@/app/(app)/opportunities/actions";
 import { splitOpportunitySourcePreview } from "@/lib/opportunity-source-metadata";
+import { statusLabels } from "@/lib/labels";
 
 export type OpportunityRow = Prisma.OpportunityGetPayload<{
   include: { channel: true };
-}>;
+}> & { responses?: Array<{ draftText: string; editedText: string; isPrimary: boolean }> };
 
 function SourceLink({ href, compact = false }: { href: string; compact?: boolean }) {
   return (
@@ -41,6 +42,8 @@ export function OpportunityList({
     <div className="divide-y divide-ink/10">
       {opportunities.map((opportunity) => {
         const preview = splitOpportunitySourcePreview(opportunity.sourceText);
+        const selectedResponse = opportunity.responses?.find((response) => response.isPrimary);
+        const finalText = selectedResponse?.editedText || selectedResponse?.draftText;
 
         return (
         <article key={opportunity.id} className="grid gap-4 px-5 py-4 transition hover:bg-paper/70 md:grid-cols-[120px_1fr_180px]">
@@ -56,6 +59,7 @@ export function OpportunityList({
 
           <div className="min-w-0">
             <p className="line-clamp-2 text-sm leading-6 text-ink">{preview.text}</p>
+            {finalText ? <p className="mt-2 line-clamp-3 text-sm leading-6 text-slate"><span className="font-semibold text-ink">Respuesta:</span> {finalText}</p> : null}
             {preview.commentCount || preview.publishedAgo ? (
               <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs font-medium text-slate">
                 {preview.commentCount ? <span>Comentarios: {preview.commentCount}</span> : null}
@@ -65,6 +69,7 @@ export function OpportunityList({
           </div>
 
           <div className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
+            <span className="text-xs font-semibold text-slate/70">{statusLabels[opportunity.status]}</span>
             <div className="md:hidden">
               <SourceLink href={opportunity.sourceUrl} compact />
             </div>
@@ -76,7 +81,7 @@ export function OpportunityList({
                 </button>
               </form>
             ) : null}
-            {opportunity.status !== "DISCARDED" && opportunity.status !== "PUBLISHED" && opportunity.status !== "CONVERTED" ? (
+            {!["DISCARDED", "ARCHIVED", "PUBLISHED", "FOLLOW_UP", "CONVERTED"].includes(opportunity.status) ? (
               <form action={updateOpportunityStatus}>
                 <input type="hidden" name="opportunityId" value={opportunity.id} />
                 <button name="status" value="DISCARDED" className="h-9 rounded-full border border-ink/10 px-3 text-xs font-bold text-slate/65 transition hover:border-signal/30 hover:text-signal">
