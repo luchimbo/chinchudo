@@ -373,7 +373,7 @@ export function buildCopilotPrompt(ctx: DraftContext, condensationOf?: string): 
     ? `\n## Texto a condensar\n"${condensationOf}"\nConservá solo lo útil y específico; no agregues información nueva.\n`
     : "";
   return `${beforeFormat}
-## Instrucciones de respuesta del Copiloto
+## Instrucciones de respuesta del Asistente CM
 - Devolvé UNA sola propuesta breve, directa, natural y específica a este comentario.
 - Máximo ${COPILOT_MAX_CHARACTERS} caracteres, idealmente una o dos oraciones.
 - No expliques tu razonamiento ni ofrezcas alternativas.
@@ -605,18 +605,18 @@ async function requestCopilotDraft(ctx: DraftContext, condensationOf?: string): 
       temperature: condensationOf ? 0.2 : 0.65,
       max_tokens: llm.provider === "local" ? (condensationOf ? 1000 : 1500) : (condensationOf ? 180 : 360),
       ...(llm.provider === "local" ? { think: false } : {}),
-    }, "Los 5 Apostoles - Copiloto CM", ctx.client);
+    }, "Los 5 Apostoles - Asistente CM", ctx.client);
     if (!completion) return null;
     const parsed = JSON.parse(completion.raw) as { text?: string; riskNotes?: string };
     const text = ensureRequiredBrandMention(sanitizePublicDraft(parsed.text ?? ""), ctx.client?.slug);
     if (!text || hasUncataloguedProductCode(text, ctx)) return null;
     const validationErrors = validateDraftForClient(text, ctx.client?.slug);
     if (validationErrors.length > 0) throw new ValidationRetryError(buildStyleCorrection(validationErrors));
-    logger.info("ai_request", "LLM Copiloto OK", { model: completion.model, provider: completion.provider, opportunityId: ctx.opportunity.id }).catch(() => {});
+    logger.info("ai_request", "LLM Asistente CM OK", { model: completion.model, provider: completion.provider, opportunityId: ctx.opportunity.id }).catch(() => {});
     return { variantType: "SHORT", draftText: text, riskNotes: parsed.riskNotes ?? "Revisar antes de publicar." };
   } catch (err) {
     if (err instanceof ValidationRetryError) throw err;
-    logAIError("No se pudo generar propuesta del Copiloto", err);
+    logAIError("No se pudo generar propuesta del Asistente CM", err);
     return null;
   }
 }
@@ -642,7 +642,7 @@ export async function generateAICopilotDraft(ctx: DraftContext): Promise<DraftVa
     }
   }
   if (!initial) {
-    logAIError("Copiloto sin propuesta de IA tras reintento; se usará fallback local", { opportunityId: ctx.opportunity.id, correccion: lastCorrection });
+    logAIError("Asistente CM sin propuesta de IA tras reintento; se usará fallback local", { opportunityId: ctx.opportunity.id, correccion: lastCorrection });
     return null;
   }
   if (initial.draftText.length <= COPILOT_MAX_CHARACTERS) return initial;  const condensed = await requestCopilotDraft(ctx, initial.draftText).catch((err: unknown) => {

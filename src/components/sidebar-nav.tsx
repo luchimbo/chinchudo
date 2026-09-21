@@ -15,7 +15,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     title: "Oportunidades",
     items: [
-      { href: "/copiloto", label: "Copiloto CM" },
+      { href: "/asistente-cm", label: "Asistente CM" },
       { href: "/oportunidades", label: "Vista avanzada" },
     ],
   },

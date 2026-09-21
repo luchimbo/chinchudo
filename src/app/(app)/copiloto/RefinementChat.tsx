@@ -116,7 +116,7 @@ export function RefinementChat({ opportunityId, responseId, clientSlug, currentT
         <button type="submit" disabled={busy || !input.trim()} className="rounded-lg bg-ink px-4 py-2.5 text-xs font-bold text-paper transition hover:bg-slate disabled:opacity-50">Enviar</button>
       </form>
       <div className="mt-2.5 flex flex-wrap justify-end gap-2">
-        <button type="button" onClick={compile} disabled={busy || history.length === 0} className="rounded-full bg-brass px-3.5 py-2 text-xs font-bold text-white transition hover:bg-ink disabled:opacity-50">{compiling ? "✨ Generando…" : "✨ Generar nueva versión"}</button>
+          <button type="button" onClick={compile} disabled={busy || history.length === 0} className="rounded-full bg-brass px-3.5 py-2 text-xs font-bold text-white transition hover:bg-ink disabled:opacity-50">{compiling ? "✨ Generando…" : "✨ Generar nueva respuesta"}</button>
         <button type="button" onClick={accept} disabled={busy || accepted} className="rounded-full bg-moss px-3.5 py-2 text-xs font-bold text-white transition hover:bg-moss/85 disabled:opacity-50">{accepting ? "Guardando y aprendiendo…" : accepted ? "Aceptada" : "Aceptar como respuesta correcta"}</button>
       </div>
     </div>

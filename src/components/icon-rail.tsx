@@ -85,9 +85,9 @@ const MAIN_SECTORS: Sector[] = [
   },
   {
     id: "redes",
-    href: "/copiloto",
-    label: "Copiloto CM",
-    paths: ["/copiloto", "/oportunidades", "/bitacora", "/historial", "/distribution", "/actividad", "/redes"],
+    href: "/asistente-cm",
+    label: "Asistente CM",
+    paths: ["/asistente-cm", "/copiloto", "/oportunidades", "/bitacora", "/historial", "/distribution", "/actividad", "/redes"],
     icon: <ShareIcon />,
   },
   {

@@ -201,7 +201,59 @@ export async function generateCopilotDrafts(formData: FormData) {
   });
   await generateResponseDrafts(delegatedFormData);
 
-  revalidatePath("/copiloto");
+  revalidatePath("/asistente-cm");
+}
+
+const regenerateCopilotSchema = z.object({
+  opportunityId: z.string().min(1),
+  responseId: z.string().min(1),
+});
+
+/**
+ * Rehace la respuesta visible del Copiloto con el prompt, las reglas aprendidas y
+ * las respuestas correctas actuales. La anterior se borra salvo que esté aceptada
+ * o aprobada: esas siguen sirviendo de ejemplo y solo dejan de ser la principal.
+ */
+export async function regenerateCopilotResponse(formData: FormData) {
+  const parsed = regenerateCopilotSchema.parse({
+    opportunityId: formData.get("opportunityId"),
+    responseId: formData.get("responseId"),
+  });
+  const [current, opportunity] = await Promise.all([
+    prisma.response.findUniqueOrThrow({ where: { id: parsed.responseId }, select: { opportunityId: true } }),
+    prisma.opportunity.findUniqueOrThrow({
+      where: { id: parsed.opportunityId },
+      select: { clientId: true, responses: { select: { id: true } } },
+    }),
+  ]);
+  if (current.opportunityId !== parsed.opportunityId) {
+    throw new Error("La respuesta no corresponde a esta oportunidad.");
+  }
+  await requireOwnedClientId(opportunity.clientId);
+
+  const previousIds = opportunity.responses.map((response) => response.id);
+  const generationForm = new FormData();
+  generationForm.set("opportunityId", parsed.opportunityId);
+  await generateCopilotDrafts(generationForm);
+
+  const created = await prisma.response.findFirst({
+    where: { opportunityId: parsed.opportunityId, id: { notIn: previousIds } },
+    orderBy: { createdAt: "desc" },
+    select: { id: true },
+  });
+  if (!created) throw new Error("No se pudo generar la nueva respuesta.");
+
+  await prisma.$transaction([
+    prisma.response.deleteMany({ where: { id: parsed.responseId, approvedBy: "", acceptedAsCorrectAt: null } }),
+    prisma.response.updateMany({
+      where: { opportunityId: parsed.opportunityId, id: { not: created.id } },
+      data: { isPrimary: false },
+    }),
+    prisma.response.update({ where: { id: created.id }, data: { isPrimary: true } }),
+  ]);
+
+  revalidatePath("/asistente-cm");
+  revalidatePath(`/opportunities/${parsed.opportunityId}`);
 }
 
 const copilotResponseSchema = z.object({
@@ -265,7 +317,7 @@ export async function markCopilotResponse(formData: FormData) {
       data: { editedText: parsed.editedText, approvedBy: "CM", isPrimary: true },
     });
   });
-  revalidatePath("/copiloto");
+  revalidatePath("/asistente-cm");
   revalidatePath("/historial");
   revalidatePath(`/opportunities/${parsed.opportunityId}`);
   try {
@@ -351,7 +403,7 @@ export async function publishCopilotYouTubeResponse(formData: FormData) {
   } catch (error) {
     logger.error("copilot_publish_learning_failed", "No se pudo extraer el aprendizaje del chat", error).catch(() => { });
   }
-  revalidatePath("/copiloto");
+  revalidatePath("/asistente-cm");
   revalidatePath("/historial");
   revalidatePath(`/opportunities/${opportunity.id}`);
 }
@@ -415,7 +467,7 @@ export async function teachCopilotFromResponse(formData: FormData) {
       responseId: parsed.responseId,
     });
   }
-  revalidatePath("/copiloto");
+  revalidatePath("/asistente-cm");
   revalidatePath("/aprendizaje");
 }
 
@@ -448,7 +500,7 @@ export async function discardCopilotOpportunity(formData: FormData) {
     },
   });
   if (discarded.count !== 1) throw new Error("Esta oportunidad ya no está abierta.");
-  revalidatePath("/copiloto");
+  revalidatePath("/asistente-cm");
 }
 
 export async function generateResponseDrafts(formData: FormData) {
@@ -1504,7 +1556,7 @@ export async function applyRefinedResponseAction(formData: FormData) {
   ]);
 
   revalidatePath(`/opportunities/${response.opportunityId}`);
-  revalidatePath("/copiloto");
+  revalidatePath("/asistente-cm");
   return { success: true, compiledText };
 }
 
@@ -1580,7 +1632,7 @@ export async function acceptCopilotRefinementAction(formData: FormData) {
     logger.error("copilot_accept_learning_failed", "No se pudo extraer el aprendizaje del chat", error).catch(() => { });
   }
 
-  revalidatePath("/copiloto");
+  revalidatePath("/asistente-cm");
   revalidatePath("/aprendizaje");
   return { success: true, learnedRules };
 }

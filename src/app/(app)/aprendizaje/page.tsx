@@ -103,7 +103,7 @@ export default async function AprendizajePage({ searchParams }: PageProps) {
                           {mem.category}
                         </span>
                         <span className="text-[11px] text-slate/60">
-                          {mem.source.startsWith("copilot_feedback_") ? "Feedback del Copiloto" : mem.source === "chat_refinement" ? "Chat de refinamiento" : "Carga manual"}
+                          {mem.source.startsWith("copilot_feedback_") ? "Feedback del Asistente CM" : mem.source === "chat_refinement" ? "Chat de refinamiento" : "Carga manual"}
                         </span>
                         <span className="text-[11px] text-slate/40">
                           • {new Date(mem.createdAt).toLocaleDateString("es-AR")}
@@ -152,7 +152,7 @@ export default async function AprendizajePage({ searchParams }: PageProps) {
 
           {acceptedResponses.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-ink/20 bg-white/50 p-8 text-center text-xs text-slate">
-              Cuando aceptes una respuesta desde el chat del Copiloto CM, va a aparecer acá y la IA la va a tomar como referencia.
+              Cuando aceptes una respuesta desde el chat del Asistente CM, va a aparecer acá y la IA la va a tomar como referencia.
             </div>
           ) : (
             <div className="grid gap-3">

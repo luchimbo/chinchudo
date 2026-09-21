@@ -45,7 +45,7 @@ export default async function OportunidadesPage({ searchParams }: PageProps) {
   // borrador y evita el paso intermedio "Ver post". Conservamos este endpoint
   // para que bookmarks y enlaces internos existentes sigan funcionando.
   const clientQuery = searchParams.client ? `?client=${encodeURIComponent(searchParams.client)}` : "";
-  redirect(`/copiloto${clientQuery}`);
+  redirect(`/asistente-cm${clientQuery}`);
 
   const [channelsList, clients] = await Promise.all([
     prisma.channel.findMany({

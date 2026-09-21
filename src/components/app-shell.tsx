@@ -15,7 +15,7 @@ const SECTOR_LABEL: Array<{ paths: string[]; label: string }> = [
   { paths: ["/videos"], label: "Tendencias y guiones" },
   { paths: ["/tendencias"], label: "Tendencias" },
   { paths: ["/radar"], label: "Radar editorial" },
-  { paths: ["/copiloto", "/oportunidades", "/bitacora", "/historial", "/distribution", "/actividad", "/redes"], label: "Copiloto CM" },
+  { paths: ["/asistente-cm", "/copiloto", "/oportunidades", "/bitacora", "/historial", "/distribution", "/actividad", "/redes"], label: "Asistente CM" },
   { paths: ["/analytics", "/informe", "/geo"], label: "Analíticas" },
   { paths: ["/aprendizaje"], label: "Aprendizaje IA" },
   { paths: ["/configuracion", "/brands", "/products", "/personas", "/prompts", "/knowledge", "/clients"], label: "Configuración" },
@@ -32,7 +32,7 @@ function getSectorLabel(pathname: string): string {
 
 const MOBILE_SECTORS = [
   { href: "/", label: "Inicio" },
-  { href: "/copiloto", label: "Copiloto CM" },
+  { href: "/asistente-cm", label: "Asistente CM" },
   { href: "/landings/editor", label: "Creador de landings" },
   { href: "/videos", label: "Tendencias y guiones" },
   { href: "/tendencias", label: "Tendencias" },

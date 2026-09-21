@@ -2,7 +2,6 @@ import { OpportunityStatus, Prisma } from "@prisma/client";
 import { requirePageClient } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { OPPORTUNITY_CHANNEL_NAMES, operationalOpportunityWhere } from "@/lib/opportunity-channels";
-import { selectCopilotPulse } from "@/lib/radar-editorial";
 import { CopilotWorkspace } from "./workspace";
 
 const COPILOT_OPEN_STATUSES: OpportunityStatus[] = ["NEW", "NEEDS_REVIEW", "DRAFTED"];
@@ -16,7 +15,7 @@ function parseChatHistory(value: Prisma.JsonValue): { sender: "user" | "assistan
   });
 }
 type PageProps = {
-  searchParams: { client?: string; view?: string; brand?: string; channel?: string; response?: string; sort?: string };
+  searchParams: { client?: string; brand?: string; channel?: string; response?: string; sort?: string };
 };
 
 export default async function CopilotoPage({ searchParams }: PageProps) {
@@ -27,7 +26,6 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
       orderBy: { name: "asc" },
     }),
   ]);
-  const activeView = searchParams.view === "pulse" ? "pulse" : "opportunities";
   const brands = await prisma.brand.findMany({ where: { clientId: activeClient.id }, orderBy: { name: "asc" } });
   const selectedBrand = brands.find((brand) => brand.id === searchParams.brand)?.id;
   const selectedChannel = channels.find((channel) => channel.id === searchParams.channel)?.id;
@@ -48,7 +46,7 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
     ...(selectedResponse ? { responses: { some: {} } } : {}),
   };
 
-  const [opportunities, pulse, youtubeConnection] = await Promise.all([
+  const [opportunities, youtubeConnection] = await Promise.all([
     activeClient
       ? prisma.opportunity.findMany({
           where,
@@ -63,41 +61,9 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
         })
       : Promise.resolve([]),
     activeClient
-      ? prisma.trend.findMany({
-          where: {
-            clientId: activeClient.id,
-            platform: { in: ["GOOGLE_TRENDS", "TWITTER", "GOOGLE_NEWS", "ARGENTINE_STREAMING_MEDIA", "ARGENTINE_PRESS", "ARGENTINA_DATA"] },
-            createdAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
-          },
-          select: { id: true, title: true, description: true, sourceUrl: true, platform: true, createdAt: true, metadata: true },
-          orderBy: { createdAt: "desc" },
-          take: 20,
-        })
-      : Promise.resolve([]),
-    activeClient
       ? prisma.youTubeConnection.findFirst({ where: { clientId: activeClient.id }, select: { account: true, channelTitle: true } })
       : Promise.resolve(null),
   ]);
-  const pulseSignals = selectCopilotPulse([
-    ...pulse.map((signal) => ({
-      id: signal.id,
-      title: signal.title,
-      description: signal.description,
-      sourceUrl: signal.sourceUrl,
-      platform: signal.platform,
-      createdAt: signal.createdAt.toISOString(),
-    })),
-  ]).map((signal) => ({
-    id: signal.id,
-    title: signal.title,
-    description: signal.description,
-    sourceUrl: signal.sourceUrl,
-    platform: signal.platform,
-    createdAt: new Date(signal.createdAt).toISOString(),
-    reason: signal.reason,
-    allowHumor: signal.allowHumor,
-  }));
-
   return (
     <CopilotWorkspace
       activeClient={activeClient ? { slug: activeClient.slug, name: activeClient.name } : null}
@@ -106,9 +72,7 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
         connected: Boolean(youtubeConnection),
         channelTitle: youtubeConnection?.channelTitle ?? "",
       } : null}
-      activeView={activeView}
       filters={{ brands: brands.map((brand) => ({ id: brand.id, name: brand.name })), channels: channels.map((channel) => ({ id: channel.id, name: channel.name })), selectedBrand: selectedBrand ?? "", selectedChannel: selectedChannel ?? "", selectedResponse, selectedSort }}
-      pulse={pulseSignals}
       opportunities={opportunities.map((opportunity) => ({
         id: opportunity.id,
         text: opportunity.sourceText,

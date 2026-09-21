@@ -57,8 +57,8 @@ export default async function RadarPage({ searchParams }: PageProps) {
       <header className="border-b border-ink/10 pb-7">
         <p className="text-xs font-bold uppercase tracking-[0.22em] text-brass">Radar editorial</p>
         <div className="mt-3 flex flex-wrap items-end justify-between gap-5">
-        <div><h1 className="font-display text-4xl leading-none text-ink md:text-5xl">Tendencias y coyuntura</h1><p className="mt-3 max-w-2xl text-sm leading-6 text-slate">Senales para entender el contexto. No son instrucciones para subirse a cada tema: el Copiloto las usa solo cuando mejoran una respuesta.</p></div>
-          <Link href={withClient("/copiloto")} className="rounded-full border border-ink/15 bg-white px-4 py-2.5 text-sm font-bold text-ink transition hover:border-ink/40">Volver al Copiloto</Link>
+        <div><h1 className="font-display text-4xl leading-none text-ink md:text-5xl">Tendencias y coyuntura</h1><p className="mt-3 max-w-2xl text-sm leading-6 text-slate">Senales para entender el contexto. No son instrucciones para subirse a cada tema: el Asistente CM las usa solo cuando mejoran una respuesta.</p></div>
+          <Link href={withClient("/asistente-cm")} className="rounded-full border border-ink/15 bg-white px-4 py-2.5 text-sm font-bold text-ink transition hover:border-ink/40">Volver al Asistente CM</Link>
         </div>
       </header>
 

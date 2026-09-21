@@ -95,7 +95,7 @@ describe("Guardar como respondida en Copiloto", () => {
     expect(state.context.copilot).toMatchObject({ goal: "RESPONDER", responseId: "response-1", wasEdited: true });
     expect((state.context.copilot as { respondedAt: string }).respondedAt).toBeTruthy();
     expect(state.publications).toBe(0);
-    expect(revalidatePath).toHaveBeenCalledWith("/copiloto");
+    expect(revalidatePath).toHaveBeenCalledWith("/asistente-cm");
     expect(revalidatePath).toHaveBeenCalledWith("/historial");
   });
 
