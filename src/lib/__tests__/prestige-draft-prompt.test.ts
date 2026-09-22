@@ -65,6 +65,25 @@ describe("prompt de Prestige", () => {
     expect(prompt).toContain("nombrá 'Prestige Medias' una sola vez");
   });
 
+  it("en una charla general solo recomienda el modelo si lo eligió el CM", () => {
+    const techBasic = {
+      id: "tech-basic", name: "Tech Basic", category: "medias-tecnicas-running",
+      description: "Soquetes cortos con refuerzo en talón y puntera.", useCases: "Running", technicalSpecs: "",
+      warrantyNotes: "No prometer beneficios medicos.", brand: { name: "Prestige" },
+    };
+    const general = context("Instagram", "Hoy salí a correr 10k con lluvia y estuvo buenísimo");
+    const withProduct = { ...general, opportunity: { ...general.opportunity, detectedProduct: techBasic }, catalogProducts: [techBasic] } as any;
+
+    const detected = buildPrompt(withProduct);
+    expect(detected).toContain("No nombres modelo, tecnología ni beneficios técnicos");
+    expect(detected).not.toContain("Características de Prestige Medias Tech Basic");
+
+    const chosen = buildPrompt({ ...withProduct, productChosenByCm: true });
+    expect(chosen).toContain("Producto elegido por el community manager: Prestige Medias Tech Basic");
+    expect(chosen).toContain("refuerzo en talón y puntera");
+    expect(chosen).not.toContain("No nombres modelo, tecnología ni beneficios técnicos");
+  });
+
   it("completa la mención obligatoria de Prestige Medias sin afectar otros clientes", () => {
     expect(ensureRequiredBrandMention("Prestige tiene soquete corto.", "prestige-running")).toBe("Prestige Medias tiene soquete corto.");
     expect(ensureRequiredBrandMention("Para fondos largos miraría media caña.", "prestige-running")).toBe("Para fondos largos miraría media caña.");

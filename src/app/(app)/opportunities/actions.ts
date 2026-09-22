@@ -91,7 +91,11 @@ export async function createOpportunity(formData: FormData) {
 
 const idSchema = z.string().min(1);
 
-const copilotChoiceSchema = z.object({ opportunityId: z.string().min(1) });
+const copilotChoiceSchema = z.object({
+  opportunityId: z.string().min(1),
+  // Presente = el CM eligió producto ("" = sin producto específico). Ausente = se mantiene la elección anterior.
+  productId: z.string().max(64).optional(),
+});
 type CopilotGoal = "RESPONDER" | "VENDER" | "CUIDAR";
 type CopilotStyle = "NORMAL" | "CON_ONDA" | "CON_CUIDADO";
 
@@ -153,6 +157,7 @@ function copilotGuidance(contextAssessment: unknown, pulse?: { title: string } |
 export async function generateCopilotDrafts(formData: FormData) {
   const parsed = copilotChoiceSchema.parse({
     opportunityId: formData.get("opportunityId"),
+    productId: formData.has("productId") ? String(formData.get("productId") ?? "") : undefined,
   });
 
   const opportunity = await prisma.opportunity.findUniqueOrThrow({
@@ -162,10 +167,40 @@ export async function generateCopilotDrafts(formData: FormData) {
   assertOperationalOpportunityChannel(opportunity.channel.name);
   const resolution = await resolveOpportunityClient(prisma, opportunity);
   await assertClientAccess(prisma, resolution.client.id);
+
+  const currentContext = opportunity.contextAssessment && typeof opportunity.contextAssessment === "object"
+    ? opportunity.contextAssessment as Record<string, unknown>
+    : {};
+  const currentCopilot = currentContext.copilot && typeof currentContext.copilot === "object"
+    ? currentContext.copilot as Record<string, unknown>
+    : {};
+  const storedChoice = currentCopilot.productChoice && typeof currentCopilot.productChoice === "object"
+    ? currentCopilot.productChoice as { productId?: unknown }
+    : null;
+  const isNewChoice = parsed.productId !== undefined;
+  const storedProductId = typeof storedChoice?.productId === "string" || storedChoice?.productId === null
+    ? storedChoice.productId
+    : undefined;
+  // undefined = sin elección del CM, null = "sin producto específico", string = producto elegido.
+  const choiceProductId = isNewChoice ? parsed.productId || null : storedProductId;
+  let chosenProduct = choiceProductId
+    ? await prisma.product.findUnique({ where: { id: choiceProductId }, include: { brand: true } })
+    : null;
+  if (chosenProduct && chosenProduct.brand.clientId !== resolution.client.id) chosenProduct = null;
+  if (isNewChoice && choiceProductId && !chosenProduct) {
+    throw new Error("El producto elegido no pertenece al cliente de esta oportunidad.");
+  }
+  // Una elección guardada cuyo producto ya no existe no debe trabar la regeneración: se vuelve a la detección.
+  const productChoice = choiceProductId === undefined || (choiceProductId && !chosenProduct)
+    ? null
+    : { productId: chosenProduct?.id ?? null };
+
   const [brand, personas] = await Promise.all([
-    opportunity.detectedBrandId
-      ? prisma.brand.findUnique({ where: { id: opportunity.detectedBrandId } })
-      : prisma.brand.findFirst({ where: { clientId: resolution.client.id }, orderBy: { name: "asc" } }),
+    chosenProduct
+      ? Promise.resolve(chosenProduct.brand)
+      : opportunity.detectedBrandId
+        ? prisma.brand.findUnique({ where: { id: opportunity.detectedBrandId } })
+        : prisma.brand.findFirst({ where: { clientId: resolution.client.id }, orderBy: { name: "asc" } }),
     prisma.persona.findMany({ where: { clientId: resolution.client.id }, orderBy: { name: "asc" } }),
   ]);
 
@@ -179,13 +214,14 @@ export async function generateCopilotDrafts(formData: FormData) {
   delegatedFormData.set("opportunityId", opportunity.id);
   delegatedFormData.set("brandId", brand.id);
   delegatedFormData.set("personaId", persona.id);
-  if (opportunity.detectedProductId && opportunity.detectedProduct?.brandId === brand.id) {
+  if (productChoice) {
+    // El producto elegido por el CM reemplaza al detectado (y puede ser "sin producto").
+    delegatedFormData.set("productId", productChoice.productId ?? "");
+    if (productChoice.productId) delegatedFormData.set("productChosenByCm", "true");
+  } else if (opportunity.detectedProductId && opportunity.detectedProduct?.brandId === brand.id) {
     delegatedFormData.set("productId", opportunity.detectedProductId);
   }
 
-  const currentContext = opportunity.contextAssessment && typeof opportunity.contextAssessment === "object"
-    ? opportunity.contextAssessment as Record<string, unknown>
-    : {};
   await prisma.opportunity.update({
     where: { id: opportunity.id },
     data: {
@@ -195,6 +231,7 @@ export async function generateCopilotDrafts(formData: FormData) {
           goal: approach.goal,
           style: approach.style,
           generatedAt: new Date().toISOString(),
+          ...(productChoice ? { productChoice } : {}),
         },
       },
     },
@@ -207,6 +244,7 @@ export async function generateCopilotDrafts(formData: FormData) {
 const regenerateCopilotSchema = z.object({
   opportunityId: z.string().min(1),
   responseId: z.string().min(1),
+  productId: z.string().max(64).optional(),
 });
 
 /**
@@ -218,6 +256,7 @@ export async function regenerateCopilotResponse(formData: FormData) {
   const parsed = regenerateCopilotSchema.parse({
     opportunityId: formData.get("opportunityId"),
     responseId: formData.get("responseId"),
+    productId: formData.has("productId") ? String(formData.get("productId") ?? "") : undefined,
   });
   const [current, opportunity] = await Promise.all([
     prisma.response.findUniqueOrThrow({ where: { id: parsed.responseId }, select: { opportunityId: true } }),
@@ -234,6 +273,7 @@ export async function regenerateCopilotResponse(formData: FormData) {
   const previousIds = opportunity.responses.map((response) => response.id);
   const generationForm = new FormData();
   generationForm.set("opportunityId", parsed.opportunityId);
+  if (parsed.productId !== undefined) generationForm.set("productId", parsed.productId);
   await generateCopilotDrafts(generationForm);
 
   const created = await prisma.response.findFirst({
@@ -518,6 +558,7 @@ export async function generateResponseDrafts(formData: FormData) {
   // (por ejemplo Copiloto) pueden omitirlo para conservar el producto detectado.
   const hasExplicitProductSelection = formData.has("productId");
   const productId = (formData.get("productId") || "") as string;
+  const productChosenByCm = formData.get("productChosenByCm") === "true";
 
   const [opportunity, persona, brand, selectedProduct] = await Promise.all([
     prisma.opportunity.findUniqueOrThrow({
@@ -633,6 +674,7 @@ export async function generateResponseDrafts(formData: FormData) {
     clientMemories: clientMemories.map((m) => ({ rule: m.rule })),
     acceptedExamples,
     editorialGuidance: copilotGuidance(opportunity.contextAssessment, pulse ? { title: pulse.title } : null),
+    productChosenByCm: productChosenByCm && Boolean(selectedProduct),
   };
   const voiceVariant = selectVoiceVariant(persona.name, observedProfile);
   const isCopilotRequest = Boolean(copilot.goal && copilot.style);

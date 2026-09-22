@@ -16,6 +16,10 @@ const state = vi.hoisted(() => ({
   context: {} as Record<string, unknown>,
   responses: [] as StoredResponse[],
   nextId: 1,
+  products: {
+    "product-otra-marca": { id: "product-otra-marca", brandId: "brand-2", name: "Interfaz X2", brand: { id: "brand-2", clientId: "client-1", name: "Otra" } },
+    "product-ajeno": { id: "product-ajeno", brandId: "brand-9", name: "Media Trail", brand: { id: "brand-9", clientId: "client-2", name: "Ajena" } },
+  } as Record<string, { id: string; brandId: string; name: string; brand: { id: string; clientId: string; name: string } }>,
 }));
 
 function matches(response: StoredResponse, where: Record<string, unknown>) {
@@ -76,6 +80,7 @@ vi.mock("@/lib/db", () => {
       }),
     },
     brand: { findUnique: vi.fn(async () => brand), findUniqueOrThrow: vi.fn(async () => brand) },
+    product: { findUnique: vi.fn(async ({ where }: { where: { id: string } }) => state.products[where.id] ?? null) },
     persona: { findMany: vi.fn(async () => [persona]), findUniqueOrThrow: vi.fn(async () => persona) },
     trend: { findMany: vi.fn(async () => []) },
     response: {
@@ -122,11 +127,16 @@ function storedResponse(overrides: Partial<StoredResponse>): StoredResponse {
   };
 }
 
-function regenerateForm(responseId = "response-old") {
+function regenerateForm(responseId = "response-old", productId?: string) {
   const form = new FormData();
   form.set("opportunityId", "opportunity-1");
   form.set("responseId", responseId);
+  if (productId !== undefined) form.set("productId", productId);
   return form;
+}
+
+function lastDraftContext() {
+  return vi.mocked(generateAICopilotDraft).mock.calls.at(-1)![0] as { productChosenByCm?: boolean; catalogProducts?: { id: string }[] };
 }
 
 describe("Regenerar respuesta en Copiloto", () => {
@@ -154,6 +164,44 @@ describe("Regenerar respuesta en Copiloto", () => {
 
     expect(state.responses.find((response) => response.id === "response-old")).toMatchObject({ isPrimary: false, draftText: "Respuesta vieja" });
     expect(state.responses.find((response) => response.id === "response-new-1")).toMatchObject({ isPrimary: true });
+  });
+
+  it("rehace la propuesta con el producto elegido, su marca y su ficha", async () => {
+    state.responses = [storedResponse({})];
+
+    await regenerateCopilotResponse(regenerateForm("response-old", "product-otra-marca"));
+
+    expect(lastDraftContext()).toMatchObject({ productChosenByCm: true, catalogProducts: [{ id: "product-otra-marca" }] });
+    expect(state.responses).toHaveLength(1);
+    expect(state.responses[0]).toMatchObject({ id: "response-new-1", brandId: "brand-2", isPrimary: true });
+    expect(state.context.copilot).toMatchObject({ productChoice: { productId: "product-otra-marca" } });
+  });
+
+  it("mantiene el producto elegido al regenerar con lo aprendido", async () => {
+    state.context = { copilot: { productChoice: { productId: "product-otra-marca" } } };
+    state.responses = [storedResponse({ brandId: "brand-2" })];
+
+    await regenerateCopilotResponse(regenerateForm());
+
+    expect(lastDraftContext()).toMatchObject({ productChosenByCm: true, catalogProducts: [{ id: "product-otra-marca" }] });
+    expect(state.context.copilot).toMatchObject({ productChoice: { productId: "product-otra-marca" } });
+  });
+
+  it("permite rehacerla sin producto específico", async () => {
+    state.responses = [storedResponse({})];
+
+    await regenerateCopilotResponse(regenerateForm("response-old", ""));
+
+    expect(lastDraftContext()).toMatchObject({ productChosenByCm: false, catalogProducts: [] });
+    expect(state.context.copilot).toMatchObject({ productChoice: { productId: null } });
+  });
+
+  it("rechaza un producto de otro cliente sin tocar la respuesta", async () => {
+    state.responses = [storedResponse({})];
+
+    await expect(regenerateCopilotResponse(regenerateForm("response-old", "product-ajeno"))).rejects.toThrow("no pertenece");
+    expect(generateAICopilotDraft).not.toHaveBeenCalled();
+    expect(state.responses).toEqual([storedResponse({})]);
   });
 
   it("rechaza una respuesta de otra oportunidad sin generar nada", async () => {

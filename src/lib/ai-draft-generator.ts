@@ -1,5 +1,5 @@
 import type { Brand, CatalogRule, Channel, Client, CompetitorEvidence, Opportunity, Persona, Product, Service } from "@prisma/client";
-import { selectRelevantProducts, type ScopedProduct } from "./catalog";
+import { selectRelevantProducts, type ProductEntry, type ScopedProduct } from "./catalog";
 import type { KnowledgeLike, ObjectionLike } from "./knowledge";
 import { deriveVoiceModulation, type ProfileContextForDraft } from "./observed-profiles";
 import { logger } from "./logger";
@@ -29,6 +29,8 @@ type DraftContext = {
   acceptedExamples?: { comment: string; response: string }[];
   editorialGuidance?: string;
   styleCorrection?: string;
+  /** El CM eligió el producto a mano: la respuesta tiene que nombrarlo y apoyarse en su ficha. */
+  productChosenByCm?: boolean;
 };
 
 type DraftVariant = {
@@ -129,6 +131,28 @@ function hasUncataloguedProductCode(text: string, ctx: DraftContext): boolean {
   return false;
 }
 
+/**
+ * Ficha del producto principal. Es lo que hace que la respuesta cambie según el
+ * producto: el tipo, la descripción y la garantía no entran en la línea resumida.
+ */
+function productFeaturesBlock(product: ProductEntry, chosenByCm: boolean): string {
+  const name = formatProductName(product.marca, product.nombre);
+  const use = product.uso.replace(/\s+/g, " ").trim();
+  const description = (product.descripcion ?? "").replace(/\s+/g, " ").trim();
+  const lines = [
+    `- Tipo de producto: ${product.categoria_id.replace(/-/g, " ")}`,
+    description && description !== use ? `- Ficha del producto: ${description.slice(0, 1200)}` : "",
+    product.garantia ? `- Garantía y cuidados (guía interna, no la copies textual): ${product.garantia}` : "",
+  ].filter(Boolean);
+  const heading = chosenByCm
+    ? `## Producto elegido por el community manager: ${name}\nEl CM eligió responder con este producto. La respuesta tiene que girar alrededor de él y cambiar según sus características.`
+    : `## Características de ${name} (apoyate en ellas cuando lo recomiendes)`;
+  return `${heading}
+${lines.join("\n")}
+- Elegí 1 o 2 características de este producto que respondan a lo que plantea el comentario y apoyá la respuesta en ellas. No enumeres la ficha ni copies frases textuales.
+- Si el comentario pide algo que la ficha no confirma, no lo inventes: quedate con lo que sí está confirmado.`;
+}
+
 export function buildPrompt(ctx: DraftContext): string {
   const { opportunity, brand, persona } = ctx;
   const client = ctx.client;
@@ -141,8 +165,11 @@ export function buildPrompt(ctx: DraftContext): string {
     scoped: !!client,
   });
   const prestigeDirectNeed = /\b(?:roce|rozaduras?|ampollas?|humedad|pies? mojados?|pies? secos?|media ca[nñ]a|soquete|trail|cobertura|tobillo|calzado|zapatillas?)\b/i.test(opportunity.sourceText);
-  // En conversaciones generales de running, el catálogo no debe transformar la respuesta en un pitch.
-  const primary = client?.slug === "prestige-running" && !prestigeDirectNeed ? undefined : relevant[0];
+  const productChosenByCm = Boolean(ctx.productChosenByCm);
+  // En conversaciones generales de running, el catálogo no debe transformar la respuesta en un pitch,
+  // salvo que el CM haya elegido el producto a mano: esa elección manda.
+  const productFocus = prestigeDirectNeed || productChosenByCm;
+  const primary = client?.slug === "prestige-running" && !productFocus ? undefined : relevant[0];
   const alternatives = primary ? relevant.slice(1) : [];
 
   const primaryBlock = primary
@@ -152,6 +179,7 @@ export function buildPrompt(ctx: DraftContext): string {
     ? `### Alternativas reales permitidas (solo si encajan mejor con el comentario)\n${alternatives.map(p => `  - ${formatProductName(p.marca, p.nombre)}: ${p.uso}${p.especificaciones ? ` | Especificaciones confirmadas: ${p.especificaciones}` : ""}`).join("\n")}`
     : "";
   const productList = [primaryBlock, alternativesBlock].filter(Boolean).join("\n") || "  - (sin productos específicos identificados)";
+  const featuresBlock = primary ? `\n${productFeaturesBlock(primary, productChosenByCm)}\n` : "";
   const allowedProductNames = relevant.map((p) => formatProductName(p.marca, p.nombre)).join("; ");
   const servicesBlock = (ctx.services ?? []).slice(0, 12).map((service) => `- ${service.name}: ${service.description || service.scope || "Servicio confirmado"}`).join("\n") || "- (sin servicios específicos cargados)";
 
@@ -252,7 +280,9 @@ export function buildPrompt(ctx: DraftContext): string {
       ? "- NUNCA llames al producto 'pack', 'tripack', 'Pack x3', 'x 3' ni 'x3'. La cantidad de pares no es el nombre de la media: nombrá solo el modelo, por ejemplo 'Tech Basic'."
       : "",
     primary
-      ? (client?.slug === "prestige-running"
+      ? (productChosenByCm
+        ? `- El community manager eligió responder con ${formatProductName(primary.marca, primary.nombre)}: nombralo una sola vez, de forma natural, y que la respuesta dependa de sus características y no de otro modelo.`
+        : client?.slug === "prestige-running"
         ? "- Para Prestige Medias, el producto autorizado es contexto, no una obligación de venta. Si responde de forma directa a una necesidad concreta (roce, humedad, cobertura, trail o tipo de media), podés mencionar marca y modelo. Si el comentario es general sobre running, entrenamiento, motivación o salud, mencioná únicamente 'Prestige Medias' de manera casual y en primera persona, sin modelo, ficha técnica ni argumento de venta."
         : "- Recomendá y mencioná el Producto recomendado principal salvo que una alternativa real permitida encaje claramente mejor.")
       : "- No hay un producto autorizado con compatibilidad suficiente: no fuerces una recomendación ni inventes un modelo.",
@@ -298,7 +328,7 @@ ${goodEx}${badEx}
 
 ## Productos autorizados para esta respuesta
 ${productList}
-
+${featuresBlock}
 ## Servicios confirmados
 ${servicesBlock}
 - Mencioná un servicio sólo si responde directamente a la consulta y no agregues alcance, precio ni disponibilidad que no estén confirmados arriba.
@@ -333,11 +363,11 @@ ${questionInstruction}
 ${pcmidiComparisonRule}
 - Cada variante debe sonar diferente en estilo, no solo en palabras
 - Cada variante debe ser única para esta oportunidad: incorpora detalles concretos del texto original y evita aperturas, estructuras y cierres genéricos repetibles.
-- ${client?.slug === "prestige-running" && !prestigeDirectNeed ? "Para Prestige Medias, cada variante debe mencionar 'Prestige Medias' una sola vez como experiencia personal breve, por ejemplo 'yo vengo usando unas medias Prestige y me resultan cómodas para entrenar'. No nombres modelo, tecnología ni beneficios técnicos." : primary ? (client?.slug === "prestige-running" ? "Para Prestige Medias, priorizá una respuesta útil y conversacional. Si hay una necesidad puntual, como máximo UNA variante puede mencionar marca y modelo." : "Las TRES variantes deben nombrar el Producto recomendado principal o una alternativa real permitida, tejido de forma natural.") : "No hay producto autorizado compatible: las variantes deben aportar valor sin mencionar ni inventar un producto."}
+- ${client?.slug === "prestige-running" && !productFocus ? "Para Prestige Medias, cada variante debe mencionar 'Prestige Medias' una sola vez como experiencia personal breve, por ejemplo 'yo vengo usando unas medias Prestige y me resultan cómodas para entrenar'. No nombres modelo, tecnología ni beneficios técnicos." : primary ? (productChosenByCm ? "La respuesta debe nombrar el producto elegido por el CM, tejido de forma natural con lo que plantea el comentario." : client?.slug === "prestige-running" ? "Para Prestige Medias, priorizá una respuesta útil y conversacional. Si hay una necesidad puntual, como máximo UNA variante puede mencionar marca y modelo." : "Las TRES variantes deben nombrar el Producto recomendado principal o una alternativa real permitida, tejido de forma natural.") : "No hay producto autorizado compatible: las variantes deben aportar valor sin mencionar ni inventar un producto."}
 - Nunca pongas el link del producto: solo el nombre/modelo
 - ${client?.slug === "prestige-running" ? "Para Prestige Medias, podés compartir una experiencia personal breve y creíble en primera persona. Evitá frases de venta, superlativos y claims médicos." : "No afirmes experiencias personales inventadas: evitá 'yo uso', 'yo tengo', 'yo probé' o testimonios de amigos/alumnos salvo que estén expresamente incluidos como evidencia verificada."}
 - Nunca copies instrucciones de estilo, etiquetas internas, nombres de campos ni hashtags al texto público.
-- ${primary ? (client?.slug === "prestige-running" ? `Solo si una variante requiere una recomendación concreta, integrá ${formatProductName(primary.marca, primary.nombre)} una sola vez. No uses 'pack', 'tripack', 'x3' ni 'x 3'.` : `Cuando recomiendes, nombrá el modelo completo: ${formatProductName(primary.marca, primary.nombre)}.`) : "No hay un producto suficientemente compatible: no fuerces una recomendación ni inventes un modelo."}
+- ${primary ? (productChosenByCm ? `Nombrá el modelo completo una sola vez: ${formatProductName(primary.marca, primary.nombre)}.${client?.slug === "prestige-running" ? " No uses 'pack', 'tripack', 'x3' ni 'x 3'." : ""}` : client?.slug === "prestige-running" ? `Solo si una variante requiere una recomendación concreta, integrá ${formatProductName(primary.marca, primary.nombre)} una sola vez. No uses 'pack', 'tripack', 'x3' ni 'x 3'.` : `Cuando recomiendes, nombrá el modelo completo: ${formatProductName(primary.marca, primary.nombre)}.`) : "No hay un producto suficientemente compatible: no fuerces una recomendación ni inventes un modelo."}
 - Las variantes de respuesta generadas en "text" deben estar completamente escritas en el idioma detectado (Español, Inglés o Portugués).
 
 

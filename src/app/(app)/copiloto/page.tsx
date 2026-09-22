@@ -46,7 +46,7 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
     ...(selectedResponse ? { responses: { some: {} } } : {}),
   };
 
-  const [opportunities, youtubeConnection] = await Promise.all([
+  const [opportunities, youtubeConnection, products] = await Promise.all([
     activeClient
       ? prisma.opportunity.findMany({
           where,
@@ -63,6 +63,13 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
     activeClient
       ? prisma.youTubeConnection.findFirst({ where: { clientId: activeClient.id }, select: { account: true, channelTitle: true } })
       : Promise.resolve(null),
+    activeClient
+      ? prisma.product.findMany({
+          where: { brand: { clientId: activeClient.id } },
+          select: { id: true, name: true, brand: { select: { name: true } } },
+          orderBy: [{ brand: { name: "asc" } }, { name: "asc" }],
+        })
+      : Promise.resolve([]),
   ]);
   return (
     <CopilotWorkspace
@@ -73,6 +80,7 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
         channelTitle: youtubeConnection?.channelTitle ?? "",
       } : null}
       filters={{ brands: brands.map((brand) => ({ id: brand.id, name: brand.name })), channels: channels.map((channel) => ({ id: channel.id, name: channel.name })), selectedBrand: selectedBrand ?? "", selectedChannel: selectedChannel ?? "", selectedResponse, selectedSort }}
+      products={products.map((product) => ({ id: product.id, name: product.name, brand: product.brand.name }))}
       opportunities={opportunities.map((opportunity) => ({
         id: opportunity.id,
         text: opportunity.sourceText,
@@ -82,6 +90,7 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
         channel: opportunity.channel.name,
         brand: opportunity.detectedBrand?.name ?? "Marca por definir",
         product: opportunity.detectedProduct?.name ?? "",
+        productId: opportunity.detectedProductId ?? "",
         createdAt: opportunity.createdAt.toISOString(),
         status: opportunity.status,
         hasDrafts: opportunity.responses.length > 0,

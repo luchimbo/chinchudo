@@ -12,6 +12,8 @@ export type ProductEntry = {
   url: string;
   uso: string;
   especificaciones?: string;
+  descripcion?: string;
+  garantia?: string;
 };
 
 // El catálogo sólo necesita estas columnas. Mantenerlo explícito evita que una
@@ -99,6 +101,8 @@ function productToEntry(product: ScopedProduct): ProductEntry {
     url: "",
     uso: product.useCases || product.description,
     especificaciones: product.technicalSpecs || "",
+    descripcion: product.description,
+    garantia: product.warrantyNotes,
   };
 }
 
