@@ -5,6 +5,7 @@ import { useFormStatus } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { discardCopilotOpportunity, generateCopilotDrafts, markCopilotResponse, publishCopilotYouTubeResponse, regenerateCopilotResponse } from "@/app/(app)/opportunities/actions";
 import { communityFromUrl, formatAuthor } from "@/lib/source-author";
+import { copyToClipboard } from "./clipboard";
 import { RefinementChat, type ChatMessage } from "./RefinementChat";
 
 type Response = { id: string; text: string; variantType: string; isPrimary: boolean; persona: string; acceptedAsCorrect: boolean; chatHistory: ChatMessage[] };
@@ -174,26 +175,6 @@ function ExpandableText({ text, limit = 240, className = "" }: { text: string; l
   const isLong = text.length > limit;
   const shown = expanded || !isLong ? text : `${text.slice(0, limit).trimEnd()}…`;
   return <p className={className}>{shown}{isLong ? <button type="button" onClick={() => setExpanded((value) => !value)} className="ml-1.5 font-bold text-moss hover:text-ink">{expanded ? "Ver menos" : "Ver más"}</button> : null}</p>;
-}
-
-async function copyToClipboard(text: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return;
-  } catch {
-    // Fallback sin permiso de portapapeles: funciona aunque el navegador bloquee la API moderna.
-  }
-  const area = document.createElement("textarea");
-  area.value = text;
-  area.setAttribute("readonly", "");
-  area.style.position = "fixed";
-  area.style.top = "0";
-  area.style.left = "0";
-  area.style.opacity = "0";
-  document.body.appendChild(area);
-  area.select();
-  document.execCommand("copy");
-  area.remove();
 }
 
 function PendingSubmit({ children, pendingLabel, className }: { children: React.ReactNode; pendingLabel: string; className: string }) {

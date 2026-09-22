@@ -2,16 +2,26 @@ import { OpportunityStatus, Prisma } from "@prisma/client";
 import { requirePageClient } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { OPPORTUNITY_CHANNEL_NAMES, operationalOpportunityWhere } from "@/lib/opportunity-channels";
+import type { ChatMessage } from "@/lib/refine-draft";
 import { CopilotWorkspace } from "./workspace";
 
 const COPILOT_OPEN_STATUSES: OpportunityStatus[] = ["NEW", "NEEDS_REVIEW", "DRAFTED"];
 
-function parseChatHistory(value: Prisma.JsonValue): { sender: "user" | "assistant"; text: string }[] {
+function parseChatHistory(value: Prisma.JsonValue): ChatMessage[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {
     if (!item || typeof item !== "object" || Array.isArray(item)) return [];
-    const { sender, text } = item as Record<string, unknown>;
-    return (sender === "user" || sender === "assistant") && typeof text === "string" ? [{ sender, text }] : [];
+    const { sender, text, suggestion } = item as Record<string, unknown>;
+    if ((sender !== "user" && sender !== "assistant") || typeof text !== "string") return [];
+    // La propuesta editable del chat se conserva solo si tiene la forma esperada.
+    const proposal = suggestion && typeof suggestion === "object" ? suggestion as Record<string, unknown> : null;
+    return [{
+      sender,
+      text,
+      ...(proposal && typeof proposal.text === "string" && typeof proposal.original === "string"
+        ? { suggestion: { text: proposal.text, original: proposal.original } }
+        : {}),
+    }];
   });
 }
 type PageProps = {

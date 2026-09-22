@@ -26,7 +26,7 @@ import { authorFromUrl } from "@/lib/source-author";
 import { loadObservedProfileContext, overrideObservedProfileSignals, recordObservedProfileEvent } from "@/lib/observed-profiles";
 import { loadRelevantCompetitorEvidence } from "@/lib/competitor-evidence";
 import { selectVoiceVariant } from "@/lib/persona-router";
-import { chatRefinementStep, compileResponseFromChat, type ChatMessage } from "@/lib/refine-draft";
+import { chatRefinementStep, compileResponseFromChat, expandChatForModel, type ChatMessage } from "@/lib/refine-draft";
 import { addClientMemory, deleteClientMemory, extractLearningsFromChat, getAcceptedExamples, getClientMemories, replaceChatLearnings } from "@/lib/client-memory";
 import { publishYouTubeComment } from "@/lib/youtube-publisher";
 import { assertOperationalOpportunityChannel } from "@/lib/opportunity-channels";
@@ -1445,13 +1445,22 @@ const chatMessageSchema = z.array(
     sender: z.enum(["user", "assistant"]),
     text: z.string(),
     timestamp: z.string().optional(),
+    // Propuesta editable del chat: sin este campo el zod la descartaría al guardar.
+    suggestion: z.object({ text: z.string().max(4000), original: z.string().max(4000) }).optional(),
   })
 );
+
+/** El Asistente CM publica hasta 280 caracteres; el flujo clásico no tiene tope. */
+function refinementMaxCharacters(contextAssessment: unknown) {
+  return contextAssessment && typeof contextAssessment === "object" && "copilot" in contextAssessment ? COPILOT_MAX_CHARACTERS : undefined;
+}
 
 const sendRefinementMessageSchema = z.object({
   responseId: z.string().min(1),
   userMessage: z.string().min(1).max(2000),
   chatHistory: chatMessageSchema.default([]),
+  // Lo que el CM tiene en pantalla, aunque todavía no esté guardado.
+  currentText: z.string().max(4000).optional(),
 });
 
 export async function sendRefinementMessageAction(formData: FormData) {
@@ -1467,6 +1476,7 @@ export async function sendRefinementMessageAction(formData: FormData) {
     responseId: formData.get("responseId"),
     userMessage: formData.get("userMessage"),
     chatHistory,
+    currentText: (formData.get("currentText") as string | null) || undefined,
   });
 
   const response = await prisma.response.findUniqueOrThrow({
@@ -1488,16 +1498,18 @@ export async function sendRefinementMessageAction(formData: FormData) {
   const assistantReply = await chatRefinementStep({
     acceptedExamples,
     opportunityText: response.opportunity.sourceText,
-    currentResponseText: response.editedText || response.draftText,
+    currentResponseText: parsed.currentText?.trim() || response.editedText || response.draftText,
     chatHistory: parsed.chatHistory,
     userMessage: parsed.userMessage,
     brandName: response.brand.name,
     personaName: response.persona.name,
     clientName: resolution.client.name,
     clientMemories: clientMemories.map((m) => ({ rule: m.rule })),
+    maxCharacters: refinementMaxCharacters(response.opportunity.contextAssessment),
   });
 
-  return { success: true, reply: assistantReply };
+  // `reply` queda sin la etiqueta; la propuesta viaja aparte para mostrarse como bloque editable.
+  return { success: true, reply: assistantReply.message, suggestion: assistantReply.suggestion };
 }
 
 const saveRefinementChatSchema = z.object({
@@ -1568,12 +1580,9 @@ export async function applyRefinedResponseAction(formData: FormData) {
     getClientMemories(prisma, resolution.client.id),
     getAcceptedExamples(prisma, { clientId: resolution.client.id, brandId: response.brandId, limit: 5 }),
   ]);
-  const context = response.opportunity.contextAssessment;
-  const isCopilotOpportunity = Boolean(context && typeof context === "object" && "copilot" in context);
-
   const compiledText = await compileResponseFromChat({
     acceptedExamples,
-    maxCharacters: isCopilotOpportunity ? COPILOT_MAX_CHARACTERS : undefined,
+    maxCharacters: refinementMaxCharacters(response.opportunity.contextAssessment),
     opportunityText: response.opportunity.sourceText,
     chatHistory: parsed.chatHistory,
     currentResponseText: response.editedText || response.draftText,
@@ -1602,6 +1611,52 @@ export async function applyRefinedResponseAction(formData: FormData) {
   return { success: true, compiledText };
 }
 
+const applyChatSuggestionSchema = z.object({
+  responseId: z.string().min(1),
+  text: z.string().trim().min(3).max(4000),
+  chatHistory: chatMessageSchema.default([]),
+});
+
+/** "Usar esta respuesta": la propuesta del chat (editada o no) pasa a ser la respuesta, y queda guardada. */
+export async function applyChatSuggestionAction(formData: FormData) {
+  let chatHistory: ChatMessage[] = [];
+  try {
+    chatHistory = JSON.parse((formData.get("chatHistory") as string | null) || "[]");
+  } catch {
+    chatHistory = [];
+  }
+  const parsed = applyChatSuggestionSchema.parse({
+    responseId: formData.get("responseId"),
+    text: formData.get("text"),
+    chatHistory,
+  });
+
+  const response = await prisma.response.findUniqueOrThrow({
+    where: { id: parsed.responseId },
+    select: { opportunityId: true, opportunity: { select: { clientId: true, contextAssessment: true } } },
+  });
+  await requireOwnedClientId(response.opportunity.clientId);
+  const maxCharacters = refinementMaxCharacters(response.opportunity.contextAssessment);
+  if (maxCharacters && parsed.text.length > maxCharacters) {
+    throw new Error(`La propuesta supera los ${maxCharacters} caracteres. Acortala antes de usarla.`);
+  }
+
+  await prisma.$transaction([
+    prisma.response.updateMany({
+      where: { opportunityId: response.opportunityId, id: { not: parsed.responseId } },
+      data: { isPrimary: false },
+    }),
+    prisma.response.update({
+      where: { id: parsed.responseId },
+      data: { editedText: parsed.text, isPrimary: true, chatHistory: parsed.chatHistory as unknown as any[] },
+    }),
+  ]);
+
+  revalidatePath(`/opportunities/${response.opportunityId}`);
+  revalidatePath("/asistente-cm");
+  return { success: true };
+}
+
 /** Extrae todos los aprendizajes de la conversación completa y los guarda como memoria del cliente. */
 async function learnFromRefinementChat(responseId: string, finalText: string): Promise<string[]> {
   const response = await prisma.response.findUniqueOrThrow({
@@ -1618,7 +1673,8 @@ async function learnFromRefinementChat(responseId: string, finalText: string): P
   const learnings = await extractLearningsFromChat({
     opportunityText: response.opportunity.sourceText,
     finalResponseText: finalText,
-    chatHistory: chatHistory.map((m) => ({ sender: m.sender, text: m.text })),
+    // Las propuestas y lo que el CM les cambió a mano son parte de lo que hay que aprender.
+    chatHistory: expandChatForModel(chatHistory),
     brandName: response.brand.name,
   });
   // Si el LLM no devolvió nada (o falló), conservamos lo aprendido antes para esta respuesta.

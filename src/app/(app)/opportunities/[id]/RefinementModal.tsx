@@ -84,7 +84,9 @@ export function RefinementModal({
       if (!result.success) {
         throw new Error("No se pudo enviar el mensaje.");
       }
-      const assistantMsg: ChatMessage = { sender: "assistant", text: result.reply, timestamp: new Date().toISOString() };
+      // La propuesta ahora viaja aparte (en el Asistente CM es un bloque editable); acá se muestra debajo del mensaje.
+      const replyText = [result.reply, result.suggestion].filter(Boolean).join("\n\n");
+      const assistantMsg: ChatMessage = { sender: "assistant", text: replyText, timestamp: new Date().toISOString() };
       const completedHistory = [...updatedHistory, assistantMsg];
       setChatHistory(completedHistory);
 

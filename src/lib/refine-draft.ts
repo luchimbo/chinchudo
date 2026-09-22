@@ -1,13 +1,47 @@
 import { fetchChatCompletion, resolveLLMConfig } from "./llm-provider";
 import { logger } from "./logger";
 
+/** Versión de la respuesta que la IA propuso en el chat; `text` puede estar editado por el CM. */
+export type ChatSuggestion = { text: string; original: string };
+
 export type ChatMessage = {
   sender: "user" | "assistant";
   text: string;
   timestamp?: string;
+  suggestion?: ChatSuggestion;
 };
 
 export type AcceptedExample = { comment: string; response: string };
+
+const SUGGESTION_TAG = /<propuesta>([\s\S]*?)(?:<\/propuesta>|$)/i;
+
+/** Separa la propuesta etiquetada del resto del mensaje de la IA. Tolera la etiqueta sin cerrar. */
+export function splitSuggestion(raw: string): { message: string; suggestion: string | null } {
+  const match = raw.match(SUGGESTION_TAG);
+  if (!match) return { message: raw.trim(), suggestion: null };
+  const suggestion = match[1].trim().replace(/^["“«]+|["”»]+$/g, "").trim();
+  const message = raw.replace(match[0], "").replace(/<\/?propuesta>/gi, "").replace(/\n{3,}/g, "\n\n").trim();
+  return { message, suggestion: suggestion || null };
+}
+
+/**
+ * Historial tal como lo lee la IA: la propuesta vuelve a su etiqueta y, si el CM la
+ * editó a mano, esa edición aparece como un turno del operador (sirve para seguir
+ * ajustando y para aprender de la corrección).
+ */
+export function expandChatForModel(history: ChatMessage[]): { sender: "user" | "assistant"; text: string }[] {
+  return history.flatMap((message) => {
+    if (message.sender !== "assistant" || !message.suggestion) return [{ sender: message.sender, text: message.text }];
+    const { text, original } = message.suggestion;
+    const turns: { sender: "user" | "assistant"; text: string }[] = [
+      { sender: "assistant", text: [message.text, `<propuesta>${original}</propuesta>`].filter(Boolean).join("\n\n") },
+    ];
+    if (text.trim() !== original.trim()) {
+      turns.push({ sender: "user", text: `Edité tu propuesta directamente, quedó así: "${text}"` });
+    }
+    return turns;
+  });
+}
 
 function formatAcceptedExamples(examples?: AcceptedExample[]): string {
   if (!examples?.length) return "";
@@ -36,7 +70,8 @@ export async function chatRefinementStep(params: {
   clientName?: string;
   clientMemories?: { rule: string }[];
   acceptedExamples?: AcceptedExample[];
-}): Promise<string> {
+  maxCharacters?: number;
+}): Promise<{ message: string; suggestion: string | null }> {
   const llmConfig = resolveLLMConfig();
   const memoriesList = (params.clientMemories ?? []).map((m) => `- ${m.rule}`).join("\n");
 
@@ -52,13 +87,19 @@ Borrador de respuesta actual:
 
 ${memoriesList ? `Reglas/Preferencias aprendidas de la marca:\n${memoriesList}\n` : ""}
 ${formatAcceptedExamples(params.acceptedExamples)}
-Tu rol en este chat es dialogar de forma clara, directa y concisa con el operador. Podés opinar, proponer cambios o redactar una opción alternativa si el usuario te lo pide. Mantené un tono profesional, colaborador y muy claro.`;
+Tu rol en este chat es dialogar de forma clara, directa y concisa con el operador. Podés opinar, proponer cambios o redactar una opción alternativa si el usuario te lo pide. Mantené un tono profesional, colaborador y muy claro.
+
+Formato de las propuestas:
+- Cada vez que el operador pida cambiar la respuesta (más corta, otro tono, otro dato, etc.) o te pida una versión, escribí la respuesta COMPLETA lista para publicar entre <propuesta> y </propuesta>, una sola vez por mensaje${params.maxCharacters ? `, con un máximo de ${params.maxCharacters} caracteres` : ""}.
+- Fuera de la etiqueta, como mucho una línea breve que explique el cambio. No repitas la propuesta fuera de la etiqueta.
+- Si el operador solo pregunta algo o pide tu opinión, respondé sin la etiqueta.
+- Si el operador editó tu propuesta a mano, tomá su versión como la nueva base.`;
 
   const messages: { role: "system" | "user" | "assistant"; content: string }[] = [
     { role: "system", content: systemMessage },
   ];
 
-  for (const msg of params.chatHistory) {
+  for (const msg of expandChatForModel(params.chatHistory)) {
     messages.push({
       role: msg.sender === "user" ? "user" : "assistant",
       content: msg.text,
@@ -77,16 +118,16 @@ Tu rol en este chat es dialogar de forma clara, directa y concisa con el operado
     if (!res.ok) {
       const errBody = await res.text();
       logger.error("chat_refinement_http_error", `HTTP ${res.status}: ${errBody.slice(0, 200)}`).catch(() => { });
-      return "Hubo un error al conectar con la IA. Por favor reintentá en un instante.";
+      return { message: "Hubo un error al conectar con la IA. Por favor reintentá en un instante.", suggestion: null };
     }
 
     const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
     const answer = data.choices?.[0]?.message?.content?.trim();
 
-    return answer || "No pude procesar la sugerencia. ¿Podrías reformularla?";
+    return answer ? splitSuggestion(answer) : { message: "No pude procesar la sugerencia. ¿Podrías reformularla?", suggestion: null };
   } catch (err) {
     logger.error("chat_refinement_exception", "Error en chatRefinementStep", err).catch(() => { });
-    return "Ocurrió un inconveniente de comunicación con el servicio de IA.";
+    return { message: "Ocurrió un inconveniente de comunicación con el servicio de IA.", suggestion: null };
   }
 }
 
@@ -102,7 +143,7 @@ export async function compileResponseFromChat(params: {
 }): Promise<string> {
   const llmConfig = resolveLLMConfig();
   const memoriesList = (params.clientMemories ?? []).map((m) => `- ${m.rule}`).join("\n");
-  const formattedChat = params.chatHistory
+  const formattedChat = expandChatForModel(params.chatHistory)
     .map((msg) => `${msg.sender === "user" ? "Operador" : "IA"}: ${msg.text}`)
     .join("\n");
 
