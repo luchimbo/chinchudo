@@ -2,10 +2,17 @@ import { PrismaClient } from "@prisma/client";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
+import { catalogProductSelect, loadClientCatalogIndex } from "../src/lib/product-identity";
+
+// Catálogo curado de PC MIDI: es la fuente de la categoría normalizada, los usos y la garantía.
+// Reconoce productos y marcas existentes aunque cambien mayúsculas o acentos, así no duplica.
+// Uso: npx tsx scripts/import-knowledge-catalog.mts [--dry-run]
 
 const prisma = new PrismaClient();
+const dryRun = process.argv.includes("--dry-run");
 const CLIENT_SLUG = "pcmidi";
 const JSON_PATH = join(process.cwd(), "landing-build", "data", "productos_pcmidi.json");
+const WARRANTY_NOTES = "Garantía oficial y soporte técnico local.";
 
 function normalizeBrandName(name: string): string {
   const normalized = name.trim();
@@ -67,24 +74,19 @@ async function main() {
     uso?: string;
   }[];
 
-  console.log(`Leídos ${products.length} productos. Sincronizando marcas y productos...`);
+  console.log(`Leídos ${products.length} productos. Sincronizando marcas y productos${dryRun ? " (simulación, no se escribe nada)" : ""}...`);
 
+  const catalog = await loadClientCatalogIndex(prisma, client.id);
   let brandsCreated = 0;
-  let productsUpserted = 0;
+  let productsCreated = 0;
+  let productsUpdated = 0;
 
   for (const p of products) {
     const rawBrand = p.marca || "MidiPlus";
     const brandName = normalizeBrandName(rawBrand);
 
-    // 1. Obtener o crear la marca
-    let brand = await prisma.brand.findUnique({
-      where: {
-        clientId_name: {
-          clientId: client.id,
-          name: brandName,
-        },
-      },
-    });
+    // 1. Obtener o crear la marca ("MidiPlus" y "MIDIPLUS" son la misma)
+    let brand = catalog.brands.find({ name: brandName });
 
     if (!brand) {
       const defaults = BRAND_DEFAULTS[brandName] || {
@@ -94,7 +96,7 @@ async function main() {
         competitorWeaknesses: "Marcas importadas genéricas sin soporte local.",
       };
 
-      brand = await prisma.brand.create({
+      brand = dryRun ? { id: `nueva-marca-${brandName}`, name: brandName } : await prisma.brand.create({
         data: {
           clientId: client.id,
           name: brandName,
@@ -103,41 +105,37 @@ async function main() {
           allowedClaims: defaults.allowedClaims,
           competitorWeaknesses: defaults.competitorWeaknesses,
         },
+        select: { id: true, name: true },
       });
-      console.log(`[+] Creada marca: ${brandName}`);
+      catalog.brands.remember(brand);
+      console.log(`[+] ${dryRun ? "Se crearía" : "Creada"} marca: ${brandName}`);
       brandsCreated++;
     }
 
-    // 2. Realizar upsert del producto
-    await prisma.product.upsert({
-      where: {
-        brandId_name: {
-          brandId: brand.id,
-          name: p.nombre,
-        },
-      },
-      update: {
-        category: p.categoria_id,
-        description: p.uso || "",
-        useCases: p.uso || "",
-        warrantyNotes: "Garantía oficial y soporte técnico local.",
-      },
-      create: {
-        id: p.id,
-        brandId: brand.id,
-        name: p.nombre,
-        category: p.categoria_id,
-        description: p.uso || "",
-        useCases: p.uso || "",
-        warrantyNotes: "Garantía oficial y soporte técnico local.",
-      },
-    });
-    productsUpserted++;
+    // 2. El mismo producto se reconoce por su id del catálogo o por el nombre normalizado.
+    const curated = { category: p.categoria_id, useCases: p.uso || "", warrantyNotes: WARRANTY_NOTES };
+    const existing = catalog.products.find({ id: p.id, name: p.nombre });
+    if (existing) {
+      if (existing.brandId !== brand.id) console.warn(`[!] ${existing.name} está en otra marca que ${brandName}; se actualiza sin moverlo.`);
+      // Si la descripción es la ficha larga de la tienda, se conserva; solo se reemplaza la copia corta del uso.
+      const replaceDescription = !existing.description.trim() || existing.description === existing.useCases;
+      const data = { ...curated, ...(replaceDescription ? { description: p.uso || "" } : {}) };
+      const updated = dryRun ? { ...existing, ...data } : await prisma.product.update({ where: { id: existing.id }, data, select: catalogProductSelect });
+      catalog.products.remember(updated);
+      productsUpdated++;
+    } else {
+      const data = { id: p.id, brandId: brand.id, name: p.nombre, description: p.uso || "", ...curated };
+      const created = dryRun ? { ...data, sourceType: "manual", sourceExternalId: null } : await prisma.product.create({ data, select: catalogProductSelect });
+      catalog.products.remember(created);
+      console.log(`[+] ${dryRun ? "Se crearía" : "Creado"} producto: ${p.nombre} (${brandName})`);
+      productsCreated++;
+    }
   }
 
-  console.log(`Sincronización finalizada.`);
-  console.log(`- Marcas nuevas creadas: ${brandsCreated}`);
-  console.log(`- Productos insertados/actualizados: ${productsUpserted}`);
+  console.log(`Sincronización finalizada${dryRun ? " (simulación)" : ""}.`);
+  console.log(`- Marcas nuevas: ${brandsCreated}`);
+  console.log(`- Productos nuevos: ${productsCreated}`);
+  console.log(`- Productos existentes actualizados: ${productsUpdated}`);
 }
 
 main()

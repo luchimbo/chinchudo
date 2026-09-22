@@ -6,6 +6,7 @@ import type { PrismaClient } from "@prisma/client";
 import { fetchChatCompletion, resolveLLMConfig, type LegacyClientLLMConfig, type LLMConfig } from "./llm-provider";
 import { normalizeWebsiteUrl } from "./website-url";
 import { logger } from "./logger";
+import { loadClientCatalogIndex, type CatalogProduct } from "./product-identity";
 
 export { normalizeWebsiteUrl } from "./website-url";
 
@@ -1249,6 +1250,23 @@ export class OnboardingNameConflictError extends Error {
   }
 }
 
+/**
+ * Qué pisa el onboarding en un producto que ya existía. Nunca borra con un valor vacío.
+ * Si el producto lo cargó otra fuente (catálogo curado, alta manual), respeta su categoría
+ * y sus usos, que son los que usa el ranking del catálogo, y no se adueña del producto.
+ */
+function websiteUpdateFor(existing: CatalogProduct, fields: Record<string, string | Date>) {
+  const ownedByWebsite = existing.sourceType === "website";
+  return Object.fromEntries(Object.entries(fields).filter(([key, value]) => {
+    if (typeof value === "string" && !value.trim()) return false;
+    if (ownedByWebsite) return true;
+    if (key === "sourceType") return false;
+    if (key === "category") return !existing.category.trim();
+    if (key === "useCases") return !existing.useCases.trim();
+    return true;
+  }));
+}
+
 async function syncCatalogOfferings(
   tx: any,
   clientId: string,
@@ -1256,8 +1274,11 @@ async function syncCatalogOfferings(
 ) {
   if (!draft.brand.trim())
     return { brand: null, products: 0, services: 0 };
+  const catalog = await loadClientCatalogIndex(tx, clientId);
+  // "PC MIDI Center" y "PC MIDI CENTER" son la misma marca: se actualiza la que ya existe.
+  const existingBrand = catalog.brands.find({ name: draft.brand });
   const brand = await tx.brand.upsert({
-    where: { clientId_name: { clientId, name: draft.brand } },
+    where: { clientId_name: { clientId, name: existingBrand?.name ?? draft.brand } },
     create: {
       clientId,
       name: draft.brand,
@@ -1279,35 +1300,27 @@ async function syncCatalogOfferings(
     if (!item.selected) continue;
     if (item.kind === "product") {
       products += 1;
-      await tx.product.upsert({
-        where: { brandId_name: { brandId: brand.id, name: item.name } },
-        create: {
-          brandId: brand.id,
-          name: item.name,
-          category: item.category,
-          description: item.description,
-          technicalSpecs: item.specs,
-          useCases: item.scope,
-          stockStatus: item.availability,
-          priceRange: item.price,
-          sourceType: "website",
-          sourceExternalId: item.id,
-          sourceUrl: item.url,
-          sourceSnapshotAt: new Date(),
-        },
-        update: {
-          category: item.category,
-          description: item.description,
-          technicalSpecs: item.specs,
-          useCases: item.scope,
-          stockStatus: item.availability,
-          priceRange: item.price,
-          sourceType: "website",
-          sourceExternalId: item.id,
-          sourceUrl: item.url,
-          sourceSnapshotAt: new Date(),
-        },
+      const fields = {
+        category: item.category,
+        description: item.description,
+        technicalSpecs: item.specs,
+        useCases: item.scope,
+        stockStatus: item.availability,
+        priceRange: item.price,
+        sourceType: "website",
+        sourceExternalId: item.id,
+        sourceUrl: item.url,
+        sourceSnapshotAt: new Date(),
+      };
+      // Si el cliente ya tiene el producto (aunque cambien mayúsculas, acentos o la marca)
+      // se actualiza ese, sin renombrarlo ni moverlo de marca, en lugar de crear un repetido.
+      const existing = catalog.products.find({ externalId: item.id, name: item.name });
+      const saved = await tx.product.upsert({
+        where: existing ? { id: existing.id } : { brandId_name: { brandId: brand.id, name: item.name } },
+        create: { brandId: brand.id, name: item.name, ...fields },
+        update: existing ? websiteUpdateFor(existing, fields) : fields,
       });
+      catalog.products.remember({ ...(existing ?? {}), ...saved, name: saved?.name ?? existing?.name ?? item.name, sourceExternalId: item.id });
     } else {
       services += 1;
       await (tx as any).service.upsert({

@@ -2,12 +2,21 @@ import { PrismaClient } from "@prisma/client";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
+import { catalogProductSelect, loadClientCatalogIndex } from "../src/lib/product-identity";
+
+// Catálogo completo de la tienda de PC MIDI: aporta la descripción larga de cada producto.
+// Reconoce productos existentes por SKU o por nombre normalizado (mayúsculas, acentos y
+// signos no cuentan), así no crea repetidos, y no pisa la categoría del catálogo curado.
+// Uso: npx tsx scripts/import-engagement-catalog.mts [--dry-run]
 
 const prisma = new PrismaClient();
+const dryRun = process.argv.includes("--dry-run");
 const CLIENT_SLUG = "pcmidi";
 const JSON_PATH = join(process.cwd(), "landing-build", "data", "catalogo_engagement.json");
 
-function detectBrand(name, rawBrand) {
+type EngagementProduct = { nombre: string; marca?: string; categoria?: string; sku?: string; descripcion?: string };
+
+function detectBrand(name: string, rawBrand?: string) {
   let brand = rawBrand?.trim() || "";
   if (!brand) {
     const lowerName = name.toLowerCase();
@@ -27,7 +36,7 @@ function detectBrand(name, rawBrand) {
   return brand;
 }
 
-const BRAND_DEFAULTS = {
+const BRAND_DEFAULTS: Record<string, { strengths: string; tone: string; allowedClaims: string; competitorWeaknesses: string }> = {
   Arturia: {
     strengths: "Líder en controladores MIDI e instrumentos de software, gran robustez y calidad de construcción.",
     tone: "Profesional, técnico e informativo",
@@ -66,25 +75,20 @@ async function main() {
 
   console.log(`Cargando catálogo completo desde: ${JSON_PATH}`);
   const rawData = await readFile(JSON_PATH, "utf-8");
-  const products = JSON.parse(rawData);
+  const products = JSON.parse(rawData) as EngagementProduct[];
 
-  console.log(`Leídos ${products.length} productos del catálogo completo. Sincronizando...`);
+  console.log(`Leídos ${products.length} productos del catálogo completo. Sincronizando${dryRun ? " (simulación, no se escribe nada)" : ""}...`);
 
+  const catalog = await loadClientCatalogIndex(prisma, client.id);
   let brandsCreated = 0;
-  let productsUpserted = 0;
+  let productsCreated = 0;
+  let productsUpdated = 0;
 
   for (const p of products) {
     const brandName = detectBrand(p.nombre, p.marca);
 
-    // 1. Obtener o crear la marca
-    let brand = await prisma.brand.findUnique({
-      where: {
-        clientId_name: {
-          clientId: client.id,
-          name: brandName,
-        },
-      },
-    });
+    // 1. Obtener o crear la marca ("MidiPlus" y "MIDIPLUS" son la misma)
+    let brand = catalog.brands.find({ name: brandName });
 
     if (!brand) {
       const defaults = BRAND_DEFAULTS[brandName] || {
@@ -94,7 +98,7 @@ async function main() {
         competitorWeaknesses: "Marcas importadas genéricas sin soporte local.",
       };
 
-      brand = await prisma.brand.create({
+      brand = dryRun ? { id: `nueva-marca-${brandName}`, name: brandName } : await prisma.brand.create({
         data: {
           clientId: client.id,
           name: brandName,
@@ -103,47 +107,51 @@ async function main() {
           allowedClaims: defaults.allowedClaims,
           competitorWeaknesses: defaults.competitorWeaknesses,
         },
+        select: { id: true, name: true },
       });
+      catalog.brands.remember(brand);
+      console.log(`[+] ${dryRun ? "Se crearía" : "Creada"} marca: ${brandName}`);
       brandsCreated++;
     }
 
-    // 2. Upsert del producto
-    await prisma.product.upsert({
-      where: {
-        brandId_name: {
-          brandId: brand.id,
-          name: p.nombre,
-        },
-      },
-      create: {
-        brandId: brand.id,
-        name: p.nombre,
-        category: p.categoria || "General",
-        description: p.descripcion || "",
-      },
-      update: {
-        category: p.categoria || "General",
-        description: p.descripcion || "",
-      },
-    });
-
-    productsUpserted++;
+    // 2. El mismo producto se reconoce por SKU o por nombre normalizado.
+    const sku = p.sku?.trim() || null;
+    const existing = catalog.products.find({ externalId: sku, name: p.nombre });
+    if (existing) {
+      // La tienda es la fuente de la descripción larga; la categoría normalizada del catálogo curado no se pisa.
+      const data = {
+        ...(p.descripcion?.trim() ? { description: p.descripcion } : {}),
+        ...(!existing.category.trim() || existing.category === "General" ? { category: p.categoria || "General" } : {}),
+        ...(sku && !existing.sourceExternalId ? { sourceExternalId: sku } : {}),
+      };
+      const updated = dryRun || Object.keys(data).length === 0
+        ? { ...existing, ...data }
+        : await prisma.product.update({ where: { id: existing.id }, data, select: catalogProductSelect });
+      catalog.products.remember(updated);
+      productsUpdated++;
+    } else {
+      const data = { brandId: brand.id, name: p.nombre, category: p.categoria || "General", description: p.descripcion || "", sourceExternalId: sku };
+      const created = dryRun
+        ? { id: `nuevo-${productsCreated}`, useCases: "", sourceType: "manual", ...data }
+        : await prisma.product.create({ data, select: catalogProductSelect });
+      catalog.products.remember(created);
+      console.log(`[+] ${dryRun ? "Se crearía" : "Creado"} producto: ${p.nombre} (${brandName})`);
+      productsCreated++;
+    }
   }
 
-  console.log(`\nSincronización finalizada:`);
-  console.log(`- Nuevas marcas creadas: ${brandsCreated}`);
-  console.log(`- Productos creados/actualizados: ${productsUpserted}`);
+  console.log(`\nSincronización finalizada${dryRun ? " (simulación)" : ""}:`);
+  console.log(`- Marcas nuevas: ${brandsCreated}`);
+  console.log(`- Productos nuevos: ${productsCreated}`);
+  console.log(`- Productos existentes actualizados: ${productsUpdated}`);
 
-  // Verificar recuento final
-  const dbCount = await prisma.product.count({
-    where: { brand: { clientId: client.id } }
-  });
-  console.log(`- Recuento total de productos de PC MIDI en base de datos: ${dbCount}`);
-
-  await prisma.$disconnect();
+  const dbCount = await prisma.product.count({ where: { brand: { clientId: client.id } } });
+  console.log(`- Productos de PC MIDI en la base: ${dbCount}`);
 }
 
-main().catch((err) => {
-  console.error("Error en la ejecución:", err);
-  process.exit(1);
-});
+main()
+  .catch((err) => {
+    console.error("Error en la ejecución:", err);
+    process.exitCode = 1;
+  })
+  .finally(() => prisma.$disconnect());

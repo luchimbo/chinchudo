@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { requirePageClient } from "@/lib/auth";
 import { createProduct, updateProduct, deleteProduct } from "./actions";
+import { ProductForm } from "./ProductForm";
 
 type BrandOpt = { id: string; name: string };
 
@@ -50,7 +51,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: { c
 
       <section className="mb-10">
         <h2 className="font-display text-2xl text-ink">Nuevo producto</h2>
-        <form action={createProduct} className="mt-4 grid gap-3 rounded-lg border border-ink/10 bg-white/70 p-4 shadow-panel md:grid-cols-2">
+        <ProductForm action={createProduct} className="mt-4 grid gap-3 rounded-lg border border-ink/10 bg-white/70 p-4 shadow-panel md:grid-cols-2">
           <BrandSelect brands={brands} />
           <label className={labelCls}>
             Nombre
@@ -87,14 +88,14 @@ export default async function ProductsPage({ searchParams }: { searchParams: { c
           <div className="flex items-end justify-end md:col-span-2">
             <button className="rounded-full bg-ink px-5 py-2 text-sm font-bold text-paper transition hover:bg-slate">Agregar producto</button>
           </div>
-        </form>
+        </ProductForm>
       </section>
 
       <section>
         <h2 className="font-display text-2xl text-ink">Catálogo ({products.length})</h2>
         <div className="mt-4 grid gap-3">
           {products.map((p) => (
-            <form key={p.id} action={updateProduct} className="grid gap-3 rounded-lg border border-ink/10 bg-paper p-4 md:grid-cols-2">
+            <ProductForm key={p.id} action={updateProduct} className="grid gap-3 rounded-lg border border-ink/10 bg-paper p-4 md:grid-cols-2">
               <input type="hidden" name="id" value={p.id} />
               <BrandSelect brands={brands} value={p.brandId} />
               <label className={labelCls}>
@@ -133,7 +134,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: { c
                 <button className="rounded-full border border-ink/20 px-4 py-2 text-sm font-bold text-ink hover:bg-white">Guardar</button>
                 <button formAction={deleteProduct} className="rounded-full border border-red-300 px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-50">Eliminar</button>
               </div>
-            </form>
+            </ProductForm>
           ))}
           {products.length === 0 ? <p className="rounded-md bg-paper p-4 text-sm text-slate">Sin productos cargados.</p> : null}
         </div>

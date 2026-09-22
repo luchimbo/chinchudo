@@ -4,10 +4,23 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireOwnedClientId } from "@/lib/auth-guards";
+import { findClientProductNamed } from "@/lib/product-identity";
+
+/** Lo que devuelven el alta y la edición al formulario: el error se muestra ahí mismo, sin perder lo escrito. */
+export type ProductFormState = { error: string | null };
 
 async function requireBrandOwner(brandId: string) {
   const brand = await prisma.brand.findUniqueOrThrow({ where: { id: brandId }, select: { clientId: true } });
   await requireOwnedClientId(brand.clientId);
+  return brand.clientId;
+}
+
+// Mismo criterio que las importaciones: mayúsculas, acentos, signos y "PREVENTA" no hacen otro producto.
+async function duplicateNameError(clientId: string | null, name: string, excludeId?: string) {
+  const existing = await findClientProductNamed(prisma, clientId, name, excludeId);
+  return existing
+    ? `Ya existe «${existing.name}» (${existing.brand.name}) en el catálogo. Editá ese producto en lugar de cargar otro con el mismo nombre.`
+    : null;
 }
 
 async function requireProductOwner(productId: string) {
@@ -44,20 +57,26 @@ function parse(formData: FormData) {
   });
 }
 
-export async function createProduct(formData: FormData) {
+export async function createProduct(_state: ProductFormState, formData: FormData): Promise<ProductFormState> {
   const data = parse(formData);
-  await requireBrandOwner(data.brandId);
+  const clientId = await requireBrandOwner(data.brandId);
+  const error = await duplicateNameError(clientId, data.name);
+  if (error) return { error };
   await prisma.product.create({ data });
   revalidatePath("/products");
+  return { error: null };
 }
 
-export async function updateProduct(formData: FormData) {
+export async function updateProduct(_state: ProductFormState, formData: FormData): Promise<ProductFormState> {
   const id = z.string().min(1).parse(formData.get("id"));
   const data = parse(formData);
   await requireProductOwner(id);
-  await requireBrandOwner(data.brandId);
+  const clientId = await requireBrandOwner(data.brandId);
+  const error = await duplicateNameError(clientId, data.name, id);
+  if (error) return { error };
   await prisma.product.update({ where: { id }, data });
   revalidatePath("/products");
+  return { error: null };
 }
 
 export async function deleteProduct(formData: FormData) {

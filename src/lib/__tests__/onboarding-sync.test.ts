@@ -10,6 +10,8 @@ function makeFakePrisma(options: {
   nameConflict?: boolean;
   knowledgeRows?: { id: string; topic: string }[];
   monitoredSourceTopics?: Record<string, unknown[]>;
+  existingBrands?: { id: string; name: string }[];
+  existingProducts?: { id: string; name: string; brandId: string; category: string; description: string; useCases: string; sourceType: string; sourceExternalId: string | null }[];
 } = {}) {
   const personas = new Map<string, { clientId: string; name: string; tone: string; goals: string; allowedPhrases: string; forbiddenPhrases: string }>();
   const knowledgeRows = new Map(
@@ -40,12 +42,16 @@ function makeFakePrisma(options: {
       }),
     },
     brand: {
+      findMany: vi.fn(async () => options.existingBrands ?? []),
       upsert: vi.fn(async (args: any) => {
         state.brandUpserts.push(args);
         return { id: "brand-1", clientId: args.where.clientId_name.clientId, name: args.where.clientId_name.name };
       }),
     },
-    product: { upsert: vi.fn(async () => ({})) },
+    product: {
+      findMany: vi.fn(async () => options.existingProducts ?? []),
+      upsert: vi.fn(async (args: any) => ({ id: args.where.id ?? `nuevo-${args.create.name}`, name: args.where.id ? undefined : args.create.name })),
+    },
     service: { upsert: vi.fn(async () => ({})) },
     persona: {
       findUnique: vi.fn(async (args: any) => {
@@ -306,5 +312,53 @@ describe("syncOnboarding", () => {
     await syncOnboarding(prisma, "client-1", draft);
     expect(tx.product.upsert).toHaveBeenCalledTimes(1);
     expect((tx.product.upsert as any).mock.calls[0][0].create.name).toBe("Producto elegido");
+  });
+
+  it("actualiza el producto y la marca existentes aunque cambien mayúsculas y acentos", async () => {
+    const { prisma, tx, state } = makeFakePrisma({
+      clientName: "Cliente",
+      existingBrands: [{ id: "brand-1", name: "PC MIDI CENTER" }],
+      existingProducts: [{
+        id: "alctron-um900", name: "Microfono Condensador USB Alctron UM900", brandId: "brand-alctron",
+        category: "microfonos-streaming", description: "micrófono USB para podcast", useCases: "micrófono USB para podcast",
+        sourceType: "manual", sourceExternalId: null,
+      }],
+    });
+    const draft = sanitizeDraft({
+      name: "Cliente",
+      brand: "PC MIDI Center",
+      offerings: [
+        { id: "web-um900", kind: "product", name: "MICRÓFONO CONDENSADOR USB ALCTRON UM900", category: "Micrófonos", description: "Ficha completa de la tienda", scope: "", selected: true, evidence: { url: "", status: "manual", confidence: "high" } },
+      ] as any,
+    });
+    await syncOnboarding(prisma, "client-1", draft);
+
+    expect(state.brandUpserts[0].where.clientId_name.name).toBe("PC MIDI CENTER");
+    const call = (tx.product.upsert as any).mock.calls[0][0];
+    expect(call.where).toEqual({ id: "alctron-um900" });
+    expect(call.update).toMatchObject({ description: "Ficha completa de la tienda", sourceExternalId: "web-um900" });
+    // La categoría y los usos del catálogo curado no se pisan, y el producto no cambia de dueño.
+    expect(call.update).not.toHaveProperty("category");
+    expect(call.update).not.toHaveProperty("useCases");
+    expect(call.update).not.toHaveProperty("sourceType");
+  });
+
+  it("no crea dos productos si la misma oferta viene repetida con otro formato", async () => {
+    const { prisma, tx } = makeFakePrisma({ clientName: "Cliente" });
+    const draft = sanitizeDraft({
+      name: "Cliente",
+      brand: "Marca",
+      offerings: [
+        { id: "a", kind: "product", name: "Interfaz MiniFuse 2", selected: true, evidence: { url: "", status: "manual", confidence: "high" } },
+        { id: "b", kind: "product", name: "INTERFAZ MINIFUSE 2", selected: true, evidence: { url: "", status: "manual", confidence: "high" } },
+      ] as any,
+    });
+    await syncOnboarding(prisma, "client-1", draft);
+
+    const calls = (tx.product.upsert as any).mock.calls.map((args: any[]) => args[0].where);
+    expect(calls).toEqual([
+      { brandId_name: { brandId: "brand-1", name: "Interfaz MiniFuse 2" } },
+      { id: "nuevo-Interfaz MiniFuse 2" },
+    ]);
   });
 });
