@@ -2,11 +2,19 @@ import Link from "next/link";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { FilterBar } from "@/components/filter-bar";
-import { OpportunityList } from "@/components/opportunity-list";
 import { requirePageClient } from "@/lib/auth";
 import { OPPORTUNITY_CHANNEL_NAMES, operationalOpportunityWhere } from "@/lib/opportunity-channels";
+import { SentResponses, type SentResponseItem } from "./sent-responses";
 
-const PAGE_SIZE = 12;
+const PAGE_SIZE = 20;
+
+function copilotRespondedAt(context: Prisma.JsonValue): string | undefined {
+  if (!context || typeof context !== "object" || Array.isArray(context)) return undefined;
+  const copilot = (context as Record<string, unknown>).copilot;
+  if (!copilot || typeof copilot !== "object" || Array.isArray(copilot)) return undefined;
+  const { respondedAt } = copilot as Record<string, unknown>;
+  return typeof respondedAt === "string" ? respondedAt : undefined;
+}
 
 // "Historial" conserva respuestas archivadas y publicaciones confirmadas.
 const RESPONDED_STATUSES = ["ARCHIVED", "PUBLISHED", "FOLLOW_UP", "CONVERTED"] as const;
@@ -38,7 +46,15 @@ export default async function HistorialPage({ searchParams }: PageProps) {
   }
   if (validChannel) where.channel = { name: validChannel };
   if (q) {
-    where.AND = [{ OR: [{ sourceText: { contains: q } }, { sourceAuthor: { contains: q } }] }];
+    // También busca dentro de lo que respondiste, para encontrar una respuesta vieja por su texto.
+    const contains = { contains: q, mode: "insensitive" as const };
+    where.AND = [{
+      OR: [
+        { sourceText: contains },
+        { sourceAuthor: contains },
+        { responses: { some: { isPrimary: true, OR: [{ editedText: contains }, { draftText: contains }] } } },
+      ],
+    }];
   }
 
   const orderBy: Prisma.OpportunityOrderByWithRelationInput =
@@ -49,21 +65,12 @@ export default async function HistorialPage({ searchParams }: PageProps) {
       where,
       include: {
         channel: true,
-        detectedBrand: true,
-        detectedProduct: true,
-        observedProfile: true,
-        observedEvent: true,
+        publishingLogs: { select: { responseId: true, publishedAt: true, publishedUrl: true }, orderBy: { publishedAt: "desc" } },
         responses: {
-          select: {
-            id: true,
-            draftText: true,
-            editedText: true,
-            isPrimary: true,
-            voiceVariant: true,
-            persona: { select: { name: true } },
-          },
+          where: { isPrimary: true },
+          select: { id: true, draftText: true, editedText: true },
+          take: 1,
         },
-        _count: { select: { responses: true } },
       },
       orderBy,
       skip: (page - 1) * PAGE_SIZE,
@@ -71,6 +78,18 @@ export default async function HistorialPage({ searchParams }: PageProps) {
     }),
     prisma.opportunity.count({ where }),
   ]);
+
+  const items: SentResponseItem[] = opportunities.map((opportunity) => {
+    const response = opportunity.responses[0];
+    const log = opportunity.publishingLogs.find((entry) => entry.responseId === response?.id) ?? opportunity.publishingLogs[0];
+    return {
+      opportunityId: opportunity.id,
+      channel: opportunity.channel.name,
+      sourceUrl: log?.publishedUrl || opportunity.sourceUrl,
+      respondedAt: copilotRespondedAt(opportunity.contextAssessment) ?? log?.publishedAt.toISOString() ?? opportunity.updatedAt.toISOString(),
+      responseText: response ? response.editedText || response.draftText : "",
+    };
+  });
 
   const totalPages = Math.max(1, Math.ceil(matchingCount / PAGE_SIZE));
   const buildPageHref = (targetPage: number) => {
@@ -88,7 +107,7 @@ export default async function HistorialPage({ searchParams }: PageProps) {
     <div className="mx-auto flex w-full max-w-5xl flex-col px-5 py-8 lg:px-8">
       <header className="mb-6">
         <h1 className="font-display text-4xl leading-none text-ink md:text-5xl">Historial</h1>
-        <p className="mt-2 text-sm text-slate">Respuestas archivadas, publicadas y convertidas.</p>
+        <p className="mt-2 text-sm text-slate">Los comentarios que ya enviaste. Tocá “Abrir fuente” para verlo publicado.</p>
       </header>
 
       <div className="overflow-hidden rounded-lg border border-ink/10 bg-white/75 shadow-panel backdrop-blur">
@@ -101,10 +120,9 @@ export default async function HistorialPage({ searchParams }: PageProps) {
 
         <FilterBar channels={channelsList.map((c) => c.name)} />
 
-        <OpportunityList
-          opportunities={opportunities}
-          clientSlug={activeClient?.slug}
-          emptyMessage="Todavía no hay conversaciones respondidas."
+        <SentResponses
+          items={items}
+          emptyMessage={q || validChannel ? "No hay respuestas que coincidan con la búsqueda." : "Todavía no hay conversaciones respondidas."}
         />
 
         {totalPages > 1 ? (
