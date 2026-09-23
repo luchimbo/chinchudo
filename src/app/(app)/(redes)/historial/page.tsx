@@ -4,6 +4,8 @@ import { prisma } from "@/lib/db";
 import { FilterBar } from "@/components/filter-bar";
 import { requirePageClient } from "@/lib/auth";
 import { OPPORTUNITY_CHANNEL_NAMES, operationalOpportunityWhere } from "@/lib/opportunity-channels";
+import { formatAuthor } from "@/lib/source-author";
+import { splitOpportunitySourcePreview } from "@/lib/opportunity-source-metadata";
 import { SentResponses, type SentResponseItem } from "./sent-responses";
 
 const PAGE_SIZE = 20;
@@ -85,7 +87,10 @@ export default async function HistorialPage({ searchParams }: PageProps) {
     return {
       opportunityId: opportunity.id,
       channel: opportunity.channel.name,
-      sourceUrl: log?.publishedUrl || opportunity.sourceUrl,
+      sourceAuthor: formatAuthor(opportunity.sourceAuthor, opportunity.channel.name, opportunity.sourceUrl)?.name ?? "",
+      sourceText: splitOpportunitySourcePreview(opportunity.sourceText).text,
+      sourceUrl: opportunity.sourceUrl,
+      commentUrl: log?.publishedUrl && log.publishedUrl !== opportunity.sourceUrl ? log.publishedUrl : "",
       respondedAt: copilotRespondedAt(opportunity.contextAssessment) ?? log?.publishedAt.toISOString() ?? opportunity.updatedAt.toISOString(),
       responseText: response ? response.editedText || response.draftText : "",
     };
@@ -107,7 +112,7 @@ export default async function HistorialPage({ searchParams }: PageProps) {
     <div className="mx-auto flex w-full max-w-5xl flex-col px-5 py-8 lg:px-8">
       <header className="mb-6">
         <h1 className="font-display text-4xl leading-none text-ink md:text-5xl">Historial</h1>
-        <p className="mt-2 text-sm text-slate">Los comentarios que ya enviaste. Tocá “Abrir fuente” para verlo publicado.</p>
+        <p className="mt-2 text-sm text-slate">Cada comentario que enviaste, junto al post al que respondiste.</p>
       </header>
 
       <div className="overflow-hidden rounded-lg border border-ink/10 bg-white/75 shadow-panel backdrop-blur">
