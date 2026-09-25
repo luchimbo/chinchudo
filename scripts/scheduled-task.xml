@@ -19,7 +19,7 @@
     <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
     <StartWhenAvailable>true</StartWhenAvailable>
     <RunOnlyIfNetworkAvailable>true</RunOnlyIfNetworkAvailable>
-    <ExecutionTimeLimit>PT50M</ExecutionTimeLimit>
+    <ExecutionTimeLimit>PT2H</ExecutionTimeLimit>
     <Enabled>true</Enabled>
     <Hidden>false</Hidden>
   </Settings>

@@ -1,5 +1,7 @@
-# Corre agents:monitor seguido de agents:draft y guarda log.
+# Corre agents:monitor y guarda log.
 # Diseñado para Task Scheduler de Windows. NSTBrowser arranca solo al iniciar Windows.
+# Los borradores no se generan acá: los genera el servidor "pcmidi" por cron cada hora
+# (scripts/server/run-draft-quota.sh, instalado con scripts/server/sync-draft-server.sh).
 
 $ROOT = Split-Path -Parent $PSScriptRoot
 $LOG_DIR = Join-Path $ROOT "logs"
@@ -71,14 +73,5 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 Log "agents:monitor OK"
-
-Log "Corriendo cuota diaria de borradores (5 oportunidades por cliente)..."
-$draftOut = Join-Path $LOG_DIR "draft-$STAMP.log"
-cmd /c "cd /d `"$ROOT`" && npm run agents:draft-daily-quota >> `"$draftOut`" 2>&1"
-if ($LASTEXITCODE -ne 0) {
-    Log "WARN: cuota diaria de borradores fallo (exit $LASTEXITCODE). Ver $draftOut"
-} else {
-    Log "cuota diaria de borradores OK"
-}
 
 Log "=== scheduled-monitor fin ==="
