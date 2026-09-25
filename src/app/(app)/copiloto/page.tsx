@@ -94,6 +94,7 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
       opportunities={opportunities.map((opportunity) => ({
         id: opportunity.id,
         text: opportunity.sourceText,
+        title: opportunity.sourceTitle,
         notes: opportunity.notes,
         author: opportunity.sourceAuthor,
         sourceUrl: opportunity.sourceUrl,

@@ -26,6 +26,7 @@ import { DraftCard } from "./DraftCard";
 import { loadObservedProfileContext } from "@/lib/observed-profiles";
 import { BrandProductFields } from "./BrandProductFields";
 import { isOperationalOpportunityChannel } from "@/lib/opportunity-channels";
+import { youtubeVideoTitle } from "@/lib/opportunity-source-metadata";
 
 type PageProps = {
   params: { id: string };
@@ -166,6 +167,13 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
         uso: product.useCases || product.description,
       })),
   ];
+  // En videos de YouTube se muestra solo el título, no la descripción.
+  const videoTitle = youtubeVideoTitle({
+    channel: opportunity.channel.name,
+    sourceText: opportunity.sourceText,
+    sourceTitle: opportunity.sourceTitle,
+    sourceUrl: opportunity.sourceUrl,
+  });
   const approvedResponse = opportunity.responses.find((response) => response.approvedBy);
   const aiReason = getAiReason(opportunity.notes);
   const isAlreadyPublished =
@@ -281,7 +289,7 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
         <div className="grid gap-5">
           <article className="rounded-lg border border-ink/10 bg-white/75 p-5 shadow-panel backdrop-blur">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="font-display text-2xl">Comentario original</h2>
+              <h2 className="font-display text-2xl">{videoTitle ? "Video original" : "Comentario original"}</h2>
               <a
                 href={opportunity.sourceUrl}
                 target="_blank"
@@ -291,9 +299,13 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
                 Abrir fuente
               </a>
             </div>
-            <p className="mt-4 whitespace-pre-wrap text-base leading-7 text-ink break-words">
-              {opportunity.sourceText}
-            </p>
+            {videoTitle ? (
+              <p className="mt-4 font-display text-xl font-bold leading-7 text-ink break-words">{videoTitle}</p>
+            ) : (
+              <p className="mt-4 whitespace-pre-wrap text-base leading-7 text-ink break-words">
+                {opportunity.sourceText}
+              </p>
+            )}
             {aiReason ? (
               <div className="mt-4 rounded-md bg-paper p-3 text-sm leading-6 text-slate">
                 <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate/60">Razón IA</p>

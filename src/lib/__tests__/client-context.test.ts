@@ -121,6 +121,7 @@ describe("local fallback drafts by client", () => {
     sourceUrl: "https://youtube.com/123",
     sourceAuthor: "user1",
     sourceText: text,
+    sourceTitle: "",
     signalType: "actionable_question",
     clientId: "pcmidi",
     observedProfileId: null,

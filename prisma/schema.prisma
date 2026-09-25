@@ -392,6 +392,9 @@ model Opportunity {
   sourceUrl              String
   sourceAuthor           String              @default("")
   sourceText             String
+  /// Título de la fuente (video de YouTube, hilo, resultado). En videos, sourceText
+  /// empieza con este título seguido de la descripción.
+  sourceTitle            String              @default("")
   signalType             String              @default("actionable_question")
   clientId               String?
   observedProfileId      String?

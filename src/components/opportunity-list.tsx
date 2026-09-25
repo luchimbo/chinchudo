@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Prisma } from "@prisma/client";
 import { updateOpportunityStatus } from "@/app/(app)/opportunities/actions";
-import { splitOpportunitySourcePreview } from "@/lib/opportunity-source-metadata";
+import { splitOpportunitySourcePreview, youtubeVideoTitle } from "@/lib/opportunity-source-metadata";
 import { statusLabels } from "@/lib/labels";
 
 export type OpportunityRow = Prisma.OpportunityGetPayload<{
@@ -42,6 +42,7 @@ export function OpportunityList({
     <div className="divide-y divide-ink/10">
       {opportunities.map((opportunity) => {
         const preview = splitOpportunitySourcePreview(opportunity.sourceText);
+        const videoTitle = youtubeVideoTitle({ channel: opportunity.channel.name, sourceText: opportunity.sourceText, sourceTitle: opportunity.sourceTitle, sourceUrl: opportunity.sourceUrl });
         const selectedResponse = opportunity.responses?.find((response) => response.isPrimary);
         const finalText = selectedResponse?.editedText || selectedResponse?.draftText;
 
@@ -58,7 +59,11 @@ export function OpportunityList({
           </div>
 
           <div className="min-w-0">
-            <p className="line-clamp-2 text-sm leading-6 text-ink">{preview.text}</p>
+            {videoTitle ? (
+              <p className="line-clamp-2 text-sm font-semibold leading-6 text-ink">{videoTitle}</p>
+            ) : (
+              <p className="line-clamp-2 text-sm leading-6 text-ink">{preview.text}</p>
+            )}
             {finalText ? <p className="mt-2 line-clamp-3 text-sm leading-6 text-slate"><span className="font-semibold text-ink">Respuesta:</span> {finalText}</p> : null}
             {preview.commentCount || preview.publishedAgo ? (
               <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs font-medium text-slate">

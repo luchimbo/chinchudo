@@ -244,6 +244,18 @@ export function youtubeVideoId(sourceUrl: string): string {
   return (parts[0] === "shorts" || parts[0] === "live") && parts[1] ? parts[1] : "";
 }
 
+/** Título público del video vía oEmbed; vacío si no es un video o no se pudo obtener. */
+export async function fetchYouTubeTitle(
+  sourceUrl: string,
+  options: { timeoutMs?: number; fetchImpl?: typeof fetch } = {},
+): Promise<string> {
+  const videoId = youtubeVideoId(sourceUrl);
+  if (!videoId) return "";
+  const watchUrl = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
+  const data = await fetchJson(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(watchUrl)}`, options.timeoutMs ?? 8000, options.fetchImpl ?? fetch);
+  return typeof data?.title === "string" ? data.title.trim() : "";
+}
+
 /**
  * Un video privado o eliminado no se puede responder, así que no tiene
  * sentido mostrarlo como oportunidad. Se usa oEmbed (liviano y sin bloqueos

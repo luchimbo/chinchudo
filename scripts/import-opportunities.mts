@@ -12,7 +12,8 @@ import {
 } from "../src/lib/client-context";
 import { classifyOpportunity } from "../src/lib/ai-opportunity-classifier";
 import { recordObservedProfileEvent } from "../src/lib/observed-profiles";
-import { checkYouTubeAvailability, resolveSourceAuthor, storedAuthor, youtubeVideoId } from "../src/lib/source-author";
+import { checkYouTubeAvailability, fetchYouTubeTitle, resolveSourceAuthor, storedAuthor, youtubeVideoId } from "../src/lib/source-author";
+import { looksSpanish, pickYouTubeDisplayTitle, usableTitle } from "../src/lib/opportunity-source-metadata";
 import { calculateOpportunityScore, normalizeAssessment, prestigeFallbackAssessment, priorityFromOpportunityScore } from "../src/lib/contextual-opportunity";
 // @ts-ignore -- shared ESM helper used by operational scripts.
 import { isPrestigeRadarCandidate, normalizedRadarText } from "../src/lib/prestige-radar.mjs";
@@ -36,6 +37,19 @@ function withTimeout<T>(operation: (signal: AbortSignal) => Promise<T>, label: s
     }, timeoutMs);
     operation(controller.signal).then((value) => { clearTimeout(timer); resolve(value); }, (error) => { clearTimeout(timer); reject(error); });
   });
+}
+
+// Videos de YouTube: la UI muestra solo el título, en español si existe una
+// versión en español (original o traducida); si no, el original de oEmbed.
+// Los buscadores a veces devuelven la traducción al inglés, títulos truncados
+// o texto del reproductor. En comentarios se guarda el título del video tal cual.
+async function resolveSourceTitle(rowTitle: string, sourceUrl: string, sourceText: string) {
+  const title = rowTitle.trim();
+  if (!youtubeVideoId(sourceUrl) || /[?&]lc=|#comment-/.test(sourceUrl)) return title.slice(0, 300);
+  const candidate = usableTitle(title);
+  if (candidate && looksSpanish(candidate)) return candidate.slice(0, 300);
+  const original = await fetchYouTubeTitle(sourceUrl);
+  return pickYouTubeDisplayTitle({ original, alternatives: [title], sourceText }).slice(0, 300);
 }
 
 const channelDefaults: Record<string, { name: string; type: string; baseUrl: string }> = {
@@ -356,12 +370,14 @@ async function main() {
       if (detectedBrandId && !await prisma.brand.findUnique({ where: { id: detectedBrandId }, select: { id: true } })) detectedBrandId = null;
       if (detectedProductId && !await prisma.product.findUnique({ where: { id: detectedProductId }, select: { id: true } })) detectedProductId = null;
 
+      const sourceTitle = await resolveSourceTitle(String(row.sourceTitle || row.videoTitle || ""), sourceUrl, sourceText);
       const createdOpportunity = await prisma.opportunity.create({
         data: {
           channelId: channel.id,
           sourceUrl,
           sourceAuthor: row.sourceAuthor || "",
           sourceText,
+          sourceTitle,
           signalType: assessment.opportunityType === "contextual_presence" ? "contextual_presence" : String(row.signalType || "actionable_question"),
           clientId: resolution.client.id,
           detectedBrandId,

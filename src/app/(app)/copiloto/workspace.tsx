@@ -6,11 +6,12 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { discardCopilotOpportunity, generateCopilotDrafts, markCopilotResponse, publishCopilotYouTubeResponse, regenerateCopilotResponse } from "@/app/(app)/opportunities/actions";
 import { communityFromUrl, formatAuthor } from "@/lib/source-author";
+import { youtubeVideoTitle } from "@/lib/opportunity-source-metadata";
 import { copyToClipboard } from "./clipboard";
 import { RefinementChat, type ChatMessage } from "./RefinementChat";
 
 type Response = { id: string; text: string; variantType: string; isPrimary: boolean; persona: string; acceptedAsCorrect: boolean; chatHistory: ChatMessage[] };
-type Opportunity = { id: string; text: string; notes: string; author: string; sourceUrl: string; channel: string; brand: string; product: string; productId: string; createdAt: string; status: string; responses: Response[] };
+type Opportunity = { id: string; text: string; title: string; notes: string; author: string; sourceUrl: string; channel: string; brand: string; product: string; productId: string; createdAt: string; status: string; responses: Response[] };
 type ProductOption = { id: string; name: string; brand: string };
 type ProductChoice = { id: string; name: string };
 
@@ -150,19 +151,6 @@ function ProductCombobox({ products, current, selected, onSelect, disabled = fal
 
 function cleanPreview(text: string) {
   return text.replace(/\s+/g, " ").trim();
-}
-
-// Muchas fuentes (ej. resultados de YouTube) pegan el título de la publicación
-// al final del texto scrapeado, después de "Published <fecha>". Cuando aparece
-// ese patrón lo mostramos como título separado; si no, todo el texto queda
-// como descripción.
-const SOURCE_TITLE_PATTERN = /^(.*?)\s*Published\s+[A-Za-z]+\s+\d{1,2},?\s*\d{4}\s*(.+?)\s*-\s*YouTube\s*$/i;
-
-function splitTitleFromText(raw: string): { title: string | null; description: string } {
-  const text = cleanPreview(raw);
-  const match = text.match(SOURCE_TITLE_PATTERN);
-  if (match && match[2].trim()) return { title: match[2].trim(), description: match[1].trim() };
-  return { title: null, description: text };
 }
 
 function getAiReason(notes: string): string | null {
@@ -337,13 +325,17 @@ function OpportunityCard({ opportunity, clientSlug, youtube, products }: { oppor
   const date = new Date(opportunity.createdAt).toLocaleDateString("es-AR", { day: "numeric", month: "short" });
   const responses = useMemo(() => [...opportunity.responses].sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary)), [opportunity.responses]);
   const response = responses[0];
-  const { title, description } = useMemo(() => splitTitleFromText(opportunity.text), [opportunity.text]);
+  // En videos de YouTube se muestra solo el título, no la descripción.
+  const videoTitle = useMemo(
+    () => youtubeVideoTitle({ channel: opportunity.channel, sourceText: opportunity.text, sourceTitle: opportunity.title, sourceUrl: opportunity.sourceUrl }),
+    [opportunity.channel, opportunity.text, opportunity.title, opportunity.sourceUrl],
+  );
   const aiReason = useMemo(() => getAiReason(opportunity.notes), [opportunity.notes]);
   const [reasonOpen, setReasonOpen] = useState(false);
 
   // Sin overflow-hidden: el desplegable de productos tiene que poder salir de la tarjeta.
   return <article id={`op-${opportunity.id}`} className="scroll-mt-6 break-words rounded-2xl border border-ink/10 bg-white/85 shadow-panel">
-    <div className="border-b border-ink/10 px-5 py-4"><div className="flex flex-wrap items-center justify-between gap-3 text-xs font-semibold text-slate/70"><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-ink/7 px-2.5 py-1 text-ink">{opportunity.channel}</span>{opportunity.product ? <span className="text-slate/50">{opportunity.product}</span> : null}</div><span>{date}</span></div><AuthorLine author={opportunity.author} channel={opportunity.channel} sourceUrl={opportunity.sourceUrl} /><div className="mt-3 max-w-3xl">{title ? <p className="font-display text-lg font-bold leading-6 text-ink">{title}</p> : null}<ExpandableText text={description} limit={240} className={`whitespace-pre-wrap text-[15px] leading-7 text-slate/80 ${title ? "mt-1.5" : ""}`} /></div><div className="mt-4 flex flex-wrap items-center gap-2"><a href={opportunity.sourceUrl} target="_blank" rel="noreferrer" className="rounded-full border border-ink/15 px-3 py-1.5 text-xs font-bold text-ink transition hover:border-ink/40">Abrir fuente</a>{aiReason ? <button type="button" onClick={() => setReasonOpen((value) => !value)} className="flex items-center gap-1 px-2 py-1.5 text-xs font-semibold text-slate/65 underline decoration-slate/25 underline-offset-4 hover:text-ink">Razón IA<span aria-hidden="true" className={`transition-transform ${reasonOpen ? "rotate-180" : ""}`}>▾</span></button> : null}</div>{aiReason && reasonOpen ? <div className="mt-3 max-w-3xl rounded-md bg-paper p-3 text-sm leading-6 text-slate">{aiReason}</div> : null}</div>
+    <div className="border-b border-ink/10 px-5 py-4"><div className="flex flex-wrap items-center justify-between gap-3 text-xs font-semibold text-slate/70"><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-ink/7 px-2.5 py-1 text-ink">{opportunity.channel}</span>{opportunity.product ? <span className="text-slate/50">{opportunity.product}</span> : null}</div><span>{date}</span></div><AuthorLine author={opportunity.author} channel={opportunity.channel} sourceUrl={opportunity.sourceUrl} /><div className="mt-3 max-w-3xl">{videoTitle ? <p className="font-display text-lg font-bold leading-6 text-ink">{videoTitle}</p> : <ExpandableText text={cleanPreview(opportunity.text)} limit={240} className="whitespace-pre-wrap text-[15px] leading-7 text-slate/80" />}</div><div className="mt-4 flex flex-wrap items-center gap-2"><a href={opportunity.sourceUrl} target="_blank" rel="noreferrer" className="rounded-full border border-ink/15 px-3 py-1.5 text-xs font-bold text-ink transition hover:border-ink/40">Abrir fuente</a>{aiReason ? <button type="button" onClick={() => setReasonOpen((value) => !value)} className="flex items-center gap-1 px-2 py-1.5 text-xs font-semibold text-slate/65 underline decoration-slate/25 underline-offset-4 hover:text-ink">Razón IA<span aria-hidden="true" className={`transition-transform ${reasonOpen ? "rotate-180" : ""}`}>▾</span></button> : null}</div>{aiReason && reasonOpen ? <div className="mt-3 max-w-3xl rounded-md bg-paper p-3 text-sm leading-6 text-slate">{aiReason}</div> : null}</div>
     <div className="px-5 py-5">
       {!response ? <form action={generateCopilotDrafts} className="rounded-xl bg-paper p-4">
         <input type="hidden" name="opportunityId" value={opportunity.id} />
