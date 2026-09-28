@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { discardCopilotOpportunity, generateCopilotDrafts, markCopilotResponse, publishCopilotYouTubeResponse, regenerateCopilotResponse } from "@/app/(app)/opportunities/actions";
@@ -16,6 +16,9 @@ type Response = { id: string; text: string; variantType: string; isPrimary: bool
 type Opportunity = { id: string; text: string; title: string; notes: string; author: string; sourceUrl: string; channel: string; brand: string; product: string; productId: string; createdAt: string; status: string; responses: Response[] };
 type ProductOption = { id: string; name: string; brand: string };
 type ProductChoice = { id: string; name: string };
+type CompletionKind = "youtube" | "manual";
+type CompletedOpportunity = { id: string; kind: CompletionKind; position: number; visible: boolean; moveFocus: boolean };
+type WorkspaceItem = { type: "opportunity"; opportunity: Opportunity; position: number } | { type: "completed"; completion: CompletedOpportunity };
 
 const NO_PRODUCT_LABEL = "Sin producto específico";
 
@@ -240,36 +243,49 @@ function ProposalProductPicker({ opportunityId, responseId, products, current }:
   </div>;
 }
 
-function ResponseCard({ response, text, setText, chatHistory, opportunityId, sourceUrl, channel, clientSlug, youtube, productPicker }: { response: Response; text: string; setText: (text: string) => void; chatHistory: ChatMessage[]; opportunityId: string; sourceUrl: string; channel: string; clientSlug: string; youtube: { account: string; connected: boolean; channelTitle: string } | null; productPicker: React.ReactNode }) {
+function ResponseCard({ response, text, setText, chatHistory, opportunityId, sourceUrl, channel, clientSlug, youtube, productPicker, onCompleted }: { response: Response; text: string; setText: (text: string) => void; chatHistory: ChatMessage[]; opportunityId: string; sourceUrl: string; channel: string; clientSlug: string; youtube: { account: string; connected: boolean; channelTitle: string } | null; productPicker: React.ReactNode; onCompleted: (kind: CompletionKind, moveFocus: boolean) => void }) {
   const router = useRouter();
   const [copied, setCopied] = useState(false);
   const [openingSource, setOpeningSource] = useState(false);
   const [popupBlocked, setPopupBlocked] = useState(false);
-  const [publishing, setPublishing] = useState(false);
-  const [publishError, setPublishError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [submissionError, setSubmissionError] = useState("");
   const [reconnectRequired, setReconnectRequired] = useState(false);
   const isYouTube = channel.toLowerCase() === "youtube";
   const youtubeConnectUrl = `/api/integrations/youtube/connect?client=${encodeURIComponent(clientSlug)}&account=${encodeURIComponent(youtube?.account ?? "youtube-principal")}`;
 
-  async function publishYouTube(event: React.FormEvent<HTMLFormElement>) {
-    if (!isYouTube) return;
+  async function submitResponse(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (publishing || !youtube?.connected) return;
-    setPublishing(true);
-    setPublishError("");
+    if (submitting || (isYouTube && !youtube?.connected)) return;
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    // Al completar, el botón desaparece y el foco cae al body: sólo quien envió con teclado necesita que se lo devolvamos a la confirmación.
+    const active = document.activeElement;
+    const keyboardSubmit = active instanceof HTMLElement && form.contains(active) && active.matches(":focus-visible");
+    setSubmitting(true);
+    setSubmissionError("");
     setReconnectRequired(false);
     try {
-      const result = await publishCopilotYouTubeResponse(new FormData(event.currentTarget));
-      if (!result.success) {
-        setPublishError(result.message);
-        setReconnectRequired(result.reconnectRequired);
-        return;
+      if (isYouTube) {
+        const result = await publishCopilotYouTubeResponse(formData);
+        if (!result.success) {
+          setSubmissionError(result.message);
+          setReconnectRequired(result.reconnectRequired);
+          return;
+        }
+      } else {
+        await markCopilotResponse(formData);
       }
+      // Si mientras esperaba la persona pasó el foco a otra parte, no se lo robamos.
+      const focusStayedHere = document.activeElement === document.body || form.contains(document.activeElement);
+      onCompleted(isYouTube ? "youtube" : "manual", keyboardSubmit && focusStayedHere);
       router.refresh();
     } catch {
-      setPublishError("No se pudo completar la publicación. El comentario sigue acá; comprobá el estado antes de reintentar.");
+      setSubmissionError(isYouTube
+        ? "No se pudo completar la publicación. El comentario sigue acá; comprobá el estado antes de reintentar."
+        : "No se pudo guardar la respuesta. Comprobá si aparece en Historial antes de reintentar.");
     } finally {
-      setPublishing(false);
+      setSubmitting(false);
     }
   }
 
@@ -295,7 +311,7 @@ function ResponseCard({ response, text, setText, chatHistory, opportunityId, sou
     <div className="mb-3 flex items-center justify-between gap-3"><span className="rounded-full bg-paper px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-ink">Propuesta lista para editar</span><span className="text-[11px] font-medium text-slate/65">{response.persona}</span></div>
     {/* Fuera del formulario de publicación: elegir producto nunca puede disparar un envío. */}
     {productPicker}
-    <form action={isYouTube ? undefined : markCopilotResponse} onSubmit={publishYouTube}>
+    <form onSubmit={submitResponse}>
       <input type="hidden" name="opportunityId" value={opportunityId} />
       <input type="hidden" name="responseId" value={response.id} />
       <input type="hidden" name="wasEdited" value={text.trim() !== response.text.trim() ? "true" : "false"} />
@@ -306,26 +322,26 @@ function ResponseCard({ response, text, setText, chatHistory, opportunityId, sou
       <div className="mt-3 flex flex-wrap gap-2">
         <button type="button" onClick={copy} className="rounded-full border border-ink/15 px-3 py-2 text-xs font-bold text-ink transition hover:border-ink/40">{copied ? "Copiado" : "Copiar"}</button>
         {isYouTube ? (
-          youtube?.connected ? <button type="submit" disabled={publishing} className="rounded-full bg-moss px-3 py-2 text-xs font-bold text-white transition hover:bg-moss/85 disabled:cursor-wait disabled:opacity-60">{publishing ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Publicando en YouTube…</span> : "Publicar en YouTube"}</button> : <a href={youtubeConnectUrl} className="rounded-full bg-moss px-3 py-2 text-xs font-bold text-white transition hover:bg-moss/85">Conectar cuenta de YouTube</a>
+          youtube?.connected ? <button type="submit" disabled={submitting} className="rounded-full bg-moss px-3 py-2 text-xs font-bold text-white transition hover:bg-moss/85 disabled:cursor-wait disabled:opacity-60">{submitting ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Publicando en YouTube…</span> : "Publicar en YouTube"}</button> : <a href={youtubeConnectUrl} className="rounded-full bg-moss px-3 py-2 text-xs font-bold text-white transition hover:bg-moss/85">Conectar cuenta de YouTube</a>
         ) : <>
-          <PendingSubmit pendingLabel="Guardando..." className="rounded-full bg-ink px-3 py-2 text-xs font-bold text-paper transition hover:bg-slate">Guardar como respondida</PendingSubmit>
+          <button type="submit" disabled={submitting} className="rounded-full bg-ink px-3 py-2 text-xs font-bold text-paper transition hover:bg-slate disabled:cursor-wait disabled:opacity-60">{submitting ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Guardando…</span> : "Guardar como respondida"}</button>
           <button type="button" onClick={openForPublishing} disabled={openingSource} className="rounded-full bg-moss px-3 py-2 text-xs font-bold text-white transition hover:bg-moss/85 disabled:cursor-wait disabled:opacity-60">{openingSource ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Abriendo…</span> : "Abrir para publicar"}</button>
         </>}
         <RegenerateButton opportunityId={opportunityId} responseId={response.id} chatHistory={chatHistory} />
       </div>
       {isYouTube ? <p className="mt-2 text-[11px] font-medium text-slate/65">{youtube?.connected ? `Se publicará con la cuenta conectada${youtube.channelTitle ? `: ${youtube.channelTitle}` : ""}.` : "Conectá una cuenta para publicar sin abrir YouTube."}</p> : null}
-      {publishError ? <div role="alert" className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">{publishError}{reconnectRequired ? <a href={youtubeConnectUrl} className="ml-1 font-bold underline underline-offset-2">Reconectar cuenta de YouTube</a> : null}</div> : null}
+      {submissionError ? <div role="alert" className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">{submissionError}{reconnectRequired ? <a href={youtubeConnectUrl} className="ml-1 font-bold underline underline-offset-2">Reconectar cuenta de YouTube</a> : null}</div> : null}
       {!isYouTube && popupBlocked ? <p className="mt-2 text-[11px] font-medium text-red-600">El navegador bloqueó la pestaña nueva. El texto ya está copiado: permití popups para esta web y volvé a tocarlo, o pegá el comentario en una pestaña que abras vos.</p> : null}
     </form>
   </div>;
 }
 
-function ResponseWithChat({ response, opportunityId, sourceUrl, channel, clientSlug, youtube, productPicker }: { response: Response; opportunityId: string; sourceUrl: string; channel: string; clientSlug: string; youtube: { account: string; connected: boolean; channelTitle: string } | null; productPicker: React.ReactNode }) {
+function ResponseWithChat({ response, opportunityId, sourceUrl, channel, clientSlug, youtube, productPicker, onCompleted }: { response: Response; opportunityId: string; sourceUrl: string; channel: string; clientSlug: string; youtube: { account: string; connected: boolean; channelTitle: string } | null; productPicker: React.ReactNode; onCompleted: (kind: CompletionKind, moveFocus: boolean) => void }) {
   // El texto vive acá para que el chat pueda reemplazar la versión editable.
   const [text, setText] = useState(response.text);
   const [chatHistory, setChatHistory] = useState(response.chatHistory);
   return <div className="grid gap-4 lg:grid-cols-2">
-    <ResponseCard response={response} text={text} setText={setText} chatHistory={chatHistory} opportunityId={opportunityId} sourceUrl={sourceUrl} channel={channel} clientSlug={clientSlug} youtube={youtube} productPicker={productPicker} />
+    <ResponseCard response={response} text={text} setText={setText} chatHistory={chatHistory} opportunityId={opportunityId} sourceUrl={sourceUrl} channel={channel} clientSlug={clientSlug} youtube={youtube} productPicker={productPicker} onCompleted={onCompleted} />
     <RefinementChat responseId={response.id} clientSlug={clientSlug} currentText={text} initialHistory={response.chatHistory} acceptedAsCorrect={response.acceptedAsCorrect} onApplyResponse={setText} onHistoryChange={setChatHistory} />
   </div>;
 }
@@ -346,7 +362,68 @@ function AuthorLine({ author, channel, sourceUrl }: { author: string; channel: s
   </div>;
 }
 
-function OpportunityCard({ opportunity, clientSlug, youtube, products }: { opportunity: Opportunity; clientSlug: string; youtube: { account: string; connected: boolean; channelTitle: string } | null; products: ProductOption[] }) {
+function CompletedOpportunityCard({ completion, clientSlug, onDismiss }: { completion: CompletedOpportunity; clientSlug: string; onDismiss: (id: string) => void }) {
+  const remainingMs = useRef(8_000);
+  const startedAt = useRef(0);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hovered = useRef(false);
+  const focused = useRef(false);
+  const cardRef = useRef<HTMLElement>(null);
+  const titleId = useId();
+
+  const pauseTimer = useCallback(() => {
+    if (!timer.current) return;
+    clearTimeout(timer.current);
+    timer.current = null;
+    remainingMs.current = Math.max(0, remainingMs.current - (Date.now() - startedAt.current));
+  }, []);
+
+  useEffect(() => {
+    startedAt.current = Date.now();
+    timer.current = setTimeout(() => onDismiss(completion.id), remainingMs.current);
+    if (completion.moveFocus) {
+      // Quien envió con teclado perdió el botón que tenía el foco: lo llevamos a la confirmación (pausa el temporizador mientras lo tenga).
+      cardRef.current?.focus();
+      if (focused.current) pauseTimer();
+    }
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = null;
+    };
+  }, [completion.id, completion.moveFocus, onDismiss, pauseTimer]);
+
+  function resumeTimer() {
+    if (hovered.current || focused.current || timer.current) return;
+    startedAt.current = Date.now();
+    timer.current = setTimeout(() => onDismiss(completion.id), remainingMs.current);
+  }
+
+  return <article
+    ref={cardRef}
+    tabIndex={-1}
+    role="status"
+    aria-live="polite"
+    aria-labelledby={titleId}
+    onMouseEnter={() => { hovered.current = true; pauseTimer(); }}
+    onMouseLeave={() => { hovered.current = false; resumeTimer(); }}
+    onFocusCapture={() => { focused.current = true; pauseTimer(); }}
+    onBlurCapture={(event) => {
+      if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+      focused.current = false;
+      resumeTimer();
+    }}
+    className="flex flex-wrap items-start justify-between gap-4 rounded-2xl border border-moss/35 bg-moss/[0.08] px-5 py-5 shadow-panel focus:outline-none focus-visible:ring-2 focus-visible:ring-moss/60 focus-visible:ring-offset-2"
+  >
+    <div>
+      <p id={titleId} className="text-base font-bold text-moss">✓{completion.kind === "youtube" ? "Comentario publicado en YouTube" : "Respuesta registrada"}</p>
+      <p className="mt-1 text-sm text-ink/75">La oportunidad salió de la bandeja y quedó en Historial.</p>
+      <Link href={clientSlug ? `/historial?client=${encodeURIComponent(clientSlug)}` : "/historial"} className="mt-3 inline-block text-sm font-bold text-moss underline underline-offset-4 hover:text-ink">Ver en Historial →</Link>
+    </div>
+    <button type="button" onClick={() => onDismiss(completion.id)} className="rounded-full border border-moss/30 px-3 py-1.5 text-xs font-bold text-moss transition hover:bg-moss/10">Cerrar</button>
+  </article>;
+}
+
+function OpportunityCard({ opportunity, clientSlug, youtube, products, onCompleted }: { opportunity: Opportunity; clientSlug: string; youtube: { account: string; connected: boolean; channelTitle: string } | null; products: ProductOption[]; onCompleted: (kind: CompletionKind, moveFocus: boolean) => void }) {
   const [discardOpen, setDiscardOpen] = useState(false);
   const [generateChoice, setGenerateChoice] = useState<ProductChoice | null>(null);
   const currentProduct = { id: opportunity.productId, name: opportunity.product || NO_PRODUCT_LABEL };
@@ -371,7 +448,7 @@ function OpportunityCard({ opportunity, clientSlug, youtube, products }: { oppor
         {generateChoice ? <input type="hidden" name="productId" value={generateChoice.id} /> : null}
         <PendingSubmit pendingLabel="Generando respuesta..." className="rounded-full bg-ink px-4 py-2.5 text-sm font-bold text-paper transition hover:bg-slate">Generar respuesta</PendingSubmit>
         <p className="mt-2 text-xs text-slate/70">{generateChoice ? `Se genera con ${generateChoice.id ? `las características de ${generateChoice.name}` : "ningún producto específico"}, además de lo que la IA aprendió de los chats.` : "Se genera con las reglas y respuestas correctas que la IA aprendió de los chats. Después la podés ajustar acá mismo."}</p>
-      </form> : <ResponseWithChat key={response.id} response={response} opportunityId={opportunity.id} sourceUrl={opportunity.sourceUrl} channel={opportunity.channel} clientSlug={clientSlug} youtube={youtube} productPicker={products.length > 0 ? <ProposalProductPicker opportunityId={opportunity.id} responseId={response.id} products={products} current={currentProduct} /> : null} />}
+      </form> : <ResponseWithChat key={response.id} response={response} opportunityId={opportunity.id} sourceUrl={opportunity.sourceUrl} channel={opportunity.channel} clientSlug={clientSlug} youtube={youtube} productPicker={products.length > 0 ? <ProposalProductPicker opportunityId={opportunity.id} responseId={response.id} products={products} current={currentProduct} /> : null} onCompleted={onCompleted} />}
       <div className="mt-4">{discardOpen ? <form action={discardCopilotOpportunity} className="flex flex-wrap items-center gap-2 rounded-xl border border-signal/20 bg-signal/[0.04] p-3"><input type="hidden" name="opportunityId" value={opportunity.id} /><select name="reason" defaultValue="NO_RELEVANTE" className="rounded-lg border border-ink/15 bg-white px-2 py-2 text-xs text-ink"><option value="NO_RELEVANTE">No era relevante</option><option value="NO_ES_EL_TONO">No era el tono</option><option value="FALTA_INFO">Faltaba información</option><option value="NO_CONVIENE">No conviene responder</option></select><PendingSubmit pendingLabel="Descartando..." className="rounded-full bg-signal px-3 py-2 text-xs font-bold text-white">Confirmar descarte</PendingSubmit><button type="button" onClick={() => setDiscardOpen(false)} className="px-2 py-2 text-xs font-semibold text-slate">Cancelar</button></form> : <button type="button" onClick={() => setDiscardOpen(true)} className="text-xs font-semibold text-slate/65 underline decoration-slate/30 underline-offset-4 hover:text-signal">Descartar oportunidad</button>}</div>
     </div>
   </article>;
@@ -383,6 +460,23 @@ export function CopilotWorkspace({ activeClient, youtube, filters, products, opp
   const params = useSearchParams();
   const [disconnectingYouTube, setDisconnectingYouTube] = useState(false);
   const [youtubeDisconnectError, setYoutubeDisconnectError] = useState("");
+  const [completed, setCompleted] = useState<CompletedOpportunity[]>([]);
+  const filterKey = [activeClient?.slug, filters.selectedBrand, filters.selectedChannel, filters.selectedResponse, filters.selectedSort].join("|");
+  useEffect(() => { setCompleted([]); }, [filterKey]);
+  const dismissCompletion = useCallback((id: string) => {
+    setCompleted((current) => current.map((item) => item.id === id ? { ...item, visible: false } : item));
+  }, []);
+  const completedIds = new Set(completed.map((item) => item.id));
+  const visibleItems: WorkspaceItem[] = opportunities.flatMap((opportunity, position) =>
+    completedIds.has(opportunity.id) ? [] : [{ type: "opportunity", opportunity, position }],
+  );
+  let lastPosition = -1;
+  let samePositionOffset = 0;
+  for (const completion of [...completed].filter((item) => item.visible).sort((a, b) => a.position - b.position)) {
+    samePositionOffset = completion.position === lastPosition ? samePositionOffset + 1 : 0;
+    visibleItems.splice(Math.min(completion.position + samePositionOffset, visibleItems.length), 0, { type: "completed", completion });
+    lastPosition = completion.position;
+  }
   const setParam = (key: string, value: string) => { const next = new URLSearchParams(params.toString()); value ? next.set(key, value) : next.delete(key); if (activeClient) next.set("client", activeClient.slug); router.push(`${pathname}?${next.toString()}`); };
   async function disconnectYouTube() {
     if (!activeClient || !youtube?.connected || !window.confirm("¿Desconectar esta cuenta de YouTube? No se podrá publicar hasta volver a conectarla.")) return;
@@ -400,6 +494,15 @@ export function CopilotWorkspace({ activeClient, youtube, filters, products, opp
   }
 
   return <div className="mx-auto w-full max-w-6xl px-5 py-8 lg:px-8"><header className="grid gap-5 border-b border-ink/10 pb-7 md:grid-cols-[1fr_auto] md:items-end"><div><h1 className="font-display text-4xl leading-none text-ink md:text-5xl">Asistente CM</h1><Link href={activeClient ? `/historial?client=${encodeURIComponent(activeClient.slug)}` : "/historial"} className="mt-3 inline-flex rounded-full border border-ink/15 px-3 py-1.5 text-xs font-bold text-ink transition hover:border-ink/40 hover:bg-white">Ver respuestas enviadas →</Link></div><div className="rounded-2xl border border-moss/20 bg-moss/[0.06] px-4 py-3 text-sm text-ink"><span className="font-bold">{activeClient?.name ?? "Sin cliente"}</span><br /><span className="text-xs text-slate">YouTube: {youtube?.connected ? "publicación por API" : "conexión pendiente"}. Meta: publicación manual.</span>{youtube?.connected ? <><button type="button" onClick={disconnectYouTube} disabled={disconnectingYouTube} className="mt-3 block text-xs font-bold text-slate underline decoration-slate/35 underline-offset-4 transition hover:text-ink disabled:cursor-wait disabled:opacity-60">{disconnectingYouTube ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Desconectando…</span> : "Desconectar cuenta de YouTube"}</button>{youtubeDisconnectError ? <p role="alert" className="mt-2 text-xs font-medium text-red-600">{youtubeDisconnectError}</p> : null}</> : null}</div></header>
-    <div className="mt-6 flex flex-wrap gap-3 rounded-2xl border border-ink/10 bg-white/65 p-3"><label className="text-xs font-bold text-slate/70">Marca<select value={filters.selectedBrand} onChange={(event) => setParam("brand", event.target.value)} className="ml-2 rounded-lg border border-ink/10 bg-paper px-2 py-1.5 text-xs text-ink"><option value="">Todas</option>{filters.brands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}</select></label><label className="text-xs font-bold text-slate/70">Red<select value={filters.selectedChannel} onChange={(event) => setParam("channel", event.target.value)} className="ml-2 rounded-lg border border-ink/10 bg-paper px-2 py-1.5 text-xs text-ink"><option value="">Todas</option>{filters.channels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}</select></label><label className="text-xs font-bold text-slate/70">Respuesta<select value={filters.selectedResponse} onChange={(event) => setParam("response", event.target.value)} className="ml-2 rounded-lg border border-ink/10 bg-paper px-2 py-1.5 text-xs text-ink"><option value="">Todas</option><option value="generated">Con respuesta generada</option></select></label><label className="text-xs font-bold text-slate/70">Orden<select value={filters.selectedSort} onChange={(event) => setParam("sort", event.target.value)} className="ml-2 rounded-lg border border-ink/10 bg-paper px-2 py-1.5 text-xs text-ink"><option value="">Relevancia</option><option value="newest">Más recientes</option><option value="oldest">Más antiguas</option></select></label></div><section className="mt-5 grid gap-4"><div><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-moss">Para revisar hoy</p><h2 className="mt-1 font-display text-2xl text-ink">Oportunidades encontradas</h2></div>{opportunities.length > 0 ? opportunities.map((opportunity) => <OpportunityCard key={opportunity.id} opportunity={opportunity} clientSlug={activeClient?.slug ?? ""} youtube={youtube} products={products} />) : <div className="rounded-2xl border border-dashed border-ink/15 bg-white/55 px-5 py-14 text-center text-sm text-slate">No hay oportunidades para revisar hoy.</div>}</section>
+    <div className="mt-6 flex flex-wrap gap-3 rounded-2xl border border-ink/10 bg-white/65 p-3"><label className="text-xs font-bold text-slate/70">Marca<select value={filters.selectedBrand} onChange={(event) => setParam("brand", event.target.value)} className="ml-2 rounded-lg border border-ink/10 bg-paper px-2 py-1.5 text-xs text-ink"><option value="">Todas</option>{filters.brands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}</select></label><label className="text-xs font-bold text-slate/70">Red<select value={filters.selectedChannel} onChange={(event) => setParam("channel", event.target.value)} className="ml-2 rounded-lg border border-ink/10 bg-paper px-2 py-1.5 text-xs text-ink"><option value="">Todas</option>{filters.channels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}</select></label><label className="text-xs font-bold text-slate/70">Respuesta<select value={filters.selectedResponse} onChange={(event) => setParam("response", event.target.value)} className="ml-2 rounded-lg border border-ink/10 bg-paper px-2 py-1.5 text-xs text-ink"><option value="">Todas</option><option value="generated">Con respuesta generada</option></select></label><label className="text-xs font-bold text-slate/70">Orden<select value={filters.selectedSort} onChange={(event) => setParam("sort", event.target.value)} className="ml-2 rounded-lg border border-ink/10 bg-paper px-2 py-1.5 text-xs text-ink"><option value="">Relevancia</option><option value="newest">Más recientes</option><option value="oldest">Más antiguas</option></select></label></div>
+    <section className="mt-5 grid gap-4">
+      <div><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-moss">Para revisar hoy</p><h2 className="mt-1 font-display text-2xl text-ink">Oportunidades encontradas</h2></div>
+      {visibleItems.length > 0 ? visibleItems.map((item) => item.type === "completed"
+        ? <CompletedOpportunityCard key={item.completion.id} completion={item.completion} clientSlug={activeClient?.slug ?? ""} onDismiss={dismissCompletion} />
+        : <OpportunityCard key={item.opportunity.id} opportunity={item.opportunity} clientSlug={activeClient?.slug ?? ""} youtube={youtube} products={products} onCompleted={(kind, moveFocus) => {
+          setCompleted((current) => [...current.filter((entry) => entry.id !== item.opportunity.id), { id: item.opportunity.id, kind, position: item.position, visible: true, moveFocus }]);
+        }} />
+      ) : <div className="rounded-2xl border border-dashed border-ink/15 bg-white/55 px-5 py-14 text-center text-sm text-slate">No hay oportunidades para revisar hoy.</div>}
+    </section>
   </div>;
 }
