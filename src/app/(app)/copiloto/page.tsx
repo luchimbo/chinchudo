@@ -71,7 +71,7 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
         })
       : Promise.resolve([]),
     activeClient
-      ? prisma.youTubeConnection.findFirst({ where: { clientId: activeClient.id }, select: { account: true, channelTitle: true } })
+      ? prisma.youTubeConnection.findFirst({ where: { clientId: activeClient.id }, orderBy: { updatedAt: "desc" }, select: { account: true, channelTitle: true } })
       : Promise.resolve(null),
     activeClient
       ? prisma.product.findMany({

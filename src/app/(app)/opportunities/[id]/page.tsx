@@ -95,6 +95,8 @@ const agentErrorMessages: Record<string, string> = {
   relay_fetch_failed: "No se pudo conectar al servidor relay local. Asegurate de que el relay y el Cloudflare Tunnel estén corriendo en la PC principal.",
   relay_not_configured: "El relay de agentes no está configurado. Asegurate de que la PC principal esté con el relay y el túnel activos, o de que la variable AGENT_RELAY_URL esté bien cargada.",
   publish_failed: "El agente falló al intentar publicar. Revisá los logs del servidor.",
+  youtube_reconnect: "La conexión de YouTube venció o fue revocada. Tocá “Reconectar cuenta de YouTube” y volvé a publicar; el comentario no se envió.",
+  youtube_publish_failed: "YouTube rechazó la publicación y el comentario no se envió. Revisá los logs del servidor antes de reintentar.",
   rate_limited_spacing: "Esta cuenta publicó hace menos de 10 minutos. Esperá un momento antes de reintentar.",
   rate_limited_daily: "Esta cuenta alcanzó el límite diario de publicaciones (8). Usá otra cuenta o intentá mañana.",
   unknown: "Error desconocido. Revisá los logs del servidor.",
@@ -229,13 +231,16 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
   // Cuenta sugerida: la que tiene como defaultPersona el arquetipo de la respuesta aprobada (si existe) o el sugerido originalmente
   const activePersonaName = approvedResponse ? approvedResponse.persona.name : (suggestion?.personaName ?? "");
   const suggestedAccount = agentAccounts.find((a) => a.defaultPersona === activePersonaName);
-  const youtubeAccount = suggestedAccount?.name ?? agentAccounts[0]?.name ?? "youtube-principal";
+  // YouTube publica con la conexión OAuth del cliente (como el Copiloto), no con los
+  // perfiles de navegador de accounts.json.
   const youtubeConnection = channelLower === "youtube"
-    ? await prisma.youTubeConnection.findUnique({
-        where: { clientId_account: { clientId: resolution.client.id, account: youtubeAccount } },
-        select: { id: true },
+    ? await prisma.youTubeConnection.findFirst({
+        where: { clientId: resolution.client.id },
+        orderBy: { updatedAt: "desc" },
+        select: { account: true, channelTitle: true },
       })
     : null;
+  const youtubeAccount = youtubeConnection?.account ?? "youtube-principal";
   const publicationMode = channelLower === "youtube"
     ? (youtubeConnection ? "youtube_api" : "youtube_setup")
     : (channelLower === "facebook" || channelLower === "instagram" ? "human_handoff" : "none");
@@ -340,6 +345,8 @@ export default async function OpportunityDetailPage({ params, searchParams }: Pa
                     publicationMode={publicationMode}
                     youtubeConnectUrl={youtubeConnectUrl}
                     youtubeRevokeUrl={youtubeRevokeUrl}
+                    youtubeAccount={youtubeConnection?.account}
+                    youtubeChannelTitle={youtubeConnection?.channelTitle ?? ""}
                     clientParam={searchParams?.client ?? ""}
                     isAlreadyPublished={isAlreadyPublished}
                     personas={personas}

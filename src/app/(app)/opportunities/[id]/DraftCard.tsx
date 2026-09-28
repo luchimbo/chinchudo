@@ -61,6 +61,9 @@ type DraftCardProps = {
   publicationMode?: "youtube_api" | "youtube_setup" | "human_handoff" | "none";
   youtubeConnectUrl?: string;
   youtubeRevokeUrl?: string;
+  /** Conexión OAuth del cliente con la que se publica en YouTube. */
+  youtubeAccount?: string;
+  youtubeChannelTitle?: string;
   clientParam?: string;
   isAlreadyPublished?: boolean;
   personas: PersonaOption[];
@@ -82,6 +85,8 @@ export function DraftCard({
   publicationMode = "none",
   youtubeConnectUrl,
   youtubeRevokeUrl,
+  youtubeAccount,
+  youtubeChannelTitle,
   clientParam,
   isAlreadyPublished = false,
   personas,
@@ -264,27 +269,21 @@ export function DraftCard({
             <input type="hidden" name="opportunityId" value={opportunity.id} />
             <input type="hidden" name="responseId" value={response.id} />
             <input type="hidden" name="client" value={clientParam ?? ""} />
-            <label className="grid gap-1.5 text-xs font-semibold text-slate">
-              Cuenta / Voz de publicación
-              <select
-                name="account"
-                defaultValue={suggestedAccount ?? ""}
-                className="w-full rounded-md border border-ink/15 bg-white px-3 py-2.5 text-sm text-ink"
-              >
-                <option value="">— Navegador personal (sin cuenta automatizada) —</option>
-                {agentAccounts.map(({ name, label }) => (
-                  <option key={name} value={name}>
-                    {label}{name === suggestedAccount ? " (sugerida)" : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <input type="hidden" name="account" value={youtubeAccount ?? ""} />
+            <p className="text-xs leading-5 text-slate">
+              Se publica con la cuenta de YouTube conectada{youtubeChannelTitle ? <>: <span className="font-semibold text-ink">{youtubeChannelTitle}</span></> : null}.
+            </p>
             <SubmitButton
-              loadingText="⏳ Publicando… (puede tardar 1-2 min)"
+              loadingText="Publicando en YouTube…"
               className="mt-3 w-full rounded-full bg-brass px-5 py-2.5 text-sm font-bold text-white transition hover:bg-ink disabled:opacity-50"
             >
               Publicar comentario en YouTube
             </SubmitButton>
+            {youtubeConnectUrl ? (
+              <a href={youtubeConnectUrl} className="mt-2 block text-center text-xs font-semibold text-slate underline">
+                Reconectar cuenta de YouTube
+              </a>
+            ) : null}
             {youtubeRevokeUrl ? (
               <button type="button" onClick={handleRevokeYouTube} disabled={isRevokingYouTube} className="mt-2 w-full text-xs font-semibold text-slate underline disabled:opacity-50">
                 {isRevokingYouTube ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Revocando conexión…</span> : "Revocar conexión de YouTube"}

@@ -380,6 +380,11 @@ export async function markCopilotResponse(formData: FormData) {
   }
 }
 
+/** Google rechazó la conexión OAuth: sólo se arregla volviendo a autorizar la cuenta. */
+function needsYouTubeReconnect(error: string): boolean {
+  return error === "youtube_not_connected" || /token has been expired or revoked|invalid_grant|invalid_token/i.test(error);
+}
+
 const copilotYouTubePublishSchema = z.object({
   opportunityId: z.string().min(1),
   responseId: z.string().min(1),
@@ -426,7 +431,7 @@ export async function publishCopilotYouTubeResponse(formData: FormData) {
     text: parsed.editedText,
   });
   if (!result.success) {
-    const reconnectRequired = result.error === "youtube_not_connected" || /token has been expired or revoked|invalid_grant|invalid_token/i.test(result.error);
+    const reconnectRequired = needsYouTubeReconnect(result.error);
     return {
       success: false as const,
       message: reconnectRequired
@@ -1210,12 +1215,22 @@ export async function publishViaAgent(formData: FormData) {
     throw new Error("La oportunidad debe pertenecer a un cliente antes de publicar.");
   }
   await requireOwnedClientId(opportunity.clientId);
-  if (!parsed.account) {
-    throw new Error("Elegí la cuenta de YouTube autorizada para publicar.");
-  }
+  const clientParam = formData.get("client") as string | null;
+  const backToOpportunity = (query: string) => redirect(`/opportunities/${parsed.opportunityId}?${query}${clientParam ? `&client=${encodeURIComponent(clientParam)}` : ""}`);
+
+  // Se publica con la conexión OAuth del cliente. La cuenta del formulario sólo elige
+  // entre conexiones existentes: una pestaña vieja todavía puede mandar un perfil de
+  // navegador de accounts.json, que no es una cuenta de YouTube.
+  const connections = await prisma.youTubeConnection.findMany({
+    where: { clientId: opportunity.clientId },
+    orderBy: { updatedAt: "desc" },
+    select: { account: true },
+  });
+  const account = connections.find((connection) => connection.account === parsed.account)?.account ?? connections[0]?.account;
+  if (!account) return backToOpportunity("agentError=youtube_reconnect");
 
   // La publicación directa puede partir de un texto editado en la tarjeta. Se persiste
-  // antes de enviar la tarea al relay para que el agente publique exactamente ese texto.
+  // antes de publicar para que salga exactamente ese texto.
   if (parsed.editedText) {
     await prisma.response.update({
       where: { id: parsed.responseId },
@@ -1223,36 +1238,34 @@ export async function publishViaAgent(formData: FormData) {
     });
   }
 
-  const rateLimit = await checkPublishRateLimits(prisma, parsed.account);
-  if (!rateLimit.ok) {
-    throw new Error(rateLimit.error === "rate_limited_daily" ? "Límite diario alcanzado para esta cuenta." : "Esperá antes de volver a publicar con esta cuenta.");
-  }
+  const rateLimit = await checkPublishRateLimits(prisma, account);
+  if (!rateLimit.ok) return backToOpportunity(`agentError=${rateLimit.error === "rate_limited_daily" ? "rate_limited_daily" : "rate_limited_spacing"}`);
 
   const publishedText = parsed.editedText || response.editedText || response.draftText;
   const officialResult = await publishYouTubeComment({
     prisma,
     clientId: opportunity.clientId,
-    account: parsed.account,
+    account,
     sourceUrl: opportunity.sourceUrl,
     text: publishedText,
   });
   if (!officialResult.success) {
-    throw new Error(`No se pudo publicar en YouTube: ${officialResult.error}`);
+    console.error(`[publishViaAgent] YouTube rechazó la publicación de ${parsed.opportunityId}: ${officialResult.error}`);
+    return backToOpportunity(`agentError=${needsYouTubeReconnect(officialResult.error) ? "youtube_reconnect" : "youtube_publish_failed"}`);
   }
 
   await prisma.$transaction([
     prisma.publishingLog.upsert({
       where: { responseId: parsed.responseId },
-      update: { account: parsed.account, publishedUrl: officialResult.url, remoteId: officialResult.remoteId, publishMethod: officialResult.method, result: officialResult.method, followUpNeeded: false },
-      create: { opportunityId: parsed.opportunityId, responseId: parsed.responseId, account: parsed.account, publishedUrl: officialResult.url, remoteId: officialResult.remoteId, publishMethod: officialResult.method, result: officialResult.method, followUpNeeded: false },
+      update: { account, publishedUrl: officialResult.url, remoteId: officialResult.remoteId, publishMethod: officialResult.method, result: officialResult.method, followUpNeeded: false },
+      create: { opportunityId: parsed.opportunityId, responseId: parsed.responseId, account, publishedUrl: officialResult.url, remoteId: officialResult.remoteId, publishMethod: officialResult.method, result: officialResult.method, followUpNeeded: false },
     }),
     prisma.opportunity.update({ where: { id: parsed.opportunityId }, data: { status: OpportunityStatus.PUBLISHED } }),
   ]);
   await closeSiblingOpportunities(prisma, parsed.opportunityId, opportunity.channelId, opportunity.sourceUrl, channel);
   revalidatePath("/");
   revalidatePath(`/opportunities/${parsed.opportunityId}`);
-  const clientParam = formData.get("client") as string | null;
-  redirect(`/opportunities/${parsed.opportunityId}?agentOk=1${clientParam ? `&client=${encodeURIComponent(clientParam)}` : ""}`);
+  backToOpportunity("agentOk=1");
 }
 
 export async function updateClientAutoSettings(clientId: string, autoApprove: boolean, autoPublish: boolean) {
