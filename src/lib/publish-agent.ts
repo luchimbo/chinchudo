@@ -14,8 +14,8 @@ export async function checkPublishRateLimits(
   const dailyCapRaw = await prisma.appSetting.findUnique({ where: { key: "PUBLISH_DAILY_PER_ACCOUNT" } });
   const spacingMinRaw = await prisma.appSetting.findUnique({ where: { key: "PUBLISH_MIN_SPACING_MIN" } });
 
-  const dailyCap = parseInt(dailyCapRaw?.value ?? "8", 10);
-  const spacingMin = parseInt(spacingMinRaw?.value ?? "10", 10);
+  const dailyCap = parseInt(dailyCapRaw?.value ?? "100", 10);
+  const spacingMin = parseInt(spacingMinRaw?.value ?? "5", 10);
 
   const since = new Date(Date.now() - 24 * 3600 * 1000);
   const dayCount = await prisma.publishingLog.count({

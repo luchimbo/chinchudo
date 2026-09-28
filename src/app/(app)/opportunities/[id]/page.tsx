@@ -97,8 +97,8 @@ const agentErrorMessages: Record<string, string> = {
   publish_failed: "El agente falló al intentar publicar. Revisá los logs del servidor.",
   youtube_reconnect: "La conexión de YouTube venció o fue revocada. Tocá “Reconectar cuenta de YouTube” y volvé a publicar; el comentario no se envió.",
   youtube_publish_failed: "YouTube rechazó la publicación y el comentario no se envió. Revisá los logs del servidor antes de reintentar.",
-  rate_limited_spacing: "Esta cuenta publicó hace menos de 10 minutos. Esperá un momento antes de reintentar.",
-  rate_limited_daily: "Esta cuenta alcanzó el límite diario de publicaciones (8). Usá otra cuenta o intentá mañana.",
+  rate_limited_spacing: "Esta cuenta publicó hace poco. Esperá un momento antes de reintentar.",
+  rate_limited_daily: "Esta cuenta alcanzó el límite de publicaciones en las últimas 24 horas.",
   unknown: "Error desconocido. Revisá los logs del servidor.",
 };
 
