@@ -391,7 +391,9 @@ const server = http.createServer(async (req, res) => {
       return json(res, 400, { error: "missing_fields" });
     }
 
+    // publish-response importa .ts con alias "@/": necesita el loader de tsx.
     const args = [
+      "--import", "tsx",
       join(ROOT, "scripts", "publish-response.mjs"),
       "--opportunity-id", opportunityId,
       "--response-id", responseId,

@@ -474,7 +474,9 @@ async function main() {
 
       if (autoPublish && approvedResponseId) {
         console.log(`[Auto-Pilot] Publicando automáticamente oportunidad ${opportunity.id} con respuesta ${approvedResponseId}...`);
+        // publish-response importa .ts con alias "@/": necesita el loader de tsx.
         const pArgs = [
+          "--import", "tsx",
           "scripts/publish-response.mjs",
           "--opportunity-id", opportunity.id,
           "--response-id", approvedResponseId

@@ -29,6 +29,7 @@ import { selectVoiceVariant } from "@/lib/persona-router";
 import { chatRefinementStep, compileResponseFromChat, expandChatForModel, type ChatMessage } from "@/lib/refine-draft";
 import { addClientMemory, deleteClientMemory, extractLearningsFromChat, getAcceptedExamples, getClientMemories, replaceChatLearnings } from "@/lib/client-memory";
 import { publishYouTubeComment } from "@/lib/youtube-publisher";
+import { resolveYouTubeAccount } from "@/lib/youtube-connection";
 import { assertOperationalOpportunityChannel } from "@/lib/opportunity-channels";
 
 const createOpportunitySchema = z.object({
@@ -1224,15 +1225,8 @@ export async function publishViaAgent(formData: FormData) {
   const clientParam = formData.get("client") as string | null;
   const backToOpportunity = (query: string) => redirect(`/opportunities/${parsed.opportunityId}?${query}${clientParam ? `&client=${encodeURIComponent(clientParam)}` : ""}`);
 
-  // Se publica con la conexión OAuth del cliente. La cuenta del formulario sólo elige
-  // entre conexiones existentes: una pestaña vieja todavía puede mandar un perfil de
-  // navegador de accounts.json, que no es una cuenta de YouTube.
-  const connections = await prisma.youTubeConnection.findMany({
-    where: { clientId: opportunity.clientId },
-    orderBy: { updatedAt: "desc" },
-    select: { account: true },
-  });
-  const account = connections.find((connection) => connection.account === parsed.account)?.account ?? connections[0]?.account;
+  // Una pestaña vieja todavía puede mandar un perfil de navegador de accounts.json.
+  const account = await resolveYouTubeAccount(prisma, opportunity.clientId, parsed.account);
   if (!account) return backToOpportunity("agentError=youtube_reconnect");
 
   // La publicación directa puede partir de un texto editado en la tarjeta. Se persiste

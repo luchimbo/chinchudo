@@ -1,7 +1,9 @@
 import { PrismaClient } from "@prisma/client";
 import { loadEnv, writeReport, extractPostKey } from "./agent-utils.mjs";
 import { checkPublishRateLimits } from "./publish-utils.mjs";
+// Importa .ts con alias "@/": correr con tsx (npm run agents:publish o node --import tsx).
 import { publishYouTubeComment } from "../src/lib/youtube-publisher.ts";
+import { resolveYouTubeAccount } from "../src/lib/youtube-connection.ts";
 
 loadEnv();
 const prisma = new PrismaClient();
@@ -15,17 +17,18 @@ function parseArgs() {
   return {
     opportunityId: get("--opportunity-id"),
     responseId: get("--response-id"),
-    account: get("--account") || "",
+    // Sólo elige entre conexiones OAuth del cliente; un perfil de accounts.json se ignora.
+    requestedAccount: get("--account") || "",
     dryRun: args.includes("--dry-run"),
   };
 }
 
 async function main() {
-  const { opportunityId, responseId, account, dryRun } = parseArgs();
+  const { opportunityId, responseId, requestedAccount, dryRun } = parseArgs();
 
   if (!opportunityId || !responseId) {
     console.error(
-      "Uso: node scripts/publish-response.mjs --opportunity-id <id> --response-id <id> [--account <cuenta>] [--dry-run]"
+      "Uso: npm run agents:publish -- --opportunity-id <id> --response-id <id> [--account <conexión de YouTube>] [--dry-run]"
     );
     process.exit(1);
   }
@@ -58,14 +61,21 @@ async function main() {
     await prisma.$disconnect();
     process.exit(1);
   }
-  if (!opportunity.clientId || !account) {
-    process.stdout.write(JSON.stringify({ success: false, error: "youtube_client_or_account_required", method: "failed" }) + "\n");
+  if (!opportunity.clientId) {
+    process.stdout.write(JSON.stringify({ success: false, error: "youtube_client_required", method: "failed" }) + "\n");
+    await prisma.$disconnect();
+    process.exit(1);
+  }
+  // Se resuelve también en --dry-run: sin conexión, la publicación real fallaría.
+  const account = await resolveYouTubeAccount(prisma, opportunity.clientId, requestedAccount);
+  if (!account) {
+    process.stdout.write(JSON.stringify({ success: false, error: "youtube_not_connected", method: "failed" }) + "\n");
     await prisma.$disconnect();
     process.exit(1);
   }
 
   // --- Anti-spam: cap diario por cuenta + separación mínima entre comentarios ---
-  if (account && !dryRun) {
+  if (!dryRun) {
     const rateLimit = await checkPublishRateLimits(prisma, account);
     if (!rateLimit.ok) {
       process.stdout.write(JSON.stringify({
@@ -140,12 +150,13 @@ async function main() {
     opportunityId,
     responseId,
     channel,
-    account: account || "default",
+    account,
+    requested_account: requestedAccount,
     dry_run: dryRun,
     ...result,
   });
 
-  process.stdout.write(JSON.stringify({ report, ...result }) + "\n");
+  process.stdout.write(JSON.stringify({ report, account, ...result }) + "\n");
   await prisma.$disconnect();
 
   if (!result.success) {
