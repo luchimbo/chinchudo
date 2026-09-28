@@ -6,6 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { IconRail } from "./icon-rail";
 import { ClientSwitcher } from "./client-switcher";
 import { IssueReportButton } from "./issue-report-button";
+import { NativePendingButton, NativePendingForm } from "./native-pending-form";
 
 type ClientOption = { slug: string; name: string };
 
@@ -87,8 +88,8 @@ export function AppShell({
         </div>
         {/* Logout icon at bottom */}
         <div className="flex flex-col items-center pb-3 w-full">
-          <form action="/api/auth/logout" method="POST" className="w-full flex justify-center">
-            <button
+          <NativePendingForm action="/api/auth/logout" method="POST" className="w-full flex justify-center">
+            <NativePendingButton loadingText="Saliendo…"
               type="submit"
               title={userLabel ? `Salir (${userLabel})` : "Salir"}
               aria-label="Salir"
@@ -104,8 +105,8 @@ export function AppShell({
               <span className="whitespace-nowrap text-sm font-semibold text-slate/50">
                 Salir
               </span>
-            </button>
-          </form>
+            </NativePendingButton>
+          </NativePendingForm>
         </div>
       </aside>
 
@@ -153,11 +154,11 @@ export function AppShell({
               </nav>
               <div className="flex items-center justify-between border-t border-ink/10 px-3 pt-3">
                 {userLabel ? <span className="truncate text-xs text-slate/55">{userLabel}</span> : <span />}
-                <form action="/api/auth/logout" method="POST">
-                  <button type="submit" className="text-xs font-semibold text-slate/60 transition hover:text-signal">
+                <NativePendingForm action="/api/auth/logout" method="POST">
+                  <NativePendingButton loadingText="Saliendo…" className="text-xs font-semibold text-slate/60 transition hover:text-signal">
                     Salir
-                  </button>
-                </form>
+                  </NativePendingButton>
+                </NativePendingForm>
               </div>
             </div>
           </div>
@@ -171,11 +172,11 @@ export function AppShell({
             <p className="text-xs font-semibold tracking-wide">
               Sesión de soporte auditada · {userLabel}
             </p>
-            <form action="/api/support/end" method="POST">
-              <button className="rounded-full border border-white/25 px-3 py-1 text-xs font-bold transition hover:bg-white/10">
+            <NativePendingForm action="/api/support/end" method="POST">
+              <NativePendingButton loadingText="Finalizando…" className="rounded-full border border-white/25 px-3 py-1 text-xs font-bold transition hover:bg-white/10">
                 Finalizar acceso
-              </button>
-            </form>
+              </NativePendingButton>
+            </NativePendingForm>
           </div>
         ) : null}
         {/* Desktop: client switcher header */}

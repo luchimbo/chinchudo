@@ -1,3 +1,4 @@
+import { PendingSubmitButton } from "@/components/pending-submit-button";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { createBrand, updateBrand, deleteBrand } from "./actions";
@@ -57,7 +58,7 @@ export default async function BrandsPage({ searchParams }: { searchParams: { cli
             <textarea name="forbiddenClaims" maxLength={2000} rows={2} className={`${inputCls} resize-y`} />
           </label>
           <div className="flex items-end justify-end md:col-span-2">
-            <button type="submit" className="rounded-full bg-ink px-5 py-2 text-sm font-bold text-paper transition hover:bg-slate">Agregar marca</button>
+            <PendingSubmitButton loadingText="Agregando…" type="submit" className="rounded-full bg-ink px-5 py-2 text-sm font-bold text-paper transition hover:bg-slate">Agregar marca</PendingSubmitButton>
           </div>
         </form>
       </section>
@@ -96,8 +97,8 @@ export default async function BrandsPage({ searchParams }: { searchParams: { cli
               <div className="flex items-end justify-between gap-2 md:col-span-2">
                 <span className="text-xs text-slate/60">{b._count.products} productos · {b._count.responses} respuestas</span>
                 <div className="flex gap-2">
-                  <button type="submit" aria-label={`Guardar cambios en ${b.name}`} className="rounded-full border border-ink/20 px-4 py-2 text-sm font-bold text-ink hover:bg-white">Guardar</button>
-                  <button type="submit" formAction={deleteBrand} aria-label={`Eliminar marca ${b.name}`} className="rounded-full border border-red-300 px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-50">Eliminar</button>
+                  <PendingSubmitButton loadingText="Guardando…" type="submit" aria-label={`Guardar cambios en ${b.name}`} className="rounded-full border border-ink/20 px-4 py-2 text-sm font-bold text-ink hover:bg-white">Guardar</PendingSubmitButton>
+                  <PendingSubmitButton loadingText="Eliminando…" type="submit" formAction={deleteBrand} aria-label={`Eliminar marca ${b.name}`} className="rounded-full border border-red-300 px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-50">Eliminar</PendingSubmitButton>
                 </div>
               </div>
             </form>

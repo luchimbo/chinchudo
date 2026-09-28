@@ -91,6 +91,10 @@ function isLocalHost(request: NextRequest): boolean {
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  if (pathname === "/loading-preview" && process.env.NODE_ENV !== "production" && isLocalHost(request)) {
+    return NextResponse.next();
+  }
+
   // Muestra el recorrido sin datos persistentes exclusivamente durante el
   // desarrollo local: requiere build no-productiva, una decisión deliberada
   // (ONBOARDING_PREVIEW=1) y estar sirviendo en localhost. En producción la

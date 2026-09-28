@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { hashAccountToken } from "@/lib/account-tokens";
+import { NativePendingButton, NativePendingForm } from "@/components/native-pending-form";
 
 type Props = { params: { token: string }; searchParams: { error?: string } };
 
@@ -40,7 +41,7 @@ export default async function InvitacionPage({ params, searchParams }: Props) {
           {expired ? (
             <p className="text-sm text-slate">El link venció o ya fue usado. Pedile a un admin que te invite de nuevo.</p>
           ) : (
-            <form action="/api/auth/accept-invite" method="POST" className="space-y-4">
+            <NativePendingForm action="/api/auth/accept-invite" method="POST" className="space-y-4">
               <input type="hidden" name="token" value={params.token} />
               <label htmlFor="name" className="block">
                 <span className="mb-1.5 block text-xs font-bold uppercase tracking-[0.15em] text-slate">Nombre</span>
@@ -76,13 +77,13 @@ export default async function InvitacionPage({ params, searchParams }: Props) {
                   className="w-full rounded-lg border border-ink/15 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-ink/35"
                 />
               </label>
-              <button
+              <NativePendingButton loadingText="Creando cuenta…"
                 type="submit"
                 className="w-full rounded-lg bg-ink px-4 py-2.5 text-sm font-bold text-paper transition hover:bg-ink/90"
               >
                 Crear cuenta
-              </button>
-            </form>
+              </NativePendingButton>
+            </NativePendingForm>
           )}
         </div>
       </div>

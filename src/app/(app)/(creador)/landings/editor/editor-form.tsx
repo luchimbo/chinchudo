@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LogoUpload } from "@/app/(app)/configuracion/logo-upload";
 import { GenerateLandingsButton } from "../generate-landings-button";
+import { LoadingSpinner } from "@/components/loading-ui";
 
 type Template = {
   id: string;
@@ -144,6 +145,7 @@ export function EditorForm({
   const [secondaryColor, setSecondaryColor] = useState(config.landingSecondaryColor || "#F6A00C");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [actionLabel, setActionLabel] = useState<"preview" | "confirm">("preview");
   const [previewVersion, setPreviewVersion] = useState(0);
   const [previewStatus, setPreviewStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -175,6 +177,7 @@ export function EditorForm({
     setActionLabel(intent);
     setSaving(true);
     setSaved(false);
+    setSaveError("");
 
     const fd = new FormData();
     fd.set("id", config.id);
@@ -183,14 +186,19 @@ export function EditorForm({
     fd.set("landingPrimaryColor", primaryColor);
     fd.set("landingSecondaryColor", secondaryColor);
 
-    await updateLandingTemplate(fd);
-    setSaving(false);
-    setSaved(true);
-    setPreviewStatus("loading");
-    setPreviewRequested(false);
-    setPreviewVersion((version) => version + 1);
-    router.refresh();
-    setTimeout(() => setSaved(false), 3000);
+    try {
+      await updateLandingTemplate(fd);
+      setSaved(true);
+      setPreviewStatus("loading");
+      setPreviewRequested(false);
+      setPreviewVersion((version) => version + 1);
+      router.refresh();
+      setTimeout(() => setSaved(false), 3000);
+    } catch {
+      setSaveError("No se pudo guardar el diseño. Intentá de nuevo.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -332,7 +340,7 @@ export function EditorForm({
           disabled={saving}
           className="rounded-full bg-ink px-8 py-3 text-sm font-bold text-paper transition hover:bg-slate disabled:opacity-60"
         >
-          {saving && actionLabel === "preview" ? "Previsualizando..." : "Previsualizar diseño"}
+          {saving && actionLabel === "preview" ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Previsualizando…</span> : "Previsualizar diseño"}
         </button>
         <button
           type="submit"
@@ -341,9 +349,10 @@ export function EditorForm({
           disabled={saving}
           className="rounded-full border border-ink/20 bg-paper px-8 py-3 text-sm font-bold text-ink transition hover:border-ink/45 disabled:opacity-60"
         >
-          {saving && actionLabel === "confirm" ? "Confirmando..." : "Confirmar diseño de landing"}
+          {saving && actionLabel === "confirm" ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Confirmando…</span> : "Confirmar diseño de landing"}
         </button>
         {saved ? <span className="text-xs font-semibold text-emerald-600">Cambios guardados</span> : null}
+        {saveError ? <span role="alert" className="text-xs font-semibold text-red-700">{saveError}</span> : null}
       </div>
 
       <section className="overflow-hidden rounded-xl border border-ink/10 bg-[#111315] shadow-sm">

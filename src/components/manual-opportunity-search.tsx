@@ -89,12 +89,9 @@ export function ManualOpportunitySearch({ clientId, initialQuery }: Props) {
         }
       } catch {
         if (cancelled) return;
-        setEvents((current) => [
+        setEvents((current) => current.some((event) => event.status === "error" && event.message?.startsWith("No pude actualizar el progreso")) ? current : [
           ...current,
-          {
-            status: "error",
-            message: "No pude actualizar el progreso, pero la busqueda sigue en segundo plano.",
-          },
+          { status: "error", message: "No pude actualizar el progreso, pero la búsqueda sigue en segundo plano." },
         ]);
       }
     };
@@ -219,13 +216,13 @@ export function ManualOpportunitySearch({ clientId, initialQuery }: Props) {
         <div className="min-h-0 overflow-hidden">
           <div className="border-t border-ink/10 p-3 sm:p-4">
       {running ? (
-        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-ink/10 bg-paper px-3 py-3 text-sm text-ink">
+        <div role="status" className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-ink/10 bg-paper px-3 py-3 text-sm text-ink">
           <span className="relative flex h-3 w-3">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-ink/40" />
             <span className="relative inline-flex h-3 w-3 rounded-full bg-ink" />
           </span>
           <span className="font-bold">Buscando oportunidades en segundo plano...</span>
-          <span className="text-slate">Las búsquedas de baterías electrónicas continúan hasta completar cada consulta.</span>
+          <span className="text-slate">La búsqueda continúa hasta completar cada consulta.</span>
           {totals.totalSearches > 0 ? (
             <span className="font-bold text-slate">{totals.attemptedSearches}/{totals.totalSearches} busquedas</span>
           ) : null}

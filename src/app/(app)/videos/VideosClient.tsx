@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Client, Persona, Product, Trend, VideoScript } from "@prisma/client";
+import { LoadingSpinner } from "@/components/loading-ui";
 
 type Script = VideoScript & { product: Product | null; persona: Persona; trend: { title: string } | null; contentIdea: { hook: string } | null };
 type Props = { activeClient: Client; clients: Client[]; trends: Trend[]; products: (Product & { brand: { name: string } })[]; scripts: Script[] };
@@ -29,11 +30,13 @@ export default function VideosClient({ activeClient, clients, trends, products, 
   const [productId, setProductId] = useState(products[0]?.id || "");
   const [focus, setFocus] = useState<ScriptFocus>("Mostrar uso");
   const [saving, setSaving] = useState(false);
+  const [generateError, setGenerateError] = useState("");
   const [selectedScript, setSelectedScript] = useState<Script | null>(null);
 
   async function generateScript() {
     if (!productId) return;
     setSaving(true);
+    setGenerateError("");
     try {
       const response = await fetch("/api/videos", {
         method: "POST",
@@ -44,8 +47,8 @@ export default function VideosClient({ activeClient, clients, trends, products, 
       if (!response.ok || !data.success) throw new Error(data.error || "No se pudo generar el guion.");
       setSelectedScript(data.script as Script);
       router.refresh();
-    } catch (error: any) {
-      alert(error.message);
+    } catch (error) {
+      setGenerateError(error instanceof Error ? error.message : "No se pudo generar el guion.");
     } finally {
       setSaving(false);
     }
@@ -59,7 +62,7 @@ export default function VideosClient({ activeClient, clients, trends, products, 
     </header>
     <nav aria-label="Secciones de guiones" className="-mx-4 mt-5 flex gap-1 overflow-x-auto border-b border-ink/10 px-4 sm:mx-0 sm:mt-6 sm:px-0">{([ ["create", "Crear guion"], ["references", "Referencias"], ["history", "Guiones"] ] as [Tab, string][]).map(([id, label]) => <button key={id} onClick={() => setTab(id)} className={`shrink-0 whitespace-nowrap px-3 py-3 text-sm font-black sm:px-4 ${tab === id ? "border-b-2 border-brass text-ink" : "text-slate"}`}>{label}</button>)}</nav>
 
-    {tab === "create" && <section className="mx-auto mt-10 max-w-3xl rounded-2xl border border-ink/10 bg-white p-6 shadow-panel sm:p-8"><p className="text-xs font-black uppercase tracking-wider text-brass">Nuevo guion</p><h2 className="mt-2 font-display text-3xl font-bold">Elegí el producto y el enfoque</h2><p className="mt-2 text-sm leading-6 text-slate">Elegí cómo querés encarar el video; después generamos el guion directamente.</p><label className="mt-7 grid gap-2 text-sm font-bold">Producto<select value={productId} onChange={(event) => setProductId(event.target.value)} className="h-12 rounded-md border border-ink/15 bg-paper px-3">{products.map((product) => <option key={product.id} value={product.id}>{product.name} · {product.brand.name}</option>)}</select></label><fieldset className="mt-6"><legend className="text-sm font-bold">Enfoque</legend><div className="mt-3 grid gap-3 sm:grid-cols-2">{SCRIPT_FOCUSES.map((option) => <button key={option.value} type="button" onClick={() => setFocus(option.value)} className={`rounded-lg border p-4 text-left transition ${focus === option.value ? "border-brass bg-brass/10" : "border-ink/10 hover:border-ink/30"}`}><span className="block text-sm font-black">{option.value}</span><span className="mt-1 block text-xs leading-5 text-slate">{option.description}</span></button>)}</div></fieldset><button disabled={saving || !productId} onClick={generateScript} className="mt-6 h-12 w-full rounded-md bg-ink text-sm font-black text-paper transition hover:bg-ink/90 disabled:cursor-not-allowed disabled:opacity-50">{saving ? "Generando guion…" : "Generar guion"}</button>{products.length === 0 && <p className="mt-4 text-sm text-slate">No hay productos disponibles para este cliente.</p>}</section>}
+    {tab === "create" && <section className="mx-auto mt-10 max-w-3xl rounded-2xl border border-ink/10 bg-white p-6 shadow-panel sm:p-8"><p className="text-xs font-black uppercase tracking-wider text-brass">Nuevo guion</p><h2 className="mt-2 font-display text-3xl font-bold">Elegí el producto y el enfoque</h2><p className="mt-2 text-sm leading-6 text-slate">Elegí cómo querés encarar el video; después generamos el guion directamente.</p><label className="mt-7 grid gap-2 text-sm font-bold">Producto<select value={productId} onChange={(event) => setProductId(event.target.value)} className="h-12 rounded-md border border-ink/15 bg-paper px-3">{products.map((product) => <option key={product.id} value={product.id}>{product.name} · {product.brand.name}</option>)}</select></label><fieldset className="mt-6"><legend className="text-sm font-bold">Enfoque</legend><div className="mt-3 grid gap-3 sm:grid-cols-2">{SCRIPT_FOCUSES.map((option) => <button key={option.value} type="button" onClick={() => setFocus(option.value)} className={`rounded-lg border p-4 text-left transition ${focus === option.value ? "border-brass bg-brass/10" : "border-ink/10 hover:border-ink/30"}`}><span className="block text-sm font-black">{option.value}</span><span className="mt-1 block text-xs leading-5 text-slate">{option.description}</span></button>)}</div></fieldset><button disabled={saving || !productId} onClick={generateScript} className="mt-6 h-12 w-full rounded-md bg-ink text-sm font-black text-paper transition hover:bg-ink/90 disabled:cursor-not-allowed disabled:opacity-50">{saving ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Generando guion…</span> : "Generar guion"}</button>{generateError ? <p role="alert" className="mt-3 text-sm font-medium text-red-700">{generateError}</p> : null}{products.length === 0 && <p className="mt-4 text-sm text-slate">No hay productos disponibles para este cliente.</p>}</section>}
 
     {tab === "references" && <section className="mt-7"><p className="text-xs font-black uppercase tracking-wider text-brass">Referencias para {activeClient.name}</p><h2 className="mt-1 font-display text-2xl font-bold">Videos que sirven para este rubro</h2><div className="mt-5 grid gap-4 lg:grid-cols-2">{trends.map((trend) => <article key={trend.id} className="rounded-xl border border-ink/10 bg-white p-5 shadow-sm"><div className="flex flex-wrap items-center gap-2"><span className="rounded bg-moss/10 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-moss">{referenceType(trend.platform)}</span><span className="text-[10px] font-black uppercase tracking-wider text-brass">{PLATFORM[trend.platform] || trend.platform}</span></div><h3 className="mt-3 text-lg font-black leading-tight">{trend.title}</h3><p className="mt-3 line-clamp-3 text-sm leading-6 text-slate">{trend.description}</p>{trend.sourceUrl && <a href={trend.sourceUrl} target="_blank" rel="noreferrer" className="mt-4 inline-block rounded-md border border-ink/15 px-3 py-2 text-xs font-black">Ver video</a>}</article>)}</div>{trends.length === 0 && <Empty title="Todavía no hay referencias" body="Cuando el radar encuentre videos relevantes, se mostrarán acá."/>}</section>}
 

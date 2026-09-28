@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { requirePlatformAdmin } from "@/lib/admin-auth";
 import { prisma } from "@/lib/db";
 import { ClientStateButton, RevokeButton, SupportAccess } from "./controls";
+import { LogoutForm } from "./pending-button";
 
 export const dynamic = "force-dynamic";
 
@@ -51,7 +52,7 @@ export default async function DashboardPage() {
         <div className="sans" style={{ textAlign: "right" }}>
           <strong>{identity.profile.name}</strong>
           <p style={{ margin: "4px 0 14px", opacity: .6 }}>Sesion administrativa segura</p>
-          <form action="/api/auth/logout" method="POST"><button className="button secondary">Cerrar sesión</button></form>
+          <LogoutForm />
         </div>
       </header>
 

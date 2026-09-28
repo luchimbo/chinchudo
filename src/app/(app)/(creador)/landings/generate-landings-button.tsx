@@ -20,9 +20,14 @@ export function GenerateLandingsButton({
 
   useEffect(() => {
     const refresh = async () => {
-      const response = await fetch(`/api/landings/generation-status?client=${encodeURIComponent(clientSlug)}`);
-      if (!response.ok) return;
-      const data = await response.json();
+      let data;
+      try {
+        const response = await fetch(`/api/landings/generation-status?client=${encodeURIComponent(clientSlug)}`);
+        if (!response.ok) return;
+        data = await response.json();
+      } catch {
+        return;
+      }
       const nextJob = data.job;
       if (nextJob?.state === "running") {
         completedJobRef.current = "";
@@ -92,7 +97,7 @@ export function GenerateLandingsButton({
         {message ? <p className={`mt-3 text-xs font-medium ${state === "error" ? "text-signal" : "text-moss"}`} aria-live="polite">{message}</p> : null}
         {job ? <div className="mt-4 rounded-lg border border-white/15 bg-black/15 p-3 text-xs text-paper/80">
           <div className="flex justify-between gap-4"><span>{job.state === "running" ? "En curso" : job.state === "completed" ? "Completada" : "Con errores"}</span><strong>{job.completed || 0}/{job.requested || limit}</strong></div>
-          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/15"><div className="h-full bg-paper transition-all" style={{ width: `${Math.min(100, ((job.completed || 0) / Math.max(1, job.requested || limit)) * 100)}%` }} /></div>
+          <div role="progressbar" aria-label="Landings generadas" aria-valuemin={0} aria-valuemax={job.requested || limit} aria-valuenow={job.completed || 0} className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/15"><div className="h-full bg-paper transition-all" style={{ width: `${Math.min(100, ((job.completed || 0) / Math.max(1, job.requested || limit)) * 100)}%` }} /></div>
           {job.currentTopic ? <p className="mt-3 text-paper/65">Tema actual: <span className="text-paper">{job.currentTopic}</span></p> : null}
           {job.created?.length ? <ul className="mt-3 space-y-1 border-t border-white/10 pt-2">{job.created.map((item: any, index: number) => <li key={`${item.title}-${index}`}><span className="text-paper/55">{item.keyword}</span> — {item.title}</li>)}</ul> : null}
         </div> : null}

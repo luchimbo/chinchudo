@@ -1,3 +1,5 @@
+import { NativePendingButton, NativePendingForm } from "@/components/native-pending-form";
+
 type Props = { searchParams: { sent?: string } };
 
 export default async function RecuperarPage({ searchParams }: Props) {
@@ -17,7 +19,7 @@ export default async function RecuperarPage({ searchParams }: Props) {
               Si el email está registrado, vas a recibir un correo con instrucciones.
             </p>
           ) : (
-            <form action="/api/auth/reset-request" method="POST" className="space-y-4">
+            <NativePendingForm action="/api/auth/reset-request" method="POST" className="space-y-4">
               <label htmlFor="email" className="block">
                 <span className="mb-1.5 block text-xs font-bold uppercase tracking-[0.15em] text-slate">Email</span>
                 <input
@@ -29,13 +31,13 @@ export default async function RecuperarPage({ searchParams }: Props) {
                   className="w-full rounded-lg border border-ink/15 bg-white px-3 py-2.5 text-sm outline-none transition focus:border-ink/35"
                 />
               </label>
-              <button
+              <NativePendingButton loadingText="Enviando…"
                 type="submit"
                 className="w-full rounded-lg bg-ink px-4 py-2.5 text-sm font-bold text-paper transition hover:bg-ink/90"
               >
                 Enviar instrucciones
-              </button>
-            </form>
+              </NativePendingButton>
+            </NativePendingForm>
           )}
           <p className="mt-6 text-center text-xs text-slate">
             <a href="/login" className="font-semibold text-ink underline decoration-ink/25 underline-offset-4">

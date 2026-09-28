@@ -1,3 +1,4 @@
+import { PendingSubmitButton } from "@/components/pending-submit-button";
 import Link from "next/link";
 import { ANALYTICS_PERIODS, analyticsPeriodStart, getAnalyticsData, type AnalyticsPeriod } from "@/lib/analytics";
 import { prisma } from "@/lib/db";
@@ -351,7 +352,7 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
             Hasta
             <input name="to" type="date" defaultValue={searchParams.to} className="rounded border border-ink/10 bg-paper px-2 py-1 text-xs font-medium normal-case tracking-normal text-ink" />
           </label>
-          <button type="submit" className="rounded bg-moss px-3 py-1.5 text-xs font-bold text-paper transition hover:bg-ink">Aplicar</button>
+          <PendingSubmitButton loadingText="Aplicando…" type="submit" className="rounded bg-moss px-3 py-1.5 text-xs font-bold text-paper transition hover:bg-ink">Aplicar</PendingSubmitButton>
           {hasCustomRange && <Link href={`/analytics?${clientSlug ? `client=${clientSlug}&` : ""}period=${period}`} className="pb-1 text-xs font-semibold text-slate hover:text-ink">Limpiar</Link>}
         </form>
         <span className="ml-1 text-xs text-slate/55">Datos registrados en {hasCustomRange ? "el rango elegido" : PERIOD_LABELS[period].toLowerCase()}.</span>
@@ -369,12 +370,12 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
             </div>
             <div className="flex gap-3">
               <form action={clearAllSystemErrors}>
-                <button
+                <PendingSubmitButton loadingText="Limpiando…"
                   type="submit"
                   className="rounded-full border border-signal/30 bg-signal/10 px-3 py-1.5 text-xs font-semibold text-signal hover:bg-signal/20 transition duration-150"
                 >
                   Limpiar registro
-                </button>
+                </PendingSubmitButton>
               </form>
               <Link
                 href={`/analytics${clientSlug ? `?client=${clientSlug}` : ""}`}
@@ -412,13 +413,13 @@ export default async function AnalyticsPage({ searchParams }: PageProps) {
                         </span>
                         <form action={deleteSystemLog}>
                           <input type="hidden" name="id" value={log.id} />
-                          <button
+                          <PendingSubmitButton loadingText="Eliminando…"
                             type="submit"
                             title="Eliminar este log"
                             className="text-slate hover:text-signal text-xs font-bold transition select-none outline-none"
                           >
                             ✕
-                          </button>
+                          </PendingSubmitButton>
                         </form>
                       </div>
                     </div>

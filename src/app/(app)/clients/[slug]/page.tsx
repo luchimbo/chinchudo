@@ -1,3 +1,4 @@
+import { PendingSubmitButton } from "@/components/pending-submit-button";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
@@ -196,13 +197,13 @@ export default async function ClientSettingsPage({
 
         {/* Acciones */}
         <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-ink/10 pt-6">
-          <button type="submit" className="rounded-full bg-ink px-6 py-2.5 text-sm font-bold text-paper transition hover:bg-slate">
+          <PendingSubmitButton loadingText="Guardando…" type="submit" className="rounded-full bg-ink px-6 py-2.5 text-sm font-bold text-paper transition hover:bg-slate">
             Guardar cambios
-          </button>
+          </PendingSubmitButton>
           {c.openrouterApiKey ? (
-            <button formAction={clearApiKey} className="rounded-full border border-red-300 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50">
+            <PendingSubmitButton loadingText="Borrando…" formAction={clearApiKey} className="rounded-full border border-red-300 px-4 py-2 text-sm font-semibold text-red-600 hover:bg-red-50">
               Borrar clave de IA
-            </button>
+            </PendingSubmitButton>
           ) : null}
           <Link href={`/clients?client=${slug}`} className="ml-auto text-sm text-slate hover:text-ink">
             Cancelar

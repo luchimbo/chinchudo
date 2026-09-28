@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { LoadingSpinner } from "@/components/loading-ui";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -124,9 +125,9 @@ export default function RegisterPage() {
             <button
               type="submit"
               disabled={loading}
-              className="mt-6 w-full rounded-full bg-slate-950 py-3 text-sm font-semibold text-white shadow-lg hover:bg-slate-800 focus:outline-none focus:ring-4 focus:ring-slate-500/20 active:bg-slate-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150 hover:-translate-y-0.5"
+              className="mt-6 w-full rounded-full bg-ink py-3 text-sm font-semibold text-white shadow-lg hover:bg-slate focus:outline-none focus:ring-4 focus:ring-ink/20 active:bg-ink disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-150 hover:-translate-y-0.5"
             >
-              {loading ? "Creando espacio..." : "Crear Espacio y Comenzar"}
+              {loading ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Creando espacio…</span> : "Crear Espacio y Comenzar"}
             </button>
           </form>
 

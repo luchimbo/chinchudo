@@ -1,3 +1,4 @@
+import { PendingSubmitButton } from "@/components/pending-submit-button";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
@@ -95,9 +96,9 @@ export default async function IdentidadConfigPage({
         </div>
 
         <div className="mt-6 border-t border-ink/10 pt-6">
-          <button type="submit" className="rounded-full bg-ink px-6 py-2.5 text-sm font-bold text-paper transition hover:bg-slate">
+          <PendingSubmitButton loadingText="Guardando…" type="submit" className="rounded-full bg-ink px-6 py-2.5 text-sm font-bold text-paper transition hover:bg-slate">
             Guardar cambios
-          </button>
+          </PendingSubmitButton>
         </div>
       </form>
     </div>

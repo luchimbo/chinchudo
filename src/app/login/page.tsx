@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { verifyJwt } from "@/lib/auth-crypto";
+import { NativePendingButton, NativePendingForm } from "@/components/native-pending-form";
 
 type Props = { searchParams: { from?: string; error?: string } };
 
@@ -38,7 +39,7 @@ export default async function LoginPage({ searchParams }: Props) {
             </div>
           )}
 
-          <form action="/api/auth/login" method="POST" className="space-y-4">
+          <NativePendingForm action="/api/auth/login" method="POST" className="space-y-4">
             <input type="hidden" name="from" value={from} />
 
             <label htmlFor="username" className="block">
@@ -72,18 +73,19 @@ export default async function LoginPage({ searchParams }: Props) {
               />
             </label>
 
-            <button
+            <NativePendingButton
+              loadingText="Ingresando…"
               type="submit"
               className="mt-6 w-full rounded-full bg-ink py-3 text-sm font-semibold text-paper shadow-lg shadow-ink/15 transition-all duration-150 hover:-translate-y-0.5 hover:bg-slate focus:outline-none focus:ring-4 focus:ring-ink/20 active:bg-ink"
             >
               Entrar
-            </button>
+            </NativePendingButton>
             <p className="mt-3 text-center text-xs text-slate">
               <a href="/recuperar" className="font-semibold text-ink underline decoration-ink/25 underline-offset-4">
                 ¿Olvidaste tu contraseña?
               </a>
             </p>
-          </form>
+          </NativePendingForm>
 
           <div className="mt-6 text-center text-xs text-slate">
             &iquest;Nuevo aqu&iacute;?{" "}

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { acceptCopilotRefinementAction, applyChatSuggestionAction, applyRefinedResponseAction, saveRefinementChatAction, sendRefinementMessageAction } from "@/app/(app)/opportunities/actions";
 import type { ChatMessage, ChatSuggestion } from "@/lib/refine-draft";
 import { copyToClipboard } from "./clipboard";
+import { LoadingSpinner } from "@/components/loading-ui";
 
 export type { ChatMessage };
 
@@ -229,9 +230,9 @@ export function RefinementChat({ opportunityId, responseId, clientSlug, currentT
             onUse={() => applySuggestion(index)}
           /> : null}
         </div></div>)}
-      {sending ? <div className="flex justify-start"><div className="rounded-2xl rounded-bl-none border border-ink/10 bg-paper/50 px-3.5 py-2.5 text-sm text-slate">Escribiendo…</div></div> : null}
+      {sending ? <div className="flex justify-start"><div role="status" className="inline-flex items-center gap-2 rounded-2xl rounded-bl-none border border-ink/10 bg-paper/50 px-3.5 py-2.5 text-sm text-slate"><LoadingSpinner />Preparando respuesta…</div></div> : null}
     </div>
-    {error ? <p className="mx-4 mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p> : null}
+    {error ? <p role="alert" className="mx-4 mb-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p> : null}
     {accepted && learnedRules ? <div className="mx-4 mb-2 rounded-lg bg-moss/[0.06] px-3 py-2 text-xs leading-5 text-ink">
       <div className="flex items-center justify-between gap-2"><span className="font-bold">{learnedRules.length > 0 ? `Aprendido (${learnedRules.length})` : "No se detectaron reglas nuevas en este chat"}</span><a href={`/aprendizaje${clientSlug ? `?client=${encodeURIComponent(clientSlug)}` : ""}`} className="font-bold text-moss underline decoration-moss/30 underline-offset-4 hover:text-ink">Ver en Aprendizaje</a></div>
       {learnedRules.length > 0 ? <ul className="mt-1.5 list-disc space-y-1 pl-4">{learnedRules.map((rule) => <li key={rule}>{rule}</li>)}</ul> : null}
@@ -239,11 +240,11 @@ export function RefinementChat({ opportunityId, responseId, clientSlug, currentT
     <div className="border-t border-ink/10 bg-paper/40 p-3">
       <form onSubmit={(event) => { event.preventDefault(); send(input); }} className="flex items-end gap-2">
         <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(input); } }} rows={2} disabled={sending} placeholder="Escribí tu indicación y presioná Enter…" className="flex-1 resize-none rounded-lg border border-ink/15 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-ink" />
-        <button type="submit" disabled={busy || !input.trim()} className="rounded-lg bg-ink px-4 py-2.5 text-xs font-bold text-paper transition hover:bg-slate disabled:opacity-50">Enviar</button>
+        <button type="submit" disabled={busy || !input.trim()} className="rounded-lg bg-ink px-4 py-2.5 text-xs font-bold text-paper transition hover:bg-slate disabled:opacity-50">{sending ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Enviando…</span> : "Enviar"}</button>
       </form>
       <div className="mt-2.5 flex flex-wrap justify-end gap-2">
-          <button type="button" onClick={compile} disabled={busy || history.length === 0} className="rounded-full bg-brass px-3.5 py-2 text-xs font-bold text-white transition hover:bg-ink disabled:opacity-50">{compiling ? "✨ Generando…" : "✨ Generar nueva respuesta"}</button>
-        <button type="button" onClick={accept} disabled={busy || accepted} className="rounded-full bg-moss px-3.5 py-2 text-xs font-bold text-white transition hover:bg-moss/85 disabled:opacity-50">{accepting ? "Guardando y aprendiendo…" : accepted ? "Aceptada" : "Aceptar como respuesta correcta"}</button>
+          <button type="button" onClick={compile} disabled={busy || history.length === 0} className="rounded-full bg-brass px-3.5 py-2 text-xs font-bold text-white transition hover:bg-ink disabled:opacity-50">{compiling ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Generando…</span> : "✨ Generar nueva respuesta"}</button>
+        <button type="button" onClick={accept} disabled={busy || accepted} className="rounded-full bg-moss px-3.5 py-2 text-xs font-bold text-white transition hover:bg-moss/85 disabled:opacity-50">{accepting ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Guardando y aprendiendo…</span> : accepted ? "Aceptada" : "Aceptar como respuesta correcta"}</button>
       </div>
     </div>
   </div>;

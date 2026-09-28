@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { updateOpportunityStatus } from "@/app/(app)/opportunities/actions";
 import { splitOpportunitySourcePreview, youtubeVideoTitle } from "@/lib/opportunity-source-metadata";
 import { statusLabels } from "@/lib/labels";
+import { PendingSubmitButton } from "./pending-submit-button";
 
 export type OpportunityRow = Prisma.OpportunityGetPayload<{
   include: { channel: true };
@@ -81,17 +82,17 @@ export function OpportunityList({
             {opportunity.status === "NEW" ? (
               <form action={updateOpportunityStatus}>
                 <input type="hidden" name="opportunityId" value={opportunity.id} />
-                <button name="status" value="NEEDS_REVIEW" className="h-9 rounded-full border border-ink/15 px-3 text-xs font-bold text-ink transition hover:border-ink/40 hover:bg-white">
+                <PendingSubmitButton name="status" value="NEEDS_REVIEW" loadingText="Guardando…" className="h-9 rounded-full border border-ink/15 px-3 text-xs font-bold text-ink transition hover:border-ink/40 hover:bg-white">
                   Revisar luego
-                </button>
+                </PendingSubmitButton>
               </form>
             ) : null}
             {!["DISCARDED", "ARCHIVED", "PUBLISHED", "FOLLOW_UP", "CONVERTED"].includes(opportunity.status) ? (
               <form action={updateOpportunityStatus}>
                 <input type="hidden" name="opportunityId" value={opportunity.id} />
-                <button name="status" value="DISCARDED" className="h-9 rounded-full border border-ink/10 px-3 text-xs font-bold text-slate/65 transition hover:border-signal/30 hover:text-signal">
+                <PendingSubmitButton name="status" value="DISCARDED" loadingText="Descartando…" className="h-9 rounded-full border border-ink/10 px-3 text-xs font-bold text-slate/65 transition hover:border-signal/30 hover:text-signal">
                   Descartar
-                </button>
+                </PendingSubmitButton>
               </form>
             ) : null}
             <Link

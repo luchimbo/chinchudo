@@ -1,3 +1,4 @@
+import { PendingSubmitButton } from "@/components/pending-submit-button";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { requirePageClient } from "@/lib/auth";
@@ -142,11 +143,11 @@ export default async function LandingsPage({
           {status === "PREVIEW_ONLINE" && activeClient ? (
             <div className="flex flex-wrap justify-end gap-2">
               <form action={publishSelectedLandings} id="publish-selected-landings">
-                <button type="submit" className="rounded-lg border border-moss/40 bg-moss/10 px-3 py-1.5 text-xs font-semibold text-moss transition hover:bg-moss/20">Publicar seleccionadas</button>
+                <PendingSubmitButton loadingText="Publicando…" type="submit" className="rounded-lg border border-moss/40 bg-moss/10 px-3 py-1.5 text-xs font-semibold text-moss transition hover:bg-moss/20">Publicar seleccionadas</PendingSubmitButton>
               </form>
               <form action={publishAllOnlineLandings}>
                 <input type="hidden" name="clientId" value={activeClient.id} />
-                <button type="submit" className="rounded-lg bg-moss px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-moss/90">Publicar todas</button>
+                <PendingSubmitButton loadingText="Publicando…" type="submit" className="rounded-lg bg-moss px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-moss/90">Publicar todas</PendingSubmitButton>
               </form>
             </div>
           ) : null}
@@ -211,16 +212,16 @@ export default async function LandingsPage({
                       <form action={updateLandingStatus}>
                         <input type="hidden" name="id" value={landing.id} />
                         <input type="hidden" name="status" value="APPROVED" />
-                        <button type="submit" className="rounded-lg border border-brass/40 bg-brass/10 px-3 py-1.5 text-xs font-semibold text-brass transition hover:bg-brass/20">
+                        <PendingSubmitButton loadingText="Aprobando…" type="submit" className="rounded-lg border border-brass/40 bg-brass/10 px-3 py-1.5 text-xs font-semibold text-brass transition hover:bg-brass/20">
                           Aprobar
-                        </button>
+                        </PendingSubmitButton>
                       </form>
                       <form action={updateLandingStatus}>
                         <input type="hidden" name="id" value={landing.id} />
                         <input type="hidden" name="status" value="ARCHIVED" />
-                        <button type="submit" className="rounded-lg border border-signal/40 bg-signal/5 px-3 py-1.5 text-xs font-semibold text-signal transition hover:bg-signal/15">
+                        <PendingSubmitButton loadingText="Archivando…" type="submit" className="rounded-lg border border-signal/40 bg-signal/5 px-3 py-1.5 text-xs font-semibold text-signal transition hover:bg-signal/15">
                           Archivar
-                        </button>
+                        </PendingSubmitButton>
                       </form>
                     </>
                   )}
@@ -228,23 +229,23 @@ export default async function LandingsPage({
                     <>
                       <form action={publishLandingPreview}>
                         <input type="hidden" name="id" value={landing.id} />
-                        <button type="submit" className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 transition hover:bg-sky-100">
+                        <PendingSubmitButton loadingText="Generando…" type="submit" className="rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 transition hover:bg-sky-100">
                           Generar link online
-                        </button>
+                        </PendingSubmitButton>
                       </form>
                       <form action={updateLandingStatus}>
                         <input type="hidden" name="id" value={landing.id} />
                         <input type="hidden" name="status" value="PUBLISHED" />
-                        <button type="submit" className="rounded-lg border border-moss/40 bg-moss/10 px-3 py-1.5 text-xs font-semibold text-moss transition hover:bg-moss/20">
+                        <PendingSubmitButton loadingText="Publicando…" type="submit" className="rounded-lg border border-moss/40 bg-moss/10 px-3 py-1.5 text-xs font-semibold text-moss transition hover:bg-moss/20">
                           Publicar
-                        </button>
+                        </PendingSubmitButton>
                       </form>
                       <form action={updateLandingStatus}>
                         <input type="hidden" name="id" value={landing.id} />
                         <input type="hidden" name="status" value="ARCHIVED" />
-                        <button type="submit" className="rounded-lg border border-signal/40 bg-signal/5 px-3 py-1.5 text-xs font-semibold text-signal transition hover:bg-signal/15">
+                        <PendingSubmitButton loadingText="Archivando…" type="submit" className="rounded-lg border border-signal/40 bg-signal/5 px-3 py-1.5 text-xs font-semibold text-signal transition hover:bg-signal/15">
                           Archivar
-                        </button>
+                        </PendingSubmitButton>
                       </form>
                     </>
                   )}
@@ -264,16 +265,16 @@ export default async function LandingsPage({
                       </a>
                       <form action={publishSelectedLandings}>
                         <input type="hidden" name="landingId" value={landing.id} />
-                        <button type="submit" className="rounded-lg border border-moss/40 bg-moss/10 px-3 py-1.5 text-xs font-semibold text-moss transition hover:bg-moss/20">
+                        <PendingSubmitButton loadingText="Publicando…" type="submit" className="rounded-lg border border-moss/40 bg-moss/10 px-3 py-1.5 text-xs font-semibold text-moss transition hover:bg-moss/20">
                           Publicar landing
-                        </button>
+                        </PendingSubmitButton>
                       </form>
                       <form action={updateLandingStatus}>
                         <input type="hidden" name="id" value={landing.id} />
                         <input type="hidden" name="status" value="ARCHIVED" />
-                        <button type="submit" className="rounded-lg border border-signal/40 bg-signal/5 px-3 py-1.5 text-xs font-semibold text-signal transition hover:bg-signal/15">
+                        <PendingSubmitButton loadingText="Archivando…" type="submit" className="rounded-lg border border-signal/40 bg-signal/5 px-3 py-1.5 text-xs font-semibold text-signal transition hover:bg-signal/15">
                           Archivar
-                        </button>
+                        </PendingSubmitButton>
                       </form>
                     </>
                   )}
@@ -294,9 +295,9 @@ export default async function LandingsPage({
                       <form action={updateLandingStatus}>
                         <input type="hidden" name="id" value={landing.id} />
                         <input type="hidden" name="status" value="ARCHIVED" />
-                        <button type="submit" className="rounded-lg border border-signal/40 bg-signal/5 px-3 py-1.5 text-xs font-semibold text-signal transition hover:bg-signal/15">
+                        <PendingSubmitButton loadingText="Archivando…" type="submit" className="rounded-lg border border-signal/40 bg-signal/5 px-3 py-1.5 text-xs font-semibold text-signal transition hover:bg-signal/15">
                           Despublicar / Archivar
-                        </button>
+                        </PendingSubmitButton>
                       </form>
                     </>
                   )}
@@ -305,9 +306,9 @@ export default async function LandingsPage({
                       <form action={updateLandingStatus}>
                         <input type="hidden" name="id" value={landing.id} />
                         <input type="hidden" name="status" value="DRAFT" />
-                        <button type="submit" className="rounded-lg border border-ink/20 px-3 py-1.5 text-xs font-semibold text-slate transition hover:border-ink/40 hover:text-ink">
+                        <PendingSubmitButton loadingText="Restaurando…" type="submit" className="rounded-lg border border-ink/20 px-3 py-1.5 text-xs font-semibold text-slate transition hover:border-ink/40 hover:text-ink">
                           Restaurar a borrador
-                        </button>
+                        </PendingSubmitButton>
                       </form>
                     </>
                   )}

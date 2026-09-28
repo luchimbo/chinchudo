@@ -3,6 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { sendRefinementMessageAction, applyRefinedResponseAction, saveRefinementChatAction } from "../actions";
+import { LoadingSpinner } from "@/components/loading-ui";
 
 type ChatMessage = {
   sender: "user" | "assistant";
@@ -211,8 +212,8 @@ export function RefinementModal({
                   ))}
                   {isLoading && (
                     <div className="flex justify-start">
-                      <div className="rounded-2xl rounded-bl-none border border-ink/10 bg-white px-4 py-3 text-sm text-slate shadow-sm">
-                        Escribiendo…
+                      <div role="status" className="inline-flex items-center gap-2 rounded-2xl rounded-bl-none border border-ink/10 bg-white px-4 py-3 text-sm text-slate shadow-sm">
+                        <LoadingSpinner />Preparando respuesta…
                       </div>
                     </div>
                   )}
@@ -220,7 +221,7 @@ export function RefinementModal({
               )}
 
               {error ? (
-                <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                <div role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                   {error}
                 </div>
               ) : null}
@@ -247,7 +248,7 @@ export function RefinementModal({
                   disabled={isLoading || !input.trim()}
                   className="rounded-xl bg-ink px-5 py-3 text-sm font-bold text-paper transition hover:bg-slate-850 disabled:opacity-50"
                 >
-                  {isLoading ? "…" : "Enviar"}
+                  {isLoading ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Enviando…</span> : "Enviar"}
                 </button>
               </form>
 
@@ -261,7 +262,7 @@ export function RefinementModal({
                   disabled={isCompiling || isLoading || chatHistory.length === 0}
                   className="rounded-xl bg-brass px-5 py-2.5 text-sm font-bold text-white transition hover:bg-ink disabled:opacity-50"
                 >
-                  {isCompiling ? "✨ Generando…" : "✨ Generar nueva respuesta"}
+                  {isCompiling ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Generando…</span> : "✨ Generar nueva respuesta"}
                 </button>
               </div>
             </div>

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { getVisibleClients, requirePageClient } from "@/lib/auth";
 import { deleteClientMemoryAction, createManualClientMemoryAction, unmarkAcceptedResponseAction, updateClientMemoryAction } from "../opportunities/actions";
 import { SubmitButton } from "../opportunities/[id]/SubmitButton";
+import { PendingSubmitButton } from "@/components/pending-submit-button";
 
 const CATEGORY_COLORS: Record<string, string> = {
   tone: "bg-purple-100 text-purple-800 border-purple-200",
@@ -113,7 +114,7 @@ export default async function AprendizajePage({ searchParams }: PageProps) {
                       <form action={updateClientMemoryAction} className="space-y-2">
                         <input type="hidden" name="memoryId" value={mem.id} />
                         <textarea name="rule" defaultValue={mem.rule} rows={3} className="w-full resize-y rounded-lg border border-ink/10 bg-paper/60 px-3 py-2 text-sm font-semibold leading-relaxed text-ink outline-none focus:border-ink" />
-                        <button type="submit" className="rounded-full border border-ink/15 px-3 py-1.5 text-xs font-bold text-ink hover:border-ink/40">Guardar cambio</button>
+                        <PendingSubmitButton loadingText="Guardando…" className="rounded-full border border-ink/15 px-3 py-1.5 text-xs font-bold text-ink hover:border-ink/40">Guardar cambio</PendingSubmitButton>
                       </form>
 
                       {mem.summary && mem.summary !== mem.rule ? (
@@ -129,13 +130,13 @@ export default async function AprendizajePage({ searchParams }: PageProps) {
                         await deleteClientMemoryAction(mem.id);
                       }}
                     >
-                      <button
+                      <PendingSubmitButton loadingText="Eliminando…"
                         type="submit"
                         className="rounded-lg border border-red-200 bg-red-50/50 px-3 py-1.5 text-xs font-bold text-red-700 transition hover:bg-red-100 hover:text-red-900"
                         title="Eliminar esta regla de la memoria"
                       >
                         🗑️ Eliminar
-                      </button>
+                      </PendingSubmitButton>
                     </form>
                   </article>
                 );
@@ -162,7 +163,7 @@ export default async function AprendizajePage({ searchParams }: PageProps) {
                     <span>{accepted.brand.name} • {accepted.acceptedAsCorrectAt ? new Date(accepted.acceptedAsCorrectAt).toLocaleDateString("es-AR") : ""}</span>
                     <form action={unmarkAcceptedResponseAction}>
                       <input type="hidden" name="responseId" value={accepted.id} />
-                      <button type="submit" className="rounded-lg border border-red-200 bg-red-50/50 px-3 py-1.5 text-xs font-bold text-red-700 transition hover:bg-red-100">Quitar de ejemplos</button>
+                      <PendingSubmitButton loadingText="Quitando…" className="rounded-lg border border-red-200 bg-red-50/50 px-3 py-1.5 text-xs font-bold text-red-700 transition hover:bg-red-100">Quitar de ejemplos</PendingSubmitButton>
                     </form>
                   </div>
                   <p className="mt-2 line-clamp-3 text-xs leading-5 text-slate">Comentario: {accepted.opportunity.sourceText}</p>

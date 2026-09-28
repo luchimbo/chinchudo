@@ -1,3 +1,4 @@
+import { PendingSubmitButton } from "@/components/pending-submit-button";
 import Link from "next/link";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -82,7 +83,7 @@ export default async function MonitoringPage({ searchParams }: { searchParams: {
           <label className={labelCls}>Límite<input name="limit" type="number" min={1} max={50} defaultValue={5} className={inputCls} /></label>
           <label className="flex items-end gap-2 text-xs font-semibold text-slate"><input name="active" type="checkbox" defaultChecked className="h-4 w-4" /> Activa</label>
           <div className="flex min-w-0 items-end justify-stretch md:col-span-2 md:justify-end">
-            <button className="w-full rounded-full bg-ink px-5 py-2 text-sm font-bold text-paper transition hover:bg-slate sm:w-auto">Agregar fuente</button>
+            <PendingSubmitButton loadingText="Agregando…" className="w-full rounded-full bg-ink px-5 py-2 text-sm font-bold text-paper transition hover:bg-slate sm:w-auto">Agregar fuente</PendingSubmitButton>
           </div>
         </form>
       </section>
@@ -118,8 +119,8 @@ export default async function MonitoringPage({ searchParams }: { searchParams: {
               <div className="flex min-w-0 flex-col gap-3 md:col-span-2 md:flex-row md:items-end md:justify-between">
                 <span className="text-xs text-slate/60">Última corrida: {fmt(s.lastRunAt)} · {s.lastCount} detección(es)</span>
                 <div className="grid grid-cols-2 gap-2 sm:flex">
-                  <button className="rounded-full border border-ink/20 px-4 py-2 text-sm font-bold text-ink hover:bg-white">Guardar</button>
-                  <button formAction={deleteSource} className="rounded-full border border-red-300 px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-50">Eliminar</button>
+                  <PendingSubmitButton loadingText="Guardando…" className="rounded-full border border-ink/20 px-4 py-2 text-sm font-bold text-ink hover:bg-white">Guardar</PendingSubmitButton>
+                  <PendingSubmitButton loadingText="Eliminando…" formAction={deleteSource} className="rounded-full border border-red-300 px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-50">Eliminar</PendingSubmitButton>
                 </div>
               </div>
             </form>

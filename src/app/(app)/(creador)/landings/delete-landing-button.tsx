@@ -1,5 +1,7 @@
 "use client";
 
+import { PendingSubmitButton } from "@/components/pending-submit-button";
+
 export function DeleteLandingButton({
   id,
   action,
@@ -15,9 +17,9 @@ export function DeleteLandingButton({
       }}
     >
       <input type="hidden" name="id" value={id} />
-      <button type="submit" className="rounded-lg border border-signal/60 px-3 py-1.5 text-xs font-semibold text-signal transition hover:bg-signal/10">
+      <PendingSubmitButton loadingText="Eliminando…" className="rounded-lg border border-signal/60 px-3 py-1.5 text-xs font-semibold text-signal transition hover:bg-signal/10">
         Eliminar landing
-      </button>
+      </PendingSubmitButton>
     </form>
   );
 }

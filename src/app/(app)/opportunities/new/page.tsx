@@ -1,3 +1,4 @@
+import { PendingSubmitButton } from "@/components/pending-submit-button";
 import Link from "next/link";
 import { createOpportunity } from "../actions";
 import { prisma } from "@/lib/db";
@@ -147,9 +148,9 @@ export default async function NewOpportunityPage({ searchParams }: { searchParam
         </label>
 
         <div className="flex min-w-0 justify-stretch md:col-span-2 md:justify-end">
-          <button type="submit" className="w-full rounded-full bg-ink px-6 py-3 text-sm font-bold text-paper shadow-lg transition hover:bg-slate sm:w-auto">
+          <PendingSubmitButton loadingText="Guardando…" type="submit" className="w-full rounded-full bg-ink px-6 py-3 text-sm font-bold text-paper shadow-lg transition hover:bg-slate sm:w-auto">
             Guardar oportunidad
-          </button>
+          </PendingSubmitButton>
         </div>
       </form>
     </div>

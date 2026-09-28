@@ -1,3 +1,4 @@
+import { PendingSubmitButton } from "@/components/pending-submit-button";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { requirePageClient } from "@/lib/auth";
@@ -61,7 +62,7 @@ export default async function PersonasPage({ searchParams }: { searchParams: { c
           <label className={labelCls}>Ejemplo bueno<textarea name="goodExamples" rows={2} className={`${inputCls} resize-y`} /></label>
           <label className={labelCls}>Ejemplo prohibido<textarea name="badExamples" rows={2} className={`${inputCls} resize-y`} /></label>
           <div className="flex items-end justify-end md:col-span-2">
-            <button className="rounded-full bg-ink px-5 py-2 text-sm font-bold text-paper transition hover:bg-slate">Agregar persona</button>
+            <PendingSubmitButton loadingText="Agregando…" className="rounded-full bg-ink px-5 py-2 text-sm font-bold text-paper transition hover:bg-slate">Agregar persona</PendingSubmitButton>
           </div>
         </form>
       </section>
@@ -101,8 +102,8 @@ export default async function PersonasPage({ searchParams }: { searchParams: { c
                 <div className="flex items-end justify-between gap-2 md:col-span-2">
                   <span className="text-xs text-slate/60">{p._count.responses} respuestas</span>
                   <div className="flex gap-2">
-                    <button className="rounded-full border border-ink/20 px-4 py-2 text-sm font-bold text-ink hover:bg-white">Guardar</button>
-                    <button formAction={deletePersona} className="rounded-full border border-red-300 px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-50">Eliminar</button>
+                    <PendingSubmitButton loadingText="Guardando…" className="rounded-full border border-ink/20 px-4 py-2 text-sm font-bold text-ink hover:bg-white">Guardar</PendingSubmitButton>
+                    <PendingSubmitButton loadingText="Eliminando…" formAction={deletePersona} className="rounded-full border border-red-300 px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-50">Eliminar</PendingSubmitButton>
                   </div>
                 </div>
               </form>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useFormStatus } from "react-dom";
+import { PendingSubmitButton } from "@/components/pending-submit-button";
 
 type SubmitButtonProps = {
   children: React.ReactNode;
@@ -11,17 +11,5 @@ type SubmitButtonProps = {
 };
 
 export function SubmitButton({ children, loadingText, className, name, value }: SubmitButtonProps) {
-  const { pending } = useFormStatus();
-
-  return (
-    <button
-      type="submit"
-      disabled={pending}
-      name={name}
-      value={value}
-      className={className}
-    >
-      {pending ? (loadingText ?? "Guardando…") : children}
-    </button>
-  );
+  return <PendingSubmitButton loadingText={loadingText ?? "Guardando…"} className={className} name={name} value={value}>{children}</PendingSubmitButton>;
 }

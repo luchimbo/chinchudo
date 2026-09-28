@@ -1,7 +1,9 @@
 "use client";
 
+import { useTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { LoadingSpinner } from "./loading-ui";
 
 type ClientOption = {
   slug: string;
@@ -20,6 +22,7 @@ export function ClientSwitcher({ clients }: { clients: ClientOption[] }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const [isPending, startTransition] = useTransition();
 
   const activeSlug = searchParams.get("client") ?? clients[0]?.slug ?? "";
   const active = clients.find((c) => c.slug === activeSlug) ?? clients[0] ?? null;
@@ -30,7 +33,7 @@ export function ClientSwitcher({ clients }: { clients: ClientOption[] }) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("client", slug);
     params.delete("page");
-    router.replace(`${pathname}?${params.toString()}`);
+    startTransition(() => router.replace(`${pathname}?${params.toString()}`));
   };
 
   return (
@@ -45,12 +48,15 @@ export function ClientSwitcher({ clients }: { clients: ClientOption[] }) {
         <select
           value={active.slug}
           onChange={(e) => switchClient(e.target.value)}
+          disabled={isPending}
+          aria-label="Cambiar cliente"
           className="min-w-0 max-w-[42vw] bg-transparent text-sm font-bold text-ink outline-none sm:max-w-none"
         >
           {clients.map((c) => (
             <option key={c.slug} value={c.slug}>{c.name}</option>
           ))}
         </select>
+        {isPending ? <span role="status" className="inline-flex items-center gap-1 text-xs text-slate"><LoadingSpinner /><span className="sr-only">Cambiando cliente…</span></span> : null}
       </div>
       <Link
         href={`/clients/${active.slug}`}

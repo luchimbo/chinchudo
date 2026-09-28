@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { LogoUpload } from "./logo-upload";
+import { LoadingSpinner } from "@/components/loading-ui";
 
 const inputCls = "rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm text-ink w-full";
 const labelCls = "grid gap-1 text-xs font-semibold text-slate";
@@ -34,18 +35,25 @@ export function ConfigForm({ config, updateConfig }: { config: Config; updateCon
   const [logoUrl, setLogoUrl] = useState(config.logoUrl);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSaving(true);
     setSaved(false);
+    setError("");
     const fd = new FormData(e.currentTarget);
     fd.set("logoUrl", logoUrl);
-    await updateConfig(fd);
-    setSaving(false);
-    setSaved(true);
-    router.refresh();
-    setTimeout(() => setSaved(false), 3000);
+    try {
+      await updateConfig(fd);
+      setSaved(true);
+      router.refresh();
+      setTimeout(() => setSaved(false), 3000);
+    } catch {
+      setError("No se pudo guardar la configuración. Intentá de nuevo.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -151,9 +159,10 @@ export function ConfigForm({ config, updateConfig }: { config: Config; updateCon
           disabled={saving}
           className="rounded-full bg-ink px-6 py-2.5 text-sm font-bold text-paper transition hover:bg-slate disabled:opacity-60"
         >
-          {saving ? "Guardando…" : "Guardar cambios"}
+          {saving ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Guardando…</span> : "Guardar cambios"}
         </button>
         {saved ? <span className="text-xs font-semibold text-emerald-600">✓ Guardado</span> : null}
+        {error ? <span role="alert" className="text-xs font-semibold text-red-700">{error}</span> : null}
       </div>
     </form>
   );

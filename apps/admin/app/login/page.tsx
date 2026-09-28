@@ -10,14 +10,19 @@ export default function LoginPage() {
     event.preventDefault();
     setBusy(true); setError("");
     const form = new FormData(event.currentTarget);
-    const response = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email: String(form.get("email") || ""), password: String(form.get("password") || "") }),
-    });
-    const data = await response.json();
-    if (!response.ok) { setError(data.error || "Credenciales inválidas."); setBusy(false); return; }
-    window.location.assign("/");
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: String(form.get("email") || ""), password: String(form.get("password") || "") }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Credenciales inválidas.");
+      window.location.assign("/");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudo ingresar. Intentá de nuevo.");
+      setBusy(false);
+    }
   }
 
   return (
@@ -30,7 +35,7 @@ export default function LoginPage() {
         <form onSubmit={submit} className="grid" style={{ marginTop: 28 }}>
           <label className="sans"><span className="eyebrow">Email</span><input className="field" name="email" type="email" required autoComplete="email" /></label>
           <label className="sans"><span className="eyebrow">Contraseña</span><input className="field" name="password" type="password" required autoComplete="current-password" /></label>
-          <button className="button" disabled={busy}>{busy ? "Verificando…" : "Entrar"}</button>
+          <button className="button" disabled={busy}>{busy ? <span role="status" className="admin-pending"><span className="admin-spinner" aria-hidden="true" />Verificando…</span> : "Entrar"}</button>
         </form>
       </section>
     </main>

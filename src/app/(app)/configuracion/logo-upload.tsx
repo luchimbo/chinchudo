@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import Image from "next/image";
+import { LoadingSpinner } from "@/components/loading-ui";
 
 export function LogoUpload({
   clientSlug,
@@ -31,18 +32,17 @@ export function LogoUpload({
     form.append("file", file);
     form.append("clientSlug", clientSlug);
 
-    const res = await fetch("/api/upload/logo", { method: "POST", body: form });
-    const data = await res.json();
-
-    setLoading(false);
-
-    if (!res.ok) {
-      setError(data.error ?? "Error al subir el archivo.");
+    try {
+      const res = await fetch("/api/upload/logo", { method: "POST", body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Error al subir el archivo.");
+      onUploaded(data.url);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "No se pudo subir el logo.");
       setPreview(currentUrl);
-      return;
+    } finally {
+      setLoading(false);
     }
-
-    onUploaded(data.url);
   }
 
   return (
@@ -74,7 +74,7 @@ export function LogoUpload({
           onClick={() => inputRef.current?.click()}
           className="rounded-full border border-ink/20 px-4 py-1.5 text-xs font-semibold text-slate transition hover:border-ink/40 hover:text-ink disabled:opacity-50"
         >
-          {loading ? "Subiendo…" : preview ? "Cambiar logo" : "Subir logo"}
+          {loading ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Subiendo…</span> : preview ? "Cambiar logo" : "Subir logo"}
         </button>
         <span className="text-[11px] text-slate/50">PNG o SVG · fondo transparente · 400 × 120 px</span>
       </div>

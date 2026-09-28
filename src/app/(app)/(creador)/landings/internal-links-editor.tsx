@@ -1,3 +1,4 @@
+import { PendingSubmitButton } from "@/components/pending-submit-button";
 import { excludeInternalLink, pinInternalLink, resetInternalLink } from "./actions";
 
 export type EditorialLink = {
@@ -60,23 +61,23 @@ export function InternalLinksEditor({
                   aria-label="Texto del enlace"
                   className="w-48 rounded border border-ink/15 bg-paper px-2 py-0.5 text-[11px]"
                 />
-                <button type="submit" className={`${smallButton} border-moss/40 text-moss hover:bg-moss/10`}>
+                <PendingSubmitButton loadingText="Guardando…" className={`${smallButton} border-moss/40 text-moss hover:bg-moss/10`}>
                   {link.mode === "PINNED" ? "Guardar" : "Fijar"}
-                </button>
+                </PendingSubmitButton>
               </form>
             ) : null}
             {link.mode !== "EXCLUDED" ? (
               <form action={excludeInternalLink}>
                 <input type="hidden" name="sourceId" value={sourceId} />
                 <input type="hidden" name="targetId" value={link.targetId} />
-                <button type="submit" className={`${smallButton} border-signal/40 text-signal hover:bg-signal/10`}>Excluir</button>
+                <PendingSubmitButton loadingText="Excluyendo…" type="submit" className={`${smallButton} border-signal/40 text-signal hover:bg-signal/10`}>Excluir</PendingSubmitButton>
               </form>
             ) : null}
             {link.mode !== "AUTO" ? (
               <form action={resetInternalLink}>
                 <input type="hidden" name="sourceId" value={sourceId} />
                 <input type="hidden" name="targetId" value={link.targetId} />
-                <button type="submit" className={`${smallButton} border-ink/20 text-slate hover:border-ink/40`}>Automático</button>
+                <PendingSubmitButton loadingText="Restableciendo…" type="submit" className={`${smallButton} border-ink/20 text-slate hover:border-ink/40`}>Automático</PendingSubmitButton>
               </form>
             ) : null}
           </li>
@@ -93,7 +94,7 @@ export function InternalLinksEditor({
             ))}
           </select>
           <input name="anchorText" placeholder="Texto del enlace (opcional)" maxLength={180} className="w-56 rounded border border-ink/15 bg-paper px-2 py-1 text-[11px]" />
-          <button type="submit" className={`${smallButton} border-moss/40 text-moss hover:bg-moss/10`}>Agregar enlace fijo</button>
+          <PendingSubmitButton loadingText="Agregando…" type="submit" className={`${smallButton} border-moss/40 text-moss hover:bg-moss/10`}>Agregar enlace fijo</PendingSubmitButton>
         </form>
       ) : null}
     </details>

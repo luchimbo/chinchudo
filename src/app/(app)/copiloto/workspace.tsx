@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { useFormStatus } from "react-dom";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { discardCopilotOpportunity, generateCopilotDrafts, markCopilotResponse, publishCopilotYouTubeResponse, regenerateCopilotResponse } from "@/app/(app)/opportunities/actions";
@@ -9,6 +8,8 @@ import { communityFromUrl, formatAuthor } from "@/lib/source-author";
 import { youtubeVideoTitle } from "@/lib/opportunity-source-metadata";
 import { copyToClipboard } from "./clipboard";
 import { RefinementChat, type ChatMessage } from "./RefinementChat";
+import { PendingSubmitButton } from "@/components/pending-submit-button";
+import { LoadingSpinner } from "@/components/loading-ui";
 
 type Response = { id: string; text: string; variantType: string; isPrimary: boolean; persona: string; acceptedAsCorrect: boolean; chatHistory: ChatMessage[] };
 type Opportunity = { id: string; text: string; title: string; notes: string; author: string; sourceUrl: string; channel: string; brand: string; product: string; productId: string; createdAt: string; status: string; responses: Response[] };
@@ -167,8 +168,7 @@ function ExpandableText({ text, limit = 240, className = "" }: { text: string; l
 }
 
 function PendingSubmit({ children, pendingLabel, className }: { children: React.ReactNode; pendingLabel: string; className: string }) {
-  const { pending } = useFormStatus();
-  return <button type="submit" disabled={pending} className={`${className} disabled:cursor-wait disabled:opacity-60`}>{pending ? pendingLabel : children}</button>;
+  return <PendingSubmitButton loadingText={pendingLabel} className={className}>{children}</PendingSubmitButton>;
 }
 
 // Vive dentro del formulario de publicación, así que es type="button" y llama a la acción directamente.
@@ -196,7 +196,7 @@ function RegenerateButton({ opportunityId, responseId, acceptedAsCorrect }: { op
   }
 
   return <>
-    <button type="button" onClick={regenerate} disabled={regenerating} className="rounded-full border border-ink/15 px-3 py-2 text-xs font-bold text-ink transition hover:border-ink/40 disabled:cursor-wait disabled:opacity-60">{regenerating ? "Regenerando…" : "↻ Regenerar con lo aprendido"}</button>
+    <button type="button" onClick={regenerate} disabled={regenerating} className="rounded-full border border-ink/15 px-3 py-2 text-xs font-bold text-ink transition hover:border-ink/40 disabled:cursor-wait disabled:opacity-60">{regenerating ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Regenerando…</span> : "↻ Regenerar con lo aprendido"}</button>
     {error ? <p className="w-full text-[11px] font-medium text-red-600">{error}</p> : null}
   </>;
 }
@@ -235,7 +235,7 @@ function ProposalProductPicker({ opportunityId, responseId, products, current }:
     <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate/70">Producto de la propuesta</p>
     <div className="flex flex-wrap items-center gap-2">
       <div className="min-w-[200px] flex-1"><ProductCombobox products={products} current={current} selected={choice} onSelect={setChoice} disabled={applying} /></div>
-      <button type="button" onClick={apply} disabled={!changesProduct || applying} className="rounded-full bg-ink px-3 py-2 text-xs font-bold text-paper transition hover:bg-slate disabled:cursor-not-allowed disabled:opacity-40">{applying ? "Rehaciendo…" : "Rehacer propuesta"}</button>
+      <button type="button" onClick={apply} disabled={!changesProduct || applying} className="rounded-full bg-ink px-3 py-2 text-xs font-bold text-paper transition hover:bg-slate disabled:cursor-not-allowed disabled:opacity-40">{applying ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Rehaciendo…</span> : "Rehacer propuesta"}</button>
     </div>
     {error ? <p className="mt-1.5 text-[11px] font-medium text-red-600">{error}</p> : null}
   </div>;
@@ -283,7 +283,7 @@ function ResponseCard({ response, text, setText, opportunityId, sourceUrl, chann
           youtube?.connected ? <PendingSubmit pendingLabel="Publicando en YouTube…" className="rounded-full bg-moss px-3 py-2 text-xs font-bold text-white transition hover:bg-moss/85">Publicar en YouTube</PendingSubmit> : <a href={youtubeConnectUrl} className="rounded-full bg-moss px-3 py-2 text-xs font-bold text-white transition hover:bg-moss/85">Conectar cuenta de YouTube</a>
         ) : <>
           <PendingSubmit pendingLabel="Guardando..." className="rounded-full bg-ink px-3 py-2 text-xs font-bold text-paper transition hover:bg-slate">Guardar como respondida</PendingSubmit>
-          <button type="button" onClick={openForPublishing} disabled={openingSource} className="rounded-full bg-moss px-3 py-2 text-xs font-bold text-white transition hover:bg-moss/85 disabled:cursor-wait disabled:opacity-60">{openingSource ? "Copiando y abriendo..." : "Abrir para publicar"}</button>
+          <button type="button" onClick={openForPublishing} disabled={openingSource} className="rounded-full bg-moss px-3 py-2 text-xs font-bold text-white transition hover:bg-moss/85 disabled:cursor-wait disabled:opacity-60">{openingSource ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Abriendo…</span> : "Abrir para publicar"}</button>
         </>}
         <RegenerateButton opportunityId={opportunityId} responseId={response.id} acceptedAsCorrect={response.acceptedAsCorrect} />
       </div>
@@ -371,7 +371,7 @@ export function CopilotWorkspace({ activeClient, youtube, filters, products, opp
     }
   }
 
-  return <div className="mx-auto w-full max-w-6xl px-5 py-8 lg:px-8"><header className="grid gap-5 border-b border-ink/10 pb-7 md:grid-cols-[1fr_auto] md:items-end"><div><h1 className="font-display text-4xl leading-none text-ink md:text-5xl">Asistente CM</h1><Link href={activeClient ? `/historial?client=${encodeURIComponent(activeClient.slug)}` : "/historial"} className="mt-3 inline-flex rounded-full border border-ink/15 px-3 py-1.5 text-xs font-bold text-ink transition hover:border-ink/40 hover:bg-white">Ver respuestas enviadas →</Link></div><div className="rounded-2xl border border-moss/20 bg-moss/[0.06] px-4 py-3 text-sm text-ink"><span className="font-bold">{activeClient?.name ?? "Sin cliente"}</span><br /><span className="text-xs text-slate">YouTube: {youtube?.connected ? "publicación por API" : "conexión pendiente"}. Meta: publicación manual.</span>{youtube?.connected ? <><button type="button" onClick={disconnectYouTube} disabled={disconnectingYouTube} className="mt-3 block text-xs font-bold text-slate underline decoration-slate/35 underline-offset-4 transition hover:text-ink disabled:cursor-wait disabled:opacity-60">{disconnectingYouTube ? "Desconectando…" : "Desconectar cuenta de YouTube"}</button>{youtubeDisconnectError ? <p className="mt-2 text-xs font-medium text-red-600">{youtubeDisconnectError}</p> : null}</> : null}</div></header>
+  return <div className="mx-auto w-full max-w-6xl px-5 py-8 lg:px-8"><header className="grid gap-5 border-b border-ink/10 pb-7 md:grid-cols-[1fr_auto] md:items-end"><div><h1 className="font-display text-4xl leading-none text-ink md:text-5xl">Asistente CM</h1><Link href={activeClient ? `/historial?client=${encodeURIComponent(activeClient.slug)}` : "/historial"} className="mt-3 inline-flex rounded-full border border-ink/15 px-3 py-1.5 text-xs font-bold text-ink transition hover:border-ink/40 hover:bg-white">Ver respuestas enviadas →</Link></div><div className="rounded-2xl border border-moss/20 bg-moss/[0.06] px-4 py-3 text-sm text-ink"><span className="font-bold">{activeClient?.name ?? "Sin cliente"}</span><br /><span className="text-xs text-slate">YouTube: {youtube?.connected ? "publicación por API" : "conexión pendiente"}. Meta: publicación manual.</span>{youtube?.connected ? <><button type="button" onClick={disconnectYouTube} disabled={disconnectingYouTube} className="mt-3 block text-xs font-bold text-slate underline decoration-slate/35 underline-offset-4 transition hover:text-ink disabled:cursor-wait disabled:opacity-60">{disconnectingYouTube ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Desconectando…</span> : "Desconectar cuenta de YouTube"}</button>{youtubeDisconnectError ? <p role="alert" className="mt-2 text-xs font-medium text-red-600">{youtubeDisconnectError}</p> : null}</> : null}</div></header>
     <div className="mt-6 flex flex-wrap gap-3 rounded-2xl border border-ink/10 bg-white/65 p-3"><label className="text-xs font-bold text-slate/70">Marca<select value={filters.selectedBrand} onChange={(event) => setParam("brand", event.target.value)} className="ml-2 rounded-lg border border-ink/10 bg-paper px-2 py-1.5 text-xs text-ink"><option value="">Todas</option>{filters.brands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}</select></label><label className="text-xs font-bold text-slate/70">Red<select value={filters.selectedChannel} onChange={(event) => setParam("channel", event.target.value)} className="ml-2 rounded-lg border border-ink/10 bg-paper px-2 py-1.5 text-xs text-ink"><option value="">Todas</option>{filters.channels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}</select></label><label className="text-xs font-bold text-slate/70">Respuesta<select value={filters.selectedResponse} onChange={(event) => setParam("response", event.target.value)} className="ml-2 rounded-lg border border-ink/10 bg-paper px-2 py-1.5 text-xs text-ink"><option value="">Todas</option><option value="generated">Con respuesta generada</option></select></label><label className="text-xs font-bold text-slate/70">Orden<select value={filters.selectedSort} onChange={(event) => setParam("sort", event.target.value)} className="ml-2 rounded-lg border border-ink/10 bg-paper px-2 py-1.5 text-xs text-ink"><option value="">Relevancia</option><option value="newest">Más recientes</option><option value="oldest">Más antiguas</option></select></label></div><section className="mt-5 grid gap-4"><div><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-moss">Para revisar hoy</p><h2 className="mt-1 font-display text-2xl text-ink">Oportunidades encontradas</h2></div>{opportunities.length > 0 ? opportunities.map((opportunity) => <OpportunityCard key={opportunity.id} opportunity={opportunity} clientSlug={activeClient?.slug ?? ""} youtube={youtube} products={products} />) : <div className="rounded-2xl border border-dashed border-ink/15 bg-white/55 px-5 py-14 text-center text-sm text-slate">No hay oportunidades para revisar hoy.</div>}</section>
   </div>;
 }

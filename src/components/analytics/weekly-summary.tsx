@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { LoadingSpinner } from "@/components/loading-ui";
 
 export function WeeklySummary({ period }: { period: string }) {
   const [text, setText]       = useState<string>("");
@@ -47,12 +48,12 @@ export function WeeklySummary({ period }: { period: string }) {
           disabled={loading}
           className="inline-flex h-10 items-center justify-center rounded-full bg-ink px-5 text-sm font-bold text-paper shadow transition hover:-translate-y-0.5 hover:bg-slate disabled:opacity-50 disabled:translate-y-0"
         >
-          {loading ? "Generando…" : "Generar resumen"}
+          {loading ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Generando…</span> : "Generar resumen"}
         </button>
       </div>
 
       {error && (
-        <p className="rounded-md bg-signal/10 px-4 py-3 text-sm text-signal">{error}</p>
+        <p role="alert" className="rounded-md bg-signal/10 px-4 py-3 text-sm text-signal">{error}</p>
       )}
 
       {text && (

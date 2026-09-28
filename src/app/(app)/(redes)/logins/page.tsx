@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getRelayUrl } from "@/lib/settings";
+import { PendingSubmitButton } from "@/components/pending-submit-button";
 
 export const dynamic = "force-dynamic";
 
@@ -77,9 +78,9 @@ export default async function LoginsPage({ searchParams }: { searchParams: { sta
           <p className="mt-2 text-sm text-ink/60">Qué cuenta está logueada en qué red dentro del navegador de tu PC.</p>
         </div>
         <form action={triggerCheck}>
-          <button type="submit" className="rounded-lg bg-ink px-4 py-2 text-sm font-bold text-paper transition hover:bg-ink/85">
+          <PendingSubmitButton loadingText="Iniciando…" className="rounded-lg bg-ink px-4 py-2 text-sm font-bold text-paper transition hover:bg-ink/85">
             Revisar logins
-          </button>
+          </PendingSubmitButton>
         </form>
       </header>
 

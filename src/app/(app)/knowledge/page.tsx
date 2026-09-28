@@ -1,3 +1,4 @@
+import { PendingSubmitButton } from "@/components/pending-submit-button";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { requirePageClient } from "@/lib/auth";
@@ -97,7 +98,7 @@ export default async function KnowledgePage({ searchParams }: { searchParams: { 
             </select>
           </label>
           <div className="flex items-end justify-end md:col-span-2">
-            <button className="rounded-full bg-ink px-5 py-2 text-sm font-bold text-paper transition hover:bg-slate">Agregar FAQ</button>
+            <PendingSubmitButton loadingText="Agregando…" className="rounded-full bg-ink px-5 py-2 text-sm font-bold text-paper transition hover:bg-slate">Agregar FAQ</PendingSubmitButton>
           </div>
         </form>
 
@@ -127,8 +128,8 @@ export default async function KnowledgePage({ searchParams }: { searchParams: { 
               <div className="flex items-end justify-between gap-2 md:col-span-2">
                 <span className="text-xs text-slate/60">{f.source === "seed" ? "Origen: seed" : "Origen: manual"}</span>
                 <div className="flex gap-2">
-                  <button className="rounded-full border border-ink/20 px-4 py-2 text-sm font-bold text-ink hover:bg-white">Guardar</button>
-                  <button formAction={deleteKnowledge} className="rounded-full border border-red-300 px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-50">Eliminar</button>
+                  <PendingSubmitButton loadingText="Guardando…" className="rounded-full border border-ink/20 px-4 py-2 text-sm font-bold text-ink hover:bg-white">Guardar</PendingSubmitButton>
+                  <PendingSubmitButton loadingText="Eliminando…" formAction={deleteKnowledge} className="rounded-full border border-red-300 px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-50">Eliminar</PendingSubmitButton>
                 </div>
               </div>
             </form>
@@ -158,7 +159,7 @@ export default async function KnowledgePage({ searchParams }: { searchParams: { 
             <input name="personaNotes" placeholder="Ej: útil para Comercial" className={inputCls} />
           </label>
           <div className="flex items-end justify-end md:col-span-2">
-            <button className="rounded-full bg-ink px-5 py-2 text-sm font-bold text-paper transition hover:bg-slate">Agregar objeción</button>
+            <PendingSubmitButton loadingText="Agregando…" className="rounded-full bg-ink px-5 py-2 text-sm font-bold text-paper transition hover:bg-slate">Agregar objeción</PendingSubmitButton>
           </div>
         </form>
 
@@ -182,8 +183,8 @@ export default async function KnowledgePage({ searchParams }: { searchParams: { 
                 <input name="personaNotes" defaultValue={o.personaNotes} className={inputCls} />
               </label>
               <div className="flex items-end justify-end gap-2 md:col-span-2">
-                <button className="rounded-full border border-ink/20 px-4 py-2 text-sm font-bold text-ink hover:bg-white">Guardar</button>
-                <button formAction={deleteObjection} className="rounded-full border border-red-300 px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-50">Eliminar</button>
+                <PendingSubmitButton loadingText="Guardando…" className="rounded-full border border-ink/20 px-4 py-2 text-sm font-bold text-ink hover:bg-white">Guardar</PendingSubmitButton>
+                <PendingSubmitButton loadingText="Eliminando…" formAction={deleteObjection} className="rounded-full border border-red-300 px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-50">Eliminar</PendingSubmitButton>
               </div>
             </form>
           ))}

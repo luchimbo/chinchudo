@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { normalizeWebsiteUrl } from "@/lib/website-url";
 import type { OnboardingDraft } from "@/lib/onboarding";
 import { getOnboardingCompletionIssues } from "@/lib/onboarding-completion";
+import { LoadingSpinner } from "@/components/loading-ui";
 import {
   reanalysisImpact,
   stepLabelsFor,
@@ -146,7 +147,7 @@ export function OnboardingWizard({
       : null,
   );
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisStages, setAnalysisStages] = useState<string[]>([]);
+  const [isCompleting, setIsCompleting] = useState(false);
   const [reviewAttempted, setReviewAttempted] = useState(false);
   const [manualOfferingName, setManualOfferingName] = useState("");
   const [manualOfferingKind, setManualOfferingKind] = useState<
@@ -256,18 +257,6 @@ export function OnboardingWizard({
     setUrl(normalizedUrl);
     setIsAnalyzing(true);
     setNotice(null);
-    setAnalysisStages(["Leyendo el sitio…"]);
-    const progress = window.setInterval(
-      () =>
-        setAnalysisStages((current) =>
-          current.length === 1
-            ? [...current, "Buscando secciones y ofertas…"]
-            : current.length === 2
-              ? [...current, "Preparando conocimiento y tono…"]
-              : current,
-        ),
-      1000,
-    );
     try {
       const endpoint = preview ? "/api/onboarding/preview" : apiUrl("/api/onboarding");
       const body = preview
@@ -296,7 +285,6 @@ export function OnboardingWizard({
       });
       setSaveState("error");
     } finally {
-      window.clearInterval(progress);
       setIsAnalyzing(false);
     }
   };
@@ -344,6 +332,7 @@ export function OnboardingWizard({
       return;
     }
     setSaveState("saving");
+    setIsCompleting(true);
     try {
       const response = await fetch(apiUrl("/api/onboarding"), {
         method: "POST",
@@ -368,6 +357,8 @@ export function OnboardingWizard({
             ? error.message
             : "No se pudo finalizar. Intentá de nuevo.",
       });
+    } finally {
+      setIsCompleting(false);
     }
   };
   const selectedOfferings = draft.offerings.filter((item) => item.selected);
@@ -560,7 +551,7 @@ export function OnboardingWizard({
                   className="mt-5 rounded-full bg-ink px-5 py-3 text-sm font-bold text-paper transition hover:bg-moss disabled:opacity-50"
                 >
                   {isAnalyzing
-                    ? "Analizando…"
+                    ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Analizando el sitio…</span>
                     : mode === "edit"
                       ? "Volver a leer mi sitio"
                       : detected
@@ -617,18 +608,8 @@ export function OnboardingWizard({
                 </div>
               ) : null}
               {isAnalyzing ? (
-                <div className="mt-5 rounded-2xl border border-moss/20 bg-moss/[.06] p-5">
-                  {analysisStages.map((stage, index) => (
-                    <p
-                      className="mb-2 flex items-center gap-2 text-sm font-medium text-ink"
-                      key={stage}
-                    >
-                      <span className="grid h-5 w-5 place-items-center rounded-full bg-moss text-[10px] text-paper">
-                        {index < analysisStages.length - 1 ? "✓" : "…"}
-                      </span>
-                      {stage}
-                    </p>
-                  ))}
+                <div role="status" className="mt-5 rounded-2xl border border-moss/20 bg-moss/[.06] p-5">
+                  <span className="inline-flex items-center gap-2 text-sm font-medium text-ink"><LoadingSpinner />Estamos leyendo las páginas públicas del sitio. Esto puede tardar unos minutos.</span>
                 </div>
               ) : null}
               <p className="mt-5 text-xs leading-relaxed text-slate/55">
@@ -997,10 +978,10 @@ export function OnboardingWizard({
               <button
                 type="button"
                 onClick={complete}
-                disabled={saveState === "saving"}
+                disabled={saveState === "saving" || isCompleting}
                 className="w-fit rounded-full bg-ink px-6 py-3 text-sm font-bold text-paper transition hover:bg-moss disabled:opacity-50"
               >
-                {preview
+                {isCompleting ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Guardando configuración…</span> : preview
                   ? "Ver finalización local"
                   : mode === "edit"
                     ? "Guardar cambios"

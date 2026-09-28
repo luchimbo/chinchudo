@@ -1,3 +1,4 @@
+import { PendingSubmitButton } from "@/components/pending-submit-button";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
@@ -127,12 +128,12 @@ export default async function ConfiguracionPage({
                 />
               </label>
               <div className="sm:col-span-3">
-                <button
+                <PendingSubmitButton loadingText="Guardando…"
                   type="submit"
                   className="rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-ink/90"
                 >
                   Guardar contrasena
-                </button>
+                </PendingSubmitButton>
               </div>
             </form>
           </div>

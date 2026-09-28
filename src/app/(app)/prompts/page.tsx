@@ -1,3 +1,4 @@
+import { PendingSubmitButton } from "@/components/pending-submit-button";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { createPrompt, updatePrompt, deletePrompt, activatePrompt } from "./actions";
@@ -32,7 +33,7 @@ export default async function PromptsPage({ searchParams }: { searchParams?: { c
           <label className={`${labelCls} md:col-span-2`}>System prompt<textarea name="systemPrompt" required rows={4} className={`${inputCls} resize-y`} /></label>
           <label className={`${labelCls} md:col-span-2`}>User prompt template (opcional)<textarea name="userPromptTemplate" rows={3} className={`${inputCls} resize-y`} /></label>
           <div className="flex items-end justify-end md:col-span-2">
-            <button className="rounded-full bg-ink px-5 py-2 text-sm font-bold text-paper transition hover:bg-slate">Agregar prompt</button>
+            <PendingSubmitButton loadingText="Agregando…" className="rounded-full bg-ink px-5 py-2 text-sm font-bold text-paper transition hover:bg-slate">Agregar prompt</PendingSubmitButton>
           </div>
         </form>
       </section>
@@ -51,11 +52,11 @@ export default async function PromptsPage({ searchParams }: { searchParams?: { c
               <label className={`${labelCls} md:col-span-2`}>System prompt<textarea name="systemPrompt" defaultValue={p.systemPrompt} required rows={4} className={`${inputCls} resize-y`} /></label>
               <label className={`${labelCls} md:col-span-2`}>User prompt template<textarea name="userPromptTemplate" defaultValue={p.userPromptTemplate} rows={3} className={`${inputCls} resize-y`} /></label>
               <div className="flex flex-wrap items-end justify-end gap-2 md:col-span-2">
-                <button className="rounded-full border border-ink/20 px-4 py-2 text-sm font-bold text-ink hover:bg-white">Guardar</button>
+                <PendingSubmitButton loadingText="Guardando…" className="rounded-full border border-ink/20 px-4 py-2 text-sm font-bold text-ink hover:bg-white">Guardar</PendingSubmitButton>
                 {p.active ? null : (
-                  <button formAction={activatePrompt} className="rounded-full border border-moss/40 bg-moss/10 px-4 py-2 text-sm font-bold text-moss hover:bg-moss/20">Activar</button>
+                  <PendingSubmitButton loadingText="Activando…" formAction={activatePrompt} className="rounded-full border border-moss/40 bg-moss/10 px-4 py-2 text-sm font-bold text-moss hover:bg-moss/20">Activar</PendingSubmitButton>
                 )}
-                <button formAction={deletePrompt} className="rounded-full border border-red-300 px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-50">Eliminar</button>
+                <PendingSubmitButton loadingText="Eliminando…" formAction={deletePrompt} className="rounded-full border border-red-300 px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-50">Eliminar</PendingSubmitButton>
               </div>
             </form>
           ))}

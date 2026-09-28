@@ -24,6 +24,10 @@ function clearSession(request: NextRequest) {
 
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
+  const host = (request.headers.get("host") || "").split(":")[0].toLowerCase();
+  if (path === "/loading-preview" && process.env.NODE_ENV !== "production" && (host === "localhost" || host === "127.0.0.1" || host === "::1")) {
+    return NextResponse.next();
+  }
   if (path.startsWith("/login") || path.startsWith("/reset-password") || path.startsWith("/api/auth") || path.startsWith("/_next")) {
     return NextResponse.next();
   }

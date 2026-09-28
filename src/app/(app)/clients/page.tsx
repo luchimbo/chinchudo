@@ -1,3 +1,4 @@
+import { PendingSubmitButton } from "@/components/pending-submit-button";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { getVisibleClients } from "@/lib/auth";
@@ -77,9 +78,9 @@ export default async function ClientsPage({ searchParams }: { searchParams?: { c
             </label>
           </div>
           <div className="flex justify-end md:col-span-2">
-            <button className="rounded-full bg-ink px-5 py-2 text-sm font-bold text-paper transition hover:bg-slate">
+            <PendingSubmitButton loadingText="Creando…" className="rounded-full bg-ink px-5 py-2 text-sm font-bold text-paper transition hover:bg-slate">
               Crear cliente
-            </button>
+            </PendingSubmitButton>
           </div>
         </form>
         <p className="mt-2 text-xs text-slate/60">

@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { updateClientAutoSettings } from "@/app/(app)/opportunities/actions";
+import { LoadingSpinner } from "./loading-ui";
 
 type AutoPilotToggleProps = {
   clientId: string;
@@ -17,8 +18,10 @@ export function AutoPilotToggle({
   const [autoApprove, setAutoApprove] = useState(initialAutoApprove);
   const [autoPublish, setAutoPublish] = useState(initialAutoPublish);
   const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState("");
 
   const handleToggle = (type: "approve" | "publish", nextVal: boolean) => {
+    setError("");
     let nextApprove = autoApprove;
     let nextPublish = autoPublish;
 
@@ -44,6 +47,7 @@ export function AutoPilotToggle({
         // Revertir estado local en caso de error
         setAutoApprove(autoApprove);
         setAutoPublish(autoPublish);
+        setError("No se pudo actualizar el piloto automático. Intentá de nuevo.");
       }
     });
   };
@@ -52,9 +56,7 @@ export function AutoPilotToggle({
     <div className="flex flex-wrap items-center gap-6 rounded-lg border border-ink/10 bg-white/40 p-4 shadow-sm backdrop-blur">
       <div className="flex items-center gap-2">
         <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate/80">Piloto Automático:</span>
-        {isPending ? (
-          <span className="inline-block h-1.5 w-1.5 animate-ping rounded-full bg-brass" />
-        ) : null}
+        {isPending ? <span role="status" className="inline-flex items-center gap-2 normal-case tracking-normal"><LoadingSpinner />Guardando…</span> : null}
       </div>
 
       <div className="flex items-center gap-4">
@@ -94,6 +96,7 @@ export function AutoPilotToggle({
           <span>Modo manual: el operador revisa, aprueba y publica</span>
         )}
       </div>
+      {error ? <p role="alert" className="w-full text-xs font-medium text-red-700">{error}</p> : null}
     </div>
   );
 }

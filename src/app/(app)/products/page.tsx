@@ -1,3 +1,4 @@
+import { PendingSubmitButton } from "@/components/pending-submit-button";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { requirePageClient } from "@/lib/auth";
@@ -86,7 +87,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: { c
             <input name="warrantyNotes" className={inputCls} />
           </label>
           <div className="flex items-end justify-end md:col-span-2">
-            <button className="rounded-full bg-ink px-5 py-2 text-sm font-bold text-paper transition hover:bg-slate">Agregar producto</button>
+            <PendingSubmitButton loadingText="Agregando…" className="rounded-full bg-ink px-5 py-2 text-sm font-bold text-paper transition hover:bg-slate">Agregar producto</PendingSubmitButton>
           </div>
         </ProductForm>
       </section>
@@ -131,8 +132,8 @@ export default async function ProductsPage({ searchParams }: { searchParams: { c
                 <input name="warrantyNotes" defaultValue={p.warrantyNotes} className={inputCls} />
               </label>
               <div className="flex items-end justify-end gap-2 md:col-span-2">
-                <button className="rounded-full border border-ink/20 px-4 py-2 text-sm font-bold text-ink hover:bg-white">Guardar</button>
-                <button formAction={deleteProduct} className="rounded-full border border-red-300 px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-50">Eliminar</button>
+                <PendingSubmitButton loadingText="Guardando…" className="rounded-full border border-ink/20 px-4 py-2 text-sm font-bold text-ink hover:bg-white">Guardar</PendingSubmitButton>
+                <PendingSubmitButton loadingText="Eliminando…" formAction={deleteProduct} className="rounded-full border border-red-300 px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-50">Eliminar</PendingSubmitButton>
               </div>
             </ProductForm>
           ))}

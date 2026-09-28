@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { LoadingSpinner } from "@/components/loading-ui";
 
 type Props = {
   agentError?: string;
@@ -32,9 +33,11 @@ export function StatusBanner({ agentError, agentOk, agentPending, attemptId, opp
 
     let attempts = 0;
     const MAX_ATTEMPTS = 24; // 2 min a 5s por intento
+    let timer: ReturnType<typeof setInterval> | undefined;
 
     const poll = async () => {
       attempts++;
+      let finished = false;
       try {
         const query = new URLSearchParams({ opportunityId });
         if (attemptId) query.set("attemptId", attemptId);
@@ -42,6 +45,8 @@ export function StatusBanner({ agentError, agentOk, agentPending, attemptId, opp
         if (!resp.ok) return;
         const data = await resp.json();
         if (data.pending) return; // aún procesando
+        finished = true;
+        if (timer) clearInterval(timer);
         if (data.success) {
           setResolvedOk(true);
           setStillPending(false);
@@ -51,22 +56,19 @@ export function StatusBanner({ agentError, agentOk, agentPending, attemptId, opp
         }
       } catch {
         // red caída — seguimos intentando
-      }
-      if (attempts >= MAX_ATTEMPTS) {
-        setStillPending(false); // evitar loop infinito
+      } finally {
+        if (attempts >= MAX_ATTEMPTS && !finished) {
+          if (timer) clearInterval(timer);
+          setResolvedError("timeout");
+          setStillPending(false);
+        }
       }
     };
 
     poll(); // primer intento inmediato
-    const id = setInterval(() => {
-      if (attempts >= MAX_ATTEMPTS) {
-        clearInterval(id);
-        return;
-      }
-      poll();
-    }, 5_000);
+    timer = setInterval(() => void poll(), 5_000);
 
-    return () => clearInterval(id);
+    return () => { if (timer) clearInterval(timer); };
   }, [agentPending, attemptId, opportunityId]);
 
   const showError = agentError || resolvedError;
@@ -79,7 +81,7 @@ export function StatusBanner({ agentError, agentOk, agentPending, attemptId, opp
       {showError ? (
         <div role="alert" aria-live="assertive" className="rounded-lg border border-signal/30 bg-signal/10 px-4 py-4 text-sm text-ink">
           <p className="font-bold text-signal mb-1">Error al publicar</p>
-          <p>{agentErrorMessages[showError as string] ?? showError}</p>
+          <p>{showError === "timeout" ? "No pudimos confirmar el resultado. Revisá el estado antes de reintentar." : agentErrorMessages[showError as string] ?? showError}</p>
           <Link href={`/opportunities/${opportunityId}`} className="mt-2 inline-block text-xs underline underline-offset-2 text-signal">
             Reintentar
           </Link>
@@ -93,7 +95,7 @@ export function StatusBanner({ agentError, agentOk, agentPending, attemptId, opp
       ) : null}
       {stillPending && !showError && !showOk ? (
         <div role="status" aria-live="polite" className="rounded-lg border border-brass/30 bg-brass/10 px-4 py-4 text-sm text-ink">
-          <p className="font-bold text-brass mb-1">Publicación en proceso…</p>
+          <p className="mb-1 inline-flex items-center gap-2 font-bold text-brass"><LoadingSpinner />Publicación en proceso…</p>
           <p className="text-xs leading-5">El agente está trabajando. Esta página se actualiza sola cuando termina.</p>
         </div>
       ) : null}

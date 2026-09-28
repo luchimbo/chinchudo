@@ -26,14 +26,19 @@ export default function ResetPasswordPage() {
     if (password.length < 12) return setMessage("Usá una contraseña de al menos 12 caracteres.");
     if (password !== confirmation) return setMessage("Las contraseñas no coinciden.");
     setBusy(true); setMessage("");
-    const response = await fetch("/api/auth/reset-password", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ accessToken, password }),
-    });
-    const data = await response.json();
-    if (!response.ok) { setMessage(data.error || "No se pudo actualizar la contraseña."); setBusy(false); return; }
-    window.location.assign("/login?reset=1");
+    try {
+      const response = await fetch("/api/auth/reset-password", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ accessToken, password }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "No se pudo actualizar la contraseña.");
+      window.location.assign("/login?reset=1");
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : "No se pudo actualizar la contraseña.");
+      setBusy(false);
+    }
   }
 
   return (
@@ -46,7 +51,7 @@ export default function ResetPasswordPage() {
         <form className="grid" style={{ marginTop: 26 }} onSubmit={submit}>
           <label className="sans"><span className="eyebrow">Nueva contraseña</span><input className="field" type="password" required minLength={12} autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
           <label className="sans"><span className="eyebrow">Repetir contraseña</span><input className="field" type="password" required minLength={12} autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></label>
-          <button className="button" disabled={busy || !accessToken}>{busy ? "Actualizando…" : "Guardar contraseña"}</button>
+          <button className="button" disabled={busy || !accessToken}>{busy ? <span role="status" className="admin-pending"><span className="admin-spinner" aria-hidden="true" />Actualizando…</span> : "Guardar contraseña"}</button>
         </form>
       </section>
     </main>

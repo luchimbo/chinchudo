@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { SubmitButton } from "./SubmitButton";
 import { RefinementModal } from "./RefinementModal";
+import { LoadingSpinner } from "@/components/loading-ui";
 
 type PublishingLogEntry = {
   id: string;
@@ -90,6 +91,7 @@ export function DraftCard({
   const [isDeleting, setIsDeleting] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [isRevokingYouTube, setIsRevokingYouTube] = useState(false);
+  const [actionError, setActionError] = useState("");
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>(
     Array.isArray(response.chatHistory) ? (response.chatHistory as ChatMessage[]) : []
   );
@@ -112,6 +114,7 @@ export function DraftCard({
   const handleDelete = async () => {
     if (confirm("¿Estás seguro de que querés eliminar esta respuesta/variante generada? Esta acción no se puede deshacer.")) {
       setIsDeleting(true);
+      setActionError("");
       try {
         const formData = new FormData();
         formData.append("responseId", response.id);
@@ -119,7 +122,7 @@ export function DraftCard({
         await deleteResponseAction(formData);
       } catch (err) {
         console.error("Error al eliminar la respuesta:", err);
-        alert("Hubo un error al intentar eliminar la respuesta.");
+        setActionError("No se pudo eliminar la respuesta. Intentá de nuevo.");
         setIsDeleting(false);
       }
     }
@@ -141,12 +144,13 @@ export function DraftCard({
   const handleRevokeYouTube = async () => {
     if (!youtubeRevokeUrl || !confirm("¿Revocar esta conexión de YouTube? Dejará de poder publicar hasta que la conectes de nuevo.")) return;
     setIsRevokingYouTube(true);
+    setActionError("");
     try {
       const response = await fetch(youtubeRevokeUrl, { method: "DELETE" });
       if (!response.ok) throw new Error("No se pudo revocar la conexión.");
       window.location.reload();
     } catch (error) {
-      alert(error instanceof Error ? error.message : "No se pudo revocar la conexión.");
+      setActionError(error instanceof Error ? error.message : "No se pudo revocar la conexión.");
       setIsRevokingYouTube(false);
     }
   };
@@ -157,6 +161,7 @@ export function DraftCard({
 
   return (
     <article className={`flex min-w-0 flex-col rounded-lg border bg-white/75 p-4 shadow-panel backdrop-blur transition-all duration-300 hover:shadow-md ${isTopRecommendation ? "border-moss/35 ring-1 ring-moss/20" : "border-ink/10"}`}>
+      {actionError ? <p role="alert" className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">{actionError}</p> : null}
       {/* Header */}
       <div className="flex items-center justify-end gap-2 border-b border-ink/5 pb-3">
         <div className="flex items-center gap-2">
@@ -221,7 +226,7 @@ export function DraftCard({
                   disabled={isDeleting}
                   className="rounded-full border border-signal/20 px-3 py-2 text-xs font-bold text-signal transition hover:bg-signal/5 disabled:opacity-50"
                 >
-                  {isDeleting ? "Eliminando…" : "Eliminar"}
+                  {isDeleting ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Eliminando…</span> : "Eliminar"}
                 </button>
               </div>
               <div>
@@ -282,7 +287,7 @@ export function DraftCard({
             </SubmitButton>
             {youtubeRevokeUrl ? (
               <button type="button" onClick={handleRevokeYouTube} disabled={isRevokingYouTube} className="mt-2 w-full text-xs font-semibold text-slate underline disabled:opacity-50">
-                {isRevokingYouTube ? "Revocando conexión…" : "Revocar conexión de YouTube"}
+                {isRevokingYouTube ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Revocando conexión…</span> : "Revocar conexión de YouTube"}
               </button>
             ) : null}
           </form>
