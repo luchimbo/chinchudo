@@ -42,6 +42,11 @@ async function updateRelayUrl(url) {
   }
 }
 
+let tunnel = null;
+let shuttingDown = false;
+let retryTimer = null;
+let retryDelayMs = 5_000;
+
 // 1) Arrancar el relay en background
 console.log(`[start-relay] Arrancando relay en puerto ${PORT}...`);
 const relay = spawn("node", [join(ROOT, "scripts", "agent-relay.mjs")], {
@@ -55,16 +60,23 @@ relay.on("error", (err) => {
   process.exit(1);
 });
 
+// Sin relay el túnel apunta a la nada (o a otro relay viejo que ocupa el
+// puerto). Salimos para que start-relay.bat vuelva a levantar ambos.
+relay.on("exit", (code, signal) => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.error(`[start-relay] El relay terminó (code=${code ?? "n/a"}, signal=${signal ?? "n/a"}). Cerrando el túnel para reiniciar todo.`);
+  if (retryTimer) clearTimeout(retryTimer);
+  tunnel?.kill();
+  process.exit(1);
+});
+
 // Esperar que el relay levante
 await new Promise((r) => setTimeout(r, 1500));
 
 // 2) Arrancar cloudflared tunnel y detectar URL automáticamente.
 // Si cloudflared termina (por ejemplo, por un fallo DNS), se relanza
 // automáticamente sin tener que reiniciar el relay.
-let tunnel = null;
-let shuttingDown = false;
-let retryTimer = null;
-let retryDelayMs = 5_000;
 
 function startTunnel() {
   if (shuttingDown || tunnel) return;

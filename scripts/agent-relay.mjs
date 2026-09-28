@@ -715,7 +715,8 @@ server.listen(PORT, "127.0.0.1", () => {
   console.log(`[agent-relay] escuchando en http://127.0.0.1:${PORT}`);
   console.log(`[agent-relay] token: ${TOKEN.slice(0, 4)}...${TOKEN.slice(-4)}`);
   console.log(`[agent-relay] para exponer: cloudflared tunnel --url http://127.0.0.1:${PORT}`);
+  // Sólo el relay que obtuvo el puerto agenda landings: uno duplicado que
+  // falla con EADDRINUSE no debe disparar generaciones antes de morir.
+  setInterval(runScheduledLandings, 60_000).unref();
+  void runScheduledLandings();
 });
-
-setInterval(runScheduledLandings, 60_000).unref();
-void runScheduledLandings();
