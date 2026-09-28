@@ -137,7 +137,7 @@ function regenerateForm(responseId = "response-old", productId?: string) {
 }
 
 function lastDraftContext() {
-  return vi.mocked(generateAICopilotDraft).mock.calls.at(-1)![0] as { productChosenByCm?: boolean; catalogProducts?: { id: string }[]; refinementGuidance?: string[] };
+  return vi.mocked(generateAICopilotDraft).mock.calls.at(-1)![0] as { productChosenByCm?: boolean; catalogProducts?: { id: string }[]; refinementGuidance?: string[]; avoidDrafts?: string[] };
 }
 
 describe("Regenerar respuesta en Copiloto", () => {
@@ -165,6 +165,14 @@ describe("Regenerar respuesta en Copiloto", () => {
 
     expect(state.responses.find((response) => response.id === "response-old")).toMatchObject({ isPrimary: false, draftText: "Respuesta vieja" });
     expect(state.responses.find((response) => response.id === "response-new-1")).toMatchObject({ isPrimary: true });
+  });
+
+  it("le muestra al modelo la propuesta que se descarta para que no la repita", async () => {
+    state.responses = [storedResponse({ draftText: "Propuesta que el operador descartó" })];
+
+    await regenerateCopilotResponse(regenerateForm());
+
+    expect(lastDraftContext().avoidDrafts).toEqual(["Propuesta que el operador descartó"]);
   });
 
   it("usa las correcciones del chat actual y conserva el hilo en la propuesta nueva", async () => {

@@ -18,6 +18,10 @@ const LOCAL_DEFAULT_BASE_URL = "http://127.0.0.1:11434/v1";
 // Modelo disponible en el servidor Ollama compartido. Se puede sobrescribir
 // por entorno para otra instalación compatible con OpenAI.
 const LOCAL_DEFAULT_MODEL = "qwen3.8:latest";
+// Ollama ignora `think` en /v1/chat/completions: sólo `reasoning_effort: "none"` apaga
+// el razonamiento de modelos como qwen3.8, que si no gasta segundos (y a veces todo
+// max_tokens) pensando y devuelve content vacío. Los modelos sin razonamiento lo aceptan.
+const LOCAL_NO_REASONING = { reasoning_effort: "none", think: false } as const;
 
 type ProviderMode = LLMProvider | "schedule";
 
@@ -141,7 +145,7 @@ export async function fetchChatCompletion(
   const request = async (activeConfig: LLMConfig) => fetch(activeConfig.endpoint, {
     method: "POST",
     headers: llmHeaders(activeConfig, title),
-    body: JSON.stringify({ ...payload, model: activeConfig.model }),
+    body: JSON.stringify({ ...(activeConfig.provider === "local" ? LOCAL_NO_REASONING : {}), ...payload, model: activeConfig.model }),
     ...init,
   });
 

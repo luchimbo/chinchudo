@@ -406,12 +406,16 @@ export function buildCopilotPrompt(ctx: DraftContext, condensationOf?: string): 
   const condensation = condensationOf
     ? `\n## Texto a condensar\n"${condensationOf}"\nConservá solo lo útil y específico; no agregues información nueva.\n`
     : "";
+  const regeneration = !condensationOf && ctx.avoidDrafts?.length
+    ? "- El operador pidió rehacer la propuesta: escribí una versión claramente distinta de la descartada, con otra apertura y otro enfoque (otro dato, otra pregunta o otro ángulo del comentario).\n"
+    : "";
   return `${beforeFormat}
 ## Instrucciones de respuesta del Asistente CM
 - Devolvé UNA sola propuesta breve, directa, natural y específica a este comentario.
 - Máximo ${COPILOT_MAX_CHARACTERS} caracteres, idealmente una o dos oraciones.
+- Arrancá directo con lo que plantea el comentario; no abras con muletillas como "Mirá".
 - No expliques tu razonamiento ni ofrezcas alternativas.
-${condensation}
+${regeneration}${condensation}
 ## Formato de respuesta (JSON estricto)
 {
   "text": "una única respuesta publicable de hasta ${COPILOT_MAX_CHARACTERS} caracteres",
@@ -563,10 +567,8 @@ async function attemptAIDrafts(ctx: DraftContext): Promise<DraftVariant[] | null
         ],
         response_format: { type: "json_object" },
         temperature: 0.7,
+        // El razonamiento de los modelos locales lo apaga fetchChatCompletion.
         max_tokens: llm.provider === "local" ? 4000 : 2000,
-        // Modelos locales "razonadores" (gemma/qwen) gastan el presupuesto pensando
-        // y devuelven content vacío; desactivamos el thinking en Ollama.
-        ...(llm.provider === "local" ? { think: false } : {}),
       },
       "Los 5 Apostoles - Social Listening",
       ctx.client,
@@ -636,9 +638,9 @@ async function requestCopilotDraft(ctx: DraftContext, condensationOf?: string): 
         { role: "user", content: buildCopilotPrompt(ctx, condensationOf) },
       ],
       response_format: { type: "json_object" },
-      temperature: condensationOf ? 0.2 : 0.65,
+      // Al rehacer se sube la temperatura: con el mismo contexto, 0.65 repite casi el mismo texto.
+      temperature: condensationOf ? 0.2 : (ctx.avoidDrafts?.length ? 0.9 : 0.65),
       max_tokens: llm.provider === "local" ? (condensationOf ? 1000 : 1500) : (condensationOf ? 180 : 360),
-      ...(llm.provider === "local" ? { think: false } : {}),
     }, "Los 5 Apostoles - Asistente CM", ctx.client);
     if (!completion) return null;
     const parsed = JSON.parse(completion.raw) as { text?: string; riskNotes?: string };

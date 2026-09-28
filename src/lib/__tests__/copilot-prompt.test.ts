@@ -41,6 +41,19 @@ describe("direccion editorial del Copiloto", () => {
     expect(prompt).not.toContain('"variants"');
   });
 
+  it("al rehacer muestra la propuesta descartada y pide otra apertura y otro enfoque", () => {
+    const prompt = buildCopilotPrompt({ ...context(), avoidDrafts: ["Mirá, el MiniLab 3 es una buena opción para empezar."] });
+    expect(prompt).toContain("Borradores ya utilizados o rechazados");
+    expect(prompt).toContain("Mirá, el MiniLab 3 es una buena opción para empezar.");
+    expect(prompt).toContain("versión claramente distinta de la descartada");
+  });
+
+  it("no pide variar cuando es la primera propuesta", () => {
+    const prompt = buildCopilotPrompt(context());
+    expect(prompt).not.toContain("versión claramente distinta");
+    expect(prompt).toContain('no abras con muletillas como "Mirá"');
+  });
+
   it("usa la ficha del producto elegido por el CM y obliga a nombrarlo", () => {
     const base = context();
     const product = {

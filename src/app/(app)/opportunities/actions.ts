@@ -615,12 +615,17 @@ export async function generateResponseDrafts(formData: FormData) {
   const resolution = await resolveOpportunityClient(prisma, opportunity);
   await assertClientAccess(prisma, resolution.client.id);
   let refinementGuidance: string[] = [];
+  let avoidDrafts: string[] = [];
   if (typeof refinementResponseId === "string" && refinementResponseId) {
     const previous = await prisma.response.findUniqueOrThrow({
       where: { id: refinementResponseId },
-      select: { opportunityId: true, chatHistory: true },
+      select: { opportunityId: true, chatHistory: true, draftText: true, editedText: true },
     });
     if (previous.opportunityId !== opportunityId) throw new Error("La respuesta no corresponde a esta oportunidad.");
+    // Rehacer descarta la propuesta visible: sin mostrársela al modelo, el mismo
+    // prompt devuelve prácticamente el mismo texto.
+    const previousText = (previous.editedText || previous.draftText || "").trim();
+    if (previousText) avoidDrafts = [previousText];
     const parsedHistory = typeof refinementHistory === "string"
       ? chatMessageSchema.safeParse(JSON.parse(refinementHistory))
       : chatMessageSchema.safeParse(previous.chatHistory);
@@ -724,6 +729,7 @@ export async function generateResponseDrafts(formData: FormData) {
     clientMemories: clientMemories.map((m) => ({ rule: m.rule })),
     acceptedExamples,
     refinementGuidance,
+    avoidDrafts,
     editorialGuidance: copilotGuidance(opportunity.contextAssessment, pulse ? { title: pulse.title } : null),
     productChosenByCm: productChosenByCm && Boolean(selectedProduct),
   };

@@ -66,6 +66,50 @@ describe("resolveLLMConfig", () => {
   });
 });
 
+describe("reasoning of local models", () => {
+  function bodyOfCall(fetchMock: ReturnType<typeof vi.fn>, index = 0) {
+    return JSON.parse(fetchMock.mock.calls[index][1].body);
+  }
+
+  it("turns reasoning off for local models, which Ollama only honors via reasoning_effort", async () => {
+    process.env.LLM_PROVIDER = "local";
+    process.env.LLM_LOCAL_BASE_URL = "http://pcmidi.local:11434/v1";
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{"choices":[{"message":{"content":"ok"}}]}', { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchChatCompletion(resolveLLMConfig(), { messages: [] }, "test");
+
+    expect(bodyOfCall(fetchMock)).toMatchObject({ reasoning_effort: "none", think: false });
+  });
+
+  it("lets a caller ask for reasoning explicitly", async () => {
+    process.env.LLM_PROVIDER = "local";
+    process.env.LLM_LOCAL_BASE_URL = "http://pcmidi.local:11434/v1";
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{"choices":[{"message":{"content":"ok"}}]}', { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchChatCompletion(resolveLLMConfig(), { messages: [], reasoning_effort: "high" }, "test");
+
+    expect(bodyOfCall(fetchMock).reasoning_effort).toBe("high");
+  });
+
+  it("does not send Ollama-only fields to OpenRouter, including on fallback", async () => {
+    process.env.LLM_PROVIDER = "local";
+    process.env.LLM_LOCAL_BASE_URL = "http://pcmidi.local:11434/v1";
+    process.env.OPENROUTER_API_KEY = "remote-key";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response("down", { status: 502 }))
+      .mockResolvedValueOnce(new Response('{"choices":[{"message":{"content":"ok"}}]}', { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchChatCompletion(resolveLLMConfig(), { messages: [] }, "test");
+
+    expect(result.usedFallback).toBe(true);
+    expect(bodyOfCall(fetchMock, 1)).not.toHaveProperty("reasoning_effort");
+    expect(bodyOfCall(fetchMock, 1)).not.toHaveProperty("think");
+  });
+});
+
 describe("local IA through the relay", () => {
   function okFetch() {
     const fetchMock = vi.fn().mockResolvedValue(new Response('{"choices":[{"message":{"content":"ok"}}]}', { status: 200 }));
