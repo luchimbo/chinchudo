@@ -13,6 +13,7 @@ import { generateAICopilotDraft, generateAIDrafts, shortenCopilotText } from "@/
 import { COPILOT_MAX_CHARACTERS, COPILOT_TARGET_CHARACTERS } from "@/lib/copilot-limits";
 import { selectHumorSignal } from "@/lib/radar-editorial";
 import { ensureRequiredBrandMention, sanitizeCopilotDraft } from "@/lib/draft-output";
+import { formatPublicProductName, normalizeGeneratedProductMentions } from "@/lib/product-public-name";
 import { loadRelevantKnowledge } from "@/lib/knowledge";
 import { loadActivePrompt } from "@/lib/prompts";
 import { opportunityIntents, opportunityPriorities, opportunityStatuses } from "@/lib/labels";
@@ -790,6 +791,14 @@ export async function generateResponseDrafts(formData: FormData) {
       data: {
         detectedBrandId: brandId,
         detectedProductId: opportunityForDraft.detectedProductId,
+        contextAssessment: {
+          ...copilotContext,
+          ...(pulse ? { copilot: { ...copilot, pulse: { title: pulse.title, platform: pulse.platform, selectedAt: new Date().toISOString() } } } : {}),
+          draftProductChoice: {
+            productId: opportunityForDraft.detectedProductId,
+            chosenByCm: ctx.productChosenByCm,
+          },
+        },
         status: OpportunityStatus.DRAFTED
       }
     })
@@ -1525,6 +1534,13 @@ function refinementTargetCharacters(contextAssessment: unknown) {
   return refinementMaxCharacters(contextAssessment) ? COPILOT_TARGET_CHARACTERS : undefined;
 }
 
+function refinementProductChosenByCm(contextAssessment: unknown, productId: string | null) {
+  if (!productId || !contextAssessment || typeof contextAssessment !== "object" || !("draftProductChoice" in contextAssessment)) return false;
+  const choice = contextAssessment.draftProductChoice;
+  return !!choice && typeof choice === "object" && "productId" in choice && "chosenByCm" in choice
+    && choice.productId === productId && choice.chosenByCm === true;
+}
+
 const sendRefinementMessageSchema = z.object({
   responseId: z.string().min(1),
   userMessage: z.string().min(1).max(2000),
@@ -1552,7 +1568,7 @@ export async function sendRefinementMessageAction(formData: FormData) {
   const response = await prisma.response.findUniqueOrThrow({
     where: { id: parsed.responseId },
     include: {
-      opportunity: { include: { channel: true } },
+      opportunity: { include: { channel: true, detectedProduct: true } },
       brand: true,
       persona: true,
     },
@@ -1570,6 +1586,13 @@ export async function sendRefinementMessageAction(formData: FormData) {
   const historyForModel = parsed.chatHistory.at(-1)?.sender === "user" && parsed.chatHistory.at(-1)?.text === parsed.userMessage
     ? parsed.chatHistory.slice(0, -1)
     : parsed.chatHistory;
+  const chatProduct = response.opportunity.detectedProduct
+    ? { nombre: response.opportunity.detectedProduct.name, marca: response.brand.name }
+    : null;
+  const nameContext = {
+    sourceText: `${response.opportunity.sourceText}\n${parsed.userMessage}`,
+    productChosenByCm: refinementProductChosenByCm(response.opportunity.contextAssessment, response.opportunity.detectedProductId),
+  };
   const assistantReply = await chatRefinementStep({
     acceptedExamples,
     opportunityText: response.opportunity.sourceText,
@@ -1577,6 +1600,7 @@ export async function sendRefinementMessageAction(formData: FormData) {
     chatHistory: historyForModel,
     userMessage: parsed.userMessage,
     brandName: response.brand.name,
+    productName: chatProduct ? formatPublicProductName(chatProduct, nameContext) : undefined,
     personaName: response.persona.name,
     clientName: resolution.client.name,
     clientMemories: clientMemories.map((m) => ({ rule: m.rule })),
@@ -1587,9 +1611,12 @@ export async function sendRefinementMessageAction(formData: FormData) {
   const currentTurn: ChatMessage[] = historyForModel.length === parsed.chatHistory.length
     ? [...parsed.chatHistory, { sender: "user", text: parsed.userMessage, timestamp: new Date().toISOString() }]
     : parsed.chatHistory;
-  const suggestion = assistantReply.suggestion && refinementMaxCharacters(response.opportunity.contextAssessment)
-    ? shortenCopilotText(sanitizeCopilotDraft(assistantReply.suggestion, resolution.client.slug)) || null
-    : assistantReply.suggestion;
+  const normalizedSuggestion = assistantReply.suggestion
+    ? normalizeGeneratedProductMentions(assistantReply.suggestion, chatProduct ? [chatProduct] : [], nameContext)
+    : null;
+  const suggestion = normalizedSuggestion && refinementMaxCharacters(response.opportunity.contextAssessment)
+    ? shortenCopilotText(sanitizeCopilotDraft(normalizedSuggestion, resolution.client.slug)) || null
+    : normalizedSuggestion;
   const completedChat: ChatMessage[] = [...currentTurn, {
     sender: "assistant",
     text: assistantReply.message,
@@ -1661,7 +1688,7 @@ export async function applyRefinedResponseAction(formData: FormData) {
   const response = await prisma.response.findUniqueOrThrow({
     where: { id: parsed.responseId },
     include: {
-      opportunity: { include: { channel: true } },
+      opportunity: { include: { channel: true, detectedProduct: true } },
       brand: true,
       persona: true,
     },
@@ -1673,6 +1700,13 @@ export async function applyRefinedResponseAction(formData: FormData) {
     getClientMemories(prisma, resolution.client.id, { brandId: response.brandId, productId: response.opportunity.detectedProductId }),
     getAcceptedExamples(prisma, { clientId: resolution.client.id, brandId: response.brandId, limit: 5 }),
   ]);
+  const chatProduct = response.opportunity.detectedProduct
+    ? { nombre: response.opportunity.detectedProduct.name, marca: response.brand.name }
+    : null;
+  const nameContext = {
+    sourceText: `${response.opportunity.sourceText}\n${parsed.chatHistory.filter((message) => message.sender === "user").map((message) => message.text).join("\n")}`,
+    productChosenByCm: refinementProductChosenByCm(response.opportunity.contextAssessment, response.opportunity.detectedProductId),
+  };
   const compiledDraft = await compileResponseFromChat({
     acceptedExamples,
     maxCharacters: refinementMaxCharacters(response.opportunity.contextAssessment),
@@ -1681,12 +1715,14 @@ export async function applyRefinedResponseAction(formData: FormData) {
     chatHistory: parsed.chatHistory,
     currentResponseText: response.editedText || response.draftText,
     brandName: response.brand.name,
+    productName: chatProduct ? formatPublicProductName(chatProduct, nameContext) : undefined,
     personaName: response.persona.name,
     clientMemories: clientMemories.map((m) => ({ rule: m.rule })),
   });
+  const normalizedDraft = normalizeGeneratedProductMentions(compiledDraft, chatProduct ? [chatProduct] : [], nameContext);
   const compiledText = refinementMaxCharacters(response.opportunity.contextAssessment)
-    ? shortenCopilotText(sanitizeCopilotDraft(compiledDraft, resolution.client.slug))
-    : compiledDraft;
+    ? shortenCopilotText(sanitizeCopilotDraft(normalizedDraft, resolution.client.slug))
+    : normalizedDraft;
 
   await prisma.$transaction([
     prisma.response.updateMany({

@@ -5,6 +5,7 @@ import { deriveVoiceModulation, type ProfileContextForDraft } from "./observed-p
 import { makeJurispediaDrafts } from "./jurispedia-policy";
 import { makeVidiaDrafts } from "./vidia-policy";
 import { sanitizePublicDraft } from "./draft-output";
+import { normalizeGeneratedProductMentions, publicProductParts } from "./product-public-name";
 
 type DraftContext = {
   opportunity: Opportunity & {
@@ -20,6 +21,7 @@ type DraftContext = {
   knowledge?: KnowledgeLike[];
   objections?: ObjectionLike[];
   observedProfile?: ProfileContextForDraft | null;
+  productChosenByCm?: boolean;
 };
 
 type DraftVariant = {
@@ -72,10 +74,11 @@ function applyVoiceModulation(voice: PersonaVoice, observedProfile?: ProfileCont
 
 function getPersonaVoice(persona: Persona, product?: ProductEntry): PersonaVoice {
   const name = persona.name.toLowerCase();
+  const productName = (entry: ProductEntry) => `${entry.marca} ${entry.modelo}`;
 
   if (name.includes("corredor") || name.includes("runner")) {
     return {
-      intro: (p) => p ? `Yo para entrenar miraria ${p.modelo}` : "Te hablo desde el uso en entrenamientos",
+      intro: (p) => p ? `Yo para entrenar miraria ${productName(p)}` : "Te hablo desde el uso en entrenamientos",
       angle: "Lo clave es que ajuste bien, no moleste con el calzado y tenga la altura correcta para la distancia o terreno.",
       tail: "Para running/trail priorizaria comodidad y cero roce antes que elegir solo por diseño.",
     };
@@ -83,7 +86,7 @@ function getPersonaVoice(persona: Persona, product?: ProductEntry): PersonaVoice
 
   if (name.includes("kines")) {
     return {
-      intro: (p) => p ? `Si estas mirando ${p.modelo}, iria con criterio` : "Con compresion conviene ir con criterio",
+      intro: (p) => p ? `Si estas mirando ${productName(p)}, iria con criterio` : "Con compresion conviene ir con criterio",
       angle: "La compresion puede dar sensacion de soporte, pero no reemplaza indicacion medica ni promete resolver lesiones.",
       tail: "Si hay dolor o lesion, lo responsable es consultarlo con un profesional.",
     };
@@ -91,7 +94,7 @@ function getPersonaVoice(persona: Persona, product?: ProductEntry): PersonaVoice
 
   if (name.includes("futbol")) {
     return {
-      intro: (p) => p ? `Para cancha usaria ${p.modelo}` : "Para futbol miro ajuste y comodidad con botines",
+      intro: (p) => p ? `Para cancha usaria ${productName(p)}` : "Para futbol miro ajuste y comodidad con botines",
       angle: "En deporte de equipo importa que no se baje, no haga pliegues y aguante entrenamiento intenso.",
       tail: "Para uso fuerte conviene priorizar ajuste y refuerzos.",
     };
@@ -99,7 +102,7 @@ function getPersonaVoice(persona: Persona, product?: ProductEntry): PersonaVoice
 
   if (name.includes("productor")) {
     return {
-      intro: (p) => p ? `Yo en mi home studio uso el ${p.modelo} y va muy bien` : "Te hablo desde el uso diario en home studio",
+      intro: (p) => p ? `Yo en mi home studio uso el ${productName(p)} y va muy bien` : "Te hablo desde el uso diario en home studio",
       angle: "Lo que más importa es cómo te queda el flujo de trabajo: cantidad de controles, sensibilidad y poder grabar ideas rápido.",
       tail: "Se adapta de diez a cualquier DAW standard.",
     };
@@ -107,7 +110,7 @@ function getPersonaVoice(persona: Persona, product?: ProductEntry): PersonaVoice
 
   if (name.includes("baterista") && (name.includes("depart") || name.includes("depto"))) {
     return {
-      intro: (p) => p ? `Yo vivo en departamento y tengo el ${p.modelo}; con auriculares no molesto a nadie` : "Yo practico en un depto chico y se puede sin molestar a los vecinos",
+      intro: (p) => p ? `Yo vivo en departamento y tengo el ${productName(p)}; con auriculares no molesto a nadie` : "Yo practico en un depto chico y se puede sin molestar a los vecinos",
       angle: "Para departamento lo clave es el ruido bajo y poder usar auriculares cómodo.",
       tail: "Es una opción muy compacta si no te sobra espacio.",
     };
@@ -115,7 +118,7 @@ function getPersonaVoice(persona: Persona, product?: ProductEntry): PersonaVoice
 
   if (name.includes("baterista")) {
     return {
-      intro: (p) => p ? `Vengo de tocar acústica y el rebote del ${p.modelo} se siente bastante natural` : "Vengo de la acústica y se nota cuando el rebote está bien logrado",
+      intro: (p) => p ? `Vengo de tocar acústica y el rebote del ${productName(p)} se siente bastante natural` : "Vengo de la acústica y se nota cuando el rebote está bien logrado",
       angle: "Lo que miro es la resistencia al golpe y el feeling de los parches, que aguante uso real.",
       tail: "Sirve tanto para aprender como para seguir practicando con buen feeling.",
     };
@@ -123,7 +126,7 @@ function getPersonaVoice(persona: Persona, product?: ProductEntry): PersonaVoice
 
   if (name.includes("profe") || name.includes("madre") || name.includes("padre")) {
     return {
-      intro: (p) => p ? `Mis alumnos arrancan con el ${p.modelo} y aguanta el uso diario` : "Doy clases y suelo recomendar pensando en que dure",
+      intro: (p) => p ? `Mis alumnos arrancan con el ${productName(p)} y aguanta el uso diario` : "Doy clases y suelo recomendar pensando en que dure",
       angle: "Para aprender conviene algo durable, simple de usar y con garantía por las dudas.",
       tail: "Es ideal para dar los primeros pasos de forma segura.",
     };
@@ -131,7 +134,7 @@ function getPersonaVoice(persona: Persona, product?: ProductEntry): PersonaVoice
 
   if (name.includes("trend") || name.includes("kressmer") || name.includes("embajador")) {
     return {
-      intro: (p) => p ? `Estuve mirando el ${p.modelo} y la verdad que en diseño la rompe` : "Vengo siguiendo lo nuevo y hay propuestas que se destacan por diseño",
+      intro: (p) => p ? `Estuve mirando el ${productName(p)} y la verdad que en diseño la rompe` : "Vengo siguiendo lo nuevo y hay propuestas que se destacan por diseño",
       angle: "Más allá de la ficha, lo que me gusta es la estética cuidada y que sea algo distinto a lo de siempre.",
       tail: "La verdad que estéticamente destaca bastante.",
     };
@@ -139,7 +142,7 @@ function getPersonaVoice(persona: Persona, product?: ProductEntry): PersonaVoice
 
   if (name.includes("cazador") || name.includes("oferta")) {
     return {
-      intro: (p) => p ? `Estuve cazando precio del ${p.modelo} y conviene mirar cuotas` : "Siempre ando atento a las cuotas y la financiación",
+      intro: (p) => p ? `Estuve cazando precio del ${productName(p)} y conviene mirar cuotas` : "Siempre ando atento a las cuotas y la financiación",
       angle: "Lo que más mueve la aguja es el precio en cuotas y la disponibilidad, sin resignar garantía.",
       tail: "Conviene aprovechar las cuotas y facilidades de pago si están disponibles.",
     };
@@ -147,14 +150,14 @@ function getPersonaVoice(persona: Persona, product?: ProductEntry): PersonaVoice
 
   if (name.includes("cliente") || name.includes("satisf")) {
     return {
-      intro: (p) => p ? `Yo compré el ${p.modelo} y cuando tuve una duda me la resolvieron rapidísimo` : "Por experiencia propia, el respaldo post-venta cuando comprás con garantía hace la diferencia",
+      intro: (p) => p ? `Yo compré el ${productName(p)} y cuando tuve una duda me la resolvieron rapidísimo` : "Por experiencia propia, el respaldo post-venta cuando comprás con garantía hace la diferencia",
       angle: "Tuve un problema una vez y la garantía funcionó sin vueltas, eso me dio tranquilidad.",
       tail: "El soporte técnico y respaldo local dan mucha tranquilidad.",
     };
   }
 
   return {
-    intro: (p) => p ? `${p.modelo} es una opción concreta para mirar` : "Conviene definir primero el uso principal",
+    intro: (p) => p ? `${productName(p)} es una opción concreta para mirar` : "Conviene definir primero el uso principal",
     angle: "Compará el modelo y las funciones que realmente necesitás.",
     tail: "La elección tiene que responder al uso real.",
   };
@@ -200,7 +203,7 @@ function makePrestigeDrafts(original: string, riskNotes: string, product?: Produ
     ? "si buscás más color o estética, revisá el modelo que mejor combine con tu equipo sin dejar de priorizar calce y comodidad"
     : "se nota que priorizan funcionalidad antes que puro look";
 
-  const productName = product ? `las Prestige ${product.modelo}` : "unas medias técnicas adecuadas para ese uso";
+  const productName = product ? `las ${product.marca} ${product.modelo}` : "unas medias técnicas adecuadas para ese uso";
   const visualChannel = /instagram|tiktok/i.test(channel);
   const prefix = visualChannel ? "" : "Por lo que comentás, ";
   const recommendation = product ? productName : "sin forzar una recomendación de modelo";
@@ -208,17 +211,17 @@ function makePrestigeDrafts(original: string, riskNotes: string, product?: Produ
   return [
     {
       variantType: "SHORT",
-      draftText: `${prefix}${recommendation} puede encajar bien: ${heightHint} y ${rubHint}.`,
+      draftText: `${prefix}${recommendation} ${product ? "pueden" : "puede"} encajar bien: ${heightHint} y ${rubHint}.`,
       riskNotes,
     },
     {
       variantType: "TECHNICAL",
-      draftText: `${prefix}${product ? `${productName} para ${useHint}` : "Para ese uso"} puede ser una opción práctica: ${technicalHint}.`,
+      draftText: `${prefix}${product ? `${productName} para ${useHint}` : "Para ese uso"} ${product ? "pueden" : "puede"} ser una opción práctica: ${technicalHint}.`,
       riskNotes,
     },
     {
       variantType: "CONVERSATIONAL",
-      draftText: `${prefix}${product ? productName : "Priorizar un modelo técnico"} tiene sentido en ese caso: ${valueHint} y ${styleHint}.`,
+      draftText: `${prefix}${product ? productName : "Priorizar un modelo técnico"} ${product ? "tienen" : "tiene"} sentido en ese caso: ${valueHint} y ${styleHint}.`,
       riskNotes,
     },
   ];
@@ -506,7 +509,12 @@ export function generateLocalDrafts(ctx: DraftContext): DraftVariant[] {
     scoped: !!ctx.client,
   });
   const product = products[0];
-  const voice = applyVoiceModulation(getPersonaVoice(persona, product), observedProfile);
+  const nameContext = { sourceText: opportunity.sourceText, productChosenByCm: ctx.productChosenByCm };
+  const publicProduct = product ? (() => {
+    const { brand, model } = publicProductParts(product, nameContext);
+    return { ...product, marca: brand, modelo: model };
+  })() : undefined;
+  const voice = applyVoiceModulation(getPersonaVoice(persona, publicProduct), observedProfile);
   let riskNotes = getRiskNotes(brand, opportunity.detectedProduct);
   const modulation = deriveVoiceModulation(observedProfile);
 
@@ -529,9 +537,9 @@ export function generateLocalDrafts(ctx: DraftContext): DraftVariant[] {
   const clientSlug = ctx.client?.slug;
 
   const drafts = clientSlug === "prestige-running"
-    ? makePrestigeDrafts(original, riskNotes, product, opportunity.channel.name)
+    ? makePrestigeDrafts(original, riskNotes, publicProduct, opportunity.channel.name)
     : clientSlug === "pcmidi"
-      ? makePcmidiDrafts(opportunity.detectedIntent, original, voice, product, riskNotes, observedProfile)
-      : makeGenericDrafts(opportunity.detectedIntent, original, voice, product, riskNotes, observedProfile);
-  return drafts.map((draft) => ({ ...draft, draftText: sanitizePublicDraft(draft.draftText) }));
+      ? makePcmidiDrafts(opportunity.detectedIntent, original, voice, publicProduct, riskNotes, observedProfile)
+      : makeGenericDrafts(opportunity.detectedIntent, original, voice, publicProduct, riskNotes, observedProfile);
+  return drafts.map((draft) => ({ ...draft, draftText: normalizeGeneratedProductMentions(sanitizePublicDraft(draft.draftText), product ? [product] : [], nameContext) }));
 }

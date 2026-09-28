@@ -157,6 +157,29 @@ describe("local fallback drafts by client", () => {
     expect(drafts[0].draftText).toContain("sistema operativo");
   });
 
+  it("usa marca y modelo breves en el fallback y conserva una variante de color elegida", () => {
+    const brand = { ...mockBrand, name: "Arturia" };
+    const product = {
+      id: "minilab", brandId: brand.id, brand,
+      name: "Arturia MiniLab 3 Rose Quartz Controlador MIDI 25 Teclas", category: "controladores-midi",
+      description: "Controlador compacto", useCases: "Producción en home studio", technicalSpecs: "",
+      warrantyNotes: "", stockStatus: "", priceRange: "", createdAt: new Date(), updatedAt: new Date(),
+    };
+    const base = {
+      opportunity: { ...mockOpp("PURCHASE_QUESTION", "Busco un controlador MIDI para casa"), detectedProduct: product, detectedProductId: product.id },
+      brand, persona: mockPersona, client: { id: "pcmidi", slug: "pcmidi" } as any,
+      catalogProducts: [product],
+    } as any;
+
+    const ordinary = generateLocalDrafts(base);
+    expect(ordinary[0].draftText).toContain("Arturia Minilab 3");
+    expect(ordinary[0].draftText).not.toContain("Rose Quartz");
+    expect(ordinary[0].draftText).not.toContain("Controlador MIDI 25 Teclas");
+
+    const chosen = generateLocalDrafts({ ...base, productChosenByCm: true });
+    expect(chosen[0].draftText).toContain("Arturia Minilab 3 Rose Quartz");
+  });
+
   it("genera fallbacks genericos sin referencias tecnicas para otros clientes", () => {
     const drafts = generateLocalDrafts({
       opportunity: mockOpp("TECHNICAL_QUESTION", "Tengo una duda con el producto"),
@@ -190,5 +213,19 @@ describe("local fallback drafts by client", () => {
     expect(technicalDrafts[1].draftText).toContain("compresión puede sentirse");
     expect(technicalDrafts[1].draftText).not.toMatch(/yo miraría|testeadas con atletas/i);
     expect(styleDrafts[2].draftText).toContain("más color o estética");
+
+    const product = {
+      id: "tech-basic", brandId: prestigeBrand.id, brand: prestigeBrand,
+      name: "Pack x3 Tech Basic con refuerzo Art 2555", category: "medias-tecnicas-running",
+      description: "Soquetes para correr", useCases: "Running", technicalSpecs: "", warrantyNotes: "",
+      stockStatus: "", priceRange: "", createdAt: new Date(), updatedAt: new Date(),
+    };
+    const named = generateLocalDrafts({
+      opportunity: { ...mockOpp("PURCHASE_QUESTION", "Busco medias para correr sin roce"), detectedProduct: product, detectedProductId: product.id },
+      brand: prestigeBrand, persona: prestigePersona, client: prestigeClient, catalogProducts: [product],
+    } as any);
+    expect(named[0].draftText).toContain("Prestige Medias Tech Basic");
+    expect(named[0].draftText).toContain("pueden encajar");
+    expect(named[0].draftText).not.toMatch(/Pack x3|Art 2555/);
   });
 });

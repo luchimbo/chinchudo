@@ -7,6 +7,7 @@ import { fetchChatCompletion, resolveLLMConfig, resolveOpenRouterConfig, type LL
 import { policyInstructions } from "./response-policy";
 import { ensureRequiredBrandMention, sanitizeCopilotDraft, sanitizePublicDraft, validateDraftForClient } from "./draft-output";
 import { COPILOT_MAX_CHARACTERS, COPILOT_TARGET_CHARACTERS } from "./copilot-limits";
+import { formatPublicProductName, normalizeGeneratedProductMentions } from "./product-public-name";
 
 type DraftContext = {
   opportunity: Opportunity & {
@@ -94,22 +95,6 @@ function prestigeChannelStyle(channel: string): string {
   return "Adaptá la extensión a la red: claridad y cercanía antes que tecnicismos o lenguaje de catálogo.";
 }
 
-function formatProductName(brandName: string, productName: string): string {
-  if (brandName.toLowerCase() === "prestige") {
-    const publicName = productName
-      .replace(/^pack\s*x\s*\d+\s+/i, "")
-      .split(/\s+-\s+/)[0]
-      .trim();
-    return `Prestige Medias ${publicName}`;
-  }
-  const brand = brandName.toLowerCase();
-  const prod = productName.toLowerCase();
-  if (prod.includes(brand)) {
-    return productName;
-  }
-  return `${brandName} ${productName}`;
-}
-
 function normalizeProductText(text: string): string {
   return text
     .toLowerCase()
@@ -141,12 +126,23 @@ function hasUncataloguedProductCode(text: string, ctx: DraftContext): boolean {
   return false;
 }
 
+function normalizeDraftProductNames(text: string, ctx: DraftContext): string {
+  const products = selectRelevantProducts(ctx.opportunity.sourceText, ctx.opportunity.detectedProduct, 5, {
+    catalogProducts: ctx.catalogProducts,
+    catalogRules: ctx.catalogRules,
+    scoped: !!ctx.client,
+  });
+  return normalizeGeneratedProductMentions(text, products, {
+    sourceText: ctx.opportunity.sourceText,
+    productChosenByCm: ctx.productChosenByCm,
+  });
+}
+
 /**
  * Ficha del producto principal. Es lo que hace que la respuesta cambie según el
  * producto: el tipo, la descripción y la garantía no entran en la línea resumida.
  */
-function productFeaturesBlock(product: ProductEntry, chosenByCm: boolean): string {
-  const name = formatProductName(product.marca, product.nombre);
+function productFeaturesBlock(product: ProductEntry, chosenByCm: boolean, name: string): string {
   const use = product.uso.replace(/\s+/g, " ").trim();
   const description = (product.descripcion ?? "").replace(/\s+/g, " ").trim();
   const lines = [
@@ -176,21 +172,25 @@ export function buildPrompt(ctx: DraftContext): string {
   });
   const prestigeDirectNeed = /\b(?:roce|rozaduras?|ampollas?|humedad|pies? mojados?|pies? secos?|media ca[nñ]a|soquete|trail|cobertura|tobillo|calzado|zapatillas?)\b/i.test(opportunity.sourceText);
   const productChosenByCm = Boolean(ctx.productChosenByCm);
+  const publicName = (entry: ProductEntry) => formatPublicProductName(entry, { sourceText: opportunity.sourceText, productChosenByCm });
   // En conversaciones generales de running, el catálogo no debe transformar la respuesta en un pitch,
   // salvo que el CM haya elegido el producto a mano: esa elección manda.
   const productFocus = prestigeDirectNeed || productChosenByCm;
   const primary = client?.slug === "prestige-running" && !productFocus ? undefined : relevant[0];
   const alternatives = primary ? relevant.slice(1) : [];
+  const distinctAlternatives = alternatives.filter((entry, index) =>
+    publicName(entry) !== (primary ? publicName(primary) : "")
+    && alternatives.findIndex((candidate) => publicName(candidate) === publicName(entry)) === index);
 
   const primaryBlock = primary
-    ? `### Producto recomendado principal (usalo por defecto en las 3 variantes)\n  - ${formatProductName(primary.marca, primary.nombre)}: ${primary.uso}${primary.especificaciones ? ` | Especificaciones confirmadas: ${primary.especificaciones}` : ""}`
+    ? `### Producto recomendado principal (usalo por defecto en las 3 variantes)\n  - ${publicName(primary)}: ${primary.uso}${primary.especificaciones ? ` | Especificaciones confirmadas: ${primary.especificaciones}` : ""}`
     : "";
-  const alternativesBlock = alternatives.length > 0
-    ? `### Alternativas reales permitidas (solo si encajan mejor con el comentario)\n${alternatives.map(p => `  - ${formatProductName(p.marca, p.nombre)}: ${p.uso}${p.especificaciones ? ` | Especificaciones confirmadas: ${p.especificaciones}` : ""}`).join("\n")}`
+  const alternativesBlock = distinctAlternatives.length > 0
+    ? `### Alternativas reales permitidas (solo si encajan mejor con el comentario)\n${distinctAlternatives.map(p => `  - ${publicName(p)}: ${p.uso}${p.especificaciones ? ` | Especificaciones confirmadas: ${p.especificaciones}` : ""}`).join("\n")}`
     : "";
   const productList = [primaryBlock, alternativesBlock].filter(Boolean).join("\n") || "  - (sin productos específicos identificados)";
-  const featuresBlock = primary ? `\n${productFeaturesBlock(primary, productChosenByCm)}\n` : "";
-  const allowedProductNames = relevant.map((p) => formatProductName(p.marca, p.nombre)).join("; ");
+  const featuresBlock = primary ? `\n${productFeaturesBlock(primary, productChosenByCm, publicName(primary))}\n` : "";
+  const allowedProductNames = [...new Set(relevant.map(publicName))].join("; ");
   const servicesBlock = (ctx.services ?? []).slice(0, 12).map((service) => `- ${service.name}: ${service.description || service.scope || "Servicio confirmado"}`).join("\n") || "- (sin servicios específicos cargados)";
 
   const forbiddenExtra = persona.forbiddenPhrases
@@ -294,7 +294,7 @@ export function buildPrompt(ctx: DraftContext): string {
       : "",
     primary
       ? (productChosenByCm
-        ? `- El community manager eligió responder con ${formatProductName(primary.marca, primary.nombre)}: nombralo una sola vez, de forma natural, y que la respuesta dependa de sus características y no de otro modelo.`
+        ? `- El community manager eligió responder con ${publicName(primary)}: nombralo una sola vez, de forma natural, y que la respuesta dependa de sus características y no de otro modelo.`
         : client?.slug === "prestige-running"
         ? "- Para Prestige Medias, el producto autorizado es contexto, no una obligación de venta. Si responde de forma directa a una necesidad concreta (roce, humedad, cobertura, trail o tipo de media), podés mencionar marca y modelo. Si el comentario es general sobre running, entrenamiento, motivación o salud, mencioná únicamente 'Prestige Medias' de manera casual y en primera persona, sin modelo, ficha técnica ni argumento de venta."
         : "- Recomendá y mencioná el Producto recomendado principal salvo que una alternativa real permitida encaje claramente mejor.")
@@ -342,6 +342,7 @@ ${goodEx}${badEx}
 ## Productos autorizados para esta respuesta
 ${productList}
 ${featuresBlock}
+- En el comentario usá solo el nombre breve de marca y modelo tal como aparece arriba. No copies el título comercial, la categoría ni el color si no forman parte del nombre breve autorizado.
 ## Servicios confirmados
 ${servicesBlock}
 - Mencioná un servicio sólo si responde directamente a la consulta y no agregues alcance, precio ni disponibilidad que no estén confirmados arriba.
@@ -380,7 +381,7 @@ ${pcmidiComparisonRule}
 - Nunca pongas el link del producto: solo el nombre/modelo
 - ${client?.slug === "prestige-running" ? "Para Prestige Medias, podés compartir una experiencia personal breve y creíble en primera persona. Evitá frases de venta, superlativos y claims médicos." : "No afirmes experiencias personales inventadas: evitá 'yo uso', 'yo tengo', 'yo probé' o testimonios de amigos/alumnos salvo que estén expresamente incluidos como evidencia verificada."}
 - Nunca copies instrucciones de estilo, etiquetas internas, nombres de campos ni hashtags al texto público.
-- ${primary ? (productChosenByCm ? `Nombrá el modelo completo una sola vez: ${formatProductName(primary.marca, primary.nombre)}.${client?.slug === "prestige-running" ? " No uses 'pack', 'tripack', 'x3' ni 'x 3'." : ""}` : client?.slug === "prestige-running" ? `Solo si una variante requiere una recomendación concreta, integrá ${formatProductName(primary.marca, primary.nombre)} una sola vez. No uses 'pack', 'tripack', 'x3' ni 'x 3'.` : `Cuando recomiendes, nombrá el modelo completo: ${formatProductName(primary.marca, primary.nombre)}.`) : "No hay un producto suficientemente compatible: no fuerces una recomendación ni inventes un modelo."}
+- ${primary ? (productChosenByCm ? `Nombrá el modelo completo una sola vez: ${publicName(primary)}.${client?.slug === "prestige-running" ? " No uses 'pack', 'tripack', 'x3' ni 'x 3'." : ""}` : client?.slug === "prestige-running" ? `Solo si una variante requiere una recomendación concreta, integrá ${publicName(primary)} una sola vez. No uses 'pack', 'tripack', 'x3' ni 'x 3'.` : `Cuando recomiendes, nombrá el modelo completo: ${publicName(primary)}.`) : "No hay un producto suficientemente compatible: no fuerces una recomendación ni inventes un modelo."}
 - Las variantes de respuesta generadas en "text" deben estar completamente escritas en el idioma detectado (Español, Inglés o Portugués).
 
 
@@ -599,7 +600,7 @@ async function attemptAIDrafts(ctx: DraftContext): Promise<DraftVariant[] | null
       const match = variants.find((v) => v.type === variantType);
       return {
         variantType,
-        draftText: ensureRequiredBrandMention(sanitizePublicDraft(match?.text ?? ""), ctx.client?.slug),
+        draftText: ensureRequiredBrandMention(normalizeDraftProductNames(sanitizePublicDraft(match?.text ?? ""), ctx), ctx.client?.slug),
         riskNotes: match?.riskNotes ?? "Revisar antes de publicar.",
       };
     }).filter((v) => v.draftText.length > 0);
@@ -653,7 +654,7 @@ async function requestCopilotDraft(ctx: DraftContext, condensationOf?: string): 
     }, "Los 5 Apostoles - Asistente CM", ctx.client);
     if (!completion) return null;
     const parsed = JSON.parse(completion.raw) as { text?: string; riskNotes?: string };
-    const text = ensureRequiredBrandMention(sanitizeCopilotDraft(parsed.text ?? "", ctx.client?.slug), ctx.client?.slug);
+    const text = ensureRequiredBrandMention(normalizeDraftProductNames(sanitizeCopilotDraft(parsed.text ?? "", ctx.client?.slug), ctx), ctx.client?.slug);
     if (!text || hasUncataloguedProductCode(text, ctx)) return null;
     const validationErrors = validateDraftForClient(text, ctx.client?.slug);
     if (validationErrors.length > 0) throw new ValidationRetryError(buildStyleCorrection(validationErrors));

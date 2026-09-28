@@ -16,6 +16,7 @@ export function BrandProductFields({ brands, products, brandId, productId, dark 
   const available = useMemo(() => products.filter((product) => product.brandId === selectedBrand), [products, selectedBrand]);
   const initialProduct = available.some((product) => product.id === productId) ? productId : available[0]?.id ?? "";
   const [selectedProduct, setSelectedProduct] = useState(initialProduct);
+  const [productChosenByCm, setProductChosenByCm] = useState(false);
   const label = dark ? "text-paper/80" : "text-slate";
   return <>
     <label className={`grid gap-2 text-sm font-semibold ${label}`}>
@@ -24,16 +25,21 @@ export function BrandProductFields({ brands, products, brandId, productId, dark 
         const nextBrandId = event.target.value;
         setSelectedBrand(nextBrandId);
         setSelectedProduct(products.find((product) => product.brandId === nextBrandId)?.id ?? "");
+        setProductChosenByCm(true);
       }} className="w-full rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink">
         {brands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
       </select>
     </label>
     <label className={`grid gap-2 text-sm font-semibold ${label}`}>
       Producto
-      <select name="productId" value={selectedProduct} onChange={(event) => setSelectedProduct(event.target.value)} className="w-full rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink">
+      <select name="productId" value={selectedProduct} onChange={(event) => {
+        setSelectedProduct(event.target.value);
+        setProductChosenByCm(true);
+      }} className="w-full rounded-md border border-ink/15 bg-paper px-3 py-3 text-ink">
         <option value="">Sin producto específico</option>
         {available.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
       </select>
     </label>
+    <input type="hidden" name="productChosenByCm" value={productChosenByCm ? "true" : "false"} />
   </>;
 }

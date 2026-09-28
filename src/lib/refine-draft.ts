@@ -73,6 +73,7 @@ export async function chatRefinementStep(params: {
   chatHistory: ChatMessage[];
   userMessage: string;
   brandName: string;
+  productName?: string;
   personaName: string;
   clientName?: string;
   clientMemories?: { rule: string }[];
@@ -90,6 +91,7 @@ Contexto del post/comentario original:
 "${params.opportunityText.slice(0, 500)}"
 
 Voz/Perfil utilizado: ${params.personaName}
+${params.productName ? `Nombre breve del producto para propuestas publicables: ${params.productName}. No copies el título comercial ni agregues un color que no figure en este nombre.\n` : ""}
 Borrador de respuesta actual:
 "${params.currentResponseText}"
 
@@ -146,6 +148,7 @@ export async function compileResponseFromChat(params: {
   chatHistory: ChatMessage[];
   currentResponseText: string;
   brandName: string;
+  productName?: string;
   personaName: string;
   clientMemories?: { rule: string }[];
   acceptedExamples?: AcceptedExample[];
@@ -161,6 +164,7 @@ export async function compileResponseFromChat(params: {
   const prompt = `Actuás como ${params.personaName} respondiendo a un comentario de redes para la marca ${params.brandName}.
 
 Comentario original: "${params.opportunityText.slice(0, 500)}"
+${params.productName ? `Nombre breve del producto para la respuesta: ${params.productName}. No copies el título comercial ni agregues otro color.\n` : ""}
 Borrador inicial: "${params.currentResponseText}"
 
 Conversación e indicaciones dadas por el Operador:

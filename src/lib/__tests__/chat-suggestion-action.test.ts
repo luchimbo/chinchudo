@@ -7,6 +7,8 @@ const state = vi.hoisted(() => ({
   contextAssessment: { copilot: { goal: "RESPONDER" } } as Record<string, unknown> | null,
   clientId: "client-1",
   clientSlug: "cliente",
+  brandName: "Marca",
+  productName: "",
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -45,9 +47,9 @@ vi.mock("@/lib/db", () => ({
           ...response,
           draftText: "Borrador guardado",
           brandId: "brand-1",
-          brand: { name: "Marca" },
+          brand: { name: state.brandName },
           persona: { name: "Técnico" },
-          opportunity: { id: response.opportunityId, clientId: state.clientId, contextAssessment: state.contextAssessment, sourceText: "Comentario", channel: { name: "YouTube" } },
+          opportunity: { id: response.opportunityId, clientId: state.clientId, contextAssessment: state.contextAssessment, sourceText: "Comentario", detectedProductId: state.productName ? "product-1" : null, detectedProduct: state.productName ? { name: state.productName } : null, channel: { name: "YouTube" } },
         };
       }),
       updateMany: vi.fn(async ({ where, data }: { where: { opportunityId: string; id: { not: string } }; data: Partial<StoredResponse> }) => {
@@ -86,6 +88,8 @@ describe("propuestas editables del chat del Asistente CM", () => {
     state.contextAssessment = { copilot: { goal: "RESPONDER" } };
     state.clientId = "client-1";
     state.clientSlug = "cliente";
+    state.brandName = "Marca";
+    state.productName = "";
     vi.clearAllMocks();
   });
 
@@ -129,6 +133,42 @@ describe("propuestas editables del chat del Asistente CM", () => {
       expect.objectContaining({ sender: "user", text: "No abras con Mirá ni cierres con la tienda" }),
       expect.objectContaining({ sender: "assistant", suggestion: { text: result.suggestion, original: result.suggestion } }),
     ]));
+  });
+
+  it("normaliza marca y modelo en una propuesta nueva del chat", async () => {
+    state.brandName = "Arturia";
+    state.productName = "Arturia MiniLab 3 Black Edition Controlador MIDI 25 Teclas";
+    vi.mocked(chatRefinementStep).mockResolvedValueOnce({
+      message: "Nueva versión:",
+      suggestion: "El Arturia MiniLab 3 Black Edition Controlador MIDI 25 Teclas suma controles útiles.",
+    });
+    const result = await sendRefinementMessageAction(form({ responseId: "response-1", userMessage: "Hacela más clara", chatHistory: "[]", currentText: "Borrador" }));
+
+    expect(vi.mocked(chatRefinementStep).mock.calls[0][0].productName).toBe("Arturia Minilab 3");
+    expect(result.suggestion).toBe("El Arturia Minilab 3 suma controles útiles.");
+  });
+
+  it("mantiene el color elegido por el CM al generar una nueva propuesta", async () => {
+    state.brandName = "Arturia";
+    state.productName = "Arturia MiniLab 3 Rose Quartz Controlador MIDI 25 Teclas";
+    state.contextAssessment = { copilot: { goal: "RESPONDER" }, draftProductChoice: { productId: "product-1", chosenByCm: true } };
+    vi.mocked(chatRefinementStep).mockResolvedValueOnce({
+      message: "Nueva versión:",
+      suggestion: "El Arturia MiniLab 3 Rose Quartz Controlador MIDI 25 Teclas suma controles útiles.",
+    });
+
+    const result = await sendRefinementMessageAction(form({ responseId: "response-1", userMessage: "Hacela más clara", chatHistory: "[]", currentText: "Borrador" }));
+    expect(vi.mocked(chatRefinementStep).mock.calls[0][0].productName).toBe("Arturia Minilab 3 Rose Quartz");
+    expect(result.suggestion).toBe("El Arturia Minilab 3 Rose Quartz suma controles útiles.");
+  });
+
+  it("guarda sin cambios el nombre escrito manualmente al usar una respuesta", async () => {
+    state.brandName = "Arturia";
+    state.productName = "Arturia MiniLab 3 Black Controlador MIDI 25 Teclas";
+    const manualText = "Para mí, Arturia MiniLab 3 Black está bien para este caso.";
+
+    await applyChatSuggestionAction(form({ responseId: "response-1", text: manualText, chatHistory: "[]" }));
+    expect(state.responses[0].editedText).toBe(manualText);
   });
 
   it("acepta una propuesta algo más larga que el objetivo sin cortarla", async () => {

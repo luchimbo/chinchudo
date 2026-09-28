@@ -72,14 +72,14 @@ describe("direccion editorial del Copiloto", () => {
       catalogProducts: [product],
       productChosenByCm: true,
     });
-    expect(prompt).toContain("Producto elegido por el community manager: MidiPlus MiniLab 3");
+    expect(prompt).toContain("Producto elegido por el community manager: Midiplus Minilab 3");
     expect(prompt).toContain("8 pads sensibles a la velocidad");
     expect(prompt).toContain("Tipo de producto: controladores midi");
     expect(prompt).toContain("Garantía oficial y soporte técnico local.");
-    expect(prompt).toContain("Nombrá el modelo completo una sola vez: MidiPlus MiniLab 3.");
+    expect(prompt).toContain("Nombrá el modelo completo una sola vez: Midiplus Minilab 3.");
 
     const detected = buildPrompt({ ...base, opportunity: { ...base.opportunity, detectedProduct: product }, catalogProducts: [product] });
-    expect(detected).toContain("Características de MidiPlus MiniLab 3");
+    expect(detected).toContain("Características de Midiplus Minilab 3");
     expect(detected).not.toContain("Producto elegido por el community manager");
   });
 
