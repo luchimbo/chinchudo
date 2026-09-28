@@ -1,11 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fetchChatCompletion, resolveLLMConfig, resolveLLMProvider } from "../llm-provider";
+import { getRelayUrl } from "../settings";
+
+vi.mock("../settings", () => ({ getRelayUrl: vi.fn() }));
 
 const ORIGINAL_ENV = { ...process.env };
 
 afterEach(() => {
   process.env = { ...ORIGINAL_ENV };
   vi.unstubAllGlobals();
+  vi.mocked(getRelayUrl).mockReset();
 });
 
 describe("resolveLLMConfig", () => {
@@ -59,5 +63,69 @@ describe("resolveLLMConfig", () => {
     expect(result.usedFallback).toBe(true);
     expect(result.config.provider).toBe("openrouter");
     expect(JSON.parse(fetchMock.mock.calls[1][1].body).model).toBe("remote-model");
+  });
+});
+
+describe("local IA through the relay", () => {
+  function okFetch() {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{"choices":[{"message":{"content":"ok"}}]}', { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("follows the current relay URL from the DB when LLM_LOCAL_BASE_URL is 'relay'", async () => {
+    process.env.LLM_PROVIDER = "local";
+    process.env.LLM_LOCAL_BASE_URL = "relay";
+    process.env.LLM_LOCAL_API_KEY = "legacy-key";
+    process.env.AGENT_RELAY_TOKEN = "relay-token";
+    vi.mocked(getRelayUrl).mockResolvedValue("https://current-tunnel.trycloudflare.com/");
+    const fetchMock = okFetch();
+
+    const result = await fetchChatCompletion(resolveLLMConfig(), { messages: [] }, "test");
+
+    expect(result.usedFallback).toBe(false);
+    expect(fetchMock.mock.calls[0][0]).toBe("https://current-tunnel.trycloudflare.com/v1/chat/completions");
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe("Bearer relay-token");
+  });
+
+  it("replaces a stale trycloudflare URL with the one the relay last registered", async () => {
+    process.env.LLM_PROVIDER = "local";
+    process.env.LLM_LOCAL_BASE_URL = "https://old-tunnel.trycloudflare.com/v1";
+    process.env.LLM_LOCAL_API_KEY = "relay-token-from-vercel";
+    delete process.env.AGENT_RELAY_TOKEN;
+    vi.mocked(getRelayUrl).mockResolvedValue("https://new-tunnel.trycloudflare.com");
+    const fetchMock = okFetch();
+
+    await fetchChatCompletion(resolveLLMConfig(), { messages: [] }, "test");
+
+    expect(fetchMock.mock.calls[0][0]).toBe("https://new-tunnel.trycloudflare.com/v1/chat/completions");
+    expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe("Bearer relay-token-from-vercel");
+  });
+
+  it("calls a LAN Ollama directly without reading the DB", async () => {
+    process.env.LLM_PROVIDER = "local";
+    process.env.LLM_LOCAL_BASE_URL = "http://pcmidi.local:11434/v1";
+    const fetchMock = okFetch();
+
+    await fetchChatCompletion(resolveLLMConfig(), { messages: [] }, "test");
+
+    expect(getRelayUrl).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls[0][0]).toBe("http://pcmidi.local:11434/v1/chat/completions");
+  });
+
+  it("falls back to OpenRouter when relay mode has no relay URL", async () => {
+    process.env.LLM_PROVIDER = "local";
+    process.env.LLM_LOCAL_BASE_URL = "relay";
+    process.env.OPENROUTER_API_KEY = "remote-key";
+    process.env.OPENROUTER_MODEL = "remote-model";
+    delete process.env.AGENT_RELAY_URL;
+    vi.mocked(getRelayUrl).mockResolvedValue(undefined);
+    const fetchMock = okFetch();
+
+    const result = await fetchChatCompletion(resolveLLMConfig(), { messages: [] }, "test");
+
+    expect(result.usedFallback).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe("https://openrouter.ai/api/v1/chat/completions");
   });
 });

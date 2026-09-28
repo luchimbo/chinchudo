@@ -87,6 +87,40 @@ export function resolveOpenRouterConfig(client?: LegacyClientLLMConfig | null): 
   };
 }
 
+/**
+ * Vercel no llega a la LAN: ahí la IA local se consume a través del relay, cuya
+ * URL trycloudflare cambia en cada reinicio y vive en AppSetting AGENT_RELAY_URL
+ * (la actualiza start-relay.mjs). Se activa con LLM_LOCAL_BASE_URL="relay" o con
+ * una URL *.trycloudflare.com heredada, que queda vieja apenas se reinicia el túnel.
+ */
+function usesRelayForLocal(baseUrl: string): boolean {
+  if (baseUrl.toLowerCase() === "relay") return true;
+  try {
+    return new URL(baseUrl).hostname.endsWith(".trycloudflare.com");
+  } catch {
+    return false;
+  }
+}
+
+async function resolveLocalEndpoint(config: LLMConfig): Promise<LLMConfig> {
+  if (config.provider !== "local" || !usesRelayForLocal(config.baseUrl)) return config;
+  // Import diferido: sólo este modo necesita la DB, y los scripts locales no.
+  const { getRelayUrl } = await import("./settings");
+  const relayUrl = await getRelayUrl();
+  if (!relayUrl) {
+    if (config.baseUrl.toLowerCase() === "relay") throw new Error("La IA local usa el relay, pero AGENT_RELAY_URL no está configurado.");
+    return config;
+  }
+  const baseUrl = `${normalizeBaseUrl(relayUrl)}/v1`;
+  return {
+    ...config,
+    baseUrl,
+    endpoint: `${baseUrl}/chat/completions`,
+    // El relay valida su propio token; LLM_LOCAL_API_KEY queda por compatibilidad.
+    apiKey: process.env.AGENT_RELAY_TOKEN?.trim() || config.apiKey,
+  };
+}
+
 export function llmHeaders(config: LLMConfig, title: string): Record<string, string> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
@@ -112,8 +146,9 @@ export async function fetchChatCompletion(
   });
 
   try {
-    const response = await request(config);
-    if (response.ok || config.provider !== "local") return { response, config, usedFallback: false };
+    const activeConfig = await resolveLocalEndpoint(config);
+    const response = await request(activeConfig);
+    if (response.ok || config.provider !== "local") return { response, config: activeConfig, usedFallback: false };
 
     const fallback = resolveOpenRouterConfig(client);
     if (!fallback.apiKey) return { response, config, usedFallback: false };
