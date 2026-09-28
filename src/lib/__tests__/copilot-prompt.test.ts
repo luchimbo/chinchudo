@@ -26,6 +26,13 @@ describe("direccion editorial del Copiloto", () => {
     expect(buildPrompt(context())).not.toContain("Direccion editorial elegida por el community manager");
   });
 
+  it("incluye las correcciones del chat al regenerar la misma oportunidad", () => {
+    const prompt = buildPrompt({ ...context(), refinementGuidance: ["No uses tecnicismos", "Nombrá solo el dato confirmado"] });
+    expect(prompt).toContain("Correcciones del operador en el chat de esta oportunidad");
+    expect(prompt).toContain("No uses tecnicismos");
+    expect(prompt).toContain("Nombrá solo el dato confirmado");
+  });
+
   it("pide una unica propuesta breve para el Copiloto", () => {
     const prompt = buildCopilotPrompt(context());
     expect(prompt).toContain("UNA sola propuesta breve");

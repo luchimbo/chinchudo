@@ -85,7 +85,7 @@ function SuggestionCard({ suggestion, inProposal, disabled, applying, onSave, on
   </div>;
 }
 
-export function RefinementChat({ opportunityId, responseId, clientSlug, currentText, initialHistory, acceptedAsCorrect, onApplyResponse }: {
+export function RefinementChat({ opportunityId, responseId, clientSlug, currentText, initialHistory, acceptedAsCorrect, onApplyResponse, onHistoryChange }: {
   opportunityId: string;
   responseId: string;
   clientSlug: string;
@@ -93,6 +93,7 @@ export function RefinementChat({ opportunityId, responseId, clientSlug, currentT
   initialHistory: ChatMessage[];
   acceptedAsCorrect: boolean;
   onApplyResponse: (text: string) => void;
+  onHistoryChange: (history: ChatMessage[]) => void;
 }) {
   const [history, setHistory] = useState<ChatMessage[]>(initialHistory);
   const [input, setInput] = useState("");
@@ -108,6 +109,11 @@ export function RefinementChat({ opportunityId, responseId, clientSlug, currentT
   const scrollRef = useRef<HTMLDivElement>(null);
   const busy = sending || compiling || accepting || applyingIndex !== null;
 
+  function updateHistory(next: ChatMessage[]) {
+    setHistory(next);
+    onHistoryChange(next);
+  }
+
   // Solo baja al final cuando llega un mensaje nuevo, no al editar una propuesta vieja.
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -122,7 +128,7 @@ export function RefinementChat({ opportunityId, responseId, clientSlug, currentT
     const text = message.trim();
     if (!text || busy) return;
     const updated: ChatMessage[] = [...history, { sender: "user", text, timestamp: new Date().toISOString() }];
-    setHistory(updated);
+    updateHistory(updated);
     setInput("");
     setSending(true);
     setError(null);
@@ -136,7 +142,7 @@ export function RefinementChat({ opportunityId, responseId, clientSlug, currentT
         ...(result.suggestion ? { suggestion: { text: result.suggestion, original: result.suggestion } } : {}),
       };
       const completed = [...updated, reply];
-      setHistory(completed);
+      updateHistory(completed);
       persist(completed);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error de conexión con la IA.");
@@ -149,7 +155,7 @@ export function RefinementChat({ opportunityId, responseId, clientSlug, currentT
     const next = history.map((message, position) => position === index && message.suggestion
       ? { ...message, suggestion: { ...message.suggestion, text } }
       : message);
-    setHistory(next);
+    updateHistory(next);
     persist(next);
   }
 
@@ -184,7 +190,7 @@ export function RefinementChat({ opportunityId, responseId, clientSlug, currentT
         timestamp: new Date().toISOString(),
         suggestion: { text: result.compiledText, original: result.compiledText },
       }];
-      setHistory(next);
+      updateHistory(next);
       persist(next);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al generar la nueva versión.");

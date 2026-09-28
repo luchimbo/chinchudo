@@ -10,6 +10,7 @@ type StoredResponse = {
   acceptedAsCorrectAt: Date | null;
   isPrimary: boolean;
   createdAt: Date;
+  chatHistory?: unknown;
 };
 
 const state = vi.hoisted(() => ({
@@ -136,7 +137,7 @@ function regenerateForm(responseId = "response-old", productId?: string) {
 }
 
 function lastDraftContext() {
-  return vi.mocked(generateAICopilotDraft).mock.calls.at(-1)![0] as { productChosenByCm?: boolean; catalogProducts?: { id: string }[] };
+  return vi.mocked(generateAICopilotDraft).mock.calls.at(-1)![0] as { productChosenByCm?: boolean; catalogProducts?: { id: string }[]; refinementGuidance?: string[] };
 }
 
 describe("Regenerar respuesta en Copiloto", () => {
@@ -164,6 +165,22 @@ describe("Regenerar respuesta en Copiloto", () => {
 
     expect(state.responses.find((response) => response.id === "response-old")).toMatchObject({ isPrimary: false, draftText: "Respuesta vieja" });
     expect(state.responses.find((response) => response.id === "response-new-1")).toMatchObject({ isPrimary: true });
+  });
+
+  it("usa las correcciones del chat actual y conserva el hilo en la propuesta nueva", async () => {
+    state.responses = [storedResponse({ chatHistory: [{ sender: "user", text: "Corrección anterior" }] })];
+    const latestHistory = [
+      { sender: "user", text: "No uses tecnicismos" },
+      { sender: "assistant", text: "Entendido" },
+      { sender: "user", text: "Nombrá solo el dato confirmado" },
+    ];
+    const form = regenerateForm();
+    form.set("chatHistory", JSON.stringify(latestHistory));
+
+    await regenerateCopilotResponse(form);
+
+    expect(lastDraftContext().refinementGuidance).toEqual(["No uses tecnicismos", "Nombrá solo el dato confirmado"]);
+    expect(state.responses[0].chatHistory).toEqual(latestHistory);
   });
 
   it("rehace la propuesta con el producto elegido, su marca y su ficha", async () => {

@@ -172,21 +172,19 @@ function PendingSubmit({ children, pendingLabel, className }: { children: React.
 }
 
 // Vive dentro del formulario de publicación, así que es type="button" y llama a la acción directamente.
-function RegenerateButton({ opportunityId, responseId, acceptedAsCorrect }: { opportunityId: string; responseId: string; acceptedAsCorrect: boolean }) {
+function RegenerateButton({ opportunityId, responseId, chatHistory }: { opportunityId: string; responseId: string; chatHistory: ChatMessage[] }) {
   const [regenerating, setRegenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function regenerate() {
-    const warning = acceptedAsCorrect
-      ? "La versión aceptada queda guardada como ejemplo."
-      : "Si ajustaste esta respuesta con el chat y no la aceptaste, esa conversación se pierde sin que la IA aprenda de ella.";
-    if (!window.confirm(`¿Regenerar la respuesta con lo que aprendió la IA? Se reemplaza el texto actual.\n\n${warning}`)) return;
+    if (!window.confirm("¿Regenerar la propuesta? Se reemplaza el texto actual y se conserva la conversación del chat.")) return;
     setRegenerating(true);
     setError(null);
     try {
       const formData = new FormData();
       formData.set("opportunityId", opportunityId);
       formData.set("responseId", responseId);
+      formData.set("chatHistory", JSON.stringify(chatHistory));
       await regenerateCopilotResponse(formData);
     } catch {
       setError("No se pudo regenerar la respuesta. Probá de nuevo en un momento.");
@@ -241,12 +239,38 @@ function ProposalProductPicker({ opportunityId, responseId, products, current }:
   </div>;
 }
 
-function ResponseCard({ response, text, setText, opportunityId, sourceUrl, channel, clientSlug, youtube, productPicker }: { response: Response; text: string; setText: (text: string) => void; opportunityId: string; sourceUrl: string; channel: string; clientSlug: string; youtube: { account: string; connected: boolean; channelTitle: string } | null; productPicker: React.ReactNode }) {
+function ResponseCard({ response, text, setText, chatHistory, opportunityId, sourceUrl, channel, clientSlug, youtube, productPicker }: { response: Response; text: string; setText: (text: string) => void; chatHistory: ChatMessage[]; opportunityId: string; sourceUrl: string; channel: string; clientSlug: string; youtube: { account: string; connected: boolean; channelTitle: string } | null; productPicker: React.ReactNode }) {
+  const router = useRouter();
   const [copied, setCopied] = useState(false);
   const [openingSource, setOpeningSource] = useState(false);
   const [popupBlocked, setPopupBlocked] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [publishError, setPublishError] = useState("");
+  const [reconnectRequired, setReconnectRequired] = useState(false);
   const isYouTube = channel.toLowerCase() === "youtube";
   const youtubeConnectUrl = `/api/integrations/youtube/connect?client=${encodeURIComponent(clientSlug)}&account=${encodeURIComponent(youtube?.account ?? "youtube-principal")}`;
+
+  async function publishYouTube(event: React.FormEvent<HTMLFormElement>) {
+    if (!isYouTube) return;
+    event.preventDefault();
+    if (publishing || !youtube?.connected) return;
+    setPublishing(true);
+    setPublishError("");
+    setReconnectRequired(false);
+    try {
+      const result = await publishCopilotYouTubeResponse(new FormData(event.currentTarget));
+      if (!result.success) {
+        setPublishError(result.message);
+        setReconnectRequired(result.reconnectRequired);
+        return;
+      }
+      router.refresh();
+    } catch {
+      setPublishError("No se pudo completar la publicación. El comentario sigue acá; comprobá el estado antes de reintentar.");
+    } finally {
+      setPublishing(false);
+    }
+  }
 
   async function copy() {
     await copyToClipboard(text);
@@ -270,7 +294,7 @@ function ResponseCard({ response, text, setText, opportunityId, sourceUrl, chann
     <div className="mb-3 flex items-center justify-between gap-3"><span className="rounded-full bg-paper px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-ink">Propuesta lista para editar</span><span className="text-[11px] font-medium text-slate/65">{response.persona}</span></div>
     {/* Fuera del formulario de publicación: elegir producto nunca puede disparar un envío. */}
     {productPicker}
-    <form action={isYouTube && youtube?.connected ? publishCopilotYouTubeResponse : markCopilotResponse}>
+    <form action={isYouTube ? undefined : markCopilotResponse} onSubmit={publishYouTube}>
       <input type="hidden" name="opportunityId" value={opportunityId} />
       <input type="hidden" name="responseId" value={response.id} />
       <input type="hidden" name="wasEdited" value={text.trim() !== response.text.trim() ? "true" : "false"} />
@@ -280,14 +304,15 @@ function ResponseCard({ response, text, setText, opportunityId, sourceUrl, chann
       <div className="mt-3 flex flex-wrap gap-2">
         <button type="button" onClick={copy} className="rounded-full border border-ink/15 px-3 py-2 text-xs font-bold text-ink transition hover:border-ink/40">{copied ? "Copiado" : "Copiar"}</button>
         {isYouTube ? (
-          youtube?.connected ? <PendingSubmit pendingLabel="Publicando en YouTube…" className="rounded-full bg-moss px-3 py-2 text-xs font-bold text-white transition hover:bg-moss/85">Publicar en YouTube</PendingSubmit> : <a href={youtubeConnectUrl} className="rounded-full bg-moss px-3 py-2 text-xs font-bold text-white transition hover:bg-moss/85">Conectar cuenta de YouTube</a>
+          youtube?.connected ? <button type="submit" disabled={publishing} className="rounded-full bg-moss px-3 py-2 text-xs font-bold text-white transition hover:bg-moss/85 disabled:cursor-wait disabled:opacity-60">{publishing ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Publicando en YouTube…</span> : "Publicar en YouTube"}</button> : <a href={youtubeConnectUrl} className="rounded-full bg-moss px-3 py-2 text-xs font-bold text-white transition hover:bg-moss/85">Conectar cuenta de YouTube</a>
         ) : <>
           <PendingSubmit pendingLabel="Guardando..." className="rounded-full bg-ink px-3 py-2 text-xs font-bold text-paper transition hover:bg-slate">Guardar como respondida</PendingSubmit>
           <button type="button" onClick={openForPublishing} disabled={openingSource} className="rounded-full bg-moss px-3 py-2 text-xs font-bold text-white transition hover:bg-moss/85 disabled:cursor-wait disabled:opacity-60">{openingSource ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Abriendo…</span> : "Abrir para publicar"}</button>
         </>}
-        <RegenerateButton opportunityId={opportunityId} responseId={response.id} acceptedAsCorrect={response.acceptedAsCorrect} />
+        <RegenerateButton opportunityId={opportunityId} responseId={response.id} chatHistory={chatHistory} />
       </div>
       {isYouTube ? <p className="mt-2 text-[11px] font-medium text-slate/65">{youtube?.connected ? `Se publicará con la cuenta conectada${youtube.channelTitle ? `: ${youtube.channelTitle}` : ""}.` : "Conectá una cuenta para publicar sin abrir YouTube."}</p> : null}
+      {publishError ? <div role="alert" className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">{publishError}{reconnectRequired ? <a href={youtubeConnectUrl} className="ml-1 font-bold underline underline-offset-2">Reconectar cuenta de YouTube</a> : null}</div> : null}
       {!isYouTube && popupBlocked ? <p className="mt-2 text-[11px] font-medium text-red-600">El navegador bloqueó la pestaña nueva. El texto ya está copiado: permití popups para esta web y volvé a tocarlo, o pegá el comentario en una pestaña que abras vos.</p> : null}
     </form>
   </div>;
@@ -296,9 +321,10 @@ function ResponseCard({ response, text, setText, opportunityId, sourceUrl, chann
 function ResponseWithChat({ response, opportunityId, sourceUrl, channel, clientSlug, youtube, productPicker }: { response: Response; opportunityId: string; sourceUrl: string; channel: string; clientSlug: string; youtube: { account: string; connected: boolean; channelTitle: string } | null; productPicker: React.ReactNode }) {
   // El texto vive acá para que el chat pueda reemplazar la versión editable.
   const [text, setText] = useState(response.text);
+  const [chatHistory, setChatHistory] = useState(response.chatHistory);
   return <div className="grid gap-4 lg:grid-cols-2">
-    <ResponseCard response={response} text={text} setText={setText} opportunityId={opportunityId} sourceUrl={sourceUrl} channel={channel} clientSlug={clientSlug} youtube={youtube} productPicker={productPicker} />
-    <RefinementChat opportunityId={opportunityId} responseId={response.id} clientSlug={clientSlug} currentText={text} initialHistory={response.chatHistory} acceptedAsCorrect={response.acceptedAsCorrect} onApplyResponse={setText} />
+    <ResponseCard response={response} text={text} setText={setText} chatHistory={chatHistory} opportunityId={opportunityId} sourceUrl={sourceUrl} channel={channel} clientSlug={clientSlug} youtube={youtube} productPicker={productPicker} />
+    <RefinementChat opportunityId={opportunityId} responseId={response.id} clientSlug={clientSlug} currentText={text} initialHistory={response.chatHistory} acceptedAsCorrect={response.acceptedAsCorrect} onApplyResponse={setText} onHistoryChange={setChatHistory} />
   </div>;
 }
 

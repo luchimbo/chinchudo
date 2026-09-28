@@ -66,6 +66,7 @@ vi.mock("@/lib/db", () => {
 
 import { markCopilotResponse, publishCopilotYouTubeResponse } from "@/app/(app)/opportunities/actions";
 import { revalidatePath } from "next/cache";
+import { publishYouTubeComment } from "@/lib/youtube-publisher";
 
 function responseForm(responseId = "response-1") {
   const form = new FormData();
@@ -123,5 +124,17 @@ describe("Guardar como respondida en Copiloto", () => {
     expect(state.status).toBe("PUBLISHED");
     expect(state.publications).toBe(1);
     expect(revalidatePath).toHaveBeenCalledWith("/historial");
+  });
+
+  it("pide reconectar YouTube sin cerrar la oportunidad si el token fue revocado", async () => {
+    vi.mocked(publishYouTubeComment).mockResolvedValueOnce({ success: false, error: "Token has been expired or revoked.", method: "failed" });
+    const form = responseForm();
+    form.set("account", "youtube-principal");
+
+    const result = await publishCopilotYouTubeResponse(form);
+
+    expect(result).toMatchObject({ success: false, reconnectRequired: true });
+    expect(state.status).toBe("DRAFTED");
+    expect(state.publications).toBe(0);
   });
 });

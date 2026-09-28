@@ -214,6 +214,12 @@ export async function generateCopilotDrafts(formData: FormData) {
   delegatedFormData.set("opportunityId", opportunity.id);
   delegatedFormData.set("brandId", brand.id);
   delegatedFormData.set("personaId", persona.id);
+  const refinementResponseId = formData.get("refinementResponseId");
+  if (typeof refinementResponseId === "string" && refinementResponseId) {
+    delegatedFormData.set("refinementResponseId", refinementResponseId);
+    const refinementHistory = formData.get("refinementHistory");
+    if (typeof refinementHistory === "string") delegatedFormData.set("refinementHistory", refinementHistory);
+  }
   if (productChoice) {
     // El producto elegido por el CM reemplaza al detectado (y puede ser "sin producto").
     delegatedFormData.set("productId", productChoice.productId ?? "");
@@ -245,21 +251,22 @@ const regenerateCopilotSchema = z.object({
   opportunityId: z.string().min(1),
   responseId: z.string().min(1),
   productId: z.string().max(64).optional(),
+  chatHistory: z.unknown().optional(),
 });
 
 /**
- * Rehace la respuesta visible del Copiloto con el prompt, las reglas aprendidas y
- * las respuestas correctas actuales. La anterior se borra salvo que esté aceptada
- * o aprobada: esas siguen sirviendo de ejemplo y solo dejan de ser la principal.
+ * Rehace la respuesta visible del Copiloto con el prompt, las reglas aprendidas,
+ * las respuestas correctas y las correcciones del chat actual.
  */
 export async function regenerateCopilotResponse(formData: FormData) {
   const parsed = regenerateCopilotSchema.parse({
     opportunityId: formData.get("opportunityId"),
     responseId: formData.get("responseId"),
     productId: formData.has("productId") ? String(formData.get("productId") ?? "") : undefined,
+    chatHistory: formData.has("chatHistory") ? JSON.parse(String(formData.get("chatHistory"))) : undefined,
   });
   const [current, opportunity] = await Promise.all([
-    prisma.response.findUniqueOrThrow({ where: { id: parsed.responseId }, select: { opportunityId: true } }),
+    prisma.response.findUniqueOrThrow({ where: { id: parsed.responseId }, select: { opportunityId: true, chatHistory: true } }),
     prisma.opportunity.findUniqueOrThrow({
       where: { id: parsed.opportunityId },
       select: { clientId: true, responses: { select: { id: true } } },
@@ -271,8 +278,14 @@ export async function regenerateCopilotResponse(formData: FormData) {
   await requireOwnedClientId(opportunity.clientId);
 
   const previousIds = opportunity.responses.map((response) => response.id);
+  const storedChat = chatMessageSchema.safeParse(current.chatHistory);
+  const previousChat = parsed.chatHistory !== undefined
+    ? chatMessageSchema.parse(parsed.chatHistory)
+    : (storedChat.success ? storedChat.data : []);
   const generationForm = new FormData();
   generationForm.set("opportunityId", parsed.opportunityId);
+  generationForm.set("refinementResponseId", parsed.responseId);
+  generationForm.set("refinementHistory", JSON.stringify(previousChat));
   if (parsed.productId !== undefined) generationForm.set("productId", parsed.productId);
   await generateCopilotDrafts(generationForm);
 
@@ -289,7 +302,7 @@ export async function regenerateCopilotResponse(formData: FormData) {
       where: { opportunityId: parsed.opportunityId, id: { not: created.id } },
       data: { isPrimary: false },
     }),
-    prisma.response.update({ where: { id: created.id }, data: { isPrimary: true } }),
+    prisma.response.update({ where: { id: created.id }, data: { isPrimary: true, chatHistory: previousChat } }),
   ]);
 
   revalidatePath("/asistente-cm");
@@ -397,11 +410,13 @@ export async function publishCopilotYouTubeResponse(formData: FormData) {
   if (!opportunity.clientId) throw new Error("La oportunidad debe pertenecer a un cliente antes de publicar.");
   await assertClientAccess(prisma, opportunity.clientId);
   if (opportunity.channel.name.toLowerCase() !== "youtube") throw new Error("Este botón solo publica oportunidades de YouTube.");
-  if (["ARCHIVED", "PUBLISHED", "CONVERTED", "FOLLOW_UP"].includes(opportunity.status)) throw new Error("Esta oportunidad ya fue respondida.");
+  if (["ARCHIVED", "PUBLISHED", "CONVERTED", "FOLLOW_UP"].includes(opportunity.status)) {
+    return { success: false as const, message: "Esta oportunidad ya fue respondida.", reconnectRequired: false };
+  }
 
   const rateLimit = await checkPublishRateLimits(prisma, parsed.account);
   if (!rateLimit.ok) {
-    throw new Error(rateLimit.error === "rate_limited_daily" ? "Límite diario alcanzado para esta cuenta." : "Esperá antes de volver a publicar con esta cuenta.");
+    return { success: false as const, message: rateLimit.error === "rate_limited_daily" ? "Límite diario alcanzado para esta cuenta." : "Esperá antes de volver a publicar con esta cuenta.", reconnectRequired: false };
   }
   const result = await publishYouTubeComment({
     prisma,
@@ -410,7 +425,16 @@ export async function publishCopilotYouTubeResponse(formData: FormData) {
     sourceUrl: opportunity.sourceUrl,
     text: parsed.editedText,
   });
-  if (!result.success) throw new Error(`No se pudo publicar en YouTube: ${result.error}`);
+  if (!result.success) {
+    const reconnectRequired = result.error === "youtube_not_connected" || /token has been expired or revoked|invalid_grant|invalid_token/i.test(result.error);
+    return {
+      success: false as const,
+      message: reconnectRequired
+        ? "La conexión de YouTube venció o fue revocada. Reconectá la cuenta y volvé a publicar este comentario."
+        : `No se pudo publicar en YouTube: ${result.error}`,
+      reconnectRequired,
+    };
+  }
 
   const currentContext = opportunity.contextAssessment && typeof opportunity.contextAssessment === "object"
     ? opportunity.contextAssessment as Record<string, unknown>
@@ -446,6 +470,7 @@ export async function publishCopilotYouTubeResponse(formData: FormData) {
   revalidatePath("/asistente-cm");
   revalidatePath("/historial");
   revalidatePath(`/opportunities/${opportunity.id}`);
+  return { success: true as const };
 }
 
 const copilotDiscardSchema = z.object({
@@ -559,6 +584,8 @@ export async function generateResponseDrafts(formData: FormData) {
   const hasExplicitProductSelection = formData.has("productId");
   const productId = (formData.get("productId") || "") as string;
   const productChosenByCm = formData.get("productChosenByCm") === "true";
+  const refinementResponseId = formData.get("refinementResponseId");
+  const refinementHistory = formData.get("refinementHistory");
 
   const [opportunity, persona, brand, selectedProduct] = await Promise.all([
     prisma.opportunity.findUniqueOrThrow({
@@ -582,6 +609,24 @@ export async function generateResponseDrafts(formData: FormData) {
 
   const resolution = await resolveOpportunityClient(prisma, opportunity);
   await assertClientAccess(prisma, resolution.client.id);
+  let refinementGuidance: string[] = [];
+  if (typeof refinementResponseId === "string" && refinementResponseId) {
+    const previous = await prisma.response.findUniqueOrThrow({
+      where: { id: refinementResponseId },
+      select: { opportunityId: true, chatHistory: true },
+    });
+    if (previous.opportunityId !== opportunityId) throw new Error("La respuesta no corresponde a esta oportunidad.");
+    const parsedHistory = typeof refinementHistory === "string"
+      ? chatMessageSchema.safeParse(JSON.parse(refinementHistory))
+      : chatMessageSchema.safeParse(previous.chatHistory);
+    if (parsedHistory.success) {
+      refinementGuidance = parsedHistory.data
+        .filter((message) => message.sender === "user")
+        .map((message) => message.text.trim())
+        .filter(Boolean)
+        .slice(-20);
+    }
+  }
   const clientContext = await loadClientContext(prisma, resolution.client.id, opportunity);
   if (brand.clientId && brand.clientId !== resolution.client.id) {
     throw new Error("La marca seleccionada no pertenece al cliente de esta oportunidad.");
@@ -673,6 +718,7 @@ export async function generateResponseDrafts(formData: FormData) {
     competitorEvidence,
     clientMemories: clientMemories.map((m) => ({ rule: m.rule })),
     acceptedExamples,
+    refinementGuidance,
     editorialGuidance: copilotGuidance(opportunity.contextAssessment, pulse ? { title: pulse.title } : null),
     productChosenByCm: productChosenByCm && Boolean(selectedProduct),
   };

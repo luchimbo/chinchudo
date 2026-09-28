@@ -19,6 +19,7 @@ import { triageOpportunity } from "../src/lib/opportunity-triage";
 import { loadObservedProfileContext, recordObservedProfileEvent } from "../src/lib/observed-profiles";
 import { classifyJurispediaSafety, isJurispediaAutoPublishAllowed } from "../src/lib/jurispedia-policy";
 import { loadRelevantCompetitorEvidence } from "../src/lib/competitor-evidence";
+import { getAcceptedExamples, getClientMemories } from "../src/lib/client-memory";
 import { findSimilarDraft } from "../src/lib/draft-uniqueness";
 import { operationalOpportunityWhere } from "../src/lib/opportunity-channels";
 
@@ -201,8 +202,10 @@ async function main() {
     let activeSystemPrompt: Awaited<ReturnType<typeof loadActivePrompt>>;
     let observedProfile;
     let competitorEvidence;
+    let clientMemories;
+    let acceptedExamples;
     try {
-      const [knowledgeResult, promptResult, observedProfileResult, evidenceResult] = await Promise.all([
+      const [knowledgeResult, promptResult, observedProfileResult, evidenceResult, memoriesResult, examplesResult] = await Promise.all([
         loadRelevantKnowledge(prisma, {
           sourceText: opportunity.sourceText,
           clientId: resolution.client.id,
@@ -212,12 +215,16 @@ async function main() {
         loadActivePrompt(prisma),
         loadObservedProfileContext(prisma, opportunity.id),
         loadRelevantCompetitorEvidence(prisma, resolution.client.id, opportunity.sourceText),
+        getClientMemories(prisma, resolution.client.id),
+        getAcceptedExamples(prisma, { clientId: resolution.client.id, brandId: brand.id, limit: 5 }),
       ]);
       knowledge = knowledgeResult.knowledge;
       objections = knowledgeResult.objections;
       activeSystemPrompt = promptResult;
       observedProfile = observedProfileResult;
       competitorEvidence = evidenceResult;
+      clientMemories = memoriesResult.map((memory) => ({ rule: memory.rule }));
+      acceptedExamples = examplesResult;
     } catch (error) {
       errors.push({ opportunityId: opportunity.id, error: `carga de contexto: ${(error as Error).message}` });
       continue;
@@ -271,6 +278,8 @@ async function main() {
           activeSystemPrompt,
           observedProfile,
           competitorEvidence,
+          clientMemories,
+          acceptedExamples,
         };
         let source = "local";
         // Para Jurispedia el contenido público se genera con la plantilla auditada;

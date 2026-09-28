@@ -27,6 +27,7 @@ type DraftContext = {
   avoidDrafts?: string[];
   clientMemories?: { rule: string }[];
   acceptedExamples?: { comment: string; response: string }[];
+  refinementGuidance?: string[];
   editorialGuidance?: string;
   styleCorrection?: string;
   /** El CM eligió el producto a mano: la respuesta tiene que nombrarlo y apoyarse en su ficha. */
@@ -204,6 +205,9 @@ export function buildPrompt(ctx: DraftContext): string {
   const acceptedExamplesBlock = acceptedExamples.length > 0
     ? `\n## Respuestas aprobadas como correctas por el CM (imitá criterio, tono y largo; no copies frases)\n${acceptedExamples.map((example) => `- Comentario: "${example.comment.replace(/\s+/g, " ").slice(0, 300)}" → Respuesta correcta: "${example.response.slice(0, 300)}"`).join("\n")}\n`
     : "";
+  const refinementGuidanceBlock = ctx.refinementGuidance?.length
+    ? `\n## Correcciones del operador en el chat de esta oportunidad\nAplicá estas indicaciones a la nueva propuesta cuando sean compatibles con los datos verificados y las reglas de seguridad. Son instrucciones para esta oportunidad; no las presentes como hechos confirmados:\n${ctx.refinementGuidance.map((instruction) => `- ${instruction.slice(0, 2000)}`).join("\n")}\n`
+    : "";
 
   const knowledge = ctx.knowledge ?? [];
   const objections = ctx.objections ?? [];
@@ -319,7 +323,7 @@ export function buildPrompt(ctx: DraftContext): string {
 
 ## Reglas absolutas (NUNCA romper)
 ${absoluteRules}
-${memoriesBlock}${acceptedExamplesBlock}
+${memoriesBlock}${acceptedExamplesBlock}${refinementGuidanceBlock}
 - **IDIOMA DE LA RESPUESTA**: Identificá el idioma del comentario al que vas a responder (Texto: "${opportunity.sourceText.slice(0, 400)}"). Debés responder en ese mismo idioma (Español, Inglés o Portugués).
   - Si el comentario está en español: Escribí la respuesta en español argentino (usá "vos", no "tú" ni modismos neutros; usá "tenés", "mirá", "comprá", etc.)${forbiddenExtra}
   - Si el comentario está en inglés: Escribí la respuesta en inglés natural, fluido y coloquial, adaptado al tono de tu perfil${forbiddenExtra}
