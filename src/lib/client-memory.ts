@@ -38,11 +38,26 @@ export type ClientMemoryItem = {
   updatedAt: Date;
 };
 
-export async function getClientMemories(prisma: PrismaClient, clientId: string) {
-  return prisma.clientMemory.findMany({
+export async function getClientMemories(
+  prisma: PrismaClient,
+  clientId: string,
+  context?: { brandId: string; productId?: string | null }
+) {
+  const memories = await prisma.clientMemory.findMany({
     where: { clientId, active: true },
+    include: { response: { select: { brandId: true, opportunity: { select: { detectedProductId: true } } } } },
     orderBy: { createdAt: "desc" },
   });
+  if (!context) return memories;
+
+  // Los aprendizajes de otra marca o de otro producto no deben competir con
+  // las correcciones que el CM hizo para la respuesta actual.
+  return memories.filter((memory) => {
+    if (!memory.response) return true; // Reglas manuales del cliente.
+    if (memory.response.brandId !== context.brandId) return false;
+    const sourceProductId = memory.response.opportunity.detectedProductId;
+    return memory.category !== "product" || !sourceProductId || sourceProductId === context.productId;
+  }).slice(0, 16);
 }
 
 export type AcceptedExample = { comment: string; response: string };

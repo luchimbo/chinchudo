@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { selectRelevantProducts, type ScopedProduct } from "../catalog";
-import { sanitizePublicDraft, validatePublicDraft } from "../draft-output";
+import { sanitizeCopilotDraft, sanitizePublicDraft, validatePublicDraft } from "../draft-output";
 
 function product(id: string, name: string, category: string, description: string): ScopedProduct {
   return {
@@ -52,8 +52,13 @@ describe("regresiones de reportes de julio", () => {
   });
 
   it("neutraliza promesas comerciales no verificadas", () => {
-    const clean = sanitizePublicDraft("En PC MIDI Center lo tenés a un muy buen precio con cuotas sin interés.");
-    expect(clean).toBe("Consultá en PC MIDI Center por stock, precio, garantía y financiación.");
+    const clean = sanitizePublicDraft("El MiniLab 3 tiene faders. En PC MIDI Center lo tenés a un muy buen precio con cuotas sin interés.");
+    expect(clean).toBe("El MiniLab 3 tiene faders.");
     expect(validatePublicDraft(clean)).toEqual([]);
+  });
+
+  it("quita la apertura y el cierre enlatados del copiloto", () => {
+    expect(sanitizeCopilotDraft("Mirá, el MiniLab 3 tiene faders. Consultá en PC MIDI Center por stock, precio, garantía y financiación.", "pcmidi"))
+      .toBe("El MiniLab 3 tiene faders.");
   });
 });

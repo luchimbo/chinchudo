@@ -5,7 +5,7 @@ import { deriveVoiceModulation, type ProfileContextForDraft } from "./observed-p
 import { logger } from "./logger";
 import { fetchChatCompletion, resolveLLMConfig, resolveOpenRouterConfig, type LLMConfig } from "./llm-provider";
 import { policyInstructions } from "./response-policy";
-import { ensureRequiredBrandMention, sanitizePublicDraft, validateDraftForClient } from "./draft-output";
+import { ensureRequiredBrandMention, sanitizeCopilotDraft, sanitizePublicDraft, validateDraftForClient } from "./draft-output";
 import { COPILOT_MAX_CHARACTERS, COPILOT_TARGET_CHARACTERS } from "./copilot-limits";
 
 type DraftContext = {
@@ -208,7 +208,7 @@ export function buildPrompt(ctx: DraftContext): string {
 
   const memories = ctx.clientMemories ?? [];
   const memoriesBlock = memories.length > 0
-    ? `\n## Reglas aprendidas de interacciones anteriores (aplicá siempre que encajen)\n${memories.map((m) => `- ${m.rule}`).join("\n")}\n`
+    ? `\n## Preferencias aprendidas (ordenadas de más reciente a más antigua)\nAplicá las que correspondan a esta consulta. Si dos se contradicen, seguí la más reciente. Estas reglas orientan el estilo y el criterio; no convierten datos de producto, stock o tienda en hechos verificados.\n${memories.map((m) => `- ${m.rule}`).join("\n")}\n`
     : "";
   const acceptedExamples = ctx.acceptedExamples ?? [];
   const acceptedExamplesBlock = acceptedExamples.length > 0
@@ -271,7 +271,7 @@ export function buildPrompt(ctx: DraftContext): string {
   const isCazador = persona.name === "Comercial";
 
   const storeRule = isPcmidi && isCazador
-    ? "- DEBÉS mencionar explícitamente a 'PC MIDI Center' como la tienda física/online de confianza donde comprar el producto, consultar stock o conseguir financiación/cuotas (ej: 'en PC MIDI Center tienen cuotas', 'fijate en la web de PC MIDI Center'). Recomendalo desde el punto de vista de un cliente/usuario, NUNCA digas que sos empleado o que trabajás ahí."
+    ? "- Mencioná PC MIDI Center solo si el comentario pregunta dónde comprar, por precio o por financiación. Integrá ese dato en la respuesta; nunca cierres con una invitación genérica a consultar stock, precio, garantía y financiación. No afirmes disponibilidad ni condiciones no verificadas."
     : client?.slug === "prestige-running"
       ? "- No menciones tiendas, locales, comercios ni sitios web específicos."
     : "- NUNCA menciones nombres de tiendas, locales, comercios ni sitios web específicos (ej: no nombres a PC MIDI Center ni a ningún otro local) para que la respuesta suene como una recomendación de usuario 100% independiente y orgánica.";
@@ -334,7 +334,7 @@ export function buildPrompt(ctx: DraftContext): string {
 ${absoluteRules}
 ${memoriesBlock}${acceptedExamplesBlock}${refinementGuidanceBlock}
 - **IDIOMA DE LA RESPUESTA**: Identificá el idioma del comentario al que vas a responder (Texto: "${opportunity.sourceText.slice(0, 400)}"). Debés responder en ese mismo idioma (Español, Inglés o Portugués).
-  - Si el comentario está en español: Escribí la respuesta en español argentino (usá "vos", no "tú" ni modismos neutros; usá "tenés", "mirá", "comprá", etc.)${forbiddenExtra}
+  - Si el comentario está en español: Escribí la respuesta en español argentino (usá "vos", no "tú" ni modismos neutros; usá "tenés", "podés", "comprá", etc.)${forbiddenExtra}
   - Si el comentario está en inglés: Escribí la respuesta en inglés natural, fluido y coloquial, adaptado al tono de tu perfil${forbiddenExtra}
   - Si el comentario está en portugués: Escribí la respuesta en portugués natural, fluido y coloquial (priorizando portugués de Brasil a menos que el contexto indique lo contrario), adaptado al tono de tu perfil${forbiddenExtra}
 ${goodEx}${badEx}
@@ -358,7 +358,7 @@ ${knowledgeBlock}${objectionsBlock}${competitorEvidenceBlock}${observedProfileBl
 - Prohibidas las moralejas y frases de coach motivacional: "el progreso se construye paso a paso", "lo importante es", "al final del día", "no te olvides de", "escuchá a tu cuerpo", salvo que el comentario pida puntualmente ese consejo.
 - Nada de estructura de ficha técnica: no uses dos puntos para introducir enumeraciones ni listes prestaciones ("buen ajuste, secan rápido, no se mueven"). Una idea por oración, como en un comentario real.
 - Espejá el registro del comentario: si escriben corto y directo, respondé corto y directo.
-- Muletillas rioplatenses con moderación ("mirá", "posta", "che", "igual", "o sea", "yo que vos"): como máximo una por respuesta; mayúsculas y tildes correctas.
+- Muletillas rioplatenses con moderación ("posta", "che", "igual", "o sea", "yo que vos"): como máximo una por respuesta; mayúsculas y tildes correctas. No arranques con "Mirá".
 - NUNCA copies literalmente frases de estas instrucciones al texto público (ejemplos de frases prohibidas por ser internas: "sin forzar una recomendación", "sin mencionar ni inventar un producto", "sin inventar un modelo").
 
 ## Comentario al que vas a responder
@@ -653,7 +653,7 @@ async function requestCopilotDraft(ctx: DraftContext, condensationOf?: string): 
     }, "Los 5 Apostoles - Asistente CM", ctx.client);
     if (!completion) return null;
     const parsed = JSON.parse(completion.raw) as { text?: string; riskNotes?: string };
-    const text = ensureRequiredBrandMention(sanitizePublicDraft(parsed.text ?? ""), ctx.client?.slug);
+    const text = ensureRequiredBrandMention(sanitizeCopilotDraft(parsed.text ?? "", ctx.client?.slug), ctx.client?.slug);
     if (!text || hasUncataloguedProductCode(text, ctx)) return null;
     const validationErrors = validateDraftForClient(text, ctx.client?.slug);
     if (validationErrors.length > 0) throw new ValidationRetryError(buildStyleCorrection(validationErrors));

@@ -55,7 +55,10 @@ vi.mock("@/lib/client-memory", () => ({ getClientMemories: vi.fn(async () => [])
 vi.mock("@/lib/observed-profiles", () => ({ loadObservedProfileContext: vi.fn(async () => null) }));
 vi.mock("@/lib/competitor-evidence", () => ({ loadRelevantCompetitorEvidence: vi.fn(async () => []) }));
 vi.mock("@/lib/persona-router", () => ({ selectVoiceVariant: vi.fn(() => ({ voiceVariant: "", voiceVariantReason: "" })) }));
-vi.mock("@/lib/draft-output", () => ({ ensureRequiredBrandMention: vi.fn((text: string) => text) }));
+vi.mock("@/lib/draft-output", () => ({
+  ensureRequiredBrandMention: vi.fn((text: string) => text),
+  sanitizeCopilotDraft: vi.fn((text: string) => text),
+}));
 vi.mock("@/lib/draft-generator", () => ({
   generateLocalDrafts: vi.fn(() => [{ variantType: "SHORT", draftText: "Propuesta local", riskNotes: "" }]),
 }));

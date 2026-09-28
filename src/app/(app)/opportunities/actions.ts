@@ -12,7 +12,7 @@ import { generateLocalDrafts } from "@/lib/draft-generator";
 import { generateAICopilotDraft, generateAIDrafts, shortenCopilotText } from "@/lib/ai-draft-generator";
 import { COPILOT_MAX_CHARACTERS, COPILOT_TARGET_CHARACTERS } from "@/lib/copilot-limits";
 import { selectHumorSignal } from "@/lib/radar-editorial";
-import { ensureRequiredBrandMention } from "@/lib/draft-output";
+import { ensureRequiredBrandMention, sanitizeCopilotDraft } from "@/lib/draft-output";
 import { loadRelevantKnowledge } from "@/lib/knowledge";
 import { loadActivePrompt } from "@/lib/prompts";
 import { opportunityIntents, opportunityPriorities, opportunityStatuses } from "@/lib/labels";
@@ -316,6 +316,7 @@ const copilotResponseSchema = z.object({
   responseId: z.string().min(1),
   editedText: z.string().min(3).max(COPILOT_MAX_CHARACTERS),
   wasEdited: z.enum(["true", "false"]).default("false"),
+  chatHistory: z.unknown().optional(),
 });
 
 export async function markCopilotResponse(formData: FormData) {
@@ -324,7 +325,9 @@ export async function markCopilotResponse(formData: FormData) {
     responseId: formData.get("responseId"),
     editedText: formData.get("editedText"),
     wasEdited: formData.get("wasEdited") || "false",
+    chatHistory: formData.has("chatHistory") ? JSON.parse(String(formData.get("chatHistory"))) : undefined,
   });
+  const chatHistory = parsed.chatHistory === undefined ? undefined : chatMessageSchema.parse(parsed.chatHistory);
   const [response, opportunity] = await Promise.all([
     prisma.response.findUniqueOrThrow({
       where: { id: parsed.responseId },
@@ -369,7 +372,7 @@ export async function markCopilotResponse(formData: FormData) {
     });
     await tx.response.update({
       where: { id: parsed.responseId },
-      data: { editedText: parsed.editedText, approvedBy: "CM", isPrimary: true },
+      data: { editedText: parsed.editedText, approvedBy: "CM", isPrimary: true, ...(chatHistory ? { chatHistory } : {}) },
     });
   });
   revalidatePath("/asistente-cm");
@@ -393,6 +396,7 @@ const copilotYouTubePublishSchema = z.object({
   editedText: z.string().min(3).max(COPILOT_MAX_CHARACTERS),
   account: z.string().min(1).max(120),
   wasEdited: z.enum(["true", "false"]).default("false"),
+  chatHistory: z.unknown().optional(),
 });
 
 /** Publicación oficial desde el Copiloto: aprueba y publica en una sola acción. */
@@ -403,7 +407,9 @@ export async function publishCopilotYouTubeResponse(formData: FormData) {
     editedText: formData.get("editedText"),
     account: formData.get("account"),
     wasEdited: formData.get("wasEdited") || "false",
+    chatHistory: formData.has("chatHistory") ? JSON.parse(String(formData.get("chatHistory"))) : undefined,
   });
+  const chatHistory = parsed.chatHistory === undefined ? undefined : chatMessageSchema.parse(parsed.chatHistory);
 
   const [opportunity, response] = await Promise.all([
     prisma.opportunity.findUniqueOrThrow({
@@ -451,7 +457,7 @@ export async function publishCopilotYouTubeResponse(formData: FormData) {
     : {};
   await prisma.$transaction([
     prisma.response.updateMany({ where: { opportunityId: opportunity.id, id: { not: response.id } }, data: { isPrimary: false } }),
-    prisma.response.update({ where: { id: response.id }, data: { editedText: parsed.editedText, approvedBy: "CM", isPrimary: true } }),
+    prisma.response.update({ where: { id: response.id }, data: { editedText: parsed.editedText, approvedBy: "CM", isPrimary: true, ...(chatHistory ? { chatHistory } : {}) } }),
     prisma.publishingLog.upsert({
       where: { responseId: response.id },
       update: { account: parsed.account, publishedUrl: result.url, remoteId: result.remoteId, publishMethod: result.method, result: result.method, followUpNeeded: false },
@@ -672,7 +678,7 @@ export async function generateResponseDrafts(formData: FormData) {
       productId: opportunityForDraft.detectedProductId
     }),
     loadActivePrompt(prisma),
-    getClientMemories(prisma, resolution.client.id),
+    getClientMemories(prisma, resolution.client.id, { brandId, productId: opportunityForDraft.detectedProductId }),
     getAcceptedExamples(prisma, { clientId: resolution.client.id, brandId, limit: 5 })
   ]);
   const [observedProfile, competitorEvidence] = await Promise.all([
@@ -744,7 +750,7 @@ export async function generateResponseDrafts(formData: FormData) {
   // editable, no obliga al CM a comparar variantes antes de responder.
   const copilotDraft = isCopilotRequest ? await generateAICopilotDraft(ctx) : null;
   const drafts = isCopilotRequest
-    ? [{ ...(copilotDraft ?? localShort), draftText: shortenCopilotText((copilotDraft ?? localShort).draftText) }]
+    ? [{ ...(copilotDraft ?? localShort), draftText: shortenCopilotText(sanitizeCopilotDraft((copilotDraft ?? localShort).draftText, resolution.client.slug)) }]
     : ((await generateAIDrafts(ctx)) ?? localDrafts);
   const draftsWithRisks = await Promise.all(drafts.map(async (draft) => {
     const crossClientHits = await detectCrossClientTerms(prisma, resolution.client.id, draft.draftText);
@@ -1555,15 +1561,20 @@ export async function sendRefinementMessageAction(formData: FormData) {
   const resolution = await resolveOpportunityClient(prisma, response.opportunity);
   await assertClientAccess(prisma, resolution.client.id);
   const [clientMemories, acceptedExamples] = await Promise.all([
-    getClientMemories(prisma, resolution.client.id),
+    getClientMemories(prisma, resolution.client.id, { brandId: response.brandId, productId: response.opportunity.detectedProductId }),
     getAcceptedExamples(prisma, { clientId: resolution.client.id, brandId: response.brandId, limit: 5 }),
   ]);
 
+  // El navegador ya agregó el mensaje nuevo al historial para mostrarlo de inmediato.
+  // El modelo lo recibe una sola vez, mientras el historial completo se persiste.
+  const historyForModel = parsed.chatHistory.at(-1)?.sender === "user" && parsed.chatHistory.at(-1)?.text === parsed.userMessage
+    ? parsed.chatHistory.slice(0, -1)
+    : parsed.chatHistory;
   const assistantReply = await chatRefinementStep({
     acceptedExamples,
     opportunityText: response.opportunity.sourceText,
     currentResponseText: parsed.currentText?.trim() || response.editedText || response.draftText,
-    chatHistory: parsed.chatHistory,
+    chatHistory: historyForModel,
     userMessage: parsed.userMessage,
     brandName: response.brand.name,
     personaName: response.persona.name,
@@ -1573,8 +1584,25 @@ export async function sendRefinementMessageAction(formData: FormData) {
     targetCharacters: refinementTargetCharacters(response.opportunity.contextAssessment),
   });
 
+  const currentTurn: ChatMessage[] = historyForModel.length === parsed.chatHistory.length
+    ? [...parsed.chatHistory, { sender: "user", text: parsed.userMessage, timestamp: new Date().toISOString() }]
+    : parsed.chatHistory;
+  const suggestion = assistantReply.suggestion && refinementMaxCharacters(response.opportunity.contextAssessment)
+    ? shortenCopilotText(sanitizeCopilotDraft(assistantReply.suggestion, resolution.client.slug)) || null
+    : assistantReply.suggestion;
+  const completedChat: ChatMessage[] = [...currentTurn, {
+    sender: "assistant",
+    text: assistantReply.message,
+    timestamp: new Date().toISOString(),
+    ...(suggestion ? { suggestion: { text: suggestion, original: suggestion } } : {}),
+  }];
+  await prisma.response.update({
+    where: { id: parsed.responseId },
+    data: { chatHistory: completedChat as unknown as any[] },
+  });
+
   // `reply` queda sin la etiqueta; la propuesta viaja aparte para mostrarse como bloque editable.
-  return { success: true, reply: assistantReply.message, suggestion: assistantReply.suggestion };
+  return { success: true, reply: assistantReply.message, suggestion };
 }
 
 const saveRefinementChatSchema = z.object({
@@ -1642,10 +1670,10 @@ export async function applyRefinedResponseAction(formData: FormData) {
   const resolution = await resolveOpportunityClient(prisma, response.opportunity);
   await assertClientAccess(prisma, resolution.client.id);
   const [clientMemories, acceptedExamples] = await Promise.all([
-    getClientMemories(prisma, resolution.client.id),
+    getClientMemories(prisma, resolution.client.id, { brandId: response.brandId, productId: response.opportunity.detectedProductId }),
     getAcceptedExamples(prisma, { clientId: resolution.client.id, brandId: response.brandId, limit: 5 }),
   ]);
-  const compiledText = await compileResponseFromChat({
+  const compiledDraft = await compileResponseFromChat({
     acceptedExamples,
     maxCharacters: refinementMaxCharacters(response.opportunity.contextAssessment),
     targetCharacters: refinementTargetCharacters(response.opportunity.contextAssessment),
@@ -1656,6 +1684,9 @@ export async function applyRefinedResponseAction(formData: FormData) {
     personaName: response.persona.name,
     clientMemories: clientMemories.map((m) => ({ rule: m.rule })),
   });
+  const compiledText = refinementMaxCharacters(response.opportunity.contextAssessment)
+    ? shortenCopilotText(sanitizeCopilotDraft(compiledDraft, resolution.client.slug))
+    : compiledDraft;
 
   await prisma.$transaction([
     prisma.response.updateMany({
@@ -1683,7 +1714,7 @@ const applyChatSuggestionSchema = z.object({
   chatHistory: chatMessageSchema.default([]),
 });
 
-/** "Usar esta respuesta": la propuesta del chat (editada o no) pasa a ser la respuesta, y queda guardada. */
+/** "Usar esta respuesta": guarda la versión elegida como ejemplo y aprende de las correcciones del chat. */
 export async function applyChatSuggestionAction(formData: FormData) {
   let chatHistory: ChatMessage[] = [];
   try {
@@ -1714,13 +1745,20 @@ export async function applyChatSuggestionAction(formData: FormData) {
     }),
     prisma.response.update({
       where: { id: parsed.responseId },
-      data: { editedText: parsed.text, isPrimary: true, chatHistory: parsed.chatHistory as unknown as any[] },
+      data: { editedText: parsed.text, approvedBy: "CM", acceptedAsCorrectAt: new Date(), isPrimary: true, chatHistory: parsed.chatHistory as unknown as any[] },
     }),
   ]);
 
+  let learnedRules: string[] = [];
+  try {
+    learnedRules = await learnFromRefinementChat(parsed.responseId, parsed.text);
+  } catch (error) {
+    logger.error("copilot_use_learning_failed", "No se pudo extraer el aprendizaje de la respuesta elegida", error).catch(() => { });
+  }
   revalidatePath(`/opportunities/${response.opportunityId}`);
   revalidatePath("/asistente-cm");
-  return { success: true };
+  revalidatePath("/aprendizaje");
+  return { success: true, learnedRules };
 }
 
 /** Extrae todos los aprendizajes de la conversación completa y los guarda como memoria del cliente. */
@@ -1757,6 +1795,7 @@ const acceptCopilotRefinementSchema = z.object({
   opportunityId: z.string().min(1),
   responseId: z.string().min(1),
   editedText: z.string().trim().min(3).max(COPILOT_MAX_CHARACTERS),
+  chatHistory: z.unknown().optional(),
 });
 
 /**
@@ -1769,7 +1808,9 @@ export async function acceptCopilotRefinementAction(formData: FormData) {
     opportunityId: formData.get("opportunityId"),
     responseId: formData.get("responseId"),
     editedText: formData.get("editedText"),
+    chatHistory: formData.has("chatHistory") ? JSON.parse(String(formData.get("chatHistory"))) : undefined,
   });
+  const chatHistory = parsed.chatHistory === undefined ? undefined : chatMessageSchema.parse(parsed.chatHistory);
   const response = await prisma.response.findUniqueOrThrow({
     where: { id: parsed.responseId },
     select: { opportunityId: true, opportunity: { select: { clientId: true } } },
@@ -1784,7 +1825,7 @@ export async function acceptCopilotRefinementAction(formData: FormData) {
     }),
     prisma.response.update({
       where: { id: parsed.responseId },
-      data: { editedText: parsed.editedText, approvedBy: "CM", isPrimary: true, acceptedAsCorrectAt: new Date() },
+      data: { editedText: parsed.editedText, approvedBy: "CM", isPrimary: true, acceptedAsCorrectAt: new Date(), ...(chatHistory ? { chatHistory } : {}) },
     }),
   ]);
 

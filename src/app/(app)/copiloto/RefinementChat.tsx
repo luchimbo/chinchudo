@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { acceptCopilotRefinementAction, applyChatSuggestionAction, applyRefinedResponseAction, saveRefinementChatAction, sendRefinementMessageAction } from "@/app/(app)/opportunities/actions";
+import { applyChatSuggestionAction, saveRefinementChatAction, sendRefinementMessageAction } from "@/app/(app)/opportunities/actions";
 import type { ChatMessage, ChatSuggestion } from "@/lib/refine-draft";
 import { copyToClipboard } from "./clipboard";
 import { LoadingSpinner } from "@/components/loading-ui";
@@ -18,9 +18,10 @@ function formDataFrom(values: Record<string, string>) {
 }
 
 // Propuesta de la IA dentro del chat: se edita ahí mismo y recién "Usar esta respuesta" la pasa a la propuesta.
-function SuggestionCard({ suggestion, inProposal, disabled, applying, onSave, onUse }: {
+function SuggestionCard({ suggestion, inProposal, accepted, disabled, applying, onSave, onUse }: {
   suggestion: ChatSuggestion;
   inProposal: boolean;
+  accepted: boolean;
   disabled: boolean;
   applying: boolean;
   onSave: (text: string) => void;
@@ -76,7 +77,7 @@ function SuggestionCard({ suggestion, inProposal, disabled, applying, onSave, on
         <button type="button" onClick={save} disabled={draft.trim().length < 3} className="rounded-full bg-ink px-3 py-1.5 text-[11px] font-bold text-paper transition hover:bg-slate disabled:opacity-50">Guardar cambios</button>
         <button type="button" onClick={() => setEditing(false)} className="rounded-full px-2.5 py-1.5 text-[11px] font-semibold text-slate hover:text-ink">Cancelar</button>
       </> : <>
-        <button type="button" onClick={onUse} disabled={disabled || tooLong || inProposal} className="rounded-full bg-moss px-3 py-1.5 text-[11px] font-bold text-white transition hover:bg-moss/85 disabled:cursor-not-allowed disabled:opacity-50">{applying ? "Pasando a la propuesta…" : "Usar esta respuesta"}</button>
+        <button type="button" onClick={onUse} disabled={disabled || tooLong || (inProposal && accepted)} className="rounded-full bg-moss px-3 py-1.5 text-[11px] font-bold text-white transition hover:bg-moss/85 disabled:cursor-not-allowed disabled:opacity-50">{applying ? "Guardando y aprendiendo…" : inProposal && accepted ? "Respuesta usada" : "Usar esta respuesta"}</button>
         <button type="button" onClick={startEditing} disabled={disabled} className="rounded-full border border-ink/15 px-3 py-1.5 text-[11px] font-bold text-ink transition hover:border-ink/40 disabled:opacity-50">✎ Editar</button>
         <button type="button" onClick={copy} className="rounded-full border border-ink/15 px-3 py-1.5 text-[11px] font-bold text-ink transition hover:border-ink/40">{copied ? "Copiado" : "Copiar"}</button>
       </>}
@@ -84,8 +85,7 @@ function SuggestionCard({ suggestion, inProposal, disabled, applying, onSave, on
   </div>;
 }
 
-export function RefinementChat({ opportunityId, responseId, clientSlug, currentText, initialHistory, acceptedAsCorrect, onApplyResponse, onHistoryChange }: {
-  opportunityId: string;
+export function RefinementChat({ responseId, clientSlug, currentText, initialHistory, acceptedAsCorrect, onApplyResponse, onHistoryChange }: {
   responseId: string;
   clientSlug: string;
   currentText: string;
@@ -97,8 +97,6 @@ export function RefinementChat({ opportunityId, responseId, clientSlug, currentT
   const [history, setHistory] = useState<ChatMessage[]>(initialHistory);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
-  const [compiling, setCompiling] = useState(false);
-  const [accepting, setAccepting] = useState(false);
   const [applyingIndex, setApplyingIndex] = useState<number | null>(null);
   // Guardamos el texto aceptado: si después se edita, deja de figurar como aceptado.
   const [acceptedText, setAcceptedText] = useState<string | null>(acceptedAsCorrect ? currentText : null);
@@ -106,7 +104,7 @@ export function RefinementChat({ opportunityId, responseId, clientSlug, currentT
   const [learnedRules, setLearnedRules] = useState<string[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const busy = sending || compiling || accepting || applyingIndex !== null;
+  const busy = sending || applyingIndex !== null;
 
   function updateHistory(next: ChatMessage[]) {
     setHistory(next);
@@ -142,7 +140,6 @@ export function RefinementChat({ opportunityId, responseId, clientSlug, currentT
       };
       const completed = [...updated, reply];
       updateHistory(completed);
-      persist(completed);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error de conexión con la IA.");
     } finally {
@@ -164,52 +161,15 @@ export function RefinementChat({ opportunityId, responseId, clientSlug, currentT
     setApplyingIndex(index);
     setError(null);
     try {
-      await applyChatSuggestionAction(formDataFrom({ responseId, text: suggestion.text, chatHistory: JSON.stringify(history) }));
+      const result = await applyChatSuggestionAction(formDataFrom({ responseId, text: suggestion.text, chatHistory: JSON.stringify(history) }));
       onApplyResponse(suggestion.text);
+      setAcceptedText(suggestion.text);
+      setLearnedRules(result.learnedRules);
     } catch {
       // En producción Next oculta el detalle del error del servidor: mensaje propio y claro.
-      setError("No se pudo pasar la propuesta a la respuesta. Probá de nuevo en un momento.");
+      setError("No se pudo guardar la respuesta. Probá de nuevo en un momento.");
     } finally {
       setApplyingIndex(null);
-    }
-  }
-
-  async function compile() {
-    if (busy || history.length === 0) return;
-    setCompiling(true);
-    setError(null);
-    try {
-      const result = await applyRefinedResponseAction(formDataFrom({ responseId, chatHistory: JSON.stringify(history) }));
-      if (!result.success) throw new Error("No se pudo generar la respuesta.");
-      onApplyResponse(result.compiledText);
-      // La versión nueva también queda en el chat, para poder editarla ahí mismo.
-      const next: ChatMessage[] = [...history, {
-        sender: "assistant",
-        text: "Nueva versión con todo lo que hablamos:",
-        timestamp: new Date().toISOString(),
-        suggestion: { text: result.compiledText, original: result.compiledText },
-      }];
-      updateHistory(next);
-      persist(next);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error al generar la nueva versión.");
-    } finally {
-      setCompiling(false);
-    }
-  }
-
-  async function accept() {
-    if (busy || currentText.trim().length < 3) return;
-    setAccepting(true);
-    setError(null);
-    try {
-      const result = await acceptCopilotRefinementAction(formDataFrom({ opportunityId, responseId, editedText: currentText }));
-      setAcceptedText(currentText);
-      setLearnedRules(result.learnedRules);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo guardar la respuesta.");
-    } finally {
-      setAccepting(false);
     }
   }
 
@@ -229,6 +189,7 @@ export function RefinementChat({ opportunityId, responseId, clientSlug, currentT
           {message.suggestion ? <SuggestionCard
             suggestion={message.suggestion}
             inProposal={message.suggestion.text.trim() === currentText.trim()}
+            accepted={accepted}
             disabled={busy}
             applying={applyingIndex === index}
             onSave={(text) => saveSuggestion(index, text)}
@@ -247,10 +208,6 @@ export function RefinementChat({ opportunityId, responseId, clientSlug, currentT
         <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(input); } }} rows={2} disabled={sending} placeholder="Escribí tu indicación y presioná Enter…" className="flex-1 resize-none rounded-lg border border-ink/15 bg-white px-3 py-2 text-sm text-ink outline-none focus:border-ink" />
         <button type="submit" disabled={busy || !input.trim()} className="rounded-lg bg-ink px-4 py-2.5 text-xs font-bold text-paper transition hover:bg-slate disabled:opacity-50">{sending ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Enviando…</span> : "Enviar"}</button>
       </form>
-      <div className="mt-2.5 flex flex-wrap justify-end gap-2">
-          <button type="button" onClick={compile} disabled={busy || history.length === 0} className="rounded-full bg-brass px-3.5 py-2 text-xs font-bold text-white transition hover:bg-ink disabled:opacity-50">{compiling ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Generando…</span> : "✨ Generar nueva respuesta"}</button>
-        <button type="button" onClick={accept} disabled={busy || accepted} className="rounded-full bg-moss px-3.5 py-2 text-xs font-bold text-white transition hover:bg-moss/85 disabled:opacity-50">{accepting ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Guardando y aprendiendo…</span> : accepted ? "Aceptada" : "Aceptar como respuesta correcta"}</button>
-      </div>
     </div>
   </div>;
 }

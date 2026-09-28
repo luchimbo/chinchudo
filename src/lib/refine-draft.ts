@@ -93,12 +93,14 @@ Voz/Perfil utilizado: ${params.personaName}
 Borrador de respuesta actual:
 "${params.currentResponseText}"
 
-${memoriesList ? `Reglas/Preferencias aprendidas de la marca:\n${memoriesList}\n` : ""}
+${memoriesList ? `Preferencias aprendidas, de más reciente a más antigua (si se contradicen, seguí la más reciente y las indicaciones actuales del operador):\n${memoriesList}\n` : ""}
 ${formatAcceptedExamples(params.acceptedExamples)}
 Tu rol en este chat es dialogar de forma clara, directa y concisa con el operador. Podés opinar, proponer cambios o redactar una opción alternativa si el usuario te lo pide. Mantené un tono profesional, colaborador y muy claro.
 
+Si el cliente es PC MIDI Center, no abras una propuesta con "Mirá" ni la cierres con una invitación genérica a consultar en PC MIDI Center. Las correcciones de este chat prevalecen sobre ejemplos anteriores.
+
 Formato de las propuestas:
-- Cada vez que el operador pida cambiar la respuesta (más corta, otro tono, otro dato, etc.) o te pida una versión, escribí la respuesta COMPLETA lista para publicar entre <propuesta> y </propuesta>, una sola vez por mensaje${requestedCharacters(params) ? `, con un máximo de ${requestedCharacters(params)} caracteres y terminando en una oración completa` : ""}.
+- Cada vez que el operador pida cambiar la respuesta (más corta, otro tono, otro dato, etc.) o te pida una versión, escribí la respuesta COMPLETA lista para publicar entre <propuesta> y </propuesta>, una sola vez por mensaje${requestedCharacters(params) ? `, apuntando a ${requestedCharacters(params)} caracteres${params.maxCharacters ? ` sin superar ${params.maxCharacters}` : ""} y terminando en una oración completa` : ""}.
 - Fuera de la etiqueta, como mucho una línea breve que explique el cambio. No repitas la propuesta fuera de la etiqueta.
 - Si el operador solo pregunta algo o pide tu opinión, respondé sin la etiqueta.
 - Si el operador editó tu propuesta a mano, tomá su versión como la nueva base.`;
@@ -164,13 +166,14 @@ Borrador inicial: "${params.currentResponseText}"
 Conversación e indicaciones dadas por el Operador:
 ${formattedChat}
 
-${memoriesList ? `Reglas/Preferencias aprendidas de la marca:\n${memoriesList}\n` : ""}
+${memoriesList ? `Preferencias aprendidas, de más reciente a más antigua (si se contradicen, seguí la más reciente y las indicaciones actuales del operador):\n${memoriesList}\n` : ""}
 ${formatAcceptedExamples(params.acceptedExamples)}
 REGLAS ABSOLUTAS:
 - Generá exclusivamente el TEXTO FINAL de la respuesta perfeccionada.
 - NO incluyas explicaciones, ni comillas extra, ni saludos al operador.
 - No incluyas preguntas (solo afirmaciones, recomendaciones o datos útiles).
-- Mantené el tono del perfil ${params.personaName} incorporando fielmente lo que pidió el operador en el chat.${requestedCharacters(params) ? `\n- Máximo ${requestedCharacters(params)} caracteres en total, terminando en una oración completa.` : ""}
+- Mantené el tono del perfil ${params.personaName} incorporando fielmente lo que pidió el operador en el chat.${requestedCharacters(params) ? `\n- Apuntá a ${requestedCharacters(params)} caracteres${params.maxCharacters ? `, con máximo de ${params.maxCharacters}` : ""}, y terminá en una oración completa.` : ""}
+- Si respondés para PC MIDI Center, no abras con "Mirá" ni cierres con una invitación genérica a consultar en la tienda.
 
 Respuesta final (únicamente el texto a publicar):`;
 

@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-type StoredResponse = { id: string; opportunityId: string; editedText: string; isPrimary: boolean; chatHistory: unknown };
+type StoredResponse = { id: string; opportunityId: string; editedText: string; isPrimary: boolean; chatHistory: unknown; approvedBy?: string; acceptedAsCorrectAt?: Date };
 
 const state = vi.hoisted(() => ({
   responses: [] as StoredResponse[],
   contextAssessment: { copilot: { goal: "RESPONDER" } } as Record<string, unknown> | null,
   clientId: "client-1",
+  clientSlug: "cliente",
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -19,7 +20,7 @@ vi.mock("@/lib/auth", () => ({ assertClientAccess: vi.fn(async () => {}) }));
 vi.mock("@/lib/publish-agent", () => ({ checkPublishRateLimits: vi.fn(), closeSiblingOpportunities: vi.fn(), runPublisher: vi.fn() }));
 vi.mock("@/lib/youtube-publisher", () => ({ publishYouTubeComment: vi.fn() }));
 vi.mock("@/lib/client-context", () => ({
-  resolveOpportunityClient: vi.fn(async () => ({ client: { id: "client-1", slug: "cliente", name: "Cliente" }, confidence: "high", reason: "" })),
+  resolveOpportunityClient: vi.fn(async () => ({ client: { id: "client-1", slug: state.clientSlug, name: "Cliente" }, confidence: "high", reason: "" })),
   loadClientContext: vi.fn(),
 }));
 vi.mock("@/lib/client-memory", () => ({
@@ -62,6 +63,7 @@ vi.mock("@/lib/db", () => ({
 
 import { applyChatSuggestionAction, sendRefinementMessageAction } from "@/app/(app)/opportunities/actions";
 import { chatRefinementStep } from "@/lib/refine-draft";
+import { extractLearningsFromChat, replaceChatLearnings } from "@/lib/client-memory";
 import { COPILOT_MAX_CHARACTERS, COPILOT_TARGET_CHARACTERS } from "@/lib/copilot-limits";
 
 function form(values: Record<string, string>) {
@@ -83,22 +85,50 @@ describe("propuestas editables del chat del Asistente CM", () => {
     ];
     state.contextAssessment = { copilot: { goal: "RESPONDER" } };
     state.clientId = "client-1";
+    state.clientSlug = "cliente";
     vi.clearAllMocks();
   });
 
   it("le pasa a la IA el texto en pantalla y el tope, y devuelve la propuesta aparte", async () => {
-    const result = await sendRefinementMessageAction(form({ responseId: "response-1", userMessage: "Más corta", chatHistory: "[]", currentText: "Lo que ve el CM" }));
+    const result = await sendRefinementMessageAction(form({ responseId: "response-1", userMessage: "Más corta", chatHistory: JSON.stringify([{ sender: "user", text: "Más corta" }]), currentText: "Lo que ve el CM" }));
 
     expect(result).toEqual({ success: true, reply: "Te la dejo más corta:", suggestion: "Propuesta corta" });
-    expect(vi.mocked(chatRefinementStep).mock.calls[0][0]).toMatchObject({ currentResponseText: "Lo que ve el CM", maxCharacters: COPILOT_MAX_CHARACTERS, targetCharacters: COPILOT_TARGET_CHARACTERS });
+    expect(vi.mocked(chatRefinementStep).mock.calls[0][0]).toMatchObject({ currentResponseText: "Lo que ve el CM", chatHistory: [], maxCharacters: COPILOT_MAX_CHARACTERS, targetCharacters: COPILOT_TARGET_CHARACTERS });
+    expect(state.responses[0].chatHistory).toEqual(expect.arrayContaining([
+      { sender: "user", text: "Más corta" },
+      expect.objectContaining({ sender: "assistant", text: "Te la dejo más corta:", suggestion: { original: "Propuesta corta", text: "Propuesta corta" } }),
+    ]));
   });
 
-  it("\"Usar esta respuesta\" guarda el texto como respuesta principal y conserva la edición en el chat", async () => {
-    await applyChatSuggestionAction(form({ responseId: "response-1", text: "Propuesta editada", chatHistory: JSON.stringify(history) }));
+  it("\"Usar esta respuesta\" guarda el texto correcto y aprende la edición del chat", async () => {
+    vi.mocked(extractLearningsFromChat).mockResolvedValueOnce([{ rule: "Evitar aperturas con Mirá", summary: "Sin Mirá", category: "tone" }]);
+    vi.mocked(replaceChatLearnings).mockResolvedValueOnce(["Evitar aperturas con Mirá"]);
+    const result = await applyChatSuggestionAction(form({ responseId: "response-1", text: "Propuesta editada", chatHistory: JSON.stringify(history) }));
 
-    expect(state.responses[0]).toMatchObject({ editedText: "Propuesta editada", isPrimary: true });
+    expect(result).toEqual({ success: true, learnedRules: ["Evitar aperturas con Mirá"] });
+    expect(state.responses[0]).toMatchObject({ editedText: "Propuesta editada", isPrimary: true, approvedBy: "CM", acceptedAsCorrectAt: expect.any(Date) });
     expect(state.responses[0].chatHistory).toEqual(history);
     expect(state.responses[1].isPrimary).toBe(false);
+    expect(extractLearningsFromChat).toHaveBeenCalledWith(expect.objectContaining({
+      finalResponseText: "Propuesta editada",
+      chatHistory: expect.arrayContaining([{ sender: "user", text: 'Edité tu propuesta directamente, quedó así: "Propuesta editada"' }]),
+    }));
+    expect(replaceChatLearnings).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ responseId: "response-1", clientId: "client-1" }));
+  });
+
+  it("quita las frases corregidas por el CM de la siguiente propuesta de pcmidi", async () => {
+    state.clientSlug = "pcmidi";
+    vi.mocked(chatRefinementStep).mockResolvedValueOnce({
+      message: "Nueva versión:",
+      suggestion: "Mirá, el MiniLab 3 suma faders y mejor integración con tu DAW. Consultá en PC MIDI Center por stock y precio.",
+    });
+    const result = await sendRefinementMessageAction(form({ responseId: "response-1", userMessage: "No abras con Mirá ni cierres con la tienda", chatHistory: "[]", currentText: "Borrador" }));
+
+    expect(result.suggestion).toBe("El MiniLab 3 suma faders y mejor integración con tu DAW.");
+    expect(state.responses[0].chatHistory).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sender: "user", text: "No abras con Mirá ni cierres con la tienda" }),
+      expect.objectContaining({ sender: "assistant", suggestion: { text: result.suggestion, original: result.suggestion } }),
+    ]));
   });
 
   it("acepta una propuesta algo más larga que el objetivo sin cortarla", async () => {

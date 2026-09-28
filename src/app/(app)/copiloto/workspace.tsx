@@ -299,6 +299,7 @@ function ResponseCard({ response, text, setText, chatHistory, opportunityId, sou
       <input type="hidden" name="opportunityId" value={opportunityId} />
       <input type="hidden" name="responseId" value={response.id} />
       <input type="hidden" name="wasEdited" value={text.trim() !== response.text.trim() ? "true" : "false"} />
+      <input type="hidden" name="chatHistory" value={JSON.stringify(chatHistory)} />
       {isYouTube ? <input type="hidden" name="account" value={youtube?.account ?? "youtube-principal"} /> : null}
       <textarea name="editedText" value={text} onChange={(event) => setText(event.target.value)} maxLength={COPILOT_MAX_CHARACTERS} rows={4} className="w-full resize-y rounded-lg border border-ink/10 bg-paper/65 px-3 py-2.5 text-sm leading-6 text-ink outline-none transition focus:border-brass" />
       <p className={`mt-1 text-right text-[11px] ${text.length > COPILOT_TARGET_CHARACTERS ? "text-brass" : "text-slate/60"}`}>{text.length}/{COPILOT_MAX_CHARACTERS}{text.length > COPILOT_TARGET_CHARACTERS ? ` · ideal hasta ${COPILOT_TARGET_CHARACTERS}` : ""}</p>
@@ -325,7 +326,7 @@ function ResponseWithChat({ response, opportunityId, sourceUrl, channel, clientS
   const [chatHistory, setChatHistory] = useState(response.chatHistory);
   return <div className="grid gap-4 lg:grid-cols-2">
     <ResponseCard response={response} text={text} setText={setText} chatHistory={chatHistory} opportunityId={opportunityId} sourceUrl={sourceUrl} channel={channel} clientSlug={clientSlug} youtube={youtube} productPicker={productPicker} />
-    <RefinementChat opportunityId={opportunityId} responseId={response.id} clientSlug={clientSlug} currentText={text} initialHistory={response.chatHistory} acceptedAsCorrect={response.acceptedAsCorrect} onApplyResponse={setText} onHistoryChange={setChatHistory} />
+    <RefinementChat responseId={response.id} clientSlug={clientSlug} currentText={text} initialHistory={response.chatHistory} acceptedAsCorrect={response.acceptedAsCorrect} onApplyResponse={setText} onHistoryChange={setChatHistory} />
   </div>;
 }
 

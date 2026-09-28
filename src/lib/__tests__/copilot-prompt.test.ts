@@ -40,6 +40,9 @@ describe("direccion editorial del Copiloto", () => {
     expect(prompt).toContain("Terminá siempre en una oración completa");
     expect(prompt).toContain('"text"');
     expect(prompt).not.toContain('"variants"');
+    expect(prompt).toContain('No arranques con "Mirá"');
+    expect(prompt).toContain("nunca cierres con una invitación genérica a consultar stock, precio, garantía y financiación");
+    expect(prompt).not.toContain('usá "tenés", "mirá"');
   });
 
   it("al rehacer muestra la propuesta descartada y pide otra apertura y otro enfoque", () => {

@@ -25,12 +25,20 @@ export function sanitizePublicDraft(text: string): string {
     .replace(/\bantes de cerrar\b/gi, "antes de elegir")
     .replace(/\bcerrar bien\b/gi, "elegir bien")
     .replace(/\bsi ocup[aá]s (\d+) teclas\b/gi, "si necesitás $1 teclas")
-    .replace(/En PC MIDI Center[^.!?]*(?:[.!?]|$)/gi, "Consultá en PC MIDI Center por stock, precio, garantía y financiación. ")
+    .replace(/(?:Consultá|Preguntá) en PC MIDI Center[^.!?]*(?:[.!?]|$)/gi, " ")
+    .replace(/En PC MIDI Center[^.!?]*(?:[.!?]|$)/gi, " ")
     .replace(/\b(?:cuotas? sin inter[eé]s|cuotas? suaves|cuotas? c[oó]modas|muy buen precio)\b/gi, "condiciones a confirmar")
     .replace(/\s+([,.;!?])/g, "$1")
     .replace(/\s+/g, " ")
     .trim();
   return clean;
+}
+
+/** El copiloto evita aperturas y cierres enlatados incluso si el modelo o el fallback los devuelven. */
+export function sanitizeCopilotDraft(text: string, clientSlug?: string): string {
+  const clean = sanitizePublicDraft(text);
+  if (clientSlug !== "pcmidi") return clean;
+  return clean.replace(/^mir[aá]\s*[,;:.!-]?\s*/i, "").replace(/^\p{Ll}/u, (letter) => letter.toUpperCase()).trim();
 }
 
 export function validatePublicDraft(text: string): string[] {
