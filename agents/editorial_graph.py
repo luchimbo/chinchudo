@@ -12,6 +12,9 @@ Reglas:
 - Primero se garantizan MIN_INBOUND enlaces entrantes desde guías del mismo
   cluster para cada guía (así una guía nueva recibe enlaces de páginas
   anteriores); después se completa la capacidad por relevancia.
+- Las landings sueltas (LEGACY/CAMPAIGN, content_type LANDING) sólo son
+  origen: enlazan hasta MAX_RELATED guías o pilares con catálogo compartido,
+  nunca reciben enlaces y no cuentan para los entrantes mínimos.
 - Nunca se crean autoenlaces, duplicados ni enlaces hacia pares excluidos.
 """
 
@@ -19,17 +22,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-MAX_RELATED = 4
-MIN_RELATED = 3
-MAX_CROSS_CLUSTER = 1
-MIN_INBOUND = 2
+MAX_RELATED = 8
+MIN_RELATED = 6
+MAX_CROSS_CLUSTER = 3
+MIN_INBOUND = 4
 
 
 @dataclass
 class Article:
     id: str
     slug: str
-    content_type: str  # PILLAR | GUIDE
+    content_type: str  # PILLAR | GUIDE | LANDING (sólo origen)
     cluster_id: str | None
     title: str = ""
     intent: str = ""
@@ -40,6 +43,10 @@ class Article:
     @property
     def is_pillar(self) -> bool:
         return self.content_type == "PILLAR"
+
+    @property
+    def is_landing(self) -> bool:
+        return self.content_type == "LANDING"
 
 
 @dataclass(frozen=True)
@@ -115,6 +122,8 @@ def plan_internal_links(
                     cross_count[source_id] += 1
 
     def can_add(source: Article, target: Article) -> bool:
+        if source.is_landing or target.is_landing:
+            return False  # las landings se resuelven aparte (paso 4)
         if source.id in pillar_ids:
             return False  # el pilar ya enlaza a todo su cluster
         if source.id == target.id or target.id in taken[source.id] or (source.id, target.id) in excluded:
@@ -139,17 +148,19 @@ def plan_internal_links(
 
     # 1) Enlace contextual obligatorio de cada guía hacia su pilar.
     for article in articles:
+        if article.is_landing:
+            continue
         pillar = pillars.get(article.cluster_id or "")
         if pillar and pillar.id != article.id and pillar.id not in taken[article.id] and (article.id, pillar.id) not in excluded:
             add(article, pillar, is_pillar_link=True)
     for pillar in pillars.values():
         for article in sorted(articles, key=lambda item: (item.published_at, item.slug)):
-            if article.cluster_id == pillar.cluster_id and article.id != pillar.id and article.id not in taken[pillar.id] and (pillar.id, article.id) not in excluded:
+            if article.cluster_id == pillar.cluster_id and not article.is_landing and article.id != pillar.id and article.id not in taken[pillar.id] and (pillar.id, article.id) not in excluded:
                 add(pillar, article, is_pillar_link=True)
 
     # 2) Enlaces entrantes mínimos: las guías más nuevas primero, así la
     #    recién publicada recibe enlaces desde páginas anteriores.
-    guides = [article for article in articles if not article.is_pillar]
+    guides = [article for article in articles if not article.is_pillar and not article.is_landing]
     for target in sorted(guides, key=lambda item: (item.published_at, item.slug), reverse=True):
         sources = sorted(
             (source for source in guides if source.cluster_id == target.cluster_id and can_add(source, target)),
@@ -170,6 +181,22 @@ def plan_internal_links(
             if not can_add(source, target):
                 continue
             add(source, target)
+
+    # 4) Landings sueltas: citan al blog (guías y pilares) por catálogo compartido.
+    editorial = [article for article in articles if not article.is_landing]
+    for source in sorted((article for article in articles if article.is_landing), key=lambda item: item.slug):
+        candidates = sorted(
+            (target for target in editorial if relevance(source, target) > 0),
+            key=lambda target: (-relevance(source, target), not target.is_pillar, target.slug),
+        )
+        for target in candidates:
+            if related_count[source.id] >= MAX_RELATED:
+                break
+            if target.id in taken[source.id] or (source.id, target.id) in excluded:
+                continue
+            taken[source.id].add(target.id)
+            planned[source.id].append((target, False))
+            related_count[source.id] += 1
 
     links: list[PlannedLink] = []
     for source_id, targets in planned.items():
@@ -197,12 +224,20 @@ def audit_article_links(articles: list[Article], links: list[tuple[str, str]]) -
             inbound[target_id].add(source_id)
     cluster_sizes: dict[str, int] = {}
     for article in articles:
-        if not article.is_pillar and article.cluster_id:
+        if not article.is_pillar and not article.is_landing and article.cluster_id:
             cluster_sizes[article.cluster_id] = cluster_sizes.get(article.cluster_id, 0) + 1
 
     issues: dict[str, list[str]] = {}
     for article in articles:
         problems: list[str] = []
+        if article.is_landing:
+            if inbound[article.id]:
+                problems.append("landing_recibe_enlaces")
+            if len(outbound[article.id]) > MAX_RELATED:
+                problems.append("demasiadas_relacionadas")
+            if problems:
+                issues[article.id] = problems
+            continue
         pillar = pillars.get(article.cluster_id or "")
         related = [by_id[target] for target in outbound[article.id] if not by_id[target].is_pillar]
         peers = cluster_sizes.get(article.cluster_id or "", 0) - (0 if article.is_pillar else 1)
@@ -213,7 +248,7 @@ def audit_article_links(articles: list[Article], links: list[tuple[str, str]]) -
                 problems.append("no_enlaza_pilar")
             if len(related) < min(MIN_RELATED, peers):
                 problems.append("pocas_relacionadas")
-            guide_inbound = [source for source in inbound[article.id] if not by_id[source].is_pillar]
+            guide_inbound = [source for source in inbound[article.id] if not by_id[source].is_pillar and not by_id[source].is_landing]
             if len(guide_inbound) < min(MIN_INBOUND, peers):
                 problems.append("pocos_entrantes")
         if article.is_pillar:

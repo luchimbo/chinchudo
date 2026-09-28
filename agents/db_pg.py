@@ -296,8 +296,7 @@ def rebuild_editorial_internal_links(client_id: str) -> dict:
                FROM "Landing" l
                WHERE l."clientId" = %s
                  AND l.status = 'PUBLISHED'
-                 AND l."indexingState" = 'INDEX'
-                 AND l."contentType" IN ('PILLAR', 'GUIDE')''',
+                 AND l."indexingState" = 'INDEX' ''',
             (client_id,),
         ).fetchall()
         manual = conn.execute(
@@ -322,10 +321,13 @@ def rebuild_editorial_internal_links(client_id: str) -> dict:
                 payload = json.loads(row.get("htmlContent") or "{}")
             except Exception:
                 payload = {}
+            # Sin cluster no vive bajo /guias/: es una landing suelta que sólo
+            # cita al blog (mismo criterio que is_editorial en el build).
+            editorial = row["contentType"] in ("PILLAR", "GUIDE") and bool(row.get("contentClusterId"))
             articles.append(Article(
                 id=row["id"],
                 slug=row["slug"],
-                content_type=row["contentType"],
+                content_type=row["contentType"] if editorial else "LANDING",
                 cluster_id=row.get("contentClusterId"),
                 title=str(row.get("titulo") or row.get("seoTitle") or row.get("keyword") or row["slug"]),
                 intent=str(row.get("intent") or ""),
@@ -355,7 +357,8 @@ def rebuild_editorial_internal_links(client_id: str) -> dict:
                 conn.execute('UPDATE "ContentCluster" SET "pillarLandingId" = %s, "updatedAt" = NOW() WHERE id = %s', (pillar_id, cluster["id"]))
 
     return {
-        "published": len(articles),
+        "published": sum(1 for article in articles if not article.is_landing),
+        "landings": sum(1 for article in articles if article.is_landing),
         "auto_links": len(plan),
         "excluded": len(excluded),
         "pinned": sum(len(value) for value in pinned.values()),

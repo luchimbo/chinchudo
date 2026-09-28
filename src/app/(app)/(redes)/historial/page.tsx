@@ -6,17 +6,10 @@ import { requirePageClient } from "@/lib/auth";
 import { OPPORTUNITY_CHANNEL_NAMES, operationalOpportunityWhere } from "@/lib/opportunity-channels";
 import { formatAuthor } from "@/lib/source-author";
 import { splitOpportunitySourcePreview } from "@/lib/opportunity-source-metadata";
+import { resolveRespondedAt, sentResponseText, sortByRespondedAt } from "@/lib/sent-response-history";
 import { SentResponses, type SentResponseItem } from "./sent-responses";
 
 const PAGE_SIZE = 20;
-
-function copilotRespondedAt(context: Prisma.JsonValue): string | undefined {
-  if (!context || typeof context !== "object" || Array.isArray(context)) return undefined;
-  const copilot = (context as Record<string, unknown>).copilot;
-  if (!copilot || typeof copilot !== "object" || Array.isArray(copilot)) return undefined;
-  const { respondedAt } = copilot as Record<string, unknown>;
-  return typeof respondedAt === "string" ? respondedAt : undefined;
-}
 
 // "Historial" conserva respuestas archivadas y publicaciones confirmadas.
 const RESPONDED_STATUSES = ["ARCHIVED", "PUBLISHED", "FOLLOW_UP", "CONVERTED"] as const;
@@ -55,45 +48,58 @@ export default async function HistorialPage({ searchParams }: PageProps) {
         { sourceText: contains },
         { sourceAuthor: contains },
         { responses: { some: { isPrimary: true, OR: [{ editedText: contains }, { draftText: contains }] } } },
+        { publishingLogs: { some: { response: { OR: [{ editedText: contains }, { draftText: contains }] } } } },
       ],
     }];
   }
 
-  const orderBy: Prisma.OpportunityOrderByWithRelationInput =
-    sort === "oldest" ? { updatedAt: "asc" } : { updatedAt: "desc" };
+  // Se ordena por la fecha en que se respondió, que vive en el log de publicación o en la marca
+  // del Asistente CM; updatedAt no sirve porque cualquier cambio posterior la mueve.
+  const candidates = await prisma.opportunity.findMany({
+    where,
+    select: {
+      id: true,
+      updatedAt: true,
+      contextAssessment: true,
+      publishingLogs: { select: { publishedAt: true }, orderBy: { publishedAt: "desc" }, take: 1 },
+    },
+  });
+  const ordered = sortByRespondedAt(candidates.map((candidate) => ({ id: candidate.id, respondedAt: resolveRespondedAt(candidate) })), sort);
+  const matchingCount = ordered.length;
+  const pageEntries = ordered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  const [opportunities, matchingCount] = await Promise.all([
-    prisma.opportunity.findMany({
-      where,
-      include: {
-        channel: true,
-        publishingLogs: { select: { responseId: true, publishedAt: true, publishedUrl: true }, orderBy: { publishedAt: "desc" } },
-        responses: {
-          where: { isPrimary: true },
-          select: { id: true, draftText: true, editedText: true },
-          take: 1,
-        },
+  const opportunities = await prisma.opportunity.findMany({
+    where: { id: { in: pageEntries.map((entry) => entry.id) } },
+    include: {
+      channel: true,
+      publishingLogs: {
+        select: { responseId: true, publishedUrl: true, response: { select: { editedText: true, draftText: true } } },
+        orderBy: { publishedAt: "desc" },
       },
-      orderBy,
-      skip: (page - 1) * PAGE_SIZE,
-      take: PAGE_SIZE,
-    }),
-    prisma.opportunity.count({ where }),
-  ]);
+      responses: {
+        where: { isPrimary: true },
+        select: { id: true, draftText: true, editedText: true },
+        take: 1,
+      },
+    },
+  });
+  const opportunitiesById = new Map(opportunities.map((opportunity) => [opportunity.id, opportunity]));
 
-  const items: SentResponseItem[] = opportunities.map((opportunity) => {
+  const items: SentResponseItem[] = pageEntries.flatMap(({ id, respondedAt }) => {
+    const opportunity = opportunitiesById.get(id);
+    if (!opportunity) return [];
     const response = opportunity.responses[0];
     const log = opportunity.publishingLogs.find((entry) => entry.responseId === response?.id) ?? opportunity.publishingLogs[0];
-    return {
+    return [{
       opportunityId: opportunity.id,
       channel: opportunity.channel.name,
       sourceAuthor: formatAuthor(opportunity.sourceAuthor, opportunity.channel.name, opportunity.sourceUrl)?.name ?? "",
       sourceText: splitOpportunitySourcePreview(opportunity.sourceText).text,
       sourceUrl: opportunity.sourceUrl,
       commentUrl: log?.publishedUrl && log.publishedUrl !== opportunity.sourceUrl ? log.publishedUrl : "",
-      respondedAt: copilotRespondedAt(opportunity.contextAssessment) ?? log?.publishedAt.toISOString() ?? opportunity.updatedAt.toISOString(),
-      responseText: response ? response.editedText || response.draftText : "",
-    };
+      respondedAt: respondedAt.toISOString(),
+      responseText: sentResponseText(log?.response, response),
+    }];
   });
 
   const totalPages = Math.max(1, Math.ceil(matchingCount / PAGE_SIZE));

@@ -62,6 +62,7 @@ vi.mock("@/lib/db", () => ({
 
 import { applyChatSuggestionAction, sendRefinementMessageAction } from "@/app/(app)/opportunities/actions";
 import { chatRefinementStep } from "@/lib/refine-draft";
+import { COPILOT_MAX_CHARACTERS, COPILOT_TARGET_CHARACTERS } from "@/lib/copilot-limits";
 
 function form(values: Record<string, string>) {
   const data = new FormData();
@@ -89,7 +90,7 @@ describe("propuestas editables del chat del Asistente CM", () => {
     const result = await sendRefinementMessageAction(form({ responseId: "response-1", userMessage: "Más corta", chatHistory: "[]", currentText: "Lo que ve el CM" }));
 
     expect(result).toEqual({ success: true, reply: "Te la dejo más corta:", suggestion: "Propuesta corta" });
-    expect(vi.mocked(chatRefinementStep).mock.calls[0][0]).toMatchObject({ currentResponseText: "Lo que ve el CM", maxCharacters: 280 });
+    expect(vi.mocked(chatRefinementStep).mock.calls[0][0]).toMatchObject({ currentResponseText: "Lo que ve el CM", maxCharacters: COPILOT_MAX_CHARACTERS, targetCharacters: COPILOT_TARGET_CHARACTERS });
   });
 
   it("\"Usar esta respuesta\" guarda el texto como respuesta principal y conserva la edición en el chat", async () => {
@@ -100,8 +101,14 @@ describe("propuestas editables del chat del Asistente CM", () => {
     expect(state.responses[1].isPrimary).toBe(false);
   });
 
-  it("no deja usar una propuesta de más de 280 caracteres en el Asistente CM", async () => {
-    await expect(applyChatSuggestionAction(form({ responseId: "response-1", text: "a".repeat(281), chatHistory: "[]" }))).rejects.toThrow("280");
+  it("acepta una propuesta algo más larga que el objetivo sin cortarla", async () => {
+    const text = "a".repeat(COPILOT_TARGET_CHARACTERS + 20);
+    await applyChatSuggestionAction(form({ responseId: "response-1", text, chatHistory: "[]" }));
+    expect(state.responses[0].editedText).toBe(text);
+  });
+
+  it("no deja usar una propuesta que supera el tope del Asistente CM", async () => {
+    await expect(applyChatSuggestionAction(form({ responseId: "response-1", text: "a".repeat(COPILOT_MAX_CHARACTERS + 1), chatHistory: "[]" }))).rejects.toThrow(String(COPILOT_MAX_CHARACTERS));
     expect(state.responses[0].editedText).toBe("");
   });
 

@@ -6,6 +6,7 @@ import { logger } from "./logger";
 import { fetchChatCompletion, resolveLLMConfig, resolveOpenRouterConfig, type LLMConfig } from "./llm-provider";
 import { policyInstructions } from "./response-policy";
 import { ensureRequiredBrandMention, sanitizePublicDraft, validateDraftForClient } from "./draft-output";
+import { COPILOT_MAX_CHARACTERS, COPILOT_TARGET_CHARACTERS } from "./copilot-limits";
 
 type DraftContext = {
   opportunity: Opportunity & {
@@ -40,16 +41,24 @@ type DraftVariant = {
   riskNotes: string;
 };
 
-export const COPILOT_MAX_CHARACTERS = 280;
+export { COPILOT_MAX_CHARACTERS, COPILOT_TARGET_CHARACTERS };
 
-/** Last-resort guardrail: preserve whole words and never return more than the Copilot limit. */
+/**
+ * Last-resort guardrail: never return more than the Copilot limit. Ends at the last
+ * complete sentence so the comment stays publishable; only a text without any usable
+ * sentence break is cut at a word with "…".
+ */
 export function shortenCopilotText(text: string, maxLength = COPILOT_MAX_CHARACTERS): string {
   const normalized = text.replace(/\s+/g, " ").trim();
   if (normalized.length <= maxLength) return normalized;
+  const candidate = normalized.slice(0, maxLength);
+  let sentenceEnd = -1;
+  for (const match of candidate.matchAll(/[.!?](?=\s|$)/g)) sentenceEnd = match.index ?? sentenceEnd;
+  if (sentenceEnd >= maxLength * 0.4) return candidate.slice(0, sentenceEnd + 1).trim();
   const limit = Math.max(1, maxLength - 1);
-  const candidate = normalized.slice(0, limit);
-  const lastSpace = candidate.lastIndexOf(" ");
-  return `${(lastSpace > 20 ? candidate.slice(0, lastSpace) : candidate).trim()}…`;
+  const wordCut = normalized.slice(0, limit);
+  const lastSpace = wordCut.lastIndexOf(" ");
+  return `${(lastSpace > 20 ? wordCut.slice(0, lastSpace) : wordCut).trim()}…`;
 }
 
 const INTENT_LABELS: Record<string, string> = {
@@ -412,13 +421,13 @@ export function buildCopilotPrompt(ctx: DraftContext, condensationOf?: string): 
   return `${beforeFormat}
 ## Instrucciones de respuesta del Asistente CM
 - Devolvé UNA sola propuesta breve, directa, natural y específica a este comentario.
-- Máximo ${COPILOT_MAX_CHARACTERS} caracteres, idealmente una o dos oraciones.
+- Máximo ${COPILOT_TARGET_CHARACTERS} caracteres, idealmente una o dos oraciones. Terminá siempre en una oración completa.
 - Arrancá directo con lo que plantea el comentario; no abras con muletillas como "Mirá".
 - No expliques tu razonamiento ni ofrezcas alternativas.
 ${regeneration}${condensation}
 ## Formato de respuesta (JSON estricto)
 {
-  "text": "una única respuesta publicable de hasta ${COPILOT_MAX_CHARACTERS} caracteres",
+  "text": "una única respuesta publicable de hasta ${COPILOT_TARGET_CHARACTERS} caracteres",
   "riskNotes": "nota interna breve sobre qué verificar antes de publicar"
 }`;
 }
@@ -681,7 +690,10 @@ export async function generateAICopilotDraft(ctx: DraftContext): Promise<DraftVa
     logAIError("Asistente CM sin propuesta de IA tras reintento; se usará fallback local", { opportunityId: ctx.opportunity.id, correccion: lastCorrection });
     return null;
   }
-  if (initial.draftText.length <= COPILOT_MAX_CHARACTERS) return initial;  const condensed = await requestCopilotDraft(ctx, initial.draftText).catch((err: unknown) => {
+  // El prompt apunta a COPILOT_TARGET_CHARACTERS; pasarse un poco no justifica otra
+  // llamada al modelo ni cortar el texto.
+  if (initial.draftText.length <= COPILOT_MAX_CHARACTERS) return initial;
+  const condensed = await requestCopilotDraft(ctx, initial.draftText).catch((err: unknown) => {
     if (err instanceof ValidationRetryError) return null;
     throw err;
   });

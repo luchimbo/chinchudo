@@ -22,6 +22,12 @@ TEMPLATES_DIR = ROOT / "templates"
 SITE_DIR = ROOT / "site"
 ASSETS_DIR = SITE_DIR / "assets"
 REPORTS_DIR = ROOT / "reports"
+
+sys.path.insert(0, str(ROOT.parent / "agents"))
+try:
+    from editorial_graph import MAX_RELATED  # type: ignore
+except ImportError:  # build sin agents/ al lado: mismo tope por defecto
+    MAX_RELATED = 8
 GENERATION_EVENTS_PATH = REPORTS_DIR / "generation_events.jsonl"
 
 CATEGORIES_PATH = DATA_DIR / "categorias_pcmidi.json"
@@ -1078,6 +1084,22 @@ def chat_json(system: str, user: str, model: str, temperature: float = 0.35) -> 
     return extract_json_object(content)
 
 
+def rank_linkable_articles(topic: dict, articles: list[dict]) -> list[dict]:
+    """Guías candidatas a citar, ordenadas como el grafo: mismo cluster primero,
+    después catálogo compartido; las de otro cluster sin relación se descartan."""
+    topic_categories = {item.strip() for item in str(topic.get("categorias_sugeridas") or "").replace(",", ";").split(";") if item.strip()}
+    scored = []
+    for item in articles:
+        if not item.get("slug"):
+            continue
+        same_cluster = bool(topic.get("cluster_slug")) and item.get("cluster_slug") == topic.get("cluster_slug")
+        shared = len(topic_categories & set(category_ids_for(item)))
+        score = (100 if same_cluster else 0) + 30 * shared
+        if score:
+            scored.append((-score, item.get("content_type") != "PILLAR", str(item.get("slug")), item))
+    return [entry[-1] for entry in sorted(scored, key=lambda entry: entry[:3])]
+
+
 def generation_prompt(topic: dict, categories: dict[str, dict], products: dict[str, dict], articles: list[dict] | None = None) -> tuple[str, str]:
     catalog = compact_catalog(categories, products)
     brand = client_name()
@@ -1115,11 +1137,10 @@ Usa español rioplatense claro y humano."""
         )
         linkable = [
             {"slug": item.get("slug"), "titulo": item.get("h1") or item.get("keyword"), "tipo": item.get("content_type")}
-            for item in (articles or [])
-            if item.get("slug")
-        ][:15]
+            for item in rank_linkable_articles(topic, articles or [])
+        ][:25]
         if linkable:
-            editorial_brief += "Guías ya publicadas del blog (podés enlazarlas con [[g:slug|texto]]):\n" + json.dumps(linkable, ensure_ascii=False) + "\n"
+            editorial_brief += "Guías ya publicadas del blog, de la más a la menos relacionada (podés enlazarlas con [[g:slug|texto]]):\n" + json.dumps(linkable, ensure_ascii=False) + "\n"
         editorial_fields = """
   "direct_answer": "respuesta directa a la búsqueda en 2 o 3 frases, sin rodeos",
   "sections": [
@@ -1134,7 +1155,7 @@ Usa español rioplatense claro y humano."""
 - Recorrido inbound: la persona llega desde Google con una duda. Primero la resolvés de verdad (direct_answer y sections), así gana confianza; recién al final {brand} aparece como la solución natural (brand_solution).
 - sections: 4 a 6 secciones de texto corrido y útil (PILLAR más amplio, GUIDE más enfocado). Explicá criterios, comparaciones y ejemplos de uso reales; nada de listas genéricas de productos.
 - Dentro del body de sections citá productos del catálogo con [[p:id_producto]] (se muestra el modelo) y categorías con [[c:id_categoria|texto natural]]. Usá al menos 3 marcadores en total, solo con IDs del catálogo, y solo donde el producto ejemplifique el criterio que estás explicando.
-- Si hay guías publicadas relacionadas, enlazá 1 o 2 con [[g:slug|texto natural]] donde amplíen el tema.
+- Si hay guías publicadas relacionadas, enlazá 3 o 4 con [[g:slug|texto natural]] donde amplíen o complementen el tema, repartidas en distintas secciones (nunca dos en el mismo párrafo). Preferí las primeras de la lista.
 - Nombrá a {brand} en sections como máximo 2 veces y nunca en la primera sección: el cuerpo tiene que valer por sí mismo.
 - brand_solution: cerrá conectando la decisión del artículo con lo que {brand} ofrece (variedad del catálogo para comparar, categorías y modelos citados). Sin precios, stock, envíos, promociones ni superlativos vacíos.
 - No escribas URLs ni HTML: los enlaces salen solo de los marcadores.
@@ -2105,7 +2126,7 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
             if client_slug_active() == "prestige-running":
                 landing = normalize_generated_landing(catalogue_fallback_landing(topic, categories, products))
             else:
-                related_articles = [item for item in existing if is_editorial(item) and item.get("cluster_slug") == topic.get("cluster_slug")] if editorial_mode else None
+                related_articles = [item for item in existing if is_editorial(item)] if editorial_mode else None
                 system, user = generation_prompt(topic, categories, products, related_articles)
                 landing = normalize_generated_landing(chat_json(system, user, model=model))
         except Exception as exc:
@@ -2271,7 +2292,7 @@ def regenerate_editorial(slugs: list[str], model: str, dry_run: bool = False, at
             "cluster_name": original.get("cluster_name"),
             "editorial_content_type": original.get("content_type"),
         }
-        related = [item for item in others if is_editorial(item) and item.get("cluster_slug") == original.get("cluster_slug")]
+        related = [item for item in others if is_editorial(item)]
         candidate, errors = None, []
         for attempt in range(1, attempts + 1):
             print(f"Regenerando {slug} (intento {attempt})")
@@ -2482,7 +2503,28 @@ def render_landing(landing: dict, categories: dict[str, dict], products: dict[st
     rendered = render_template(template_text, values)
     if is_editorial(landing):
         return render_editorial_article(rendered, landing, categories, products, values, lead_magnet_html, faq_entities, blog_url or base_url.rstrip("/"))
-    return rendered
+    return with_blog_citations(rendered, landing.get("_related") or [])
+
+
+def with_blog_citations(rendered: str, related: list[dict]) -> str:
+    """Landing suelta (legado/campaña): cierra citando las guías del blog que
+    comparten catálogo con ella, con el mismo marcado que las relacionadas."""
+    if not related:
+        return rendered
+    items = "".join(f'<li>{internal_link(item, "landing_related")}</li>' for item in related)
+    section = (
+        '<section class="section blog-citations" aria-label="Guías del blog"><div class="container">'
+        '<div class="section-head"><span class="mono-label">Seguí leyendo</span><h2 class="section-title">Guías del blog sobre este tema</h2></div>'
+        f'<ul class="blog-citation-links">{items}</ul></div></section>'
+    )
+    style = (
+        "<style>.blog-citation-links{list-style:none;margin:0;padding:0;max-width:860px}"
+        ".blog-citation-links li{padding:1rem 0;border-bottom:1px solid var(--rule,rgba(127,127,127,.25));font-size:clamp(18px,1.6vw,22px);font-weight:700}"
+        ".blog-citation-links a{text-decoration:underline;text-underline-offset:3px}</style>"
+    )
+    if "</main>" not in rendered:
+        return rendered
+    return rendered.replace("</main>", section + "</main>", 1).replace("</head>", style + "</head>", 1)
 
 
 def internal_link(item: dict, link_type: str, text: str | None = None) -> str:
@@ -2635,7 +2677,9 @@ ARTICLE_CSS = """<style>
     .article-page .article-toc { margin-top: 1.8rem; padding: 1.2rem 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
     .article-page .article-toc ol { margin: .8rem 0 0; padding-left: 1.3rem; color: var(--ink-3); }
     .article-page .article-toc li { margin: .35rem 0; }
-    .article-page .article-body section + section { margin-top: clamp(28px, 4vw, 48px); }
+    .article-page .article-body section + section, .article-page .article-body aside + section { margin-top: clamp(28px, 4vw, 48px); }
+    .article-page .article-callout { margin: clamp(24px, 3vw, 36px) 0 0; padding: 1rem 1.2rem; border-left: 3px solid var(--accent); background: var(--paper-2); }
+    .article-page .article-callout p { margin: .4rem 0 0; font-weight: 600; }
     .article-page .article-body h2 { margin: 0 0 1rem; font-size: clamp(28px, 3.2vw, 42px); line-height: 1.02; letter-spacing: -.04em; }
     .article-page .article-body p, .article-page .article-list li { margin: 0 0 1.1rem; font-size: clamp(17px, 1.4vw, 19px); line-height: 1.7; color: var(--ink-2); }
     .article-page .article-body a, .article-page .article-answer a, .article-page .article-note a, .article-page .article-list a, .article-page .mega p a { text-decoration: underline; text-decoration-color: var(--accent); text-decoration-thickness: 2px; text-underline-offset: 3px; }
@@ -2710,12 +2754,31 @@ def render_editorial_article(
         intro_parts.append(f'<nav class="article-toc" aria-label="En esta guía"><span class="mono-label dim">En esta guía</span><ol>{items}</ol></nav>')
     intro_html = f'<section class="section article-flow"><div class="container article-prose">{"".join(intro_parts)}</div></section>' if intro_parts else ""
 
+    section_html = [
+        f'<section id="seccion-{index}"><h2>{esc(section["h2"])}</h2>{linker.paragraphs(str(section["body"]))}</section>'
+        for index, section in enumerate(sections, start=1)
+    ]
+    # Citas "Leé también" dentro del cuerpo: relacionadas que el texto no
+    # enlazó con [[g:]]. Salen del grafo, así cada rebuild hace que las guías
+    # viejas citen a las nuevas sin regenerar contenido.
+    callouts: dict[int, list[dict]] = {}
+    if not is_pillar:
+        pool = [item for item in landing.get("_related") or [] if f"g:{item.get('slug')}" not in linker.linked]
+        slots = sorted({1, len(section_html) - 2}) if len(section_html) >= 4 else ([1] if len(section_html) >= 3 else [])
+        per_slot = 2 if len(pool) >= 6 else 1
+        if len(pool) >= 3:
+            for slot in slots:
+                callouts[slot], pool = pool[:per_slot], pool[per_slot:]
+    cited = {item.get("slug") for items in callouts.values() for item in items}
+    body_parts = []
+    for index, html in enumerate(section_html):
+        body_parts.append(html)
+        if callouts.get(index):
+            links = " · ".join(internal_link(item, "inline_callout") for item in callouts[index])
+            body_parts.append(f'<aside class="article-callout"><span class="mono-label dim">Leé también</span><p>{links}</p></aside>')
     body_html = (
         '<section class="section article-flow"><div class="container article-prose article-body">'
-        + "".join(
-            f'<section id="seccion-{index}"><h2>{esc(section["h2"])}</h2>{linker.paragraphs(str(section["body"]))}</section>'
-            for index, section in enumerate(sections, start=1)
-        )
+        + "".join(body_parts)
         + "</div></section>"
     )
 
@@ -2773,7 +2836,7 @@ def render_editorial_article(
     if is_pillar and landing.get("_pillar_index"):
         related_title, related_kicker, related_items, related_type = "Guías de este tema", cluster_name, landing["_pillar_index"], "pillar_index"
     elif landing.get("_related"):
-        related_title, related_kicker, related_items, related_type = "Guías relacionadas", "Seguí explorando", landing["_related"], "related"
+        related_title, related_kicker, related_items, related_type = "Guías relacionadas", "Seguí explorando", [item for item in landing["_related"] if item.get("slug") not in cited], "related"
     if related_items:
         items = "".join(f"<li>{internal_link(item, related_type)}</li>" for item in related_items)
         related_html = (
@@ -2898,6 +2961,8 @@ def attach_internal_links(landings: list[dict]) -> None:
         landing["_related"] = []
         landing["_pillar_index"] = []
     editorial = [landing for landing in landings if is_editorial(landing)]
+    # Landings sueltas indexables: sólo citan al blog, nunca son destino.
+    loose = [landing for landing in landings if not is_editorial(landing) and is_indexable(landing)]
     if not editorial:
         return
     # Destinos que el cuerpo puede enlazar con [[g:slug]] (datos mínimos, sin
@@ -2910,12 +2975,13 @@ def attach_internal_links(landings: list[dict]) -> None:
         landing["_guides"] = guides
     rows = load_persisted_internal_links() if os.environ.get("DATABASE_URL") and _CLIENT_CONFIG.get("id") else None
     if rows is None:
-        rows = plan_local_internal_links(editorial)
+        rows = plan_local_internal_links(editorial, loose)
 
     by_id = {str(landing.get("id") or landing.get("slug")): landing for landing in editorial}
+    loose_by_id = {str(landing.get("id") or landing.get("slug")): landing for landing in loose}
     ordered = sorted(rows, key=lambda row: (row.get("mode") != "PINNED", int(row.get("position") or 0)))
     for row in ordered:
-        source = by_id.get(str(row["sourceLandingId"]))
+        source = by_id.get(str(row["sourceLandingId"])) or loose_by_id.get(str(row["sourceLandingId"]))
         target = by_id.get(str(row["targetLandingId"]))
         # Sólo artículos del mismo cliente, publicados e indexables: el mapa
         # by_id ya excluye legado, borradores y otros clientes.
@@ -2927,11 +2993,14 @@ def attach_internal_links(landings: list[dict]) -> None:
         item.pop("_pillar", None)
         item.pop("_guides", None)
         same_cluster = source.get("cluster_slug") == target.get("cluster_slug")
-        if source.get("content_type") == "PILLAR" and same_cluster:
+        if not is_editorial(source):
+            if len(source["_related"]) < MAX_RELATED and all(existing.get("slug") != item.get("slug") for existing in source["_related"]):
+                source["_related"].append(item)
+        elif source.get("content_type") == "PILLAR" and same_cluster:
             source["_pillar_index"].append(item)
         elif target.get("content_type") == "PILLAR" and same_cluster and source["_pillar"] is None:
             source["_pillar"] = item
-        elif target.get("content_type") != "PILLAR" and len(source["_related"]) < 4 and all(existing.get("slug") != item.get("slug") for existing in source["_related"]):
+        elif target.get("content_type") != "PILLAR" and len(source["_related"]) < MAX_RELATED and all(existing.get("slug") != item.get("slug") for existing in source["_related"]):
             source["_related"].append(item)
 
 
@@ -2952,7 +3021,7 @@ def load_persisted_internal_links() -> list[dict] | None:
         return None
 
 
-def plan_local_internal_links(editorial: list[dict]) -> list[dict]:
+def plan_local_internal_links(editorial: list[dict], loose: list[dict] | None = None) -> list[dict]:
     """Mismo planificador que usa la base, para builds sin DATABASE_URL."""
     sys.path.insert(0, str(ROOT.parent / "agents"))
     from editorial_graph import Article, plan_internal_links  # type: ignore
@@ -2970,6 +3039,17 @@ def plan_local_internal_links(editorial: list[dict]) -> list[dict]:
             product_ids=set(landing.get("product_ids") or []),
         )
         for landing in editorial
+    ] + [
+        Article(
+            id=str(landing.get("id") or landing.get("slug")),
+            slug=str(landing.get("slug")),
+            content_type="LANDING",
+            cluster_id=None,
+            title=str(landing.get("h1") or landing.get("keyword") or landing.get("slug")),
+            category_ids=set(category_ids_for(landing)),
+            product_ids=set(landing.get("product_ids") or []),
+        )
+        for landing in loose or []
     ]
     return [
         {"sourceLandingId": link.source_id, "targetLandingId": link.target_id, "anchorText": link.anchor_text, "position": link.position, "mode": "AUTO"}

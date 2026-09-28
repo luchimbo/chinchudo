@@ -5,12 +5,11 @@ import { acceptCopilotRefinementAction, applyChatSuggestionAction, applyRefinedR
 import type { ChatMessage, ChatSuggestion } from "@/lib/refine-draft";
 import { copyToClipboard } from "./clipboard";
 import { LoadingSpinner } from "@/components/loading-ui";
+import { COPILOT_MAX_CHARACTERS as MAX_CHARACTERS } from "@/lib/copilot-limits";
 
 export type { ChatMessage };
 
 const SUGGESTIONS = ["Más corta", "Más directa", "Sin tecnicismos", "Menos venta"];
-// Mismo tope que la propuesta del Asistente CM (COPILOT_MAX_CHARACTERS).
-const MAX_CHARACTERS = 280;
 
 function formDataFrom(values: Record<string, string>) {
   const formData = new FormData();

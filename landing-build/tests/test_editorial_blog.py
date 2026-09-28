@@ -95,8 +95,10 @@ def site(tmp_path, monkeypatch):
     landings = [
         legacy("controlador-midi-para-fl-studio"),
         legacy("mejor-placa-de-audio"),
+        {**legacy("controlador-barato-indexable"), "indexing_state": "INDEX"},
         article("guia-completa-controladores", "controladores-midi", "PILLAR", days_ago=40, direct_answer="Elegí por teclas y software.", common_mistakes=["Comprar sin mirar la DAW."]),
-        *(article(f"controlador-guia-{index}", "controladores-midi", days_ago=30 - index) for index in range(1, 8)),
+        article("controlador-guia-1", "controladores-midi", days_ago=29, **BODY),
+        *(article(f"controlador-guia-{index}", "controladores-midi", days_ago=30 - index) for index in range(2, 8)),
         article("guia-completa-grabacion", "grabacion-en-casa", "PILLAR", days_ago=20, category="interfaces"),
         article("interfaz-para-voz", "grabacion-en-casa", days_ago=5, category="interfaces"),
         article(
@@ -152,7 +154,7 @@ def test_editorial_article_structure(site):
     assert "/guias/controladores-midi/guia-completa-controladores/" in hrefs  # pilar
     assert "/guias/controladores-midi/" in hrefs  # breadcrumb al hub
     related = [href for href in hrefs if href.count("/") == 4 and "guia-completa" not in href]
-    assert 3 <= len(set(related)) <= 4
+    assert bl.MAX_RELATED - 2 <= len(set(related)) <= bl.MAX_RELATED
     assert path not in hrefs
 
 
@@ -191,7 +193,7 @@ def test_sitemap_uses_real_lastmod(site):
     sitemap = (site_dir / "sitemap.xml").read_text(encoding="utf-8")
     locs = re.findall(r"<loc>([^<]+)</loc>", sitemap)
     assert f"{BASE}/" in locs and f"{BASE}/guias/controladores-midi/" in locs
-    assert len(locs) == 1 + 2 + 11
+    assert len(locs) == 1 + 2 + 11 + 1  # portada, hubs, artículos y la landing suelta indexable
     expected = (datetime.now(timezone.utc) - timedelta(days=5)).date().isoformat()
     assert f"<loc>{BASE}/guias/grabacion-en-casa/interfaz-para-voz/</loc><lastmod>{expected}</lastmod>" in sitemap
 
@@ -387,3 +389,43 @@ def test_regenerate_keeps_identity_and_blocks_invalid_output(tmp_path, monkeypat
     assert regenerated["slug"] == pillar["slug"] and regenerated["published_at"] == pillar["published_at"]
     assert regenerated["content_type"] == "PILLAR" and regenerated["cluster_slug"] == "controladores-midi"
     assert regenerated["h1"] == "Guía nueva de controladores" and len(regenerated["sections"]) == 3
+
+
+def test_article_body_cites_related_guides_inline(site):
+    _, site_dir = site
+    html_text = read(site_dir, "/guias/controladores-midi/controlador-guia-1/")
+    callout = re.search(r'<aside class="article-callout">(.*?)</aside>', html_text, re.DOTALL)
+    assert callout and "Leé también" in callout.group(1)
+    cited = set(re.findall(r'href="(/guias/[^"]+)"', callout.group(1)))
+    assert len(cited) == 2
+    related_box = html_text.split('aria-label="Guías relacionadas"', 1)[1]
+    assert not cited & set(re.findall(r'href="(/guias/[^"]+)"', related_box))  # sin repetir abajo
+
+
+def test_indexable_legacy_landing_cites_the_blog(site):
+    _, site_dir = site
+    html_text = read(site_dir, "/controlador-barato-indexable/")
+    assert "Guías del blog sobre este tema" in html_text
+    hrefs = set(internal_hrefs(html_text))
+    assert "/guias/controladores-midi/guia-completa-controladores/" in hrefs
+    assert 1 <= len(hrefs) <= bl.MAX_RELATED
+    # Sólo origen: ninguna guía la enlaza.
+    for index in range(1, 8):
+        assert "/controlador-barato-indexable/" not in read(site_dir, f"/guias/controladores-midi/controlador-guia-{index}/")
+
+
+def test_noindex_legacy_does_not_cite(site):
+    _, site_dir = site
+    assert "Guías del blog sobre este tema" not in read(site_dir, "/controlador-midi-para-fl-studio/")
+
+
+def test_linkable_articles_ranked_by_cluster_then_catalog():
+    topic = {"cluster_slug": "controladores-midi", "categorias_sugeridas": "interfaces"}
+    items = [
+        article("otra-sin-relacion", "grabacion-en-casa", category="home"),
+        article("interfaz-relacionada", "grabacion-en-casa", category="interfaces"),
+        article("guia-mismo-cluster", "controladores-midi"),
+        article("pilar-mismo-cluster", "controladores-midi", "PILLAR"),
+    ]
+    ranked = [item["slug"] for item in bl.rank_linkable_articles(topic, items)]
+    assert ranked == ["pilar-mismo-cluster", "guia-mismo-cluster", "interfaz-relacionada"]

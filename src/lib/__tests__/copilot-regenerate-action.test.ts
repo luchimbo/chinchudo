@@ -60,7 +60,6 @@ vi.mock("@/lib/draft-generator", () => ({
   generateLocalDrafts: vi.fn(() => [{ variantType: "SHORT", draftText: "Propuesta local", riskNotes: "" }]),
 }));
 vi.mock("@/lib/ai-draft-generator", () => ({
-  COPILOT_MAX_CHARACTERS: 280,
   generateAICopilotDraft: vi.fn(async () => ({ variantType: "SHORT", draftText: "Respuesta con lo aprendido", riskNotes: "" })),
   generateAIDrafts: vi.fn(),
   shortenCopilotText: vi.fn((text: string) => text),

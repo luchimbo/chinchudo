@@ -9,7 +9,8 @@ import { prisma } from "@/lib/db";
 import { assertClientAccess, resolveClientForSlug } from "@/lib/auth";
 import { requireAdmin, requireOwnedClientId, requireSession } from "@/lib/auth-guards";
 import { generateLocalDrafts } from "@/lib/draft-generator";
-import { COPILOT_MAX_CHARACTERS, generateAICopilotDraft, generateAIDrafts, shortenCopilotText } from "@/lib/ai-draft-generator";
+import { generateAICopilotDraft, generateAIDrafts, shortenCopilotText } from "@/lib/ai-draft-generator";
+import { COPILOT_MAX_CHARACTERS, COPILOT_TARGET_CHARACTERS } from "@/lib/copilot-limits";
 import { selectHumorSignal } from "@/lib/radar-editorial";
 import { ensureRequiredBrandMention } from "@/lib/draft-output";
 import { loadRelevantKnowledge } from "@/lib/knowledge";
@@ -1509,9 +1510,13 @@ const chatMessageSchema = z.array(
   })
 );
 
-/** El Asistente CM publica hasta 280 caracteres; el flujo clásico no tiene tope. */
+/** El Asistente CM apunta a COPILOT_TARGET_CHARACTERS y acepta hasta COPILOT_MAX_CHARACTERS; el flujo clásico no tiene tope. */
 function refinementMaxCharacters(contextAssessment: unknown) {
   return contextAssessment && typeof contextAssessment === "object" && "copilot" in contextAssessment ? COPILOT_MAX_CHARACTERS : undefined;
+}
+
+function refinementTargetCharacters(contextAssessment: unknown) {
+  return refinementMaxCharacters(contextAssessment) ? COPILOT_TARGET_CHARACTERS : undefined;
 }
 
 const sendRefinementMessageSchema = z.object({
@@ -1565,6 +1570,7 @@ export async function sendRefinementMessageAction(formData: FormData) {
     clientName: resolution.client.name,
     clientMemories: clientMemories.map((m) => ({ rule: m.rule })),
     maxCharacters: refinementMaxCharacters(response.opportunity.contextAssessment),
+    targetCharacters: refinementTargetCharacters(response.opportunity.contextAssessment),
   });
 
   // `reply` queda sin la etiqueta; la propuesta viaja aparte para mostrarse como bloque editable.
@@ -1642,6 +1648,7 @@ export async function applyRefinedResponseAction(formData: FormData) {
   const compiledText = await compileResponseFromChat({
     acceptedExamples,
     maxCharacters: refinementMaxCharacters(response.opportunity.contextAssessment),
+    targetCharacters: refinementTargetCharacters(response.opportunity.contextAssessment),
     opportunityText: response.opportunity.sourceText,
     chatHistory: parsed.chatHistory,
     currentResponseText: response.editedText || response.draftText,

@@ -14,6 +14,9 @@ export type SentResponseItem = {
   responseText: string;
 };
 
+// Zona fija: el servidor (UTC) y el navegador tienen que mostrar la misma fecha y hora.
+const respondedAtFormat = new Intl.DateTimeFormat("es-AR", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "America/Argentina/Buenos_Aires" });
+
 function ExpandableText({ text, limit, className = "" }: { text: string; limit: number; className?: string }) {
   const [expanded, setExpanded] = useState(false);
   const isLong = text.length > limit;
@@ -26,9 +29,9 @@ export function SentResponses({ items, emptyMessage }: { items: SentResponseItem
 
   return <div className="divide-y divide-ink/10">
     {items.map((item) => {
-      const date = new Date(item.respondedAt).toLocaleDateString("es-AR", { day: "numeric", month: "short", year: "numeric" });
+      const respondedAt = new Date(item.respondedAt);
       return <article key={item.opportunityId} className="px-5 py-5">
-        <p className="mb-3 text-xs font-semibold text-slate/60">{item.channel} · {date}</p>
+        <p className="mb-3 text-xs font-semibold text-slate/60">{item.channel} · Respondido el <time dateTime={item.respondedAt}>{respondedAtFormat.format(respondedAt)}</time></p>
 
         <section className="rounded-xl border border-ink/10 bg-paper/70 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">

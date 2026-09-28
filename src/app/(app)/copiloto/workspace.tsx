@@ -10,6 +10,7 @@ import { copyToClipboard } from "./clipboard";
 import { RefinementChat, type ChatMessage } from "./RefinementChat";
 import { PendingSubmitButton } from "@/components/pending-submit-button";
 import { LoadingSpinner } from "@/components/loading-ui";
+import { COPILOT_MAX_CHARACTERS, COPILOT_TARGET_CHARACTERS } from "@/lib/copilot-limits";
 
 type Response = { id: string; text: string; variantType: string; isPrimary: boolean; persona: string; acceptedAsCorrect: boolean; chatHistory: ChatMessage[] };
 type Opportunity = { id: string; text: string; title: string; notes: string; author: string; sourceUrl: string; channel: string; brand: string; product: string; productId: string; createdAt: string; status: string; responses: Response[] };
@@ -299,8 +300,8 @@ function ResponseCard({ response, text, setText, chatHistory, opportunityId, sou
       <input type="hidden" name="responseId" value={response.id} />
       <input type="hidden" name="wasEdited" value={text.trim() !== response.text.trim() ? "true" : "false"} />
       {isYouTube ? <input type="hidden" name="account" value={youtube?.account ?? "youtube-principal"} /> : null}
-      <textarea name="editedText" value={text} onChange={(event) => setText(event.target.value)} maxLength={280} rows={4} className="w-full resize-y rounded-lg border border-ink/10 bg-paper/65 px-3 py-2.5 text-sm leading-6 text-ink outline-none transition focus:border-brass" />
-      <p className="mt-1 text-right text-[11px] text-slate/60">{text.length}/280</p>
+      <textarea name="editedText" value={text} onChange={(event) => setText(event.target.value)} maxLength={COPILOT_MAX_CHARACTERS} rows={4} className="w-full resize-y rounded-lg border border-ink/10 bg-paper/65 px-3 py-2.5 text-sm leading-6 text-ink outline-none transition focus:border-brass" />
+      <p className={`mt-1 text-right text-[11px] ${text.length > COPILOT_TARGET_CHARACTERS ? "text-brass" : "text-slate/60"}`}>{text.length}/{COPILOT_MAX_CHARACTERS}{text.length > COPILOT_TARGET_CHARACTERS ? ` · ideal hasta ${COPILOT_TARGET_CHARACTERS}` : ""}</p>
       <div className="mt-3 flex flex-wrap gap-2">
         <button type="button" onClick={copy} className="rounded-full border border-ink/15 px-3 py-2 text-xs font-bold text-ink transition hover:border-ink/40">{copied ? "Copiado" : "Copiar"}</button>
         {isYouTube ? (

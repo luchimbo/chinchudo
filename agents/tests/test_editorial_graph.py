@@ -9,6 +9,7 @@ from editorial_graph import (  # noqa: E402
     MAX_CROSS_CLUSTER,
     MAX_RELATED,
     MIN_INBOUND,
+    MIN_RELATED,
     Article,
     audit_article_links,
     plan_internal_links,
@@ -45,13 +46,13 @@ def test_every_guide_links_its_pillar_first():
         assert own[0].position == 0
 
 
-def test_related_between_three_and_four_and_min_inbound():
+def test_related_between_min_and_max_and_min_inbound():
     articles = [pillar(), *(guide(i) for i in range(1, 9))]
     plan = plan_internal_links(articles)
     assert audit_article_links(articles, pairs(plan)) == {}
     for article in articles[1:]:
         related = [link for link in plan if link.source_id == article.id and link.target_id != "c1-p"]
-        assert 3 <= len(related) <= MAX_RELATED
+        assert MIN_RELATED <= len(related) <= MAX_RELATED
         inbound = [link for link in plan if link.target_id == article.id and link.source_id != "c1-p"]
         assert len(inbound) >= MIN_INBOUND
 
@@ -74,7 +75,7 @@ def test_no_self_duplicate_or_unknown_links():
     assert all(link.source_id in known and link.target_id in known for link in plan)
 
 
-def test_at_most_one_cross_cluster_and_only_when_related():
+def test_cross_cluster_capped_and_only_when_related():
     shared = {"cat-shared"}
     articles = [
         pillar("c1"), *(guide(i, "c1", category_ids=shared | {"cat-c1"}) for i in range(1, 4)),
@@ -124,3 +125,48 @@ def test_small_cluster_does_not_report_false_positives():
     articles = [pillar(), guide(1), guide(2)]
     plan = plan_internal_links(articles)
     assert audit_article_links(articles, pairs(plan)) == {}
+
+
+def test_dense_cluster_fills_related_up_to_max():
+    articles = [pillar(), *(guide(i) for i in range(1, 12))]
+    plan = plan_internal_links(articles)
+    assert audit_article_links(articles, pairs(plan)) == {}
+    for article in articles[1:]:
+        related = [link for link in plan if link.source_id == article.id and link.target_id != "c1-p"]
+        assert len(related) == MAX_RELATED
+
+
+def test_cross_cluster_fills_up_to_cap_when_catalog_is_shared():
+    shared = {"cat-shared"}
+    articles = [
+        pillar("c1"), guide(1, "c1", category_ids=shared),
+        pillar("c2"), *(guide(i, "c2", category_ids=shared) for i in range(1, 7)),
+    ]
+    by_id = {article.id: article for article in articles}
+    plan = plan_internal_links(articles)
+    cross = [link for link in plan if link.source_id == "c1-g1" and by_id[link.target_id].cluster_id != "c1"]
+    assert len(cross) == MAX_CROSS_CLUSTER
+
+
+def landing(slug: str, **kwargs) -> Article:
+    return Article(id=f"l-{slug}", slug=slug, content_type="LANDING", cluster_id=None, title=slug, **kwargs)
+
+
+def test_landing_is_source_only_and_links_by_catalog():
+    loose = landing("controlador-barato", category_ids={"cat-c1"})
+    unrelated = landing("otra-cosa", category_ids={"cat-zzz"})
+    articles = [pillar("c1"), *(guide(i, "c1") for i in range(1, 12)), loose, unrelated]
+    plan = plan_internal_links(articles)
+    assert all(link.target_id not in {loose.id, unrelated.id} for link in plan)
+    from_landing = [link for link in plan if link.source_id == loose.id]
+    assert len(from_landing) == MAX_RELATED
+    assert from_landing[0].target_id == "c1-p"  # el pilar primero a igual relevancia
+    assert [link for link in plan if link.source_id == unrelated.id] == []
+    assert audit_article_links(articles, pairs(plan)) == {}
+
+
+def test_landing_links_do_not_count_as_guide_inbound():
+    articles = [pillar(), guide(1), guide(2), *(landing(f"l{i}", category_ids={"cat-c1"}) for i in range(5))]
+    plan = plan_internal_links(articles)
+    guide_sources = {link.source_id for link in plan if link.target_id == "c1-g1"} - {"c1-p"}
+    assert "c1-g2" in guide_sources  # igual recibe el entrante desde su par

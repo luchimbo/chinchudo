@@ -49,15 +49,22 @@ function formatAcceptedExamples(examples?: AcceptedExample[]): string {
   return `Respuestas que el CM aprobó como correctas (referencia de criterio y tono, no las copies):\n${lines.join("\n")}\n`;
 }
 
-/** Recorta sin partir palabras, prefiriendo cerrar en una oración completa. */
+/** Largo que se le pide al modelo: el objetivo si lo hay; maxCharacters es el tope que se tolera. */
+function requestedCharacters(params: { targetCharacters?: number; maxCharacters?: number }) {
+  return params.targetCharacters ?? params.maxCharacters;
+}
+
+/** Nunca devuelve un recorte que deje una oración inconclusa. */
 function fitToMaxCharacters(text: string, maxCharacters?: number): string {
   const clean = text.trim().replace(/^["“]+|["”]+$/g, "").trim();
   if (!maxCharacters || clean.length <= maxCharacters) return clean;
-  const cut = clean.slice(0, maxCharacters);
-  const sentenceEnd = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
-  if (sentenceEnd > maxCharacters * 0.6) return cut.slice(0, sentenceEnd + 1).trim();
-  const lastSpace = cut.lastIndexOf(" ");
-  return (lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trim();
+  let sentenceEnd = -1;
+  for (const match of clean.matchAll(/[.!?](?=\s|$)/g)) {
+    if (match.index >= maxCharacters) break;
+    sentenceEnd = match.index;
+  }
+  if (sentenceEnd >= 0) return clean.slice(0, sentenceEnd + 1).trim();
+  throw new Error(`La respuesta supera los ${maxCharacters} caracteres y no tiene una oración completa dentro del límite.`);
 }
 
 export async function chatRefinementStep(params: {
@@ -71,6 +78,7 @@ export async function chatRefinementStep(params: {
   clientMemories?: { rule: string }[];
   acceptedExamples?: AcceptedExample[];
   maxCharacters?: number;
+  targetCharacters?: number;
 }): Promise<{ message: string; suggestion: string | null }> {
   const llmConfig = resolveLLMConfig();
   const memoriesList = (params.clientMemories ?? []).map((m) => `- ${m.rule}`).join("\n");
@@ -90,7 +98,7 @@ ${formatAcceptedExamples(params.acceptedExamples)}
 Tu rol en este chat es dialogar de forma clara, directa y concisa con el operador. Podés opinar, proponer cambios o redactar una opción alternativa si el usuario te lo pide. Mantené un tono profesional, colaborador y muy claro.
 
 Formato de las propuestas:
-- Cada vez que el operador pida cambiar la respuesta (más corta, otro tono, otro dato, etc.) o te pida una versión, escribí la respuesta COMPLETA lista para publicar entre <propuesta> y </propuesta>, una sola vez por mensaje${params.maxCharacters ? `, con un máximo de ${params.maxCharacters} caracteres` : ""}.
+- Cada vez que el operador pida cambiar la respuesta (más corta, otro tono, otro dato, etc.) o te pida una versión, escribí la respuesta COMPLETA lista para publicar entre <propuesta> y </propuesta>, una sola vez por mensaje${requestedCharacters(params) ? `, con un máximo de ${requestedCharacters(params)} caracteres y terminando en una oración completa` : ""}.
 - Fuera de la etiqueta, como mucho una línea breve que explique el cambio. No repitas la propuesta fuera de la etiqueta.
 - Si el operador solo pregunta algo o pide tu opinión, respondé sin la etiqueta.
 - Si el operador editó tu propuesta a mano, tomá su versión como la nueva base.`;
@@ -140,6 +148,7 @@ export async function compileResponseFromChat(params: {
   clientMemories?: { rule: string }[];
   acceptedExamples?: AcceptedExample[];
   maxCharacters?: number;
+  targetCharacters?: number;
 }): Promise<string> {
   const llmConfig = resolveLLMConfig();
   const memoriesList = (params.clientMemories ?? []).map((m) => `- ${m.rule}`).join("\n");
@@ -161,7 +170,7 @@ REGLAS ABSOLUTAS:
 - Generá exclusivamente el TEXTO FINAL de la respuesta perfeccionada.
 - NO incluyas explicaciones, ni comillas extra, ni saludos al operador.
 - No incluyas preguntas (solo afirmaciones, recomendaciones o datos útiles).
-- Mantené el tono del perfil ${params.personaName} incorporando fielmente lo que pidió el operador en el chat.${params.maxCharacters ? `\n- Máximo ${params.maxCharacters} caracteres en total.` : ""}
+- Mantené el tono del perfil ${params.personaName} incorporando fielmente lo que pidió el operador en el chat.${requestedCharacters(params) ? `\n- Máximo ${requestedCharacters(params)} caracteres en total, terminando en una oración completa.` : ""}
 
 Respuesta final (únicamente el texto a publicar):`;
 

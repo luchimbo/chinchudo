@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildCopilotPrompt, buildPrompt, COPILOT_MAX_CHARACTERS, shortenCopilotText } from "../ai-draft-generator";
+import { buildCopilotPrompt, buildPrompt, COPILOT_MAX_CHARACTERS, COPILOT_TARGET_CHARACTERS, shortenCopilotText } from "../ai-draft-generator";
 
 const now = new Date();
 
@@ -36,7 +36,8 @@ describe("direccion editorial del Copiloto", () => {
   it("pide una unica propuesta breve para el Copiloto", () => {
     const prompt = buildCopilotPrompt(context());
     expect(prompt).toContain("UNA sola propuesta breve");
-    expect(prompt).toContain(`Máximo ${COPILOT_MAX_CHARACTERS} caracteres`);
+    expect(prompt).toContain(`Máximo ${COPILOT_TARGET_CHARACTERS} caracteres`);
+    expect(prompt).toContain("Terminá siempre en una oración completa");
     expect(prompt).toContain('"text"');
     expect(prompt).not.toContain('"variants"');
   });
@@ -77,6 +78,21 @@ describe("direccion editorial del Copiloto", () => {
     const detected = buildPrompt({ ...base, opportunity: { ...base.opportunity, detectedProduct: product }, catalogProducts: [product] });
     expect(detected).toContain("Características de MidiPlus MiniLab 3");
     expect(detected).not.toContain("Producto elegido por el community manager");
+  });
+
+  it("no toca una respuesta que se pasa un poco del objetivo", () => {
+    const text = `${"Dato concreto sobre el controlador. ".repeat(9)}Cierre.`;
+    expect(text.length).toBeGreaterThan(COPILOT_TARGET_CHARACTERS);
+    expect(text.length).toBeLessThanOrEqual(COPILOT_MAX_CHARACTERS);
+    expect(shortenCopilotText(text)).toBe(text.trim());
+  });
+
+  it("si supera el tope, cierra en la última oración completa sin puntos suspensivos", () => {
+    const source = "La diferencia real está en los preamps y los conversores. ".repeat(8);
+    const shortened = shortenCopilotText(source);
+    expect(shortened.length).toBeLessThanOrEqual(COPILOT_MAX_CHARACTERS);
+    expect(shortened).toMatch(/conversores\.$/);
+    expect(shortened).not.toContain("…");
   });
 
   it("recorta el fallback por palabra y respeta el limite", () => {
