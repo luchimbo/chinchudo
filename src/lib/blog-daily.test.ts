@@ -104,7 +104,7 @@ beforeEach(() => {
   rows = [];
   landings = {};
   seq = 1;
-  settings = { "blog_daily_schedule:c1": JSON.stringify({ enabled: true, reviewedBatchAt: "2026-09-30T10:00:00Z", publishTime: "09:00" }) };
+  settings = { "blog_daily_schedule:c1": JSON.stringify({ enabled: true, publishTime: "09:00" }) };
 });
 
 describe("rutina diaria del blog", () => {
@@ -143,17 +143,18 @@ describe("rutina diaria del blog", () => {
     expect(row("2026-10-01")).toMatchObject({ status: "FAILED", attempts: 3 });
     expect(landings["l-2026-10-01"].status).toBe("DRAFT");
   });
-  it("prepara 14 días con la publicación apagada", async () => {
-    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: false, preparing: true, batchStart: "2026-10-02" });
+  it("con la publicación apagada escribe las fechas sumadas desde el calendario, sin publicar", async () => {
+    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: false });
+    rows.push({ id: "extra", clientId: "c1", landingId: null, scheduledDate: new Date("2026-10-20T00:00:00Z"), status: "PLANNED", attempts: 0, needsDeploy: false, revisionAttempts: 0, lastError: "", updatedAt: new Date(clock.getTime()) });
     const runBlogPython = vi.fn(async (args: string[]) => { if (args[0] === "generate") addReady(args[args.indexOf("--schedule-date") + 1]); });
     const { daily } = build({ runBlogPython });
     await daily.runDailyBlogCalendar();
-    expect(rows).toHaveLength(14);
-    expect(row("2026-10-02").status).toBe("READY");
+    expect(rows).toHaveLength(1);
+    expect(row("2026-10-20").status).toBe("READY");
     expect(deploys(runBlogPython)).toBe(0);
   });
   it("no publica el día de activación aunque haya un artículo listo", async () => {
-    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: true, reviewedBatchAt: "2026-10-01T10:00:00Z", firstPublishDate: "2026-10-02", publishTime: "09:00" });
+    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: true, firstPublishDate: "2026-10-02", publishTime: "09:00" });
     addReady("2026-10-01");
     const { daily, runBlogPython } = build();
     await daily.runDailyBlogCalendar();

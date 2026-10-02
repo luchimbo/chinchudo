@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requirePageClient } from "@/lib/auth";
 import { argentinaDate, monthBounds, shiftDate } from "@/lib/blog-calendar";
-import { addBlogTopic, replaceBlogArticle, rescheduleBlogArticle, restoreBlogDate, skipBlogDate, updateBlogExclusions, prepareBlogBatch, confirmBlogBatchReview, retryBlogPreparation } from "./actions";
+import { addBlogDays, replaceBlogArticle, rescheduleBlogArticle, restoreBlogDate, skipBlogDate, retryBlogPreparation } from "./actions";
 import { editorialIntentForDate } from "@/lib/blog-quality.mjs";
 import { blogReferral } from "@/lib/blog-referrals";
 
@@ -24,20 +24,20 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
   const today = argentinaDate();
   const month = /^\d{4}-(0[1-9]|1[0-2])$/.test(searchParams.month || "") ? searchParams.month! : today.slice(0, 7);
   const { start, end } = monthBounds(month);
-  const [slots, setting, exclusionsSetting, client] = await Promise.all([
+  const [slots, setting, client, lastSlot] = await Promise.all([
     prisma.blogPublication.findMany({
       where: { clientId: activeClient.id, scheduledDate: { gte: start, lt: end } },
       include: { landing: { select: { id: true, titulo: true, keyword: true, slug: true, indexingState: true, htmlContent: true, contentCluster: { select: { slug: true } } } } },
       orderBy: { scheduledDate: "asc" },
     }),
     prisma.appSetting.findUnique({ where: { key: `blog_daily_schedule:${activeClient.id}` }, select: { value: true } }),
-    prisma.appSetting.findUnique({ where: { key: `blog_editorial_exclusions:${activeClient.id}` }, select: { value: true } }),
     prisma.client.findUnique({ where: { id: activeClient.id }, select: { blogBaseUrl: true } }),
+    prisma.blogPublication.findFirst({ where: { clientId: activeClient.id, status: { not: "SKIPPED" } }, orderBy: { scheduledDate: "desc" }, select: { scheduledDate: true } }),
   ]);
-  let config: { enabled?: boolean; publishTime?: string; preparing?: boolean; batchStart?: string; reviewedBatchAt?: string } = {};
+  let config: { enabled?: boolean; publishTime?: string } = {};
   try { config = JSON.parse(setting?.value || "{}"); } catch { /* Se muestra como apagado. */ }
-  let exclusions: string[] = [];
-  try { const parsed = JSON.parse(exclusionsSetting?.value || "[]"); if (Array.isArray(parsed)) exclusions = parsed.filter((term) => typeof term === "string"); } catch { /* Sin exclusiones. */ }
+  const lastPlanned = lastSlot ? lastSlot.scheduledDate.toISOString().slice(0, 10) : "";
+  const formatDay = (day: string) => new Intl.DateTimeFormat("es-AR", { day: "numeric", month: "long", timeZone: "UTC" }).format(new Date(`${day}T00:00:00Z`));
 
   const landingIds = slots.flatMap((slot) => slot.landingId ? [slot.landingId] : []);
   const [events, leads] = landingIds.length ? await Promise.all([
@@ -93,12 +93,6 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
           <span className="rounded-full bg-emerald-400/15 px-3 py-1.5 text-emerald-100">{count("PUBLISHED")} publicados</span>
         </div>
       </header>
-      <section className="mt-5 space-y-3 rounded-2xl border border-ink/10 bg-paper p-5">
-        <h2 className="font-display text-xl">Preparación y revisión inicial</h2><p className="text-sm text-slate">14 borradores privados: siete educativos y siete de elección. La publicación comienza al día siguiente de activarla, incluidos fines de semana.</p>
-        <div className="flex flex-wrap items-center gap-4"><form action={prepareBlogBatch}><input type="hidden" name="clientId" value={activeClient.id} /><button disabled={Boolean(config.enabled)} className="rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-paper disabled:opacity-40">Preparar 14 borradores</button></form><Link href="/blog/fuentes?client=pcmidi" className="text-sm font-semibold text-moss underline">Fuentes verificadas</Link><span className="text-xs text-slate">{config.reviewedBatchAt ? "Revisión inicial confirmada" : config.preparing ? "Preparación en curso · publicación apagada" : "Pendiente de preparar y revisar"}</span></div>
-        {config.batchStart && !config.enabled ? <form action={confirmBlogBatchReview} className="flex flex-wrap items-center gap-3"><input type="hidden" name="clientId" value={activeClient.id} /><label className="flex items-center gap-2 text-xs"><input type="checkbox" name="reviewed" required />Revisé los 14 borradores de la tanda desde {config.batchStart}</label><button className="rounded-lg border border-ink/20 px-3 py-2 text-xs font-semibold">Confirmar revisión</button></form> : null}
-        <p className="text-xs text-slate">Métricas acumuladas: visitas registradas, clics hacia la tienda y contactos. La procedencia depende de la referencia enviada por el navegador. No mide posiciones en Google ni citas de IA.</p>
-      </section>
 
       <section className="mt-6 rounded-2xl border border-ink/10 bg-paper shadow-sm">
         <div className="flex items-center justify-between border-b border-ink/10 px-5 py-4">
@@ -132,8 +126,17 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
           })}</div></div></div>
       </section>
 
-      <section className="mt-6 rounded-2xl border border-ink/10 bg-paper p-5 shadow-sm sm:p-6"><h2 className="font-display text-xl text-ink">Sumar un tema</h2><p className="mt-1 text-sm text-slate">Agregá una búsqueda que querés que el generador considere para los próximos artículos. Evitaremos repetir temas ya cubiertos.</p><form action={addBlogTopic} className="mt-4 flex flex-wrap gap-2"><input type="hidden" name="clientId" value={activeClient.id} /><select name="intent" aria-label="Tipo de artículo" className="rounded-lg border border-ink/15 px-3 py-2 text-sm"><option value="educational">Educativo</option><option value="decision">Ayuda a elegir</option></select><input name="keyword" minLength={3} maxLength={160} required placeholder="Ej.: interfaz de audio para grabar voz en casa" className="min-w-[250px] flex-1 rounded-lg border border-ink/15 bg-white px-3 py-2 text-sm" /><button type="submit" className="rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-paper">Agregar tema</button></form></section>
-      <section className="mt-4 rounded-2xl border border-ink/10 bg-paper p-5 shadow-sm sm:p-6"><h2 className="font-display text-xl text-ink">Temas excluidos</h2><p className="mt-1 text-sm text-slate">Una frase por línea. El generador no elegirá búsquedas que incluyan estas frases.</p><form action={updateBlogExclusions} className="mt-4 grid gap-3"><input type="hidden" name="clientId" value={activeClient.id} /><textarea name="terms" rows={4} defaultValue={exclusions.join("\n")} className="w-full rounded-lg border border-ink/15 bg-white px-3 py-2 text-sm" placeholder="Ej.: alquiler de equipos" /><button type="submit" className="w-fit rounded-lg border border-ink/20 px-4 py-2 text-sm font-semibold text-ink hover:bg-ink/5">Guardar exclusiones</button></form></section>
+      <section className="mt-6 rounded-2xl border border-ink/10 bg-paper p-5 shadow-sm sm:p-6">
+        <h2 className="font-display text-xl text-ink">Crear más artículos</h2>
+        <p className="mt-1 text-sm text-slate">{lastPlanned ? `Hay artículos planificados hasta el ${formatDay(lastPlanned)}. ` : ""}Sumá días después de esa fecha y se van escribiendo de a uno, como borradores privados.</p>
+        <form action={addBlogDays} className="mt-4 flex flex-wrap items-center gap-2">
+          <input type="hidden" name="clientId" value={activeClient.id} />
+          <select name="days" defaultValue="7" aria-label="Cantidad de días" className="rounded-lg border border-ink/15 bg-white px-3 py-2 text-sm">
+            {[1, 3, 7, 14, 30].map((n) => <option key={n} value={n}>{n === 1 ? "1 día más" : `${n} días más`}</option>)}
+          </select>
+          <button type="submit" className="rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-paper">Crear artículos</button>
+        </form>
+      </section>
     </main>
   );
 }

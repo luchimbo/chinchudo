@@ -137,10 +137,11 @@ export function createBlogDaily({ prisma, runBlogPython, fetchUrl = fetch, now =
       let config; try { config = JSON.parse(setting?.value || "{}"); } catch { return; }
       await recoverInterrupted(client.id);
       const local = argentinaNow();
-      const active = config.enabled && client.blogBaseUrl?.trim() && config.reviewedBatchAt && /^([01]\d|2[0-3]):[0-5]\d$/.test(config.publishTime || "");
-      if (!active && !config.preparing) { await deployEditedBlogArticle(client); return; }
-      const start = active ? shiftDate(local.date, 1) : config.batchStart || shiftDate(local.date, 1);
-      for (let offset = 0; offset < 14; offset += 1) {
+      const active = config.enabled && client.blogBaseUrl?.trim() && /^([01]\d|2[0-3]):[0-5]\d$/.test(config.publishTime || "");
+      // Con la publicación activa se mantienen 14 días reservados; las fechas
+      // sumadas a mano desde el calendario se escriben aunque esté apagada.
+      const start = shiftDate(local.date, 1);
+      for (let offset = 0; active && offset < 14; offset += 1) {
         const day = shiftDate(start, offset);
         await prisma.blogPublication.upsert({ where: { clientId_scheduledDate: { clientId: client.id, scheduledDate: dateValue(day) } }, create: { clientId: client.id, scheduledDate: dateValue(day) }, update: {} });
       }
@@ -174,7 +175,7 @@ export function createBlogDaily({ prisma, runBlogPython, fetchUrl = fetch, now =
       }
       if (await deployEditedBlogArticle(client)) return;
       if (generationClients.has("pcmidi")) return;
-      const empty = await prisma.blogPublication.findFirst({ where: { clientId: client.id, scheduledDate: { gt: dateValue(local.date), lte: dateValue(shiftDate(start, 13)) }, landingId: null, status: { in: ["PLANNED", "FAILED"] }, attempts: { lt: 3 } }, orderBy: { scheduledDate: "asc" } });
+      const empty = await prisma.blogPublication.findFirst({ where: { clientId: client.id, scheduledDate: { gte: dateValue(start) }, landingId: null, status: { in: ["PLANNED", "FAILED"] }, attempts: { lt: 3 } }, orderBy: { scheduledDate: "asc" } });
       if (!empty) return;
       generationClients.add("pcmidi");
       const generationClaim = await prisma.blogPublication.updateMany({ where: { id: empty.id, updatedAt: empty.updatedAt, landingId: null, attempts: empty.attempts, status: { in: ["PLANNED", "FAILED"] } }, data: { attempts: { increment: 1 }, status: "PLANNED", lastError: "" } });

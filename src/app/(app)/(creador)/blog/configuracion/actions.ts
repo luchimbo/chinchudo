@@ -5,7 +5,6 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { assertClientAccess } from "@/lib/auth";
 import { getSetting, setSetting } from "@/lib/settings";
-import { checkInitialBlogBatch } from "@/lib/blog-batch";
 import { argentinaDate, shiftDate } from "@/lib/blog-calendar";
 
 function str(fd: FormData, key: string) {
@@ -28,13 +27,8 @@ export async function updateLandingsConfig(formData: FormData) {
   let dailyConfig: Record<string, any> = {};
   if (client.slug === "pcmidi") {
     try { dailyConfig = JSON.parse(await getSetting(`blog_daily_schedule:${id}`) || "{}"); } catch { /* Inicialmente apagado. */ }
-    if (dailyEnabled && !dailyConfig.enabled) {
-      if (!dailyConfig.reviewedBatchAt || !dailyConfig.batchStart) throw new Error("Prepará y confirmá la revisión de los 14 borradores desde el calendario antes de activar la publicación.");
-      const fingerprint = await checkInitialBlogBatch(prisma, id, dailyConfig.batchStart);
-      if (fingerprint !== dailyConfig.reviewedFingerprint) throw new Error("La tanda cambió después de revisarla. Confirmá nuevamente la revisión desde el calendario.");
-      dailyConfig.firstPublishDate = shiftDate(argentinaDate(), 1);
-      if (dailyConfig.batchStart !== dailyConfig.firstPublishDate) throw new Error("Reprogramá la tanda para comenzar mañana y volvé a confirmar la revisión.");
-    }
+    // La publicación arranca al día siguiente de activarla.
+    if (dailyEnabled && !dailyConfig.enabled) dailyConfig.firstPublishDate = shiftDate(argentinaDate(), 1);
   }
   await prisma.client.update({
     where: { id },

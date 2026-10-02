@@ -109,7 +109,7 @@ export function LandingsForm({
           <div className="rounded-xl border border-moss/20 bg-moss/5 p-4">
             <label className="flex items-start gap-3 text-sm text-slate">
               <input type="checkbox" name="blogDailyEnabled" defaultChecked={config.dailyBlogSchedule.enabled} className="mt-0.5" />
-              <span><span className="font-semibold text-ink">Publicar un artículo diario</span><span className={`block ${hintCls}`}>Requiere confirmar la revisión de 14 borradores en el calendario. Comienza al día siguiente de la activación.</span></span>
+              <span><span className="font-semibold text-ink">Publicar un artículo diario</span><span className={`block ${hintCls}`}>Comienza al día siguiente de la activación.</span></span>
             </label>
             <label className={`${labelCls} mt-4 max-w-xs`}>Hora de publicación en Argentina
               <input name="blogPublishTime" type="time" defaultValue={config.dailyBlogSchedule.publishTime} className={inputCls} />
