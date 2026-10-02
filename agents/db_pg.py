@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import timezone
 from contextlib import contextmanager
 from typing import Any, Generator
 
@@ -40,7 +41,7 @@ def _get_url() -> str:
 
 @contextmanager
 def connect() -> Generator[psycopg.Connection, None, None]:
-    with psycopg.connect(_get_url(), row_factory=dict_row) as conn:
+    with psycopg.connect(_get_url(), row_factory=dict_row, connect_timeout=15) as conn:
         yield conn
 
 
@@ -87,7 +88,7 @@ def load_landing_catalog(client_slug: str) -> tuple[dict, dict]:
             (client_id,),
         ).fetchall()
         prod_rows = conn.execute(
-            'SELECT "externalId", name, brand, model, "categoryKey", url, "useText" FROM "LandingProduct" WHERE "clientId" = %s',
+            'SELECT "externalId", name, brand, model, "categoryKey", url, "useText", "updatedAt" FROM "LandingProduct" WHERE "clientId" = %s',
             (client_id,),
         ).fetchall()
 
@@ -112,6 +113,7 @@ def load_landing_catalog(client_slug: str) -> tuple[dict, dict]:
             "categoria_id": r["categoryKey"],
             "url": r["url"],
             "uso": r["useText"],
+            "updatedAt": (r["updatedAt"] if r["updatedAt"].tzinfo else r["updatedAt"].replace(tzinfo=timezone.utc)).isoformat(),
         }
 
     return categories, products
@@ -133,11 +135,20 @@ def load_seed_topics(client_slug: str) -> list[dict]:
 
     result = []
     for r in rows:
-        cats = r["suggestedCategories"] if isinstance(r["suggestedCategories"], list) else json.loads(r["suggestedCategories"] or "[]")
+        raw_cats = r["suggestedCategories"]
+        if isinstance(raw_cats, list):
+            cats = raw_cats
+        else:
+            try:
+                cats = json.loads(raw_cats or "[]")
+            except (ValueError, TypeError):
+                cats = str(raw_cats or "").replace(",", ";").split(";")
+        if not isinstance(cats, list):
+            cats = [cats] if isinstance(cats, str) else []
         result.append({
             "keyword": r["keyword"],
             "intencion": r["intent"],
-            "categorias_sugeridas": ";".join(cats),
+            "categorias_sugeridas": ";".join(str(c).strip() for c in cats if str(c).strip()),
             "source": "internal",
         })
     return result
@@ -203,6 +214,8 @@ def generate_cuid() -> str:
 def upsert_landing(slug: str, keyword: str, html_content: str, **kwargs) -> str:
     """Inserta o actualiza una landing. Devuelve el id."""
     import datetime
+    schedule_date = kwargs.pop("schedule_date", "")
+    schedule_error = kwargs.pop("schedule_error", "")
     fields = {"slug": slug, "keyword": keyword, "htmlContent": html_content, **kwargs}
     if not fields.get("clientId"):
         raise ValueError("Landing clientId is required")
@@ -213,14 +226,17 @@ def upsert_landing(slug: str, keyword: str, html_content: str, **kwargs) -> str:
     cols = ", ".join(f'"{k}"' for k in fields)
     vals = ", ".join(f"%({k})s" for k in fields)
     update = ", ".join(f'"{k}" = EXCLUDED."{k}"' for k in fields if k != "slug" and k != "id" and k != "updatedAt")
+    conflict = "" if schedule_date else f'ON CONFLICT ("clientId", slug) DO UPDATE SET {update}, "updatedAt" = NOW()'
     sql = f"""
         INSERT INTO "Landing" ({cols})
         VALUES ({vals})
-        ON CONFLICT ("clientId", slug) DO UPDATE SET {update}, "updatedAt" = NOW()
+        {conflict}
         RETURNING id
     """
     with connect() as conn:
         row = conn.execute(sql, fields).fetchone()
+        if schedule_date:
+            _attach_scheduled_landing(conn, fields["clientId"], row["id"], schedule_date, schedule_error)
     return row["id"]  # type: ignore[index]
 
 
@@ -238,6 +254,51 @@ def update_landing_status(landing_id: str, status: str) -> None:
             'UPDATE "Landing" SET status = %s, "updatedAt" = NOW() WHERE id = %s',
             (status, landing_id),
         )
+
+
+def _attach_scheduled_landing(conn, client_id: str, landing_id: str, scheduled_date: str, error: str = "") -> None:
+    row = conn.execute(
+        '''UPDATE "BlogPublication"
+           SET "landingId" = %s, status = %s::"BlogPublicationStatus", attempts = %s, "lastError" = %s, "updatedAt" = NOW()
+           WHERE "clientId" = %s AND "scheduledDate" = %s::date
+             AND status IN ('PLANNED', 'FAILED') AND "landingId" IS NULL
+           RETURNING id''',
+        (landing_id, "FAILED" if error else "READY", 3 if error else 0, error, client_id, scheduled_date),
+    ).fetchone()
+    if not row:
+        raise RuntimeError(f"No hay un día libre reservado para {scheduled_date}")
+
+
+def attach_scheduled_landing(client_id: str, landing_id: str, scheduled_date: str) -> None:
+    """Vincula un borrador al día reservado por el calendario editorial."""
+    with connect() as conn:
+        _attach_scheduled_landing(conn, client_id, landing_id, scheduled_date)
+
+
+def load_editorial_sources(client_id: str) -> list[dict]:
+    with connect() as conn:
+        setting = conn.execute('SELECT value FROM "AppSetting" WHERE key = %s', (f"blog_editorial_sources:{client_id}",)).fetchone()
+        knowledge = conn.execute('SELECT id, topic, content, source, "updatedAt" FROM "KnowledgeBase" WHERE "clientId" = %s AND confidence = %s', (client_id, "high")).fetchall()
+    stored = json.loads(setting["value"]) if setting else []
+    return [*stored, *[
+        {"id": f"knowledge-{k['id']}", "title": k["topic"], "type": "internal", "url": "", "reference": f"Base de conocimiento: {k['source']}", "reviewedBy": "Base de conocimiento de confianza alta", "verifiedAt": (k["updatedAt"] if k["updatedAt"].tzinfo else k["updatedAt"].replace(tzinfo=timezone.utc)).isoformat(), "productIds": [], "claims": [s.strip() for s in k["content"].splitlines() if s.strip()]}
+        for k in knowledge
+    ]]
+
+
+def load_blog_exclusions(client_id: str) -> list[str]:
+    with connect() as conn:
+        row = conn.execute(
+            'SELECT value FROM "AppSetting" WHERE key = %s',
+            (f"blog_editorial_exclusions:{client_id}",),
+        ).fetchone()
+    if not row:
+        return []
+    try:
+        values = json.loads(row["value"])
+        return [str(value).strip().lower() for value in values if str(value).strip()] if isinstance(values, list) else []
+    except (TypeError, ValueError):
+        return []
 
 
 # ─── Blog editorial / enlaces internos ──────────────────────────────────────

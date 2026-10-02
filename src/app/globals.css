@@ -134,3 +134,14 @@ textarea {
   .loading-spinner, .loading-spinner.loading-spinner-page { border-right-color: currentColor; opacity: .55; }
   .animate-spin, .animate-pulse, .animate-ping { animation: none !important; }
 }
+
+/* Editor visual de artículos del blog (TipTap). */
+.article-body-editor p + p { margin-top: 0.9em; }
+.article-body-editor p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: rgb(100 116 139 / 0.5);
+}
+.article-body-editor .ProseMirror-selectednode { outline: none; }

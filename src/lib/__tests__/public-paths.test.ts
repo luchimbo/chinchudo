@@ -10,6 +10,9 @@ describe("public-paths", () => {
     expect(isPublicPath("/landings")).toBe(false);
     expect(isPublicPath("/landings/config")).toBe(false);
     expect(isPublicPath("/landings/editor")).toBe(false);
+    expect(isPublicPath("/blog")).toBe(false);
+    expect(isPublicPath("/blog/calendario")).toBe(false);
+    expect(isPublicPath("/blog/articulos/abc")).toBe(false);
     expect(isPublicPath("/logins")).toBe(false);
     expect(isPublicPath("/l")).toBe(false);
     expect(isPublicPath("/loginz")).toBe(false);

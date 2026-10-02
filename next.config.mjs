@@ -1,5 +1,15 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // La sección del blog vivía en /landings: se conservan los enlaces viejos.
+  async redirects() {
+    return [
+      { source: "/landings/calendar", destination: "/blog/calendario", permanent: true },
+      { source: "/landings/articles/:id", destination: "/blog/articulos/:id", permanent: true },
+      { source: "/landings/editor", destination: "/blog/diseno", permanent: true },
+      { source: "/landings/config", destination: "/blog/configuracion", permanent: true },
+      { source: "/landings", destination: "/blog", permanent: true },
+    ];
+  },
   experimental: {
     serverActions: {
       bodySizeLimit: "2mb"

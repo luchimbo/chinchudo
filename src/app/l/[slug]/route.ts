@@ -13,6 +13,7 @@ export async function GET(
     where: { slug },
     orderBy: { updatedAt: "desc" },
     include: {
+      blogPublication: { select: { status: true } },
       client: {
         select: {
           id: true,
@@ -41,6 +42,7 @@ export async function GET(
   if (!["PREVIEW_ONLINE", "PUBLISHED"].includes(landing.status)) {
     return new NextResponse("Landing no disponible online.", { status: 404 });
   }
+  if (landing.blogPublication && landing.blogPublication.status !== "PUBLISHED") return new NextResponse("Artículo aún privado.", { status: 404 });
 
   try {
     const html = await renderLandingHtml(landing.client, landing.id);

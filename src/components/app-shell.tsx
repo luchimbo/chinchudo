@@ -12,7 +12,7 @@ type ClientOption = { slug: string; name: string };
 
 const SECTOR_LABEL: Array<{ paths: string[]; label: string }> = [
   { paths: ["/"], label: "Inicio" },
-  { paths: ["/landings", "/leads"], label: "Creador de landings" },
+  { paths: ["/blog", "/leads"], label: "Blog" },
   { paths: ["/videos"], label: "Tendencias y guiones" },
   { paths: ["/tendencias"], label: "Tendencias" },
   { paths: ["/radar"], label: "Radar editorial" },
@@ -34,7 +34,7 @@ function getSectorLabel(pathname: string): string {
 const MOBILE_SECTORS = [
   { href: "/", label: "Inicio" },
   { href: "/asistente-cm", label: "Asistente CM" },
-  { href: "/landings/editor", label: "Creador de landings" },
+  { href: "/blog", label: "Blog" },
   { href: "/videos", label: "Tendencias y guiones" },
   { href: "/tendencias", label: "Tendencias" },
   { href: "/analytics", label: "Analíticas" },

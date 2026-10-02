@@ -252,7 +252,7 @@ export function EditorForm({
       {/* 2. COLORES DE LA LANDING */}
       <section className="rounded-2xl border border-ink/10 bg-paper p-6 shadow-sm">
         <div className="mb-4">
-          <h2 className="font-display text-xl font-bold text-ink">Colores de la landing</h2>
+          <h2 className="font-display text-xl font-bold text-ink">Colores del blog</h2>
           <p className="text-xs text-slate/75">
             Personaliza los colores principales para botones, enlaces y acentos visuales.
           </p>
@@ -349,7 +349,7 @@ export function EditorForm({
           disabled={saving}
           className="rounded-full border border-ink/20 bg-paper px-8 py-3 text-sm font-bold text-ink transition hover:border-ink/45 disabled:opacity-60"
         >
-          {saving && actionLabel === "confirm" ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Confirmando…</span> : "Confirmar diseño de landing"}
+          {saving && actionLabel === "confirm" ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Confirmando…</span> : "Confirmar diseño del blog"}
         </button>
         {saved ? <span className="text-xs font-semibold text-emerald-600">Cambios guardados</span> : null}
         {saveError ? <span role="alert" className="text-xs font-semibold text-red-700">{saveError}</span> : null}
@@ -373,7 +373,7 @@ export function EditorForm({
         {!previewRequested ? (
           <div className="flex min-h-40 flex-col items-center justify-center gap-3 bg-[#202326] p-8 text-center text-paper">
             <p className="text-sm font-bold">La previsualización es opcional</p>
-            <p className="max-w-md text-xs leading-5 text-white/55">Podés crear landings sin esperarla. Cargala solo si querés revisar el diseño.</p>
+            <p className="max-w-md text-xs leading-5 text-white/55">Podés crear artículos sin esperarla. Cargala solo si querés revisar el diseño.</p>
           </div>
         ) : <div className="relative bg-[#202326] p-3">
           {previewStatus !== "ready" ? (
@@ -384,7 +384,7 @@ export function EditorForm({
                     <span className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-brass" aria-hidden="true" />
                     <div>
                       <p className="text-sm font-bold">Generando previsualización</p>
-                      <p className="mt-1 text-xs leading-5 text-white/55">Estamos preparando la landing con el diseño elegido.</p>
+                      <p className="mt-1 text-xs leading-5 text-white/55">Estamos preparando un artículo con el diseño elegido.</p>
                     </div>
                   </>
                 ) : (
@@ -413,7 +413,7 @@ export function EditorForm({
             key={previewSrc}
             src={previewSrc}
             loading="lazy"
-            title="Previsualización de landing"
+            title="Previsualización del blog"
             onLoad={() => setPreviewStatus("ready")}
             onError={() => setPreviewStatus("error")}
             className="h-[640px] w-full rounded-lg border border-white/10 bg-white"

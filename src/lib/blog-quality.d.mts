@@ -1,0 +1,14 @@
+export type EditorialIntent = "educational" | "decision";
+export type EditorialSource = { id: string; title: string; type: "catalog" | "manufacturer" | "independent" | "case_study" | "internal"; url: string; reference: string; verifiedAt: string; reviewedBy: string; productIds: string[]; claims: string[] };
+export type DecisionOption = { product_id: string; suitable_for: string; advantages: string; limitations: string; evidence_ids: string[] };
+export type DecisionSupport = { criteria: string[]; options: DecisionOption[]; recommendation: string };
+export type EditorialCheck = { id: string; group: "SEO" | "AEO" | "GEO" | "DEO"; level: "ok" | "warning" | "error"; message: string };
+export type EditorialQuality = { version: number; checkedAt: string; publishable: boolean; checks: EditorialCheck[] };
+export const QUALITY_VERSION: number;
+export const SOURCE_TYPES: string[];
+export function editorialIntentForDate(day: string): EditorialIntent;
+export function safeSourceUrl(value: string): string;
+export function verifiedSources(values: unknown, now?: Date | string): EditorialSource[];
+export function catalogSources(products: Record<string, any>, now?: Date | string): EditorialSource[];
+export function buildEditorialBrief(input: { topic: Record<string, any>; intent?: EditorialIntent; products?: Record<string, any>; sources?: EditorialSource[]; now?: Date | string }): Record<string, any>;
+export function reviewArticle(input: { content: Record<string, any>; sources?: EditorialSource[]; products?: Record<string, any>; categories?: Record<string, any>; existing?: Record<string, any>[]; now?: Date | string }): EditorialQuality;

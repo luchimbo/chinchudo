@@ -2,10 +2,12 @@ import { Suspense } from "react";
 import { SectorTabs } from "@/components/sector-tabs";
 
 const TABS = [
-  { href: "/landings/editor", label: "Editor" },
-  { href: "/landings", label: "Archivo" },
+  { href: "/blog", label: "Artículos" },
+  { href: "/blog/calendario", label: "Calendario" },
+  { href: "/blog/fuentes", label: "Fuentes" },
+  { href: "/blog/diseno", label: "Diseño" },
   { href: "/leads", label: "Contactos" },
-  { href: "/landings/config", label: "Configuraciones" },
+  { href: "/blog/configuracion", label: "Configuración" },
 ];
 
 export default function CreadorLayout({ children }: { children: React.ReactNode }) {

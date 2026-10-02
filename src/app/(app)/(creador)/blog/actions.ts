@@ -9,13 +9,14 @@ import { resolvePublicLandingUrl } from "@/lib/landing-html";
 export async function updateLandingStatus(formData: FormData) {
   const id = formData.get("id") as string;
   const status = formData.get("status") as string;
-  const landing = await prisma.landing.findUniqueOrThrow({ where: { id }, select: { clientId: true } });
+  const landing = await prisma.landing.findUniqueOrThrow({ where: { id }, select: { clientId: true, blogPublication: { select: { id: true } } } });
   await assertClientAccess(prisma, landing.clientId);
+  if (landing.blogPublication) throw new Error("Administrá los artículos programados desde el calendario editorial.");
   await prisma.landing.update({
     where: { id },
     data: { status: status as any, publishedAt: status === "PUBLISHED" ? new Date() : null },
   });
-  revalidatePath("/landings");
+  revalidatePath("/blog");
 }
 
 export async function publishLandingPreview(formData: FormData) {
@@ -23,6 +24,7 @@ export async function publishLandingPreview(formData: FormData) {
   const landing = await prisma.landing.findUnique({
     where: { id },
     include: {
+      blogPublication: true,
       client: {
         select: {
           id: true,
@@ -34,10 +36,11 @@ export async function publishLandingPreview(formData: FormData) {
   });
 
   if (!landing || !landing.client) {
-    throw new Error("Landing no encontrada o sin cliente.");
+    throw new Error("Artículo no encontrado o sin cliente.");
   }
 
   await assertClientAccess(prisma, landing.client.id);
+  if (landing.blogPublication) throw new Error("Los borradores del calendario son privados hasta su publicación programada.");
 
   if (!landing.client.blogBaseUrl.trim()) {
     throw new Error("Configurá la URL del blog del cliente antes de generar un link online.");
@@ -52,7 +55,7 @@ export async function publishLandingPreview(formData: FormData) {
     },
   });
 
-  revalidatePath("/landings");
+  revalidatePath("/blog");
 }
 
 export async function publishSelectedLandings(formData: FormData) {
@@ -60,7 +63,7 @@ export async function publishSelectedLandings(formData: FormData) {
   if (ids.length === 0) return;
 
   const landings = await prisma.landing.findMany({
-    where: { id: { in: ids }, status: "PREVIEW_ONLINE" },
+    where: { id: { in: ids }, status: "PREVIEW_ONLINE", blogPublication: { is: null } },
     select: { id: true, clientId: true },
   });
   await Promise.all([...new Set(landings.map((landing) => landing.clientId))].map((clientId) => assertClientAccess(prisma, clientId)));
@@ -68,18 +71,18 @@ export async function publishSelectedLandings(formData: FormData) {
     where: { id: { in: landings.map((landing) => landing.id) }, status: "PREVIEW_ONLINE" },
     data: { status: "PUBLISHED", publishedAt: new Date() },
   });
-  revalidatePath("/landings");
+  revalidatePath("/blog");
 }
 
 export async function publishAllOnlineLandings(formData: FormData) {
   const clientId = z.string().min(1).parse(formData.get("clientId"));
   await assertClientAccess(prisma, clientId);
-  const landings = await prisma.landing.findMany({ where: { clientId, status: "PREVIEW_ONLINE" }, select: { id: true } });
+  const landings = await prisma.landing.findMany({ where: { clientId, status: "PREVIEW_ONLINE", blogPublication: { is: null } }, select: { id: true } });
   const ids = landings.map((landing) => landing.id);
   if (ids.length) {
     await prisma.landing.updateMany({ where: { id: { in: ids } }, data: { status: "PUBLISHED", publishedAt: new Date() } });
   }
-  revalidatePath("/landings");
+  revalidatePath("/blog");
 }
 
 // ─── Enlaces internos del blog editorial ─────────────────────────────────────
@@ -126,7 +129,7 @@ export async function pinInternalLink(formData: FormData) {
     },
     update: { mode: "PINNED", ...(anchorText ? { anchorText } : {}) },
   });
-  revalidatePath("/landings");
+  revalidatePath("/blog");
 }
 
 export async function excludeInternalLink(formData: FormData) {
@@ -138,7 +141,7 @@ export async function excludeInternalLink(formData: FormData) {
     create: { clientId: source.clientId, sourceLandingId: source.id, targetLandingId: target.id, mode: "EXCLUDED" },
     update: { mode: "EXCLUDED" },
   });
-  revalidatePath("/landings");
+  revalidatePath("/blog");
 }
 
 export async function resetInternalLink(formData: FormData) {
@@ -149,7 +152,7 @@ export async function resetInternalLink(formData: FormData) {
   await prisma.landingInternalLink.deleteMany({
     where: { sourceLandingId: source.id, targetLandingId: target.id, mode: { in: ["PINNED", "EXCLUDED"] } },
   });
-  revalidatePath("/landings");
+  revalidatePath("/blog");
 }
 
 export async function deleteLanding(formData: FormData) {
@@ -158,16 +161,18 @@ export async function deleteLanding(formData: FormData) {
     where: { id },
     select: {
       clientId: true,
+      blogPublication: { select: { id: true } },
       _count: { select: { leads: true, trackingEvents: true, distribution: true } },
     },
   });
   if (!landing) return;
 
   await assertClientAccess(prisma, landing.clientId);
+  if (landing.blogPublication) throw new Error("Reemplazá u omití este artículo desde el calendario editorial.");
   if (landing._count.leads || landing._count.trackingEvents || landing._count.distribution) {
-    throw new Error("La landing tiene historial asociado. Archivala para conservarlo.");
+    throw new Error("El artículo tiene historial asociado. Archivala para conservarlo.");
   }
 
   await prisma.landing.delete({ where: { id } });
-  revalidatePath("/landings");
+  revalidatePath("/blog");
 }

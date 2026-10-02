@@ -20,6 +20,7 @@ export async function POST(request: NextRequest) {
 
   try {
     await assertClientAccess(prisma, client.id);
+    if (parsed.data.clientSlug === "pcmidi") return NextResponse.json({ error: "Prepará los artículos desde Blog → Calendario, para revisarlos antes de publicar." }, { status: 409 });
     const response = await relayFetch("/landings/generate", {
       method: "POST",
       body: JSON.stringify(parsed.data),

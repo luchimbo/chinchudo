@@ -57,6 +57,7 @@ export default async function LandingsPage({
       },
       include: {
         leadMagnet: true,
+        blogPublication: { select: { id: true } },
         contentCluster: { select: { slug: true, name: true } },
         outboundInternalLinks: {
           select: { targetLandingId: true, anchorText: true, mode: true, targetLanding: { select: { titulo: true, slug: true } } },
@@ -65,7 +66,7 @@ export default async function LandingsPage({
         _count: {
           select: {
             leads: true,
-            trackingEvents: true,
+            trackingEvents: { where: { eventType: "page_view" } },
             inboundInternalLinks: { where: { mode: { not: "EXCLUDED" } } },
           },
         },
@@ -115,7 +116,7 @@ export default async function LandingsPage({
         {tabs.map((tab) => (
           <Link
             key={tab.status}
-            href={`/landings?status=${tab.status}${clientParam}`}
+            href={`/blog?status=${tab.status}${clientParam}`}
             className={`rounded-t px-4 py-2 text-sm font-medium transition ${
               status === tab.status ? "border-b-2 border-ink text-ink" : "text-slate hover:text-ink"
             }`}
@@ -133,10 +134,10 @@ export default async function LandingsPage({
       {landings.length === 0 ? (
         status === "DRAFT" && activeClient ? (
           <div className="rounded-xl border border-dashed border-ink/20 bg-paper/60 p-5 text-sm text-slate">
-            No hay borradores todavía. <Link href={`/landings/editor?client=${activeClient.slug}`} className="font-semibold text-ink underline underline-offset-2">Crealos desde el Editor de landings</Link>.
+            No hay borradores todavía. <Link href={`/blog/diseno?client=${activeClient.slug}`} className="font-semibold text-ink underline underline-offset-2">Crealos desde Diseño del blog</Link>.
           </div>
         ) : (
-          <p className="text-sm text-slate">No hay landings en este estado.</p>
+          <p className="text-sm text-slate">No hay artículos en este estado.</p>
         )
       ) : (
         <div className="flex flex-col gap-3">
@@ -207,7 +208,9 @@ export default async function LandingsPage({
                 </div>
 
                 <div className="flex flex-wrap gap-2 items-center">
-                  {landing.status === "DRAFT" && (
+                  {activeClient.slug === "pcmidi" && ["GUIDE", "PILLAR"].includes(landing.contentType) ? <Link href={`/blog/articulos/${landing.id}?client=pcmidi`} className="rounded-lg border border-moss/30 px-3 py-1.5 text-xs font-semibold text-moss">Editar artículo</Link> : null}
+                  {landing.blogPublication ? <Link href="/blog/calendario?client=pcmidi" className="rounded-lg border border-ink/15 px-3 py-1.5 text-xs">Administrar fecha en el calendario</Link> : null}
+                  {!landing.blogPublication && landing.status === "DRAFT" && (
                     <>
                       <form action={updateLandingStatus}>
                         <input type="hidden" name="id" value={landing.id} />
@@ -225,7 +228,7 @@ export default async function LandingsPage({
                       </form>
                     </>
                   )}
-                  {landing.status === "APPROVED" && (
+                  {!landing.blogPublication && landing.status === "APPROVED" && (
                     <>
                       <form action={publishLandingPreview}>
                         <input type="hidden" name="id" value={landing.id} />
@@ -249,7 +252,7 @@ export default async function LandingsPage({
                       </form>
                     </>
                   )}
-                  {landing.status === "PREVIEW_ONLINE" && (
+                  {!landing.blogPublication && landing.status === "PREVIEW_ONLINE" && (
                     <>
                       <label className="flex items-center gap-2 rounded-lg border border-ink/15 px-3 py-1.5 text-xs font-semibold text-ink">
                         <input type="checkbox" name="landingId" value={landing.id} form="publish-selected-landings" />
@@ -278,7 +281,7 @@ export default async function LandingsPage({
                       </form>
                     </>
                   )}
-                  {landing.status === "PUBLISHED" && (
+                  {!landing.blogPublication && landing.status === "PUBLISHED" && (
                     <>
                       <a
                         href={
@@ -301,7 +304,7 @@ export default async function LandingsPage({
                       </form>
                     </>
                   )}
-                  {landing.status === "ARCHIVED" && (
+                  {!landing.blogPublication && landing.status === "ARCHIVED" && (
                     <>
                       <form action={updateLandingStatus}>
                         <input type="hidden" name="id" value={landing.id} />
@@ -312,7 +315,7 @@ export default async function LandingsPage({
                       </form>
                     </>
                   )}
-                  <DeleteLandingButton id={landing.id} action={deleteLanding} />
+                  {!landing.blogPublication ? <DeleteLandingButton id={landing.id} action={deleteLanding} /> : null}
                 </div>
               </div>
             </div>

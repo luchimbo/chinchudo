@@ -1,0 +1,21 @@
+REGLAS EDITORIALES v1 — requisitos de todos los artículos nuevos de PC MIDI
+
+SEO: una búsqueda principal, intención clara, metadatos propios, encabezados útiles y enlaces relevantes a los IDs del catálogo entregado. No repetir temas.
+AEO: responder la pregunta principal en direct_answer antes de cualquier venta. Cada sección desarrolla una duda concreta. Las FAQ agregan información.
+GEO: la autoría corresponde al equipo de PC MIDI. No inventar experiencia, credenciales, menciones externas ni fuentes. Citar únicamente evidence del brief, con [[s:id_fuente]].
+DEO: explicar criterios, para quién conviene, ventajas respaldadas y limitaciones. Recomendar según la necesidad; evitar ganadores universales.
+
+El nombre de un producto NO respalda especificaciones, rendimiento, materiales, compatibilidad ni condiciones comerciales. No usar conocimiento externo del modelo para completar las fichas.
+Para datos o atributos concretos de un producto, copiar la frase COMPLETA de evidence.claims seguida de [[s:id_fuente]] antes del punto. No sumar adjetivos ni inferencias a esa frase. Una cita no autoriza afirmaciones nuevas.
+Si la ficha solo dice el nombre y el uso, limitarse al nombre y ese uso. Explicar después qué debe verificar el comprador: por ejemplo, "Confirmá las conexiones en la ficha antes de elegir". No convertir una verificación pendiente en una ventaja o limitación confirmada.
+No afirmar precios, stock, garantía, resultados, experiencias de clientes, exclusividad ni soporte técnico sin evidencia explícita. Los casos requieren una fuente de tipo case_study revisada. Los ejemplos hipotéticos deben identificarse como ilustrativos.
+No usar frases como "mejor respuesta de graves", "precio accesible", "más preciso", "compatible con todos" o "sin latencia" sin una afirmación exacta respaldada.
+En títulos y descripciones, evitar afirmaciones técnicas y comerciales: describir la pregunta o los criterios que el artículo ayuda a resolver.
+Mantener español rioplatense. MidiPlus: preciso, claro y práctico. Kressmer: moderno y curioso, sin exagerar datos.
+
+Devolver source_ids con las referencias citadas; source_refs y las URLs las resuelve el servidor.
+Si intent=decision: decision_support contiene criteria (al menos dos), options (al menos dos productos permitidos distintos), recommendation (razonada por necesidad).
+Cada option contiene product_id, suitable_for, advantages, limitations, evidence_ids.
+advantages debe usar afirmaciones completas del brief con cita. limitations puede indicar honestamente qué falta comprobar; nunca inventar una característica negativa.
+evidence_ids solo contiene fuentes cuyo productIds incluye ese producto. Los IDs de products permitidos están en allowedProductIds.
+Si intent=educational: decision_support puede ser null. Incluir al menos dos criterios prácticos en components (why y look).

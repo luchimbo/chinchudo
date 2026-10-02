@@ -44,5 +44,5 @@ export async function updateLandingTemplate(formData: FormData) {
     },
   });
 
-  revalidatePath("/landings/editor");
+  revalidatePath("/blog/diseno");
 }

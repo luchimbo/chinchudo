@@ -17,7 +17,7 @@ export default async function EditorPage({
   const visibleClients = requestedSlug ? [] : await getVisibleClients(prisma);
   const slug = requestedSlug ?? visibleClients[0]?.slug;
   if (!slug) notFound();
-  if (!requestedSlug) redirect(`/landings/editor?client=${encodeURIComponent(slug)}`);
+  if (!requestedSlug) redirect(`/blog/diseno?client=${encodeURIComponent(slug)}`);
 
   const c = await prisma.client.findUnique({
     where: { slug },
@@ -40,7 +40,7 @@ export default async function EditorPage({
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col px-5 py-8">
       <header className="mb-8">
-        <h1 className="font-display text-3xl font-bold text-ink">Editor de Landings</h1>
+        <h1 className="font-display text-3xl font-bold text-ink">Diseño del blog</h1>
         <p className="mt-1 text-sm text-slate">
           Personalizá la plantilla visual y el logo corporativo de tus páginas de aterrizaje.
         </p>

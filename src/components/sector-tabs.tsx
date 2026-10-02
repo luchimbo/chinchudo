@@ -7,7 +7,7 @@ export type TabItem = { href: string; label: string };
 
 function isTabActive(pathname: string, href: string): boolean {
   if (href === "/") return pathname === "/";
-  // Exact match OR sub-path, but avoid /landings matching /landings/editor as "Archivo"
+  // Exact match OR sub-path, but avoid /blog matching /blog/diseno as "Artículos"
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 

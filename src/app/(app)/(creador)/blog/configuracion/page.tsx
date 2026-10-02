@@ -6,6 +6,7 @@ import { LandingsForm } from "./landings-form";
 import { EmailsForm } from "./emails-form";
 
 type GenerationSchedule = { enabled: boolean; intervalHours: number; limit: number; weeklyTarget: number };
+type DailyBlogSchedule = { enabled: boolean; publishTime: string };
 
 function parseSchedule(value: string | null): GenerationSchedule {
   try {
@@ -13,6 +14,15 @@ function parseSchedule(value: string | null): GenerationSchedule {
     return { enabled: Boolean(raw.enabled), intervalHours: Math.min(168, Math.max(1, Number(raw.intervalHours) || 24)), limit: Math.min(5, Math.max(1, Number(raw.limit) || 3)), weeklyTarget: Math.min(10, Math.max(2, Number(raw.weeklyTarget) || 10)) };
   } catch {
     return { enabled: false, intervalHours: 24, limit: 3, weeklyTarget: 10 };
+  }
+}
+
+function parseDailyBlogSchedule(value: string | null): DailyBlogSchedule {
+  try {
+    const raw = JSON.parse(value || "{}");
+    return { enabled: Boolean(raw.enabled), publishTime: typeof raw.publishTime === "string" ? raw.publishTime : "" };
+  } catch {
+    return { enabled: false, publishTime: "" };
   }
 }
 
@@ -25,12 +35,13 @@ export default async function LandingsConfigPage({
   const visibleClients = requestedSlug ? [] : await getVisibleClients(prisma);
   const slug = requestedSlug ?? visibleClients[0]?.slug;
   if (!slug) notFound();
-  if (!requestedSlug) redirect(`/landings/config?client=${encodeURIComponent(slug)}`);
+  if (!requestedSlug) redirect(`/blog/configuracion?client=${encodeURIComponent(slug)}`);
 
   const c = await prisma.client.findUnique({
     where: { slug },
     select: {
       id: true,
+      slug: true,
       logoUrl: true,
       storeUrl: true,
       blogBaseUrl: true,
@@ -55,11 +66,12 @@ export default async function LandingsConfigPage({
     notFound();
   }
   const schedule = parseSchedule((await prisma.appSetting.findUnique({ where: { key: `landing_generation_schedule:${c.id}` } }))?.value ?? null);
+  const dailyBlogSchedule = parseDailyBlogSchedule((await prisma.appSetting.findUnique({ where: { key: `blog_daily_schedule:${c.id}` } }))?.value ?? null);
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col px-5 py-8">
       <header className="mb-8">
-        <h1 className="font-display text-3xl text-ink">Configuración de Landings y Emails</h1>
+        <h1 className="font-display text-3xl text-ink">Configuración del blog y emails</h1>
         <p className="mt-1 text-sm text-slate">
           Logo, URLs base, automatizaciones y servidor de correos SMTP para este cliente.
         </p>
@@ -79,6 +91,7 @@ export default async function LandingsConfigPage({
               autoApprove: c.autoApprove ?? false,
               autoPublish: c.autoPublish ?? false,
               generationSchedule: schedule,
+              dailyBlogSchedule,
             }}
             updateLandingsConfig={updateLandingsConfig}
           />

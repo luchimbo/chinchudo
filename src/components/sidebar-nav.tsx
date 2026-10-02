@@ -22,7 +22,8 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     title: "Contenido",
     items: [
-      { href: "/landings/editor", label: "Editor" },
+      { href: "/blog", label: "Artículos del blog" },
+      { href: "/blog/calendario", label: "Calendario del blog" },
       { href: "/videos", label: "Tendencias y guiones" },
       { href: "/tendencias", label: "Tendencias" },
       { href: "/actividad", label: "Publicado" },

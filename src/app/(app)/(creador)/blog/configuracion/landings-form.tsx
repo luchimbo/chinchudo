@@ -19,6 +19,7 @@ type Config = {
   autoApprove: boolean;
   autoPublish: boolean;
   generationSchedule: { enabled: boolean; intervalHours: number; limit: number; weeklyTarget: number };
+  dailyBlogSchedule: { enabled: boolean; publishTime: string };
 };
 
 export function LandingsForm({
@@ -87,24 +88,44 @@ export function LandingsForm({
           <input type="checkbox" name="autoApprove" defaultChecked={config.autoApprove} className="mt-0.5" />
           <span>
             <span className="font-semibold text-ink">Aprobar borradores automáticamente</span>
-            <span className={`block ${hintCls}`}>Las landings generadas se aprueban sin revisión manual.</span>
+            <span className={`block ${hintCls}`}>Los artículos generados se aprueban sin revisión manual.</span>
           </span>
         </label>
         <label className="flex items-start gap-3 text-sm text-slate">
           <input type="checkbox" name="autoPublish" defaultChecked={config.autoPublish} className="mt-0.5" />
           <span>
             <span className="font-semibold text-ink">Publicar al aprobar automáticamente</span>
-            <span className={`block ${hintCls}`}>Las landings aprobadas se publican en el blog sin confirmación.</span>
+            <span className={`block ${hintCls}`}>Los artículos aprobados se publican en el blog sin confirmación.</span>
           </span>
         </label>
       </div>
 
+      {config.clientSlug === "pcmidi" ? (
+        <>
+          <input type="hidden" name="generationIntervalHours" value={config.generationSchedule.intervalHours} />
+          <input type="hidden" name="generationLimit" value={config.generationSchedule.limit} />
+          <input type="hidden" name="weeklyTarget" value={config.generationSchedule.weeklyTarget} />
+          <p className={subHead}>Calendario editorial</p>
+          <div className="rounded-xl border border-moss/20 bg-moss/5 p-4">
+            <label className="flex items-start gap-3 text-sm text-slate">
+              <input type="checkbox" name="blogDailyEnabled" defaultChecked={config.dailyBlogSchedule.enabled} className="mt-0.5" />
+              <span><span className="font-semibold text-ink">Publicar un artículo diario</span><span className={`block ${hintCls}`}>Requiere confirmar la revisión de 14 borradores en el calendario. Comienza al día siguiente de la activación.</span></span>
+            </label>
+            <label className={`${labelCls} mt-4 max-w-xs`}>Hora de publicación en Argentina
+              <input name="blogPublishTime" type="time" defaultValue={config.dailyBlogSchedule.publishTime} className={inputCls} />
+              <span className={hintCls}>Indicá una hora antes de activar el calendario.</span>
+            </label>
+            <a href="/blog/calendario?client=pcmidi" className="mt-4 inline-block text-xs font-semibold text-moss underline underline-offset-2">Ver calendario editorial</a>
+          </div>
+        </>
+      ) : (
+      <>
       <p className={subHead}>Generación programada</p>
       <div className="rounded-xl border border-ink/10 bg-white/60 p-4">
         <label className="flex items-start gap-3 text-sm text-slate">
           <input type="checkbox" name="generationEnabled" defaultChecked={config.generationSchedule.enabled} className="mt-0.5" />
           <span>
-            <span className="font-semibold text-ink">Generar landings automáticamente</span>
+            <span className="font-semibold text-ink">Generar artículos automáticamente</span>
             <span className={`block ${hintCls}`}>Combina ideas del conocimiento del cliente y preguntas detectadas en la web.</span>
           </span>
         </label>
@@ -123,6 +144,8 @@ export function LandingsForm({
           </label>
         </div>
       </div>
+      </>
+      )}
 
       <div className="mt-6 flex items-center gap-4 border-t border-ink/10 pt-6">
         <button

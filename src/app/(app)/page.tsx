@@ -86,7 +86,7 @@ export default async function HomePage({ searchParams }: PageProps) {
         <Metric label="Para atender" value={pending} note="Conversaciones activas" href={withClient("/asistente-cm")} tone="brass" />
         <Metric label="Publicadas" value={published} note="Respuestas registradas" href={withClient("/actividad")} tone="moss" />
         <Metric label="Conversiones" value={converted} note="Resultados atribuidos" href={withClient("/analytics")} tone="moss" />
-        <Metric label="Landings" value={landings} note="Piezas de contenido" href={withClient("/landings")} />
+        <Metric label="Artículos" value={landings} note="Artículos del blog" href={withClient("/blog")} />
         <Metric label="Leads" value={leads} note="Contactos captados" href={withClient("/leads")} />
       </section>
     </div>

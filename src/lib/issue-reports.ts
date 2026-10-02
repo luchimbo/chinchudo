@@ -7,7 +7,7 @@ export const ISSUE_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"] as co
 export function getIssueSector(originPath: string): string {
   const pathname = originPath.split("?", 1)[0];
   if (pathname === "/") return "Inicio";
-  if (pathname.startsWith("/landings") || pathname.startsWith("/leads")) return "Creador de landings";
+  if (pathname.startsWith("/blog") || pathname.startsWith("/leads")) return "Blog";
   if (pathname.startsWith("/videos")) return "Tendencias y guiones";
   if (pathname.startsWith("/tendencias")) return "Tendencias";
   if (["/oportunidades", "/bitacora", "/historial", "/distribution", "/actividad", "/redes"].some((path) => pathname.startsWith(path))) return "Publicador en Redes";

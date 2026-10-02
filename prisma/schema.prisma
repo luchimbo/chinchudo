@@ -114,6 +114,7 @@ model Client {
   trends                 Trend[]
   videoScripts           VideoScript[]
   contentIdeas           ContentIdea[]
+  blogPublications       BlogPublication[]
   brandSnapshots         BrandSnapshot[]
   competitorEvidence     CompetitorEvidence[]
   draftJobs              DraftJob[]
@@ -783,6 +784,15 @@ enum LandingInternalLinkMode {
   EXCLUDED
 }
 
+enum BlogPublicationStatus {
+  PLANNED
+  READY
+  PUBLISHING
+  PUBLISHED
+  FAILED
+  SKIPPED
+}
+
 model CompetitorEvidence {
   id               String    @id @default(cuid())
   clientId         String
@@ -929,6 +939,7 @@ model Landing {
   trackingEvents     TrackingEvent[]
   outboundInternalLinks LandingInternalLink[] @relation("LandingInternalLinkSource")
   inboundInternalLinks  LandingInternalLink[] @relation("LandingInternalLinkTarget")
+  blogPublication    BlogPublication?
 
   @@unique([clientId, slug])
   @@index([clientId])
@@ -936,6 +947,26 @@ model Landing {
   @@index([createdAt])
   @@index([clientId, indexingState, status])
   @@index([contentClusterId])
+}
+
+model BlogPublication {
+  id            String                @id @default(cuid())
+  clientId      String
+  landingId     String?               @unique
+  scheduledDate DateTime              @db.Date
+  status        BlogPublicationStatus @default(PLANNED)
+  attempts      Int                   @default(0)
+  needsDeploy   Boolean               @default(false)
+  revisionAttempts Int                @default(0)
+  lastError     String                @default("")
+  publishedAt   DateTime?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+  client        Client                @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  landing       Landing?              @relation(fields: [landingId], references: [id], onDelete: SetNull)
+
+  @@unique([clientId, scheduledDate])
+  @@index([clientId, status, scheduledDate])
 }
 
 model ContentCluster {

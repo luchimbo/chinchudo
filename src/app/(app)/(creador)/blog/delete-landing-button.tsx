@@ -13,7 +13,7 @@ export function DeleteLandingButton({
     <form
       action={action}
       onSubmit={(event) => {
-        if (!window.confirm("¿Eliminar esta landing? Esta acción no se puede deshacer.")) event.preventDefault();
+        if (!window.confirm("¿Eliminar este artículo? Esta acción no se puede deshacer.")) event.preventDefault();
       }}
     >
       <input type="hidden" name="id" value={id} />

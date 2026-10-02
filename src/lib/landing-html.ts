@@ -33,7 +33,7 @@ function pythonCommand() {
   return { command: "python3", argsPrefix: [] as string[] };
 }
 
-async function renderOnRelay(clientSlug: string, landingId: string, client: LandingClientConfig) {
+async function renderOnRelay(clientSlug: string, landingId: string, client: LandingClientConfig, content?: Record<string, unknown>) {
   // Los túneles trycloudflare cambian cada vez que se reinicia el relay. La
   // URL vigente se persiste en AppSetting por el script de arranque; el env
   // queda únicamente como respaldo para instalaciones sin base compartida.
@@ -55,6 +55,7 @@ async function renderOnRelay(clientSlug: string, landingId: string, client: Land
       landingId,
       blogBaseUrl: client.blogBaseUrl || process.env.LANDING_BASE_URL || "",
       clientConfig: client,
+      ...(content ? { content } : {}),
     }),
   });
 
@@ -65,11 +66,15 @@ async function renderOnRelay(clientSlug: string, landingId: string, client: Land
   return await resp.text();
 }
 
-export async function renderLandingHtml(client: LandingClientConfig, landingId = "") {
+/**
+ * Renderiza un artículo con la plantilla real del blog. Con `content`, el
+ * borrador sin guardar del editor se superpone al artículo guardado.
+ */
+export async function renderLandingHtml(client: LandingClientConfig, landingId = "", content?: Record<string, unknown>) {
   const clientSlug = client.slug;
 
   if (process.env.VERCEL === "1") {
-    return renderOnRelay(clientSlug, landingId, client);
+    return renderOnRelay(clientSlug, landingId, client, content);
   }
 
   const scriptPath = path.join(process.cwd(), "landing-build", "build_landings.py");
@@ -82,10 +87,11 @@ export async function renderLandingHtml(client: LandingClientConfig, landingId =
     client.blogBaseUrl || process.env.LANDING_BASE_URL || "",
   ];
   if (landingId) args.push("--landing-id", landingId);
+  if (content) args.push("--content-stdin");
 
   try {
     const python = pythonCommand();
-    const { stdout } = await execFileAsync(python.command, [...python.argsPrefix, ...args], {
+    const pending = execFileAsync(python.command, [...python.argsPrefix, ...args], {
       cwd: process.cwd(),
       maxBuffer: 1024 * 1024 * 8,
       timeout: 30000,
@@ -94,12 +100,14 @@ export async function renderLandingHtml(client: LandingClientConfig, landingId =
         LANDING_CLIENT_CONFIG_JSON: JSON.stringify(client),
       },
     });
+    pending.child.stdin?.end(content ? JSON.stringify(content) : undefined);
+    const { stdout } = await pending;
 
     const htmlStart = stdout.indexOf("<!DOCTYPE html>");
     return htmlStart >= 0 ? stdout.slice(htmlStart) : stdout;
   } catch (error: any) {
     if (error?.code === "ENOENT") {
-      return renderOnRelay(clientSlug, landingId, client);
+      return renderOnRelay(clientSlug, landingId, client, content);
     }
     throw error;
   }

@@ -6,6 +6,8 @@ import { readFileSync, existsSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PrismaClient } from "@prisma/client";
+import { createBlogDaily } from "./blog-daily.mjs";
+import { terminateChild } from "./terminate-child.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -29,7 +31,32 @@ const PORT = parseInt(process.env.AGENT_RELAY_PORT ?? "3099", 10);
 const TOKEN = process.env.AGENT_RELAY_TOKEN;
 const landingGenerationClients = new Set();
 const landingGenerationJobs = new Map();
-const prisma = new PrismaClient();
+const relayDatabaseUrl = new URL(process.env.DATABASE_URL);
+if (!relayDatabaseUrl.searchParams.has("connection_limit")) relayDatabaseUrl.searchParams.set("connection_limit", "3");
+const prisma = new PrismaClient({ datasources: { db: { url: relayDatabaseUrl.href } } });
+const blogDaily = createBlogDaily({ prisma, runBlogPython, generationClients: landingGenerationClients });
+const runDailyBlogCalendar = blogDaily.runDailyBlogCalendar;
+
+function runBlogPython(args, clientId, timeoutMs = 300_000) {
+  const python = getPythonCommand();
+  return new Promise((resolve, reject) => {
+    const child = spawn(python.command, [...python.argsPrefix, join(ROOT, "landing-build", "build_landings.py"), "--client-slug", "pcmidi", ...args], {
+      cwd: ROOT, windowsHide: true,
+      env: { ...process.env, PYTHONIOENCODING: "utf-8", LANDING_EXPECTED_CLIENT_ID: clientId },
+    });
+    let output = "";
+    const collect = (chunk) => { output = (output + chunk.toString()).slice(-4000); };
+    child.stdout.on("data", collect);
+    child.stderr.on("data", collect);
+    const timeout = setTimeout(() => terminateChild(child), timeoutMs);
+    child.on("error", (error) => { clearTimeout(timeout); reject(error); });
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+      if (code === 0) resolve(output);
+      else reject(new Error(`Proceso editorial finalizó con código ${code}: ${output.slice(-900)}`));
+    });
+  });
+}
 
 async function runScheduledLandings() {
   try {
@@ -50,6 +77,7 @@ async function runScheduledLandings() {
       if (lastRun + intervalMs > now || dailyAttempts >= 12 || requested <= 0) continue;
       const clientId = setting.key.replace("landing_generation_schedule:", "");
       const client = await prisma.client.findUnique({ where: { id: clientId }, select: { slug: true, active: true } });
+      if (client?.slug === "pcmidi") continue;
       if (!client?.active || landingGenerationClients.has(client.slug)) continue;
       landingGenerationClients.add(client.slug);
       schedule.lastRunAt = new Date(now).toISOString();
@@ -99,11 +127,7 @@ function readBody(req) {
 }
 
 function getPythonCommand() {
-  // El runtime de agentes instalado en esta PC contiene psycopg y las
-  // dependencias de generación; el Python de usuario y el .venv no siempre.
-  const workspacePython = "C:\\Python313\\python.exe";
-  if (process.platform === "win32" && existsSync(workspacePython)) return { command: workspacePython, argsPrefix: [] };
-
+  // La configuración explícita y el entorno del proyecto tienen prioridad.
   if (process.env.AGENTS_PYTHON_BIN) return { command: process.env.AGENTS_PYTHON_BIN, argsPrefix: [] };
 
   if (process.platform !== "win32") {
@@ -117,6 +141,8 @@ function getPythonCommand() {
       : join(ROOT, ".venv", "bin", "python");
 
   if (existsSync(localPython)) return { command: localPython, argsPrefix: [] };
+  const workspacePython = "C:\\Python313\\python.exe";
+  if (process.platform === "win32" && existsSync(workspacePython)) return { command: workspacePython, argsPrefix: [] };
   return { command: "python", argsPrefix: [] };
 }
 
@@ -439,7 +465,7 @@ const server = http.createServer(async (req, res) => {
     try { body = await readBody(req); }
     catch { return json(res, 400, { error: "invalid_json" }); }
 
-    const { clientSlug, landingId, blogBaseUrl, clientConfig } = body;
+    const { clientSlug, landingId, blogBaseUrl, clientConfig, content } = body;
     console.log("[agent-relay] landings/preview", {
       clientSlug,
       landingId,
@@ -459,13 +485,16 @@ const server = http.createServer(async (req, res) => {
       "--base-url", blogBaseUrl || "",
     ];
     if (landingId) args.push("--landing-id", landingId);
+    // Borrador sin guardar del editor de artículos: viaja por stdin.
+    const draft = content && typeof content === "object" ? JSON.stringify(content) : "";
+    if (draft) args.push("--content-stdin");
 
     const py =
       process.platform === "win32"
         ? { command: "python", argsPrefix: [] }
         : getPythonCommand();
 
-    execFile(py.command, [...py.argsPrefix, ...args], {
+    const previewChild = execFile(py.command, [...py.argsPrefix, ...args], {
       cwd: ROOT,
       maxBuffer: 1024 * 1024 * 8,
       timeout: 30000,
@@ -497,6 +526,7 @@ const server = http.createServer(async (req, res) => {
       });
       res.end(html);
     });
+    previewChild.stdin?.end(draft || undefined);
     return;
   }
 
@@ -509,6 +539,7 @@ const server = http.createServer(async (req, res) => {
     const clientSlug = String(body.clientSlug || "").trim();
     const limit = Math.min(5, Math.max(1, Number(body.limit) || 3));
     if (!clientSlug) return json(res, 400, { error: "missing_client_slug" });
+    if (clientSlug === "pcmidi") return json(res, 409, { error: "Prepará los artículos desde el calendario editorial." });
     if (landingGenerationClients.has(clientSlug)) {
       return json(res, 409, { error: "generation_already_running" });
     }
@@ -721,4 +752,6 @@ server.listen(PORT, "127.0.0.1", () => {
   // falla con EADDRINUSE no debe disparar generaciones antes de morir.
   setInterval(runScheduledLandings, 60_000).unref();
   void runScheduledLandings();
+  setInterval(runDailyBlogCalendar, 60_000).unref();
+  void runDailyBlogCalendar();
 });

@@ -5,6 +5,8 @@ base de datos (el builder cae al planificador local de enlaces).
 """
 
 import re
+import json
+import io
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -270,6 +272,7 @@ def test_weekly_quota_counts_only_this_week(monkeypatch):
 
 def test_generation_publishes_three_then_queues(tmp_path, monkeypatch):
     """Cuota semanal: las tres primeras válidas se publican; la cuarta espera."""
+    monkeypatch.setattr(bl, "MAX_EDITORIAL_PER_WEEK", 3)
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.setattr(bl, "_CLIENT_CONFIG", {"slug": "pcmidi", "name": "PC MIDI Center", "storeUrl": STORE, "blogBaseUrl": BASE})
     monkeypatch.setattr(bl, "REPORTS_DIR", tmp_path / "reports")
@@ -278,7 +281,7 @@ def test_generation_publishes_three_then_queues(tmp_path, monkeypatch):
     monkeypatch.setattr(bl, "load_categories", lambda: CATEGORIES)
     monkeypatch.setattr(bl, "load_products", lambda: PRODUCTS)
     monkeypatch.setattr(bl, "load_content_clusters", lambda: [{"slug": "controladores-midi", "name": "Controladores MIDI y DAW", "description": ""}])
-    monkeypatch.setattr(bl, "load_seed_topics", lambda: [{"keyword": keyword, "source": "seed"} for keyword in ("controlador midi para ableton", "pads midi para beatmaking", "teclado midi de 49 teclas", "controlador midi con faders")])
+    monkeypatch.setattr(bl, "load_seed_topics", lambda: [{"keyword": keyword, "source": "seed"} for keyword in ("controlador midi para ableton", "pads midi para beatmaking", "teclado midi para piano", "controlador midi con faders")])
     monkeypatch.setattr(bl, "_opportunities_path", lambda: tmp_path / "sin-oportunidades.jsonl")
     pillar = article("guia-completa-controladores", "controladores-midi", "PILLAR", days_ago=30)
     stored: list[dict] = [pillar]
@@ -289,7 +292,7 @@ def test_generation_publishes_three_then_queues(tmp_path, monkeypatch):
         generated = article(bl.slugify(keyword), "controladores-midi", keyword=keyword, h1=f"Cómo elegir: {keyword}", seo_title=f"{keyword} | Guía", meta_description=f"Criterios para {keyword}.")
         for key in ("content_type", "indexing_state", "cluster_slug", "cluster_name", "published_at", "updated_at", "id"):
             generated.pop(key, None)
-        generated.update(BODY)
+        generated.update({**BODY, "components": [{"cat": "Uso", "why": "Tu tarea", "look": "La forma de tocar"}, {"cat": "Espacio", "why": "Tu lugar", "look": "La mesa"}], "direct_answer": "Elegí según tu forma de tocar, el espacio disponible y los controles que necesitás para trabajar con instrumentos virtuales.", "sections": [*BODY["sections"][:2], {"h2": "Cómo decidir", "body": "Definí el software y el espacio antes de comparar."}]})
         return generated
 
     monkeypatch.setattr(bl, "chat_json", fake_chat)
@@ -303,6 +306,66 @@ def test_generation_publishes_three_then_queues(tmp_path, monkeypatch):
     again = bl.generate_landings(limit=10, model="test")
     assert again["created_count"] == 0
     assert again["stopped_reason"] == "weekly_quota_reached"
+
+
+def test_scheduled_generation_creates_private_draft_without_quota(tmp_path, monkeypatch):
+    """Programado: reserva fecha, no usa la cuota semanal y no fija published_at."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql://test")
+    monkeypatch.setattr(bl, "MAX_EDITORIAL_PER_WEEK", 0)
+    monkeypatch.setattr(bl, "_CLIENT_CONFIG", {"id": "c1", "slug": "pcmidi", "name": "PC MIDI Center", "storeUrl": STORE, "blogBaseUrl": BASE})
+    monkeypatch.setattr(bl, "REPORTS_DIR", tmp_path / "reports")
+    monkeypatch.setattr(bl, "GENERATION_EVENTS_PATH", tmp_path / "reports" / "events.jsonl")
+    monkeypatch.setattr(bl, "load_categories", lambda: CATEGORIES)
+    monkeypatch.setattr(bl, "load_products", lambda: PRODUCTS)
+    monkeypatch.setattr(bl, "load_content_clusters", lambda: [{"slug": "controladores-midi", "name": "Controladores MIDI y DAW", "description": ""}])
+    monkeypatch.setattr(bl, "load_seed_topics", lambda: [{"keyword": "controlador midi para ableton", "source": "seed"}])
+    monkeypatch.setattr(bl, "_opportunities_path", lambda: tmp_path / "sin-oportunidades.jsonl")
+    monkeypatch.setattr(bl, "load_landings", lambda include_drafts=False: [article("guia-completa-controladores", "controladores-midi", "PILLAR", days_ago=30)])
+
+    def fake_chat(system, user, model, temperature=0.35):
+        keyword = re.search(r"- keyword: (.+)", user).group(1)
+        generated = article(bl.slugify(keyword), "controladores-midi", keyword=keyword, h1=f"Cómo elegir: {keyword}", seo_title=f"{keyword} | Guía", meta_description=f"Criterios para {keyword}.")
+        for key in ("content_type", "indexing_state", "cluster_slug", "cluster_name", "published_at", "updated_at", "id"):
+            generated.pop(key, None)
+        generated.update(BODY)
+        return generated
+
+    saved: list[tuple[dict, str]] = []
+    monkeypatch.setattr(bl, "chat_json", fake_chat)
+    monkeypatch.setattr(bl, "append_landing", lambda landing, schedule_date="": saved.append((dict(landing), schedule_date)) or {"scheduled_date": schedule_date})
+    summary = bl.generate_landings(limit=1, model="test", schedule_date="2026-10-01")
+    assert summary["created_count"] == 1
+    assert saved[0][1] == "2026-10-01"
+    assert not saved[0][0].get("published_at")
+
+
+def test_scheduled_generation_requires_postgres(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setattr(bl, "_CLIENT_CONFIG", {"slug": "pcmidi"})
+    monkeypatch.setattr(bl, "load_categories", lambda: CATEGORIES)
+    monkeypatch.setattr(bl, "load_products", lambda: PRODUCTS)
+    monkeypatch.setattr(bl, "load_landings", lambda include_drafts=False: [])
+    monkeypatch.setattr(bl, "load_content_clusters", lambda: [{"slug": "x", "name": "X", "description": ""}])
+    with pytest.raises(RuntimeError):
+        bl.generate_landings(limit=1, model="test", schedule_date="2026-10-01")
+
+
+def test_preview_renders_unsaved_editor_content(monkeypatch, capsysbinary):
+    """El editor previsualiza el borrador sin guardar sobre el artículo real."""
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setattr(bl, "_CLIENT_CONFIG", {"slug": "pcmidi", "name": "PC MIDI Center", "storeUrl": STORE, "blogBaseUrl": BASE})
+    monkeypatch.setattr(bl, "load_categories", lambda: CATEGORIES)
+    monkeypatch.setattr(bl, "load_products", lambda: PRODUCTS)
+    monkeypatch.setattr(bl, "load_lead_magnets", lambda: {})
+    base = {**article("guia-borrador", "controladores-midi"), **BODY}
+    monkeypatch.setattr(bl, "load_preview_landing", lambda landing_id="": dict(base) if landing_id == "id-1" else None)
+    override = {"h1": "Título editado sin guardar", "sections": [*BODY["sections"][:2], {"h2": "Sección nueva editada", "body": "Mirá el [[p:minilab-3|MiniLab]]."}]}
+    bl.preview_command(landing_id="id-1", base_url=BASE, content_override=override)
+    html_text = capsysbinary.readouterr().out.decode("utf-8")
+    assert "Título editado sin guardar" in html_text and "Sección nueva editada" in html_text
+    assert 'content="noindex,nofollow"' in html_text
+    with pytest.raises(SystemExit):
+        bl.preview_command(landing_id="otro", base_url=BASE, content_override=override)
 
 
 def test_article_body_links_store_inside_text(site):
@@ -328,7 +391,7 @@ def test_editorial_article_uses_landing_design_with_article_content(site):
     assert 'data-link-type="solution_product"' in html_text and 'data-link-type="solution_cta"' in html_text
     for landing_block in ('class="comp-card"', "Opciones recomendadas", 'class="hero-ctas', 'class="steps-list"', 'href="#productos"'):
         assert landing_block not in html_text[html_text.index("<body"):]
-    assert '"@type": "FAQPage"' in html_text and '"@type": "Product"' in html_text
+    assert '"@type": "FAQPage"' not in html_text and '"@type": "BlogPosting"' in html_text
     assert html_text.index("Errores frecuentes") < html_text.index('class="mega article-solution"')
 
 
@@ -429,3 +492,60 @@ def test_linkable_articles_ranked_by_cluster_then_catalog():
     ]
     ranked = [item["slug"] for item in bl.rank_linkable_articles(topic, items)]
     assert ranked == ["pilar-mismo-cluster", "guia-mismo-cluster", "interfaz-relacionada"]
+
+
+def test_sources_comparison_and_marked_revision_match_visible_article(monkeypatch):
+    monkeypatch.setattr(bl, "_CLIENT_CONFIG", {"slug": "pcmidi", "name": "PC MIDI Center", "storeUrl": STORE, "blogBaseUrl": BASE})
+    source = {"id": "manual", "title": "Manual del fabricante", "url": "https://manufacturer.example/manual", "type": "manufacturer", "verifiedAt": "2026-10-01T10:00:00Z", "claims": ["Dato revisado"]}
+    content = article("comparativa", "controladores-midi", **BODY, source_refs=[source], publication_token="revision-verificada", decision_support={"criteria": ["Uso", "Espacio"], "options": [{"product_id": "minilab-3", "suitable_for": "Producir", "advantages": "Dato revisado [[s:manual]]", "limitations": "Revisá el espacio", "evidence_ids": ["manual"]}], "recommendation": "Decidí según el uso."})
+    html_text = bl.render_landing(content, CATEGORIES, PRODUCTS, BASE, {})
+    assert 'id="fuente-manual"' in html_text and 'href="#fuente-manual"' in html_text
+    assert 'href="https://manufacturer.example/manual"' in html_text
+    assert "Comparación para elegir" in html_text and "Revisá el espacio" in html_text
+    assert '<meta name="editorial-revision" content="revision-verificada">' in html_text
+    assert "internal?'internal_link_click':'store_click'" in html_text
+    schemas = [json.loads(s) for s in re.findall(r'<script type="application/ld\+json">(.*?)</script>', html_text, re.DOTALL)]
+    posting = next(s for s in schemas if s.get("@type") == "BlogPosting")
+    assert posting["citation"][0]["url"] == source["url"]
+    assert not any(s.get("@type") == "FAQPage" for s in schemas)
+    content.pop("published_at")
+    preview = bl.render_landing(content, CATEGORIES, PRODUCTS, BASE, {})
+    assert '"datePublished"' not in preview
+
+
+def test_pc_midi_live_generation_requires_calendar(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://test")
+    monkeypatch.setattr(bl, "_CLIENT_CONFIG", {"id": "c1", "slug": "pcmidi"})
+    with pytest.raises(RuntimeError, match="calendario"):
+        bl.generate_landings(limit=1, model="test")
+    with pytest.raises(RuntimeError, match="editor"):
+        bl.regenerate_editorial(["publicado"], model="test")
+
+
+def test_editorial_request_bounds_output_and_configured_deepseek_reasoning(monkeypatch):
+    monkeypatch.setattr(bl, "load_env", lambda: None)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.delenv("BLOG_LLM_REASONING_ENABLED", raising=False)
+    monkeypatch.delenv("BLOG_LLM_MAX_TOKENS", raising=False)
+    payloads = []
+
+    def respond(request, timeout):
+        payloads.append(json.loads(request.data))
+        return io.BytesIO(json.dumps({"choices": [{"message": {"content": '{"h1":"Resultado"}'}}]}).encode())
+
+    monkeypatch.setattr(bl.urllib.request, "urlopen", respond)
+    assert bl.chat_json("REGLAS EDITORIALES v1", "brief", "deepseek/deepseek-v4-flash")["h1"] == "Resultado"
+    assert payloads[-1]["reasoning"] == {"enabled": False}
+    assert payloads[-1]["max_tokens"] == 8000
+    bl.chat_json("REGLAS EDITORIALES v1", "brief", "other-model")
+    assert "reasoning" not in payloads[-1]
+    bl.chat_json("Otro flujo", "brief", "other-model")
+    assert "max_tokens" not in payloads[-1]
+
+
+def test_decision_prompt_includes_required_comparison_in_json_shape(monkeypatch):
+    monkeypatch.setattr(bl, "_CLIENT_CONFIG", {"slug": "pcmidi", "name": "PC MIDI Center"})
+    system, user = bl.generation_prompt({"keyword": "elegir controlador", "cluster_slug": "controladores-midi", "_editorial_brief": {"intent": "decision", "evidence": [], "allowedProductIds": ["minilab-3"]}}, CATEGORIES, PRODUCTS)
+    shape = user.split("Genera un artículo JSON con exactamente esta forma:", 1)[1].split("Reglas:", 1)[0]
+    assert '"decision_support"' in shape and '"source_ids"' in shape and '"evidence_ids"' in shape
+    assert "No menciones precios, stock" not in system

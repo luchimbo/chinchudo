@@ -19,6 +19,7 @@ export function GenerateLandingsButton({
   const completedJobRef = useRef("");
 
   useEffect(() => {
+    if (clientSlug === "pcmidi") return;
     const refresh = async () => {
       let data;
       try {
@@ -58,6 +59,8 @@ export function GenerateLandingsButton({
     void refresh(); const timer = window.setInterval(() => void refresh(), 3000); return () => window.clearInterval(timer);
   }, [clientSlug, router]);
 
+  if (clientSlug === "pcmidi") return <Link href="/blog/calendario?client=pcmidi" className="inline-block rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-paper">Preparar artículos en el calendario</Link>;
+
   async function generate() {
     setState("starting");
     setMessage("Conectando con el generador de contenidos…");
@@ -73,7 +76,7 @@ export function GenerateLandingsButton({
       }
       setState("running");
       setJob({ state: "running", requested: limit, completed: 0, currentTopic: "Preparando temas…", created: [] });
-      setMessage("Generando borradores de landings. El archivo se actualizará automáticamente.");
+      setMessage("Generando borradores de artículos. El archivo se actualizará automáticamente.");
       window.setTimeout(() => router.refresh(), 12_000);
     } catch (error) {
       setState("error");
@@ -89,7 +92,7 @@ export function GenerateLandingsButton({
     }`}>
       <div>
         <p className={`font-semibold ${isEditor ? "text-paper" : "text-ink"}`}>
-          {isEditor ? "Crear nuevas landings" : "Todavía no hay borradores"}
+          {isEditor ? "Crear nuevos artículos" : "Todavía no hay borradores"}
         </p>
         <p className={`mt-1 text-sm ${isEditor ? "text-paper/65" : "text-slate"}`}>
           Creá propuestas basadas en las oportunidades de contenido aprobadas para este cliente.
@@ -97,7 +100,7 @@ export function GenerateLandingsButton({
         {message ? <p className={`mt-3 text-xs font-medium ${state === "error" ? "text-signal" : "text-moss"}`} aria-live="polite">{message}</p> : null}
         {job ? <div className="mt-4 rounded-lg border border-white/15 bg-black/15 p-3 text-xs text-paper/80">
           <div className="flex justify-between gap-4"><span>{job.state === "running" ? "En curso" : job.state === "completed" ? "Completada" : "Con errores"}</span><strong>{job.completed || 0}/{job.requested || limit}</strong></div>
-          <div role="progressbar" aria-label="Landings generadas" aria-valuemin={0} aria-valuemax={job.requested || limit} aria-valuenow={job.completed || 0} className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/15"><div className="h-full bg-paper transition-all" style={{ width: `${Math.min(100, ((job.completed || 0) / Math.max(1, job.requested || limit)) * 100)}%` }} /></div>
+          <div role="progressbar" aria-label="Artículos generados" aria-valuemin={0} aria-valuemax={job.requested || limit} aria-valuenow={job.completed || 0} className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/15"><div className="h-full bg-paper transition-all" style={{ width: `${Math.min(100, ((job.completed || 0) / Math.max(1, job.requested || limit)) * 100)}%` }} /></div>
           {job.currentTopic ? <p className="mt-3 text-paper/65">Tema actual: <span className="text-paper">{job.currentTopic}</span></p> : null}
           {job.created?.length ? <ul className="mt-3 space-y-1 border-t border-white/10 pt-2">{job.created.map((item: any, index: number) => <li key={`${item.title}-${index}`}><span className="text-paper/55">{item.keyword}</span> — {item.title}</li>)}</ul> : null}
         </div> : null}
@@ -124,9 +127,9 @@ export function GenerateLandingsButton({
           }`}
         >
           {state === "starting" || state === "running" ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-ink/20 border-t-ink" aria-hidden="true" /> : null}
-          {state === "starting" ? "Iniciando…" : state === "running" ? "Generando…" : "Crear landings"}
+          {state === "starting" ? "Iniciando…" : state === "running" ? "Generando…" : "Crear artículos"}
         </button>
-        {isEditor ? <Link href={`/landings/config?client=${encodeURIComponent(clientSlug)}`} className="pb-3 text-xs font-semibold text-paper/70 underline underline-offset-4 hover:text-paper">Automatizar</Link> : null}
+        {isEditor ? <Link href={`/blog/configuracion?client=${encodeURIComponent(clientSlug)}`} className="pb-3 text-xs font-semibold text-paper/70 underline underline-offset-4 hover:text-paper">Automatizar</Link> : null}
       </div>
     </div>
   );
