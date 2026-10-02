@@ -45,10 +45,10 @@ export default async function BlogArticleEditorPage({ params }: { params: { id: 
   const note = slot.needsDeploy
     ? "Hay cambios guardados pendientes de actualizarse en el blog."
     : slot.status === "PUBLISHED"
-      ? slot.lastError || "Las ediciones aprobadas se desplegarán con la misma URL."
+      ? "Las ediciones aprobadas se desplegarán con la misma URL."
       : slot.status === "PUBLISHING"
         ? "Se está publicando: esperá a que termine para guardar cambios."
-        : slot.lastError || "Privado hasta la fecha programada.";
+        : "Privado hasta la fecha programada.";
 
   return (
     <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">

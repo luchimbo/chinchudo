@@ -13,7 +13,7 @@ const STATUS: Record<string, { label: string; style: string }> = {
   READY: { label: "Listo", style: "border-sky-200 bg-sky-50 text-sky-800" },
   PUBLISHING: { label: "Publicando", style: "border-violet-200 bg-violet-50 text-violet-800" },
   PUBLISHED: { label: "Publicado", style: "border-emerald-200 bg-emerald-50 text-emerald-800" },
-  FAILED: { label: "Revisar", style: "border-rose-200 bg-rose-50 text-rose-800" },
+  FAILED: { label: "Pendiente", style: "border-ink/10 bg-ink/5 text-slate" },
   SKIPPED: { label: "Omitido", style: "border-ink/10 bg-ink/5 text-slate" },
 };
 
@@ -91,7 +91,6 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
           <span className="rounded-full bg-paper/10 px-3 py-1.5">{config.enabled ? `Activo · ${config.publishTime || "sin hora"} AR` : "Automatización apagada"}</span>
           <span className="rounded-full bg-sky-400/15 px-3 py-1.5 text-sky-100">{count("READY")} listos</span>
           <span className="rounded-full bg-emerald-400/15 px-3 py-1.5 text-emerald-100">{count("PUBLISHED")} publicados</span>
-          {count("FAILED") > 0 ? <span className="rounded-full bg-rose-400/15 px-3 py-1.5 text-rose-100">{count("FAILED")} por revisar</span> : null}
         </div>
       </header>
       <section className="mt-5 space-y-3 rounded-2xl border border-ink/10 bg-paper p-5">
@@ -118,7 +117,6 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
                   <p className="text-[10px] font-semibold text-slate">{editorialIntentForDate(day) === "educational" ? "Educativo" : "Ayuda a elegir"}</p>
                   <p className="line-clamp-3 text-xs font-semibold leading-snug text-ink">{slot.landing?.titulo || (slot.status === "SKIPPED" ? "Sin publicación" : "Buscando un tema útil")}</p>
                   {slot.landing?.keyword ? <p className="line-clamp-2 text-[11px] leading-snug text-slate">{slot.landing.keyword}</p> : null}
-                  {slot.lastError ? <p className="line-clamp-3 text-[10px] text-rose-700" title={slot.lastError}>{slot.lastError}</p> : null}
                   {slot.landingId && stat && slot.status === "PUBLISHED" ? <p className="text-[10px] text-slate">{stat.views} visitas · {stat.clicks} clics · {stat.leads} contactos</p> : null}
                   {slot.status === "PUBLISHED" ? <p className="text-[10px] text-moss">{slot.landing?.indexingState === "INDEX" ? "Apto para indexación" : "Excluido de indexación"}{slot.needsDeploy ? " · Despliegue pendiente" : ""}</p> : null}
                   {slot.landingId && referralStats.has(slot.landingId) && slot.status === "PUBLISHED" ? <details className="text-[10px] text-slate"><summary className="cursor-pointer">Procedencia de visitas</summary>{[...referralStats.get(slot.landingId)!].map(([label, n]) => <p key={label}>{label}: {n}</p>)}</details> : null}

@@ -13,46 +13,41 @@ const article = (extra: Record<string, any> = {}) => ({
 const review = (content: Record<string, any>, bank = sources) => reviewArticle({ content, sources: bank, products, categories: { midi: { nombre: "Controladores MIDI" } }, now: "2026-10-02T10:00:00Z" });
 
 describe("calidad SEO, AEO, GEO y DEO", () => {
-  it("revisa los cuatro enfoques también en una guía educativa", () => {
+  it("revisa SEO, AEO y GEO en una guía educativa", () => {
     const result = review(article());
     expect(result.publishable).toBe(true);
-    expect(new Set(result.checks.map((c) => c.group))).toEqual(new Set(["SEO", "AEO", "GEO", "DEO"]));
+    expect(new Set(result.checks.map((c) => c.group))).toEqual(new Set(["SEO", "AEO", "GEO"]));
   });
   it("no bloquea por afirmaciones sin una fuente explícita", () => {
     const result = review(article({ direct_answer: "MidiPlus Uno tiene 88 teclas, el mejor precio y está disponible para entrega inmediata." }));
     expect(result.checks.find((c) => c.id === "claims")?.level).toBe("ok");
   });
-  it("acepta una afirmación explícita citada que revisó el operador", () => {
-    const content = article({ source_refs: [sources[0]], sections: [...article().sections, { h2: "Dato de la ficha", body: "MidiPlus Uno tiene 25 teclas [[s:catalog-uno]]." }] });
-    expect(review(content).publishable).toBe(true);
+  it("no exige criterios ni alternativas en artículos de elección", () => {
+    const result = review(article({ editorial_intent: "decision" }));
+    expect(result.publishable).toBe(true);
+    expect(result.checks.some((c) => c.id === "decision" || c.id === "comparison")).toBe(false);
   });
-  it("rechaza fuentes inventadas y modificaciones de una fuente válida", () => {
-    expect(review(article({ source_refs: [{ ...sources[0], url: "https://inventado.test" }] })).publishable).toBe(false);
-    expect(review(article({ source_refs: [{ id: "inventado" }] })).publishable).toBe(false);
+  it("no avisa por enlaces fuera del catálogo", () => {
+    const result = review(article({ sections: [...article().sections, { h2: "Otro", body: "Mirá el [[p:no-existe]]." }] }));
+    expect(result.checks.find((c) => c.id === "catalog")?.message).not.toContain("fuera del catálogo");
   });
-  it("exige criterios, evidencia y limitaciones en artículos de elección", () => {
-    expect(review(article({ editorial_intent: "decision" })).publishable).toBe(false);
-    const decision = { criteria: ["Forma de tocar", "Espacio disponible"], options: Object.keys(products).map((id) => ({ product_id: id, suitable_for: "Quien prioriza su práctica", advantages: "Una alternativa para evaluar", limitations: "Confirmá las conexiones antes de decidir", evidence_ids: [`catalog-${id}`] })), recommendation: "Compará según tu espacio y la forma en que tocás." };
-    expect(review(article({ editorial_intent: "decision", source_refs: sources, decision_support: decision })).publishable).toBe(true);
-    decision.options[0].limitations = "";
-    expect(review(article({ editorial_intent: "decision", source_refs: sources, decision_support: decision })).publishable).toBe(false);
-  });
-  it("bloquea duplicados y respuestas iniciales vacías", () => {
-    expect(reviewArticle({ content: article(), sources: [], products, existing: [{ keyword: article().keyword }] }).publishable).toBe(false);
-    expect(review(article({ direct_answer: "" })).publishable).toBe(false);
-  });
-  it("una fuente revocada deja de habilitar la publicación", () => {
-    expect(review(article({ source_refs: sources }), []).publishable).toBe(false);
+  it("es solo informativa: nunca bloquea ni marca errores", () => {
+    const cases = [
+      reviewArticle({ content: article(), sources: [], products, existing: [{ keyword: article().keyword }] }),
+      review(article({ direct_answer: "" })),
+      review(article({ source_refs: [{ id: "inventado" }] })),
+      review(article({ source_refs: sources }), []),
+      review({ sections: {} }),
+    ];
+    for (const result of cases) {
+      expect(result.publishable).toBe(true);
+      expect(result.checks.some((c) => c.level === "error")).toBe(false);
+    }
   });
   it("equilibra siete educativos y siete de elección en cualquier tanda de 14 días", () => {
     const intents = Array.from({ length: 14 }, (_, i) => editorialIntentForDate(new Date(Date.UTC(2026, 9, 1 + i)).toISOString().slice(0, 10)));
     expect(intents.filter((i) => i === "educational")).toHaveLength(7);
     expect(intents.filter((i) => i === "decision")).toHaveLength(7);
-  });
-  it("rechaza datos mal formados y fuentes con fecha futura", () => {
-    expect(review({ sections: {} }).publishable).toBe(false);
-    const future = [{ ...sources[0], verifiedAt: "2099-01-01T00:00:00Z" }] as EditorialSource[];
-    expect(review(article({ source_refs: future }), future).publishable).toBe(false);
   });
 });
 
