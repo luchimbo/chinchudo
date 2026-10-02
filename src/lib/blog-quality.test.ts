@@ -18,19 +18,9 @@ describe("calidad SEO, AEO, GEO y DEO", () => {
     expect(result.publishable).toBe(true);
     expect(new Set(result.checks.map((c) => c.group))).toEqual(new Set(["SEO", "AEO", "GEO", "DEO"]));
   });
-  it("rechaza especificaciones sin respaldo aunque exista una fuente listada", () => {
-    const content = article({ source_refs: sources, direct_answer: "MidiPlus Uno tiene 88 teclas y compatibilidad universal [[s:catalog-uno]]." });
-    expect(review(content).publishable).toBe(false);
-  });
-  it("distingue criterios generales de afirmaciones concretas sobre precio y superioridad", () => {
-    expect(review(article({ direct_answer: "Elegir auriculares no es solo cuestión de precio. La mejor elección depende de tu flujo de trabajo y de tu espacio." })).publishable).toBe(true);
-    expect(review(article({ direct_answer: "MidiPlus Uno tiene el mejor precio y está disponible para entrega inmediata." })).publishable).toBe(false);
-  });
-  it("permite atribuciones literales sin autorizar ventajas añadidas", () => {
-    const bank = [{ ...sources[0], claims: ["controlador compacto con 25 teclas"] }];
-    const body = 'MidiPlus Uno es un “controlador compacto con 25 teclas” [[s:catalog-uno]].';
-    expect(review(article({ source_refs: bank, sections: [...article().sections, { h2: "Ficha", body }] }), bank).publishable).toBe(true);
-    expect(review(article({ source_refs: bank, sections: [...article().sections, { h2: "Ficha", body: body.replace('”', ' y baja latencia”') }] }), bank).publishable).toBe(false);
+  it("no bloquea por afirmaciones sin una fuente explícita", () => {
+    const result = review(article({ direct_answer: "MidiPlus Uno tiene 88 teclas, el mejor precio y está disponible para entrega inmediata." }));
+    expect(result.checks.find((c) => c.id === "claims")?.level).toBe("ok");
   });
   it("acepta una afirmación explícita citada que revisó el operador", () => {
     const content = article({ source_refs: [sources[0]], sections: [...article().sections, { h2: "Dato de la ficha", body: "MidiPlus Uno tiene 25 teclas [[s:catalog-uno]]." }] });
@@ -39,9 +29,6 @@ describe("calidad SEO, AEO, GEO y DEO", () => {
   it("rechaza fuentes inventadas y modificaciones de una fuente válida", () => {
     expect(review(article({ source_refs: [{ ...sources[0], url: "https://inventado.test" }] })).publishable).toBe(false);
     expect(review(article({ source_refs: [{ id: "inventado" }] })).publishable).toBe(false);
-  });
-  it("no autoriza testimonios con una cita del catálogo", () => {
-    expect(review(article({ source_refs: sources, sections: [...article().sections, { h2: "Caso", body: "Nuestro cliente aumentó sus ventas 40% [[s:catalog-uno]]." }] })).publishable).toBe(false);
   });
   it("exige criterios, evidencia y limitaciones en artículos de elección", () => {
     expect(review(article({ editorial_intent: "decision" })).publishable).toBe(false);

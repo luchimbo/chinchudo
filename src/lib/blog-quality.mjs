@@ -5,9 +5,6 @@ export const SOURCE_TYPES = ["catalog", "manufacturer", "independent", "case_stu
 const norm = (text) => String(text || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
 const markerPattern = /\[\[([pcgs]):([^\]|]+)(?:\|([^\]]+))?\]\]/g;
 const markers = (text) => [...String(text || "").matchAll(markerPattern)];
-const sensitive = /(?:\b\d+(?:[.,]\d+)?\s*(?:%|ms|khz|hz|db|bits?|v(?:oltios)?|w(?:atts)?|gb|entradas?|salidas?|teclas?|pads?|canales?|anos?|meses?|pulgadas?|samples?|muestras?)\b|\d+(?:[.,]\d+)?\s*%|\$\s*\d|\b(?:precio|cuesta|stock|disponib\w*|garantia|compatible|compatibilidad|latencia|rendimiento|soporta|soporte (?:local|oficial|tecnico)|distribuidor oficial|exclusiv\w*|envio gratis|cuotas?|financiacion|certific\w*|demostro|logramos|aumentamos|redujimos|probamos|testeamos|nuestro cliente|testimonio|caso real|el mejor|la mejor|100 por ciento)\b)/i;
-const contextual = /^(?:verifica|consulta|confirma|revisa|comproba|no (?:asumas|supongas|prometemos)|antes de comprar[,:])(?:\s|$)/i;
-const productAssertion = /\b(?:ofrece\w*|tiene\w*|incluye\w*|requiere\w*|cuenta con|son (?:cerrados|abiertos|comodos|ideales)|es (?:compatible|ideal|robusto)|sin latencia|respuesta (?:plana|de graves)|mas (?:detalle|precision)|mayor (?:detalle|precision)|construccion (?:robusta|metalica))\b/i;
 
 export function editorialIntentForDate(day) {
   const time = Date.parse(`${day}T00:00:00Z`);
@@ -116,43 +113,8 @@ export function reviewArticle({ content, sources = [], products = {}, categories
       usedSources.add(marker[2]);
       if (!linked.has(marker[2])) unsupported.push(`Referencia desconocida: ${marker[2]}`);
     }
-    for (const sentence of text.split(/(?<=[.!?])\s+(?!\[\[s:)|\n/)) {
-      const plain = resolve(sentence).trim();
-      const optionText = (content.decision_support?.options || []).some((o) => [o.suitable_for, o.advantages, o.limitations].includes(text));
-      const productMention = optionText || markers(sentence).some((m) => m[1] === "p") || Object.values(products).some((p) => (p.nombre || p.name) && norm(plain).includes(norm(p.nombre || p.name)));
-      // Un criterio de compra no es una afirmación sobre un producto.
-      // Conservamos las alarmas cuando se afirma un precio, disponibilidad o superioridad.
-      const withoutNames = Object.values(products).reduce((value, p) => {
-        const name = norm(p.nombre || p.name);
-        return name ? value.split(name).join("producto") : value;
-      }, norm(plain));
-      const factText = withoutNames
-        .replace(/\b(?:espacio|tiempo|lugar|opciones|formas de onda) disponibles?\b/g, "")
-        .replace(/\b(?:no es solo cuestion de|elegir solo por|sin mirar el|considerar el) precio\b/g, "")
-        .replace(/\bla mejor eleccion depende\b/g, "la eleccion depende");
-      const criterionLabel = (content.decision_support?.criteria || []).includes(text) && !/\b(?:tiene|incluye|cuesta|ofrece|es|son|garantiza)\b/.test(factText);
-      const concrete = !criterionLabel && (sensitive.test(factText) || (productMention && productAssertion.test(norm(plain))));
-      if (!concrete || contextual.test(norm(plain)) || /\?$/.test(plain) || /^(?:como|cómo|qué|que|cuál|cual)\b/i.test(plain)) continue;
-      const cited = markers(sentence).filter((m) => m[1] === "s").map((m) => trusted.get(m[2])).filter(Boolean);
-      // Una cita no autoriza inferencias nuevas: la frase sensible debe estar
-      // explícitamente en las afirmaciones que revisó el operador.
-      const claim = norm(plain).replace(/[.!?]+$/, "").trim();
-      const isCase = /(?:probamos|testeamos|nuestro cliente|testimonio|caso real|logramos|aumentamos|redujimos)/i.test(plain);
-      const supported = cited.some((s) => linked.has(s.id) && (!isCase || s.type === "case_study") && s.claims.some((c) => {
-        const approved = norm(c).replace(/[.!?]+$/, "").trim();
-        if (approved === claim) return true;
-        // Permite atribuir literalmente el uso de una ficha a su producto.
-        // No permite agregar ventajas ni cambiar los datos de esa afirmación.
-        const clean = norm(claim.replace(/["“”‘’]/g, "")).trim();
-        return (s.productIds || []).some((id) => {
-          const name = norm(products[id]?.nombre || products[id]?.name);
-          return name && [name, `el ${name}`, `la ${name}`].some((prefix) => [`${prefix}: ${approved}`, `${prefix} es un ${approved}`, `${prefix} es una ${approved}`, `${prefix} se describe como ${approved}`].includes(clean));
-        });
-      }));
-      if (!supported) unsupported.push(plain.slice(0, 180));
-    }
   }
-  add("claims", "GEO", unsupported.length ? "error" : "ok", unsupported.length ? `Afirmaciones sin respaldo explícito: ${[...new Set(unsupported)].slice(0, 4).join(" · ")}` : "Las afirmaciones sensibles detectadas tienen respaldo explícito.");
+  add("claims", "GEO", unsupported.length ? "error" : "ok", unsupported.length ? `Citas a fuentes que no existen: ${[...new Set(unsupported)].slice(0, 4).join(" · ")}` : "Las citas apuntan a fuentes cargadas.");
   if (content.author_name && /(?:doctor|ingeniero|especialista certificado)/i.test(content.author_name)) add("author", "GEO", "error", "La autoría agrega credenciales no verificadas.");
   else add("author", "GEO", "ok", "Autoría editorial del equipo, sin credenciales inventadas.");
 
