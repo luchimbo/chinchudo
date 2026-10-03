@@ -7,11 +7,10 @@ import { editableArticleContent, loadBlogEvidence } from "@/lib/blog-evidence";
 
 export const runtime = "nodejs";
 
-// Vista previa del editor de artículos: renderiza el borrador sin guardar con
-// la plantilla real del blog.
-export async function POST(request: Request, { params }: { params: { id: string } }) {
+// Tanto la versión guardada como el borrador usan la plantilla real del blog.
+async function previewArticle(request: Request, articleId: string, withDraft: boolean) {
   const landing = await prisma.landing.findUnique({
-    where: { id: params.id },
+    where: { id: articleId },
     select: {
       id: true,
       htmlContent: true,
@@ -31,23 +30,38 @@ export async function POST(request: Request, { params }: { params: { id: string 
   }
 
   let content: Record<string, any>;
-  let draft: ArticleDraft;
+  let draft: ArticleDraft | undefined;
   try {
     content = editableArticleContent(JSON.parse(landing.htmlContent));
-    const body = await request.json();
-    draft = { ...draftFromContent(content), ...(body?.draft ?? {}) };
+    if (!content || typeof content !== "object" || Array.isArray(content)) throw new Error("Contenido inválido");
+    if (withDraft) {
+      const body = await request.json();
+      draft = { ...draftFromContent(content), ...(body?.draft ?? {}) };
+    }
   } catch {
-    return new NextResponse("Borrador inválido.", { status: 400 });
+    return new NextResponse(withDraft ? "Borrador inválido." : "Contenido del artículo inválido.", { status: 400 });
   }
 
   try {
-    const evidence = await loadBlogEvidence(prisma, landing.client.id);
-    const preview = mergeDraft(content, draft);
-    preview.source_refs = evidence.sources.filter((s) => draft.sourceIds?.includes(s.id));
+    let preview = content;
+    if (draft) {
+      const evidence = await loadBlogEvidence(prisma, landing.client.id);
+      preview = mergeDraft(content, draft);
+      const sourceIds = draft.sourceIds;
+      preview.source_refs = evidence.sources.filter((s) => sourceIds?.includes(s.id));
+    }
     const html = await renderLandingHtml(landing.client, landing.id, preview);
     return new NextResponse(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Error desconocido";
     return new NextResponse(`No se pudo generar la vista previa.\n${message}`, { status: 500 });
   }
+}
+
+export async function GET(request: Request, { params }: { params: { id: string } }) {
+  return previewArticle(request, params.id, false);
+}
+
+export async function POST(request: Request, { params }: { params: { id: string } }) {
+  return previewArticle(request, params.id, true);
 }

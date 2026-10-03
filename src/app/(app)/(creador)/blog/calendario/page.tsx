@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ArticlePreviewButton } from "@/components/article-preview";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requirePageClient } from "@/lib/auth";
@@ -114,6 +115,7 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
                   {slot.landingId && stat && slot.status === "PUBLISHED" ? <p className="text-[10px] text-slate">{stat.views} visitas · {stat.clicks} clics · {stat.leads} contactos</p> : null}
                   {slot.status === "PUBLISHED" ? <p className="text-[10px] text-moss">{slot.landing?.indexingState === "INDEX" ? "Apto para indexación" : "Excluido de indexación"}{slot.needsDeploy ? " · Despliegue pendiente" : ""}</p> : null}
                   {slot.landingId && referralStats.has(slot.landingId) && slot.status === "PUBLISHED" ? <details className="text-[10px] text-slate"><summary className="cursor-pointer">Procedencia de visitas</summary>{[...referralStats.get(slot.landingId)!].map(([label, n]) => <p key={label}>{label}: {n}</p>)}</details> : null}
+                  {slot.landingId ? <ArticlePreviewButton articleId={slot.landingId} className="block text-[11px] font-semibold text-ink underline underline-offset-2 hover:text-moss" /> : null}
                   {slot.landingId ? <Link href={`/blog/articulos/${slot.landingId}?client=pcmidi`} className="block text-[11px] font-semibold text-moss underline underline-offset-2">Editar artículo</Link> : null}
                   {slot.status === "PUBLISHED" && liveUrl ? <a href={liveUrl} target="_blank" rel="noreferrer" className="block text-[11px] font-semibold text-sky-700 underline underline-offset-2">Ver online ↗</a> : null}
                   {day <= today && ["SKIPPED", "FAILED"].includes(slot.status) && slot.landingId ? <form action={rescheduleBlogArticle} className="space-y-1 text-[11px]"><input type="hidden" name="id" value={slot.id} /><input type="date" name="scheduledDate" min={shiftDate(today, 1)} required className="w-full rounded border border-ink/15 px-1 py-1" /><button type="submit" className="font-semibold text-moss underline">Reprogramar artículo</button></form> : null}

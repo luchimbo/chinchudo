@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
-import type { ArticleBlock, ArticleDraft } from "@/lib/article-edit";
+import { useEffect, type ReactNode } from "react";
+import type { ArticleBlock } from "@/lib/article-edit";
 import { markersToPlain, type ArticleCatalog } from "@/lib/article-markers";
 import { wordDiff } from "@/lib/text-diff";
 
@@ -46,44 +46,6 @@ export function ChangesDialog({ changes, catalog, onClose }: { changes: Array<{ 
           </ul>
         ) : <p className="py-6 text-center text-sm text-slate">No hay cambios.</p>}
         <p className="mt-4 text-[11px] text-slate">Verde: texto agregado · Rojo: texto quitado. Los enlaces se muestran por su texto visible.</p>
-      </div>
-    </Modal>
-  );
-}
-
-export function PreviewDialog({ articleId, draft, onClose }: { articleId: string; draft: ArticleDraft; onClose: () => void }) {
-  const [html, setHtml] = useState("");
-  const [error, setError] = useState("");
-  const [mobile, setMobile] = useState(false);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    fetch(`/api/blog/articles/${encodeURIComponent(articleId)}/preview`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ draft }),
-      signal: controller.signal,
-    })
-      .then(async (response) => { const text = await response.text(); if (!response.ok) throw new Error(text); setHtml(text); })
-      .catch((reason) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "No se pudo generar la vista previa."); });
-    return () => controller.abort();
-    // El borrador se toma al abrir: la vista previa es una foto de ese momento.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [articleId]);
-
-  return (
-    <Modal title="Vista previa exacta" onClose={onClose} wide>
-      <div className="flex items-center gap-2 border-b border-ink/10 px-5 py-2 text-xs">
-        <span className="text-slate">Así se verá en el blog, con los cambios sin guardar.</span>
-        <div className="ml-auto flex gap-1 rounded-lg bg-ink/5 p-1">
-          <button type="button" onClick={() => setMobile(false)} aria-pressed={!mobile} className={`rounded-md px-2.5 py-1 font-semibold ${!mobile ? "bg-paper shadow-sm" : "text-slate"}`}>Escritorio</button>
-          <button type="button" onClick={() => setMobile(true)} aria-pressed={mobile} className={`rounded-md px-2.5 py-1 font-semibold ${mobile ? "bg-paper shadow-sm" : "text-slate"}`}>Celular</button>
-        </div>
-      </div>
-      <div className="flex min-h-[60vh] flex-1 justify-center overflow-auto bg-ink/[0.04] p-3">
-        {error ? <pre className="max-w-full whitespace-pre-wrap p-6 text-sm text-rose-700">{error}</pre>
-          : html ? <iframe title="Vista previa del artículo" srcDoc={html} sandbox="allow-same-origin" className={`h-[75vh] rounded-lg border border-ink/10 bg-white shadow-sm ${mobile ? "w-[390px]" : "w-full"}`} />
-            : <p className="self-center text-sm text-slate" role="status">Generando vista previa…</p>}
       </div>
     </Modal>
   );
