@@ -13,6 +13,13 @@ model Client {
   name            String            @unique
   slug            String            @unique
   active          Boolean           @default(true)
+  description     String            @default("")
+  storeUrl        String            @default("")
+  blogBaseUrl     String            @default("")
+  autoPublish     Boolean           @default(false)
+  autoApprove     Boolean           @default(false)
+  dailyOpportunityTarget Int        @default(50)
+  dailyDraftTarget Int              @default(50)
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
   users           User[]
@@ -20,6 +27,18 @@ model Client {
   leads           Lead[]
   supportSessions SupportSession[]
   adminAuditEvents AdminAuditEvent[]
+  onboarding      ClientOnboarding?
+  brands          Brand[]
+  personas        Persona[]
+  monitoredSources MonitoredSource[]
+  landings        Landing[]
+  blogPublications BlogPublication[]
+  draftJobs       DraftJob[]
+  catalogSyncRuns CatalogSyncRun[]
+  businessAnalysisRuns BusinessAnalysisRun[]
+  trends          Trend[]
+  videoScripts    VideoScript[]
+  aiPresenceResults AIPresenceResult[]
 }
 
 model User {
@@ -38,13 +57,174 @@ model User {
 model Opportunity {
   id       String  @id
   clientId String?
+  status   OpportunityStatus @default(NEW)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
   client   Client? @relation(fields: [clientId], references: [id], onDelete: Cascade)
 }
 
 model Lead {
   id       String  @id
   clientId String?
+  createdAt DateTime @default(now())
   client   Client? @relation(fields: [clientId], references: [id])
+}
+
+// Projection of the canonical prisma/schema.prisma. Generate only: never migrate
+// or db push from this app, because it deliberately omits unrelated columns.
+enum OpportunityStatus {
+  NEW
+  NEEDS_REVIEW
+  DRAFTED
+  APPROVED
+  ARCHIVED
+  PUBLISHED
+  DISCARDED
+  FOLLOW_UP
+  CONVERTED
+}
+
+enum OnboardingStatus {
+  NOT_STARTED
+  ANALYZING
+  IN_REVIEW
+  COMPLETED
+}
+
+enum DraftJobStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum BlogPublicationStatus {
+  PLANNED
+  READY
+  PUBLISHING
+  PUBLISHED
+  FAILED
+  SKIPPED
+}
+
+enum IssueReportStatus {
+  OPEN
+  RESOLVED
+}
+
+model ClientOnboarding {
+  id String @id
+  clientId String @unique
+  status OnboardingStatus @default(NOT_STARTED)
+  analysisError String @default("")
+  updatedAt DateTime @updatedAt
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model Brand {
+  id String @id
+  clientId String?
+  client Client? @relation(fields: [clientId], references: [id])
+}
+
+model Persona {
+  id String @id
+  clientId String?
+  client Client? @relation(fields: [clientId], references: [id])
+}
+
+model MonitoredSource {
+  id String @id
+  clientId String?
+  label String @unique
+  active Boolean @default(true)
+  lastRunAt DateTime?
+  lastError String @default("")
+  blockedReason String @default("")
+  client Client? @relation(fields: [clientId], references: [id])
+}
+
+model Landing {
+  id String @id
+  clientId String
+  updatedAt DateTime @updatedAt
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model DraftJob {
+  id String @id
+  clientId String
+  status DraftJobStatus @default(QUEUED)
+  leaseUntil DateTime?
+  lastError String @default("")
+  updatedAt DateTime @updatedAt
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model BlogPublication {
+  id String @id
+  clientId String
+  status BlogPublicationStatus @default(PLANNED)
+  scheduledDate DateTime @db.Date
+  requiresApproval Boolean @default(false)
+  approvedAt DateTime?
+  needsDeploy Boolean @default(false)
+  lastError String @default("")
+  updatedAt DateTime @updatedAt
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model CatalogSyncRun {
+  id String @id
+  clientId String
+  status String @default("QUEUED")
+  startedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model BusinessAnalysisRun {
+  id String @id
+  clientId String
+  status String @default("QUEUED")
+  startedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  leaseExpiresAt DateTime?
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model Trend {
+  id String @id
+  clientId String?
+  createdAt DateTime @default(now())
+  client Client? @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model VideoScript {
+  id String @id
+  clientId String?
+  updatedAt DateTime @updatedAt
+  client Client? @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model AIPresenceResult {
+  id String @id
+  clientId String?
+  createdAt DateTime @default(now())
+  client Client? @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+model IssueReport {
+  id String @id
+  sector String
+  originPath String
+  description String
+  imageUrl String @default("")
+  reportedBy String @default("default")
+  status IssueReportStatus @default(OPEN)
+  resolvedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model PlatformAdminProfile {

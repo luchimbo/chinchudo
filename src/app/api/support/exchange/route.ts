@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { signJwt } from "@/lib/auth-crypto";
 import { hashSupportExchangeCode } from "@/lib/support-auth";
+import { supportDestination } from "@/lib/support-destination";
 
-// Sesión de soporte delegado: acotada, no una sesión estándar. Documentada
-// como 30 min en docs/platform-admin.md; 8h da margen para una intervención
-// larga sin acercarse al año que tenía antes.
+// Soporte delegado limitado a un cliente y a 8 horas; se puede revocar
+// desde el backoffice antes del vencimiento.
 const SUPPORT_SESSION_TTL_SECONDS = 60 * 60 * 8;
 
 function requestIp(request: NextRequest): string {
@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
     clientId: delegated.clientId,
   }, sessionSecret, SUPPORT_SESSION_TTL_SECONDS);
   const response = NextResponse.redirect(
-    new URL(`/?client=${encodeURIComponent(delegated.client.slug)}`, request.url),
+    new URL(supportDestination(delegated.metadata, delegated.client.slug), request.url),
     303,
   );
   response.cookies.set("support_session", token, {

@@ -3,9 +3,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requirePlatformAdmin } from "@/lib/admin-auth";
 import { prisma } from "@/lib/db";
+import { SUPPORT_PATHS } from "@/lib/dashboard-model";
 
 const schema = z.object({
   clientId: z.string().min(1),
+  targetPath: z.enum(SUPPORT_PATHS).default("/"),
 });
 
 function hashCode(code: string): string {
@@ -17,7 +19,7 @@ function hashCode(code: string): string {
 export async function POST(request: NextRequest) {
   const identity = await requirePlatformAdmin();
   if (!identity) return NextResponse.json({ error: "Sesion de administrador requerida." }, { status: 401 });
-  const parsed = schema.safeParse(await request.json());
+  const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Cliente inválido." }, { status: 400 });
 
   const recentCount = await prisma.supportSession.count({
@@ -49,6 +51,7 @@ export async function POST(request: NextRequest) {
         expiresAt: new Date(Date.now() + 60_000),
         ipAddress,
         userAgent,
+        metadata: { targetPath: parsed.data.targetPath },
       },
     });
     await tx.adminAuditEvent.create({
@@ -61,7 +64,7 @@ export async function POST(request: NextRequest) {
         targetId: created.id,
         ipAddress,
         userAgent,
-        metadata: { reason: "Acceso administrativo directo" },
+        metadata: { reason: "Acceso administrativo directo", targetPath: parsed.data.targetPath },
       },
     });
     return created;
