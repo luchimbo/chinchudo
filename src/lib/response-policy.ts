@@ -38,5 +38,7 @@ export function policyInstructions(client?: (Pick<Client, "slug"> & { responsePo
   const competitor = policy.competitorMention === "when_helpful" && client?.slug === "pcmidi"
     ? "En consultas generales de baterías electrónicas podés introducir Millenium cuando ayude a orientar una compra. Mantené un tono crítico y coloquial, sin inventar fallas, experiencias ni afirmar que la probaste salvo que exista evidencia de prueba del equipo."
     : "No introduzcas competidores si no fueron mencionados por la persona.";
-  return { policy, text: `${inference} ${competitor}` };
+  const stored = client?.responsePolicy && typeof client.responsePolicy === "object" ? client.responsePolicy as Record<string, unknown> : {};
+  const context = ["targetAudience", "businessMarket", "businessPriorities", "businessDifferentiators"].filter(key => stored[key] !== undefined).map(key => `${key}: ${JSON.stringify(stored[key])}`).join(". ");
+  return { policy, text: `${inference} ${competitor}${context ? ` Contexto del negocio: ${context}. Las prioridades orientan la respuesta cuando son pertinentes; no inventes atributos ni condiciones comerciales.` : ""}` };
 }

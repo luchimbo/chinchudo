@@ -8,7 +8,7 @@ type Row = Record<string, any>;
 function matches(row: Row, where: Row = {}): boolean {
   return Object.entries(where).every(([key, cond]) => {
     if (key === "landing") return cond?.isNot === null ? row.landingId != null : true;
-    const value = row[key];
+    const value = key === "requiresApproval" ? row[key] ?? false : key === "analysisRunId" ? row[key] ?? null : row[key];
     if (cond && typeof cond === "object" && !(cond instanceof Date)) {
       if ("in" in cond) return cond.in.includes(value);
       if ("lt" in cond && !(value < cond.lt)) return false;
@@ -268,6 +268,18 @@ describe("rutina diaria del blog", () => {
     await daily.runDailyBlogCalendar();
     expect(deploys(runBlogPython)).toBe(0);
     expect(row("2026-10-01").status).toBe("PUBLISHING");
+  });
+
+  it("un borrador del análisis requiere aprobación aunque la publicación automática esté activada", async () => {
+    addReady("2026-10-01");
+    Object.assign(row("2026-10-01"), { analysisRunId: "analysis", requiresApproval: true });
+    const { daily, runBlogPython } = build();
+    await daily.runDailyBlogCalendar();
+    expect(deploys(runBlogPython)).toBe(0);
+    expect(row("2026-10-01").status).toBe("READY");
+    row("2026-10-01").requiresApproval = false;
+    await daily.runDailyBlogCalendar();
+    expect(row("2026-10-01").status).toBe("PUBLISHED");
   });
 
   it("mantiene 14 días reservados y omite fechas pasadas sin publicar", async () => {

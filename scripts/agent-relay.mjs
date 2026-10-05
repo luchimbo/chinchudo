@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { PrismaClient } from "@prisma/client";
 import { createBlogDaily } from "./blog-daily.mjs";
 import { terminateChild } from "./terminate-child.mjs";
+import { withBlogLease } from "./blog-lease.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -34,24 +35,53 @@ const landingGenerationJobs = new Map();
 const relayDatabaseUrl = new URL(process.env.DATABASE_URL);
 if (!relayDatabaseUrl.searchParams.has("connection_limit")) relayDatabaseUrl.searchParams.set("connection_limit", "3");
 const prisma = new PrismaClient({ datasources: { db: { url: relayDatabaseUrl.href } } });
-const blogDaily = createBlogDaily({ prisma, runBlogPython, generationClients: landingGenerationClients });
+const blogDaily = createBlogDaily({ prisma, runBlogPython, generationClients: landingGenerationClients, withLease: (id, fn) => withBlogLease(prisma,id,fn), catalogPending: catalogIsDue });
 const runDailyBlogCalendar = blogDaily.runDailyBlogCalendar;
 
-function runBlogPython(args, clientId, timeoutMs = 300_000) {
+async function catalogIsDue(clientId) {
+  const active = await prisma.catalogSyncRun.findFirst({ where: { clientId, status: { in: ["QUEUED","RUNNING","PENDING_DEPLOY","DEPLOYING"] }, deploymentAttempts: { lt:3 } }, select:{id:true} });
+  if(active)return true;
+  const setting=await prisma.appSetting.findUnique({where:{key:`blog_catalog_sync:${clientId}`}});
+  let config;try{config=JSON.parse(setting?.value||"{}");}catch{return false;}
+  if(!config.enabled)return false;
+  const latest=await prisma.catalogSyncRun.findFirst({where:{clientId},orderBy:{startedAt:"desc"},select:{startedAt:true}});
+  if(!latest)return true;
+  const format=new Intl.DateTimeFormat("en-CA",{timeZone:"America/Argentina/Buenos_Aires",year:"numeric",month:"2-digit",day:"2-digit"});
+  const hour=Number(new Intl.DateTimeFormat("en-US",{timeZone:"America/Argentina/Buenos_Aires",hour:"2-digit",hourCycle:"h23"}).format(new Date()));
+  return hour>=6&&format.format(latest.startedAt)!==format.format(new Date());
+}
+
+async function runBlogPython(args, clientId, timeoutMs = 300_000) {
+  // Preview reads published data and needs no exclusive reservation.
+  if (args[0] === "preview") return runBlogPythonProcess(args,clientId,timeoutMs);
+  const result = await withBlogLease(prisma,clientId,async lease => {
+    const version = await prisma.appSetting.findUnique({ where: { key: `blog_catalog_version:${clientId}` } });
+    lease.assert();
+    return runBlogPythonProcess(args,clientId,timeoutMs,lease,version?.value || "");
+  });
+  if (result === null) throw new Error("El blog está actualizando el catálogo. Reintentá en unos minutos.");
+  return result;
+}
+
+function runBlogPythonProcess(args, clientId, timeoutMs = 300_000, lease, catalogVersion = "") {
   const python = getPythonCommand();
   return new Promise((resolve, reject) => {
     const child = spawn(python.command, [...python.argsPrefix, join(ROOT, "landing-build", "build_landings.py"), "--client-slug", "pcmidi", ...args], {
       cwd: ROOT, windowsHide: true,
-      env: { ...process.env, PYTHONIOENCODING: "utf-8", LANDING_EXPECTED_CLIENT_ID: clientId },
+      env: { ...process.env, PYTHONIOENCODING: "utf-8", LANDING_EXPECTED_CLIENT_ID: clientId, LANDING_CATALOG_VERSION: catalogVersion },
     });
     let output = "";
     const collect = (chunk) => { output = (output + chunk.toString()).slice(-4000); };
     child.stdout.on("data", collect);
     child.stderr.on("data", collect);
     const timeout = setTimeout(() => terminateChild(child), timeoutMs);
+    const abort = () => terminateChild(child);
+    lease?.signal.addEventListener("abort",abort,{once:true});
     child.on("error", (error) => { clearTimeout(timeout); reject(error); });
     child.on("close", (code) => {
       clearTimeout(timeout);
+      lease?.signal.removeEventListener("abort",abort);
+      if (lease?.signal.aborted) return reject(new Error("Se perdió la reserva del blog."));
       if (code === 0) resolve(output);
       else reject(new Error(`Proceso editorial finalizó con código ${code}: ${output.slice(-900)}`));
     });
@@ -754,4 +784,28 @@ server.listen(PORT, "127.0.0.1", () => {
   void runScheduledLandings();
   setInterval(runDailyBlogCalendar, 60_000).unref();
   void runDailyBlogCalendar();
+  let catalogRunning = false;
+  const runCatalog = () => {
+    if (catalogRunning) return;
+    catalogRunning = true;
+    const child = spawn(process.execPath,[join(ROOT,"node_modules","tsx","dist","cli.mjs"),join(ROOT,"scripts","sync-blog-catalog.mts"),"--scheduled"], { cwd:ROOT,windowsHide:true,env:process.env });
+    child.stdout.on("data",chunk => { const line=chunk.toString().trim(); if (line && !line.includes('"skipped":true') && line!=="null") console.log(`[catalog] ${line}`); });
+    child.stderr.on("data",chunk => console.error(`[catalog] ${chunk.toString().trim()}`));
+    child.on("error",error => { catalogRunning=false; console.error("[catalog]",error.message); });
+    child.on("close",() => { catalogRunning=false; });
+  };
+  setInterval(runCatalog,60_000).unref();
+  runCatalog();
+  let analysisRunning = false;
+  const runAnalysis = () => {
+    if (analysisRunning) return;
+    analysisRunning = true;
+    const child = spawn(process.execPath, [join(ROOT, "node_modules", "tsx", "dist", "cli.mjs"), join(ROOT, "scripts", "business-analysis-worker.mts"), "--scheduled"], { cwd: ROOT, windowsHide: true, env: process.env });
+    const timeout = setTimeout(() => terminateChild(child), 45 * 60_000);
+    child.stderr.on("data", chunk => console.error(`[business-analysis] ${chunk.toString().trim()}`));
+    child.on("error", error => { clearTimeout(timeout); analysisRunning = false; console.error("[business-analysis]", error.message); });
+    child.on("close", () => { clearTimeout(timeout); analysisRunning = false; });
+  };
+  setInterval(runAnalysis, 60_000).unref();
+  runAnalysis();
 });

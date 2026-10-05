@@ -13,7 +13,7 @@ export type SaveArticleResult = { ok: true; updatedAt: string; redeploy: boolean
 
 export async function saveBlogArticle(input: { id: string; expectedUpdatedAt: string; draft: ArticleDraft }): Promise<SaveArticleResult> {
   const landing = await prisma.landing.findUnique({ where: { id: input.id }, include: { client: { select: { slug: true } }, blogPublication: true } });
-  if (!landing || landing.client.slug !== "pcmidi" || (!landing.blogPublication && !["GUIDE", "PILLAR"].includes(landing.contentType))) return { ok: false, error: "Artículo editorial no encontrado." };
+  if (!landing || (!landing.blogPublication && !["GUIDE", "PILLAR"].includes(landing.contentType))) return { ok: false, error: "Artículo editorial no encontrado." };
   try {
     await assertClientAccess(prisma, landing.clientId);
   } catch {
@@ -48,6 +48,7 @@ export async function saveBlogArticle(input: { id: string; expectedUpdatedAt: st
     const changed = await tx.landing.updateMany({
       where: { id: landing.id, updatedAt: new Date(input.expectedUpdatedAt) },
       data: published ? { htmlContent: JSON.stringify({ ...content, deployment_started_at: undefined, revision_attempts: 0, deployment_error: "", pending_revision: { content: result.content, savedAt: new Date().toISOString(), publishable: quality.publishable } }) } : {
+        ...(landing.blogPublication?.analysisRunId ? { status: "DRAFT" } : {}),
         titulo: result.draft.h1, keyword: result.draft.keyword, seoTitle: result.draft.seoTitle,
         seoDescription: result.draft.description, htmlContent: JSON.stringify(result.content), sourceRefs: result.content.source_refs,
       },
@@ -60,7 +61,7 @@ export async function saveBlogArticle(input: { id: string; expectedUpdatedAt: st
     const errors = quality.checks.filter((c) => c.level === "error").map((c) => c.message).join(" · ").slice(0, 2000);
     if (landing.blogPublication) await tx.blogPublication.update({ where: { id: landing.blogPublication.id }, data: published
       ? { needsDeploy: redeploy, revisionAttempts: 0, lastError: errors }
-      : { status: quality.publishable ? "READY" : "FAILED", attempts: quality.publishable ? 0 : 3, lastError: errors } });
+      : { ...(landing.blogPublication.analysisRunId ? { requiresApproval: true, approvedAt: null } : {}), status: quality.publishable ? "READY" : "FAILED", attempts: quality.publishable ? 0 : 3, lastError: errors } });
     return saved;
   }); } catch (error) { return { ok: false, error: error instanceof Error ? error.message : "No se pudo guardar el artículo." }; }
   revalidatePath(`/blog/articulos/${landing.id}`);

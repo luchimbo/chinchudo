@@ -267,15 +267,15 @@ def slugify(value: str) -> str:
     return value.strip("-")[:90]
 
 
-def load_categories() -> dict[str, dict]:
+def load_categories(include_inactive: bool = True) -> dict[str, dict]:
     injected_catalog = load_catalog_from_env()
     if injected_catalog is not None:
-        return injected_catalog[0]
+        return {k: v for k, v in injected_catalog[0].items() if include_inactive or v.get("linkStatus") != "missing"}
     slug = client_slug_active()
     if _CLIENT_CONFIG.get("id") and os.environ.get("DATABASE_URL"):
         try:
             cats, _ = _load_catalog_from_db(slug)
-            return cats
+            return {k: v for k, v in cats.items() if include_inactive or v.get("linkStatus") != "missing"}
         except Exception as exc:
             print(f"[build_landings] No se pudo cargar categorías de DB para {slug}: {exc}. No se usará el catálogo compartido.")
             raise RuntimeError("No se pudo cargar el catálogo vigente") from exc
@@ -283,22 +283,36 @@ def load_categories() -> dict[str, dict]:
     return {item["id"]: item for item in categories}
 
 
-def load_products() -> dict[str, dict]:
+def eligible_catalog_products(products: dict, include_inactive: bool = False) -> dict:
+    def eligible(p: dict) -> bool:
+        if not p.get("editorialEligible", True):
+            return False
+        if not include_inactive and p.get("linkStatus") == "missing":
+            return False
+        if client_slug_active() == "pcmidi":
+            value = f"{p.get('nombre', '')} {p.get('modelo', '')} {p.get('url', '')}".lower()
+            if p.get("categoria_id") == "software-vstis" or "software" in value:
+                return False
+        return True
+    return {key: value for key, value in products.items() if eligible(value)}
+
+
+def load_products(include_inactive: bool = True) -> dict[str, dict]:
     injected_catalog = load_catalog_from_env()
     if injected_catalog is not None:
-        return injected_catalog[1]
+        return eligible_catalog_products(injected_catalog[1], include_inactive)
     slug = client_slug_active()
     if _CLIENT_CONFIG.get("id") and os.environ.get("DATABASE_URL"):
         try:
             _, prods = _load_catalog_from_db(slug)
-            return prods
+            return eligible_catalog_products(prods, include_inactive)
         except Exception as exc:
             print(f"[build_landings] No se pudo cargar productos de DB para {slug}: {exc}. No se usará el catálogo compartido.")
             raise RuntimeError("No se pudo cargar el catálogo vigente") from exc
     if not PRODUCTS_PATH.exists():
         return {}
     products = json.loads(PRODUCTS_PATH.read_text(encoding="utf-8"))
-    return {item["id"]: item for item in products}
+    return eligible_catalog_products({item["id"]: item for item in products}, include_inactive)
 
 
 def _load_catalog_from_db(slug: str) -> tuple[dict, dict]:
@@ -1019,6 +1033,8 @@ def enforce_generation_limits(limit: int) -> int:
 
 
 def compact_catalog(categories: dict[str, dict], products: dict[str, dict]) -> dict:
+    categories = {k: v for k, v in categories.items() if v.get("linkStatus") != "missing"}
+    products = {k: v for k, v in products.items() if v.get("linkStatus") != "missing"}
     return {
         "categorias": [
             {
@@ -1588,6 +1604,8 @@ def balance_topics_by_source(topics: list[dict]) -> list[dict]:
 
 
 def classify_topic(keyword: str, categories: dict[str, dict], products: dict[str, dict]) -> tuple[list[str], list[str]]:
+    categories = {k: v for k, v in categories.items() if v.get("linkStatus") != "missing"}
+    products = {k: v for k, v in products.items() if v.get("linkStatus") != "missing"}
     text = keyword.lower()
     weak_terms = {"midi", "pads", "sonidos", "kit", "hardware", "software", "home studio", "streaming", "departamento", "arturia"}
     category_scores: list[tuple[int, str]] = []
@@ -2149,8 +2167,8 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
         # A balanced brief gives every run a mix of first-party knowledge and
         # externally observed questions before any landing is written.
         research_opportunities(limit=max(10, limit * 2), use_web=True)
-    categories = load_categories()
-    products = load_products()
+    categories = {k: v for k, v in load_categories().items() if v.get("linkStatus") != "missing"}
+    products = {k: v for k, v in load_products().items() if v.get("linkStatus") != "missing"}
     existing = load_landings(include_drafts=True) if schedule_date else load_landings()
     existing_slugs = {item.get("slug") for item in existing}
     existing_keywords = {topic_key_from_record(item) for item in existing}
@@ -2499,7 +2517,7 @@ def render_landing(landing: dict, categories: dict[str, dict], products: dict[st
     primary = categories[landing["primary_category_id"]]
     category_ids = category_ids_for(landing)
     selected = [categories[item] for item in category_ids]
-    selected_products = [products[item] for item in landing.get("product_ids", []) if item in products]
+    selected_products = [products[item] for item in landing.get("product_ids", []) if item in products and products[item].get("linkStatus") != "missing"]
 
     # Renderizar lead magnet si existe
     lead_magnet_html = ""
@@ -2663,8 +2681,8 @@ def render_landing(landing: dict, categories: dict[str, dict], products: dict[st
     template_text = active_template_path().read_text(encoding="utf-8-sig")
     rendered = render_template(template_text, values)
     if is_editorial(landing):
-        return render_editorial_article(rendered, landing, categories, products, values, lead_magnet_html, faq_entities, blog_url or base_url.rstrip("/"))
-    return with_blog_citations(rendered, landing.get("_related") or [])
+        return catalog_html(render_editorial_article(rendered, landing, categories, products, values, lead_magnet_html, faq_entities, blog_url or base_url.rstrip("/")), categories, products)
+    return catalog_html(with_blog_citations(rendered, landing.get("_related") or []), categories, products)
 
 
 def with_blog_citations(rendered: str, related: list[dict]) -> str:
@@ -2737,7 +2755,16 @@ class ArticleLinker:
         self.categories = categories
         self.products = products
         self.guides = landing.get("_guides") or {}
-        self.sources = {s["id"]: (index, s) for index, s in enumerate(landing.get("source_refs") or [], start=1) if isinstance(s, dict) and s.get("id")}
+        self.sources = {}
+        for index, source in enumerate(landing.get("source_refs") or [], start=1):
+            if not isinstance(source, dict) or not source.get("id"):
+                continue
+            source = dict(source)
+            if source.get("type") == "catalog" and source["id"].startswith("catalog-"):
+                product = products.get(source["id"][8:])
+                if product:
+                    source["url"] = "" if product.get("linkStatus") == "missing" else product.get("url", "")
+            self.sources[source["id"]] = (index, source)
         self.omit_brand = catalog_has_single_brand(products)
         self.mentioned = [products[item] for item in landing.get("product_ids") or [] if item in products]
         # Productos del artículo: por modelo o nombre completo. Resto del
@@ -2769,11 +2796,11 @@ class ArticleLinker:
         if kind == "p" and target in self.products:
             product = self.products[target]
             text = label or product_display_name(product, self.omit_brand)
-            return esc(text) if key in self.linked else self._store(key, product["url"], text, "product", target)
+            return esc(text) if key in self.linked or product.get("linkStatus") == "missing" else self._store(key, product["url"], text, "product", target)
         if kind == "c" and target in self.categories:
             category = self.categories[target]
             text = label or category["nombre"]
-            return esc(text) if key in self.linked else self._store(key, category["url"], text, "category", target)
+            return esc(text) if key in self.linked or category.get("linkStatus") == "missing" else self._store(key, category["url"], text, "category", target)
         guide = self.guides.get(target)
         if kind == "g" and guide and target != self.landing.get("slug"):
             text = label or guide.get("h1") or guide.get("keyword") or target
@@ -2788,7 +2815,7 @@ class ArticleLinker:
         parts: list[tuple[bool, str]] = [(False, text)]
         for product, own in self.candidates:
             key = f"p:{product['id']}"
-            if key in self.linked or not product.get("url"):
+            if key in self.linked or not product.get("url") or product.get("linkStatus") == "missing":
                 continue
             names = [product_display_name(product, False), str(product.get("modelo") or "")] if own else [product_display_name(product, False)]
             for name in (item.strip() for item in names):
@@ -3062,7 +3089,7 @@ def render_editorial_article(
     }
     if not date_published:
         article_schema.pop("datePublished", None)
-    article_schema["citation"] = [{"@type": "CreativeWork", "name": s.get("title"), **({"url": s["url"]} if urlparse(str(s.get("url") or "")).scheme in ("https", "http") else {})} for s in landing.get("source_refs") or [] if isinstance(s, dict) and s.get("title")]
+    article_schema["citation"] = [{"@type": "CreativeWork", "name": s.get("title"), **({"url": s["url"]} if urlparse(str(s.get("url") or "")).scheme in ("https", "http") else {})} for _, s in linker.sources.values() if s.get("title")]
     if logo_url:
         article_schema["image"] = logo_url
     breadcrumb_schema = {
@@ -3587,7 +3614,7 @@ def build(base_url: str = "") -> dict:
     published: list[dict] = []
     noindex_count = 0
     for landing in landings:
-        html_text = render_landing(landing, categories, products, base_url, lead_magnets)
+        html_text = catalog_html(render_landing(landing, categories, products, base_url, lead_magnets), categories, products)
         landing_dir = SITE_DIR / unquote(landing_path(landing)).strip("/")
         landing_dir.mkdir(parents=True, exist_ok=True)
         output = landing_dir / "index.html"
@@ -3599,7 +3626,7 @@ def build(base_url: str = "") -> dict:
         else:
             noindex_count += 1
 
-    index_html = render_index(landings, categories, base_url, clusters)
+    index_html = catalog_html(render_index(landings, categories, base_url, clusters), categories, products)
     (SITE_DIR / "index.html").write_text(index_html, encoding="utf-8")
 
     home_lastmod = max((lastmod for _, lastmod in sitemap_entries), default="")
@@ -3725,6 +3752,20 @@ def deploy(base_url: str = "") -> None:
     print(f"Reporte generado: {result['report']}")
 
 
+def catalog_html(value: str, categories: dict, products: dict) -> str:
+    from html import unescape
+    missing = {str(item.get("url") or "").rstrip("/") for item in [*categories.values(), *products.values()] if item.get("linkStatus") == "missing"}
+    def without_missing(match):
+        href = re.search(r'\bhref=["\']([^"\']+)["\']', match.group(1))
+        return match.group(2) if href and unescape(href.group(1)).rstrip("/") in missing else match.group(0)
+    value = re.sub(r'<a\b([^>]*)>(.*?)</a>', without_missing, value, flags=re.S | re.I)
+    version = os.environ.get("LANDING_CATALOG_VERSION", "")
+    if version:
+        value = re.sub(r'<meta name="catalog-sync-version" content="[^"]*">', "", value)
+        value = value.replace("</head>", f'<meta name="catalog-sync-version" content="{esc(version)}"></head>', 1)
+    return value
+
+
 def rollback() -> None:
     previous = sorted(REPORTS_DIR.glob("*-site-previous-manifest.json"))
     if not previous:
@@ -3829,6 +3870,8 @@ def main() -> None:
     regenerate_parser.add_argument("--attempts", type=int, default=2, help="Intentos por artículo si la salida no valida")
     sub.add_parser("rebuild-links", help="Recalcula los enlaces internos AUTO respetando PINNED/EXCLUDED")
     sub.add_parser("rollback")
+    catalog_deploy = sub.add_parser("catalog-deploy", help="Despliega el artefacto ya validado por la sincronización")
+    catalog_deploy.add_argument("--base-url", required=True)
     sub.add_parser("selftest")
     parser.add_argument("--client-slug", default="", help="Cliente cuya API key de OpenRouter usar (default: .env)")
     args = parser.parse_args()
@@ -3872,6 +3915,12 @@ def main() -> None:
         run_pipeline(limit=args.limit, model=args.model, base_url=args.base_url, dry_run=args.dry_run, max_seconds=args.max_seconds)
     elif args.command == "deploy":
         deploy(base_url=args.base_url)
+    elif args.command == "catalog-deploy":
+        if os.environ.get("DEPLOY_TARGET", "vercel").strip().lower() != "vercel":
+            raise SystemExit("Destino de despliegue no soportado")
+        if not (SITE_DIR / "index.html").exists():
+            raise SystemExit("No existe un artefacto validado para desplegar")
+        deploy_with_vercel(base_url=args.base_url)
     elif args.command == "audit-graph":
         audit_graph_command(base_url=args.base_url)
     elif args.command == "regenerate":

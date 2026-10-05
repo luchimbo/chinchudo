@@ -111,6 +111,18 @@ function makeFakePrisma(options: {
 }
 
 describe("syncOnboarding", () => {
+  it("el análisis observable no modifica precios ni disponibilidad", async () => {
+    const { prisma, tx } = makeFakePrisma({ clientName: "Cliente" });
+    const draft = sanitizeDraft({ name: "Cliente", brand: "Marca", offerings: [
+      { id: "p", name: "Piano", kind: "product", price: "123", availability: "Disponible", selected: true },
+      { id: "s", name: "Clases", kind: "service", price: "456", availability: "Reservas", selected: true },
+    ] });
+    await syncOnboarding(prisma, "client-1", draft, { preserveCommercialTerms: true });
+    const product = (tx.product.upsert as any).mock.calls[0][0];
+    const service = (tx.service.upsert as any).mock.calls[0][0];
+    expect(product.create).not.toHaveProperty("priceRange"); expect(product.update).not.toHaveProperty("stockStatus");
+    expect(service.create).not.toHaveProperty("priceRange"); expect(service.update).not.toHaveProperty("availabilityNotes");
+  });
   it("crea las 5 personas cuando ninguna existe todavía", async () => {
     const { prisma, state } = makeFakePrisma();
     const draft = sanitizeDraft({ name: "Cliente", brand: "Marca", tone: "Cercano" });

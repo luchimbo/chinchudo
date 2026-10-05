@@ -3,7 +3,7 @@ import { SectorTabs } from "@/components/sector-tabs";
 
 const TABS = [
   { href: "/analytics", label: "Analítica & Informe" },
-  { href: "/geo", label: "Presencia en IAs" },
+  { href: "/geo", label: "Negocio y competidores" },
 ];
 
 export default function AnaliticasLayout({ children }: { children: React.ReactNode }) {

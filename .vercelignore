@@ -7,7 +7,11 @@ models/wav2lip/
 public/videos/
 .agents/
 .claude/skills/
-scripts/
+scripts/*
+!scripts/blog-lease.mjs
+!scripts/blog-lease.d.mts
+!scripts/terminate-child.mjs
+!scripts/terminate-child.d.mts
 agents/
 scratch/
 .venv/
@@ -28,3 +32,7 @@ dev.db-journal
 tsconfig.tsbuildinfo
 .vercel
 apps/admin
+.npm-cache/
+/backups/
+**/*.test.ts
+**/__tests__/

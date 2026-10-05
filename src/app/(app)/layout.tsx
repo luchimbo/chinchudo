@@ -18,6 +18,10 @@ export default async function AppLayout({
     redirect("/login");
   }
 
+  if (user.accessType === "tenant_user" && user.clientSlugs.length === 1) {
+    const onboarding = await prisma.clientOnboarding.findFirst({ where: { client: { slug: user.clientSlugs[0] } }, include: { client: { select: { businessProfile: { select: { lastSuccessfulAt: true } } } } } });
+    if (onboarding && onboarding.status !== "COMPLETED" && !onboarding.client.businessProfile?.lastSuccessfulAt) redirect(`/onboarding?client=${encodeURIComponent(user.clientSlugs[0])}`);
+  }
   return (
     <AppShell
       clients={clients.map((c) => ({ slug: c.slug, name: c.name }))}

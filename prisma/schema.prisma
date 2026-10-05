@@ -96,6 +96,7 @@ model Client {
   landingCategories      LandingCategory[]
   landingProducts        LandingProduct[]
   seedTopics             SeedTopic[]
+  catalogSyncRuns        CatalogSyncRun[]
   landings               Landing[]
   contentClusters        ContentCluster[]
   landingInternalLinks   LandingInternalLink[]
@@ -117,6 +118,9 @@ model Client {
   blogPublications       BlogPublication[]
   brandSnapshots         BrandSnapshot[]
   competitorEvidence     CompetitorEvidence[]
+  businessProfile        BusinessProfile?
+  businessCompetitors    BusinessCompetitor[]
+  businessAnalysisRuns   BusinessAnalysisRun[]
   draftJobs              DraftJob[]
   supportSessions        SupportSession[]
   adminAuditEvents       AdminAuditEvent[]
@@ -953,6 +957,12 @@ model BlogPublication {
   id            String                @id @default(cuid())
   clientId      String
   landingId     String?               @unique
+  analysisRunId String?
+  requiresApproval Boolean           @default(false)
+  approvedAt DateTime?
+  targetKeyword String               @default("")
+  plannedTitle String                @default("")
+  analysisRun BusinessAnalysisRun? @relation(fields: [analysisRunId], references: [id], onDelete: SetNull)
   scheduledDate DateTime              @db.Date
   status        BlogPublicationStatus @default(PLANNED)
   attempts      Int                   @default(0)
@@ -967,6 +977,57 @@ model BlogPublication {
 
   @@unique([clientId, scheduledDate])
   @@index([clientId, status, scheduledDate])
+  @@index([analysisRunId])
+}
+
+/// Perfil aplicado automáticamente; las correcciones manuales tienen prioridad.
+model BusinessProfile {
+  id String @id @default(cuid())
+  clientId String @unique
+  sourceUrl String @default("")
+  data Json @default("{}")
+  monthlyEnabled Boolean @default(true)
+  nextAnalysisAt DateTime?
+  lastSuccessfulAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  @@index([monthlyEnabled, nextAnalysisAt])
+}
+
+model BusinessCompetitor {
+  id String @id @default(cuid())
+  clientId String
+  domain String
+  reason String @default("")
+  sourceUrl String @default("")
+  excluded Boolean @default(false)
+  manual Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  @@unique([clientId, domain])
+}
+
+model BusinessAnalysisRun {
+  id String @id @default(cuid())
+  clientId String
+  sourceUrl String @default("")
+  status String @default("QUEUED")
+  stage String @default("website")
+  attempts Int @default(0)
+  checkpoint Json @default("{}")
+  result Json @default("{}")
+  errors Json @default("[]")
+  leaseToken String?
+  leaseExpiresAt DateTime?
+  startedAt DateTime @default(now())
+  finishedAt DateTime?
+  updatedAt DateTime @updatedAt
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  publications BlogPublication[]
+  @@index([status, leaseExpiresAt])
+  @@index([clientId, startedAt])
 }
 
 model ContentCluster {
@@ -1165,11 +1226,18 @@ model LandingCategory {
   url         String   @default("")
   description String   @default("")
   keywords    Json     @default("[]")
+  tiendanubeId String?
+  sourceSnapshot Json @default("{}")
+  lastSeenAt DateTime?
+  missingRuns Int @default(0)
+  lastMissingDate String @default("")
+  linkStatus String @default("active")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@unique([clientId, key])
+  @@unique([clientId, tiendanubeId])
   @@index([clientId])
 }
 
@@ -1183,13 +1251,38 @@ model LandingProduct {
   categoryKey String   @default("")
   url         String   @default("")
   useText     String   @default("")
+  tiendanubeId String?
+  sourceSnapshot Json @default("{}")
+  lastSeenAt DateTime?
+  missingRuns Int @default(0)
+  lastMissingDate String @default("")
+  linkStatus String @default("active")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@unique([clientId, externalId])
+  @@unique([clientId, tiendanubeId])
   @@index([clientId])
   @@index([categoryKey])
+}
+
+model CatalogSyncRun {
+  id String @id @default(cuid())
+  clientId String
+  status String @default("QUEUED")
+  checkpoint Json @default("{}")
+  changes Json @default("[]")
+  errors Json @default("[]")
+  deployment Json @default("{}")
+  deploymentAttempts Int @default(0)
+  startedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  finishedAt DateTime?
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, startedAt])
+  @@index([clientId, status])
 }
 
 model SeedTopic {

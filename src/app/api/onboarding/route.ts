@@ -2,41 +2,25 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { ClientResolutionError, resolveClientForSlug } from "@/lib/auth";
 import {
-  analyzePublicWebsite,
+  assertPublicUrl,
   defaultDraft,
   mergeManualFields,
   OnboardingNameConflictError,
-  parseDomainKeywords,
   sanitizeDraft,
   syncOnboarding,
-  type ConfirmedClientContext,
 } from "@/lib/onboarding";
 import { getOnboardingCompletionIssues } from "@/lib/onboarding-completion";
 import { confirmedDraftFor } from "@/lib/onboarding-rehydrate";
 import { normalizeWebsiteUrl } from "@/lib/website-url";
 import { logger } from "@/lib/logger";
 import type { Client } from "@prisma/client";
+import { enqueueBusinessAnalysis, readBusinessProfile, syncBusinessDraft } from "@/lib/business-analysis-service";
 
 export const dynamic = "force-dynamic";
 const onboardingDb = prisma as any;
 
 async function clientForRequest(request: NextRequest) {
   return resolveClientForSlug(prisma, request.nextUrl.searchParams.get("client"));
-}
-
-async function confirmedContextFor(client: Client): Promise<ConfirmedClientContext> {
-  const brands = await prisma.brand.findMany({
-    where: { clientId: client.id },
-    select: { name: true },
-  });
-  return {
-    name: client.name,
-    brands: brands.map((brand) => brand.name),
-    description: client.description,
-    domainKeywords: parseDomainKeywords(client.domainKeywords),
-    openrouterApiKey: client.openrouterApiKey,
-    openrouterModel: client.openrouterModel,
-  };
 }
 
 export async function GET(request: NextRequest) {
@@ -86,8 +70,8 @@ export async function PATCH(request: NextRequest) {
       1,
       Math.min(3, Number(body.currentStep) || existing.currentStep),
     );
-    // El autosave sólo persiste el borrador: nunca escribe Client/Brand/Product/Persona,
-    // y no revierte un onboarding ya COMPLETED a IN_REVIEW.
+    // Conserva COMPLETED. Cuando ya existe un perfil utilizable, sus correcciones
+    // también se aplican al contexto; no aprueba conocimientos ni publicaciones.
     const onboarding = await onboardingDb.clientOnboarding.update({
       where: { clientId: client.id },
       data: {
@@ -105,6 +89,10 @@ export async function PATCH(request: NextRequest) {
         analysisError: "",
       },
     });
+    const businessProfile = await prisma.businessProfile.findUnique({ where: { clientId: client.id } });
+    if (businessProfile?.lastSuccessfulAt || (draft.description && draft.offer && draft.manualFields.length)) {
+      await syncBusinessDraft(prisma, client, draft, Array.isArray(body.changedFields) ? body.changedFields.filter((field: unknown) => typeof field === "string").slice(0, 100) : draft.manualFields, body.resetManualCorrections === true);
+    }
     if (currentStep > existing.currentStep) {
       logger.info("onboarding_step_reached", "Avanzó de paso en el onboarding", {
         clientId: client.id,
@@ -141,106 +129,17 @@ export async function POST(request: NextRequest) {
           { error: "Ingresá una dirección web válida." },
           { status: 400 },
         );
-      const existing = await onboardingDb.clientOnboarding.upsert({
-        where: { clientId: client.id },
-        create: {
-          clientId: client.id,
-          sourceUrl: url,
-          status: "ANALYZING",
-          draft: defaultDraft(client.name),
-        },
-        update: { sourceUrl: url, status: "ANALYZING", analysisError: "" },
-      });
-      if (existing.status === "NOT_STARTED") {
-        const sourceHost = (() => {
-          try {
-            return new URL(url).hostname;
-          } catch {
-            return "";
-          }
-        })();
-        logger.info("onboarding_started", "Inició el análisis del sitio", {
-          clientId: client.id,
-          sourceHost,
-        });
-      }
-      const analysisStartedAt = Date.now();
-      try {
-        const context = await confirmedContextFor(client);
-        const analysis = await analyzePublicWebsite(url, context);
-        const previousDraft = sanitizeDraft(existing.draft, client.name);
-        // El análisis sólo guarda el borrador y las páginas leídas: no importa
-        // catálogo ni toca Brand/Product hasta que el cliente confirme.
-        const draft = mergeManualFields(analysis.draft, previousDraft);
-        const importedDraft = sanitizeDraft(draft, client.name);
-        const onboarding = await onboardingDb.clientOnboarding.update({
-          where: { clientId: client.id },
-          data: { status: "IN_REVIEW", draft: importedDraft },
-        });
-        await onboardingDb.onboardingSourcePage.deleteMany({
-          where: { onboardingId: onboarding.id },
-        });
-        if (analysis.pages.length)
-          await onboardingDb.onboardingSourcePage.createMany({
-            data: analysis.pages.map((page) => ({
-              onboardingId: onboarding.id,
-              url: page.url,
-              title: page.title,
-              pageType: page.pageType,
-              contentHash: page.hash,
-              excerpt: page.text.slice(0, 4000),
-              extracted: {
-                offerings: page.offerings,
-                socialNetworks: page.socialNetworks,
-                platform: page.platform,
-              },
-            })),
-          });
-        logger.info("onboarding_analyzed", "Analizó el sitio con éxito", {
-          clientId: client.id,
-          durationMs: Date.now() - analysisStartedAt,
-          pagesRead: importedDraft.stats.pagesRead,
-          products: importedDraft.stats.products,
-          services: importedDraft.stats.services,
-          hasWarning: Boolean(analysis.warning),
-        });
-        return NextResponse.json({
-          onboarding: { ...onboarding, draft: importedDraft },
-          analysis: {
-            pages: analysis.pages.map((page) => ({
-              url: page.url,
-              title: page.title,
-              pageType: page.pageType,
-            })),
-            stats: analysis.draft.stats,
-          },
-          warning: analysis.warning,
-        });
-      } catch (error) {
-        const onboarding = await onboardingDb.clientOnboarding.update({
-          where: { clientId: client.id },
-          data: {
-            status: "IN_REVIEW",
-            analysisError: (error as Error).message,
-          },
-        });
-        logger.warn("onboarding_analysis_failed", "Falló el análisis del sitio", {
-          clientId: client.id,
-          error: (error as Error).message,
-        });
-        return NextResponse.json({
-          onboarding: {
-            ...onboarding,
-            draft: sanitizeDraft(onboarding.draft, client.name),
-          },
-          warning: (error as Error).message,
-        });
-      }
+      await assertPublicUrl(url);
+      const run = await enqueueBusinessAnalysis(prisma, client, url, body.market);
+      return NextResponse.json({ run: { id: run.id, status: run.status, stage: run.stage } }, { status: 202 });
     }
+
     const onboarding = await onboardingDb.clientOnboarding.findUniqueOrThrow({
       where: { clientId: client.id },
     });
-    const draft = sanitizeDraft(onboarding.draft, client.name);
+    const businessProfile = await prisma.businessProfile.findUnique({ where: { clientId: client.id } });
+    const previousProfile = businessProfile ? readBusinessProfile(businessProfile.data, client.name) : null;
+    const draft = previousProfile ? mergeManualFields(sanitizeDraft(onboarding.draft, client.name), previousProfile.draft) : sanitizeDraft(onboarding.draft, client.name);
     if (body.action === "complete") {
       const issues = getOnboardingCompletionIssues(draft);
       if (issues.length) {
@@ -258,11 +157,12 @@ export async function POST(request: NextRequest) {
       }
       const mode = onboarding.status === "COMPLETED" ? "edit" : "setup";
       const approvedDraft = { ...draft, knowledgeApproved: true };
-      // Único punto que sincroniza Client/Brand/Product/Persona/MonitoredSource,
-      // atómicamente junto con el pase a COMPLETED.
+      // Human confirmation is the only step granting confidence to knowledge.
       await syncOnboarding(prisma, client.id, approvedDraft, {
         completeOnboardingId: onboarding.id,
       });
+      await syncBusinessDraft(prisma, client, approvedDraft);
+      if (!draft.analysisRunId) await enqueueBusinessAnalysis(prisma, client, onboarding.sourceUrl || "", draft.market);
       const completed = await onboardingDb.clientOnboarding.findUniqueOrThrow({
         where: { clientId: client.id },
       });

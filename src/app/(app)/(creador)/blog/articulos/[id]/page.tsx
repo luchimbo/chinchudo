@@ -27,7 +27,7 @@ export default async function BlogArticleEditorPage({ params }: { params: { id: 
       contentCluster: { select: { name: true, slug: true } },
     },
   });
-  if (!landing || landing.client.slug !== "pcmidi" || (!landing.blogPublication && !["GUIDE", "PILLAR"].includes(landing.contentType))) notFound();
+  if (!landing || (!landing.blogPublication && !["GUIDE", "PILLAR"].includes(landing.contentType))) notFound();
   try { await assertClientAccess(prisma, landing.clientId); } catch { notFound(); }
   let content: Record<string, any>;
   try { content = JSON.parse(landing.htmlContent); } catch { notFound(); }
@@ -38,12 +38,13 @@ export default async function BlogArticleEditorPage({ params }: { params: { id: 
   const [catalog, evidence] = await Promise.all([loadArticleCatalog(prisma, landing.clientId, landing.id), loadBlogEvidence(prisma, landing.clientId)]);
   catalog.sources = evidence.sources.map((s) => ({ ref: s.id, name: s.title, detail: s.type }));
   if (Array.isArray(content.editorial_brief?.allowedProductIds)) catalog.products = catalog.products.filter((p) => content.editorial_brief.allowedProductIds.includes(p.ref));
-  const blogBase = (landing.client.blogBaseUrl || "https://blog.pcmidicenter.com").replace(/\/$/, "");
-  const publicUrl = landing.contentCluster ? `${blogBase}/guias/${landing.contentCluster.slug}/${landing.slug}/` : `${blogBase}/${landing.slug}/`;
+  const blogBase = (landing.client.blogBaseUrl || (landing.client.slug === "pcmidi" ? "https://blog.pcmidicenter.com" : "")).replace(/\/$/, "");
+  const publicUrl = !blogBase ? "" : landing.contentCluster ? `${blogBase}/guias/${landing.contentCluster.slug}/${landing.slug}/` : `${blogBase}/${landing.slug}/`;
   const state = STATUS[slot.status] ?? STATUS.READY;
   const dateLabel = new Intl.DateTimeFormat("es-AR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" }).format(slot.scheduledDate);
   const note = slot.needsDeploy
     ? "Hay cambios guardados pendientes de actualizarse en el blog."
+    : landing.blogPublication?.requiresApproval ? "Borrador privado: requiere aprobación humana."
     : slot.status === "PUBLISHED"
       ? "Las ediciones aprobadas se desplegarán con la misma URL."
       : slot.status === "PUBLISHING"
@@ -61,7 +62,7 @@ export default async function BlogArticleEditorPage({ params }: { params: { id: 
         content={content}
         published={slot.status === "PUBLISHED"}
         publicUrl={publicUrl}
-        backHref={landing.blogPublication ? `/blog/calendario?client=pcmidi&month=${scheduled.slice(0, 7)}` : "/blog?client=pcmidi"}
+        backHref={landing.blogPublication ? `/blog/calendario?client=${landing.client.slug}&month=${scheduled.slice(0, 7)}` : `/blog?client=${landing.client.slug}`}
         clusterName={landing.contentCluster?.name || "Blog"}
         status={{ label: state.label, tone: state.tone, date: dateLabel, note }}
         save={saveBlogArticle}

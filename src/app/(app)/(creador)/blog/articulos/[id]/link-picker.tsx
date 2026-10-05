@@ -38,7 +38,7 @@ export function LinkPicker({
 
   const results = useMemo(() => {
     const words = fold(query).split(/\s+/).filter(Boolean);
-    const list = catalogList(catalog, kind);
+    const list = catalogList(catalog, kind).filter(entry => !entry.disabled);
     const matches = words.length ? list.filter((entry) => { const hay = fold(`${entry.name} ${entry.detail ?? ""} ${entry.ref}`); return words.every((word) => hay.includes(word)); }) : list;
     // Si la búsqueda por el texto seleccionado no encuentra nada, mostrar todo.
     return (matches.length || !selectedText || query !== selectedText ? matches : list).slice(0, 60);
@@ -48,7 +48,7 @@ export function LinkPicker({
   const wasInvalid = initial && !findEntry(catalog, initial.kind, initial.ref);
 
   function apply() {
-    if (!chosen) return;
+    if (!chosen || chosen.disabled) return;
     const text = cleanLabel(label);
     // Un producto sin texto propio muestra su nombre del catálogo.
     if (kind === "p") onApply({ kind, ref: chosen.ref, label: text && text !== chosen.name ? text : null });
@@ -90,7 +90,7 @@ export function LinkPicker({
               className="rounded-lg border border-ink/15 bg-white px-3 py-2 text-sm font-normal text-ink focus:border-moss focus:outline-none" />
           </label>
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={apply} disabled={!chosen}
+            <button type="button" onClick={apply} disabled={!chosen || chosen.disabled}
               className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-paper disabled:opacity-40">{initial ? "Aplicar" : "Insertar enlace"}</button>
             <button type="button" onClick={onClose} className="rounded-full px-3 py-2 text-sm text-slate hover:text-ink">Cancelar</button>
             {onRemove ? <button type="button" onClick={onRemove} className="ml-auto rounded-full px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50">Quitar enlace</button> : null}

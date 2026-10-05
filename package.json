@@ -28,6 +28,8 @@
     "agents:jurispedia:calibrate": "tsx scripts/seed-jurispedia-calibration.mts && tsx scripts/draft-worker.mts --client jurispedia --limit 4",
     "db:studio": "prisma studio",
     "agents:listen": "python agents/orchestrator.py listen",
+    "blog:sync-catalog": "tsx scripts/sync-blog-catalog.mts",
+    "agents:business-analysis": "tsx scripts/business-analysis-worker.mts",
     "onboarding:sync-catalog": "tsx scripts/sync-pending-onboarding-catalog.mts",
     "onboarding:audit-contamination": "tsx scripts/audit-onboarding-contamination.mts",
     "onboarding:repair-prestige-contamination": "tsx scripts/repair-prestige-contamination.mts",

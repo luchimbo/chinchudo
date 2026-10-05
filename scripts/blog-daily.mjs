@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { inspectBlogArticle } from "../src/lib/blog-evidence.mjs";
 import { editorialIntentForDate } from "../src/lib/blog-quality.mjs";
 
-export function createBlogDaily({ prisma, runBlogPython, fetchUrl = fetch, now = () => new Date(), generationClients = new Set(), log = console, inspect = (clientId, content, id) => inspectBlogArticle(prisma, clientId, content, id) }) {
+export function createBlogDaily({ prisma, runBlogPython, fetchUrl = fetch, now = () => new Date(), generationClients = new Set(), log = console, withLease = async (_id, fn) => fn(), catalogPending = async () => false, inspect = (clientId, content, id) => inspectBlogArticle(prisma, clientId, content, id) }) {
   let running = false;
   const dateValue = (day) => new Date(`${day}T00:00:00.000Z`);
   const shiftDate = (day, offset) => { const date = dateValue(day); date.setUTCDate(date.getUTCDate() + offset); return date.toISOString().slice(0, 10); };
@@ -145,10 +145,10 @@ export function createBlogDaily({ prisma, runBlogPython, fetchUrl = fetch, now =
         const day = shiftDate(start, offset);
         await prisma.blogPublication.upsert({ where: { clientId_scheduledDate: { clientId: client.id, scheduledDate: dateValue(day) } }, create: { clientId: client.id, scheduledDate: dateValue(day) }, update: {} });
       }
-      await prisma.blogPublication.updateMany({ where: { clientId: client.id, scheduledDate: { lt: dateValue(local.date) }, status: { in: ["PLANNED", "READY"] } }, data: { status: "SKIPPED", lastError: "La fecha pasó sin publicación; reprogramá el artículo." } });
+      await prisma.blogPublication.updateMany({ where: { clientId: client.id, requiresApproval: false, scheduledDate: { lt: dateValue(local.date) }, status: { in: ["PLANNED", "READY"] } }, data: { status: "SKIPPED", lastError: "La fecha pasó sin publicación; reprogramá el artículo." } });
       const due = await prisma.blogPublication.findUnique({ where: { clientId_scheduledDate: { clientId: client.id, scheduledDate: dateValue(local.date) } }, include: { landing: { include: { contentCluster: { select: { slug: true } } } } } });
-      if (active && (!config.firstPublishDate || local.date >= config.firstPublishDate) && local.time >= config.publishTime && due?.landing && ["READY", "FAILED"].includes(due.status) && due.attempts < 3) {
-        const claimed = await prisma.blogPublication.updateMany({ where: { id: due.id, status: { in: ["READY", "FAILED"] }, attempts: { lt: 3 } }, data: { status: "PUBLISHING", attempts: { increment: 1 }, lastError: "" } });
+      if (active && (!config.firstPublishDate || local.date >= config.firstPublishDate) && local.time >= config.publishTime && due?.landing && !due.requiresApproval && ["READY", "FAILED"].includes(due.status) && due.attempts < 3) {
+        const claimed = await prisma.blogPublication.updateMany({ where: { id: due.id, requiresApproval: false, status: { in: ["READY", "FAILED"] }, attempts: { lt: 3 } }, data: { status: "PUBLISHING", attempts: { increment: 1 }, lastError: "" } });
         if (claimed.count) {
           const landing = await prisma.landing.findUnique({ where: { id: due.landingId }, include: { contentCluster: { select: { slug: true } } } });
           try {
@@ -175,7 +175,7 @@ export function createBlogDaily({ prisma, runBlogPython, fetchUrl = fetch, now =
       }
       if (await deployEditedBlogArticle(client)) return;
       if (generationClients.has("pcmidi")) return;
-      const empty = await prisma.blogPublication.findFirst({ where: { clientId: client.id, scheduledDate: { gte: dateValue(start) }, landingId: null, status: { in: ["PLANNED", "FAILED"] }, attempts: { lt: 3 } }, orderBy: { scheduledDate: "asc" } });
+      const empty = await prisma.blogPublication.findFirst({ where: { clientId: client.id, scheduledDate: { gte: dateValue(start) }, analysisRunId: null, landingId: null, status: { in: ["PLANNED", "FAILED"] }, attempts: { lt: 3 } }, orderBy: { scheduledDate: "asc" } });
       if (!empty) return;
       generationClients.add("pcmidi");
       const generationClaim = await prisma.blogPublication.updateMany({ where: { id: empty.id, updatedAt: empty.updatedAt, landingId: null, attempts: empty.attempts, status: { in: ["PLANNED", "FAILED"] } }, data: { attempts: { increment: 1 }, status: "PLANNED", lastError: "" } });
@@ -193,5 +193,9 @@ export function createBlogDaily({ prisma, runBlogPython, fetchUrl = fetch, now =
     } catch (error) { log.error("[blog] Calendario editorial:", error); }
     finally { running = false; }
   }
-  return { runDailyBlogCalendar, deployEditedBlogArticle };
+  const runLeasedCalendar = async () => {
+    const client = await prisma.client.findUnique({ where: { slug: "pcmidi" }, select: { id: true } });
+    if (client && !(await catalogPending(client.id))) return withLease(client.id, runDailyBlogCalendar);
+  };
+  return { runDailyBlogCalendar: runLeasedCalendar, deployEditedBlogArticle };
 }

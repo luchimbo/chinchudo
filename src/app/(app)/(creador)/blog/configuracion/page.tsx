@@ -4,6 +4,7 @@ import { assertClientAccess, getVisibleClients } from "@/lib/auth";
 import { updateLandingsConfig, updateEmailConfig } from "./actions";
 import { LandingsForm } from "./landings-form";
 import { EmailsForm } from "./emails-form";
+import { CatalogSyncPanel } from "./catalog-sync-panel";
 
 type GenerationSchedule = { enabled: boolean; intervalHours: number; limit: number; weeklyTarget: number };
 type DailyBlogSchedule = { enabled: boolean; publishTime: string };
@@ -77,7 +78,8 @@ export default async function LandingsConfigPage({
         </p>
       </header>
 
-      <div className="grid gap-8 lg:grid-cols-2">
+      {slug === "pcmidi" ? <CatalogSyncPanel clientId={c.id} /> : null}
+      <div className="mt-8 grid gap-8 lg:grid-cols-2">
         {/* Columna Izquierda: Landings */}
         <section className="rounded-xl border border-ink/10 bg-paper p-6 shadow-sm">
           <h2 className="mb-4 font-display text-xl font-semibold text-ink">URLs y Comportamiento</h2>

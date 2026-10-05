@@ -93,6 +93,7 @@ export default async function LandingsPage({
   const clientParam = `&client=${activeClient.slug}`;
 
   const tabs = [
+    { status: "DRAFT", label: "Borradores" },
     { status: "PREVIEW_ONLINE", label: "Listas para publicar" },
     { status: "PUBLISHED", label: "Publicadas" },
     { status: "ARCHIVED", label: "Archivadas" },

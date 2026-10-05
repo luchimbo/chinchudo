@@ -1,59 +1,16 @@
+import Link from "next/link";
+import { BusinessAnalysisPanel } from "@/components/business-analysis-panel";
 import { prisma } from "@/lib/db";
 import { requirePageClient } from "@/lib/auth";
 
-// Marcas exclusivas de PC MIDI Center (solo nosotros las vendemos en Argentina)
-// Orden: modelos específicos primero, marca sola al final como fallback
-// Modelos específicos primero (más largo → más específico), marca sola como fallback.
-// La búsqueda es substring en lowercase, así "minilab" matchea "MiniLab", "Minilab 3", etc.
-const CATALOGO_EXCLUSIVO: { modelo: string; marca: string; display: string }[] = [
-  // Arturia — modelos específicos
-  { modelo: "keystep pro",  marca: "arturia", display: "Arturia KeyStep Pro" },
-  { modelo: "keystep",      marca: "arturia", display: "Arturia KeyStep" },
-  { modelo: "microfreak",   marca: "arturia", display: "Arturia MicroFreak" },
-  { modelo: "minifreak",    marca: "arturia", display: "Arturia MiniFeak" },
-  { modelo: "polybrute",    marca: "arturia", display: "Arturia PolyBrute" },
-  { modelo: "keylab 88",    marca: "arturia", display: "Arturia KeyLab 88" },
-  { modelo: "microlab",     marca: "arturia", display: "Arturia MicroLab" },
-  { modelo: "minilab",      marca: "arturia", display: "Arturia MiniLab" },
-  { modelo: "beatstep",     marca: "arturia", display: "Arturia BeatStep" },
-  { modelo: "minifuse",     marca: "arturia", display: "Arturia MiniFuse" },
-  // MidiPlus — modelos específicos
-  { modelo: "akm322",       marca: "midiplus", display: "MidiPlus AKM322" },
-  { modelo: "ak490",        marca: "midiplus", display: "MidiPlus AK490" },
-  { modelo: "studio m",     marca: "midiplus", display: "MidiPlus Studio M" },
-  { modelo: "ms6",          marca: "midiplus", display: "MidiPlus MS6" },
-  { modelo: "ms5",          marca: "midiplus", display: "MidiPlus MS5" },
-  { modelo: "usb800",       marca: "midiplus", display: "MidiPlus USB800" },
-  { modelo: "bm800",        marca: "midiplus", display: "MidiPlus BM800" },
-  { modelo: "ed8",          marca: "midiplus", display: "MidiPlus ED8" },
-  { modelo: "ed6",          marca: "midiplus", display: "MidiPlus ED6" },
-  // Synido — modelos específicos
-  { modelo: "livemix duet", marca: "synido", display: "Synido LiveMix Duet" },
-  { modelo: "livemix solo", marca: "synido", display: "Synido LiveMix Solo" },
-  { modelo: "livedock pro", marca: "synido", display: "Synido LiveDock Pro" },
-  { modelo: "livedock",     marca: "synido", display: "Synido LiveDock" },
-  { modelo: "tempokey w25", marca: "synido", display: "Synido TempoKey W25" },
-  { modelo: "tempokey 25",  marca: "synido", display: "Synido TempoKey 25" },
-  { modelo: "tempopad",     marca: "synido", display: "Synido TempoPad" },
-  // Alctron — modelos específicos
-  { modelo: "um900",        marca: "alctron", display: "Alctron UM900" },
-  { modelo: "mc001",        marca: "alctron", display: "Alctron MC001" },
-  { modelo: "ma614",        marca: "alctron", display: "Alctron MA614" },
-  // Meike
-  { modelo: "meike",        marca: "meike",   display: "Meike" },
-  // Fallbacks: marca sola (si no matcheó ningún modelo específico)
-  { modelo: "arturia",      marca: "arturia",  display: "Arturia (sin modelo específico)" },
-  { modelo: "midiplus",     marca: "midiplus", display: "MidiPlus (sin modelo específico)" },
-  { modelo: "synido",       marca: "synido",   display: "Synido (sin modelo específico)" },
-  { modelo: "alctron",      marca: "alctron",  display: "Alctron (sin modelo específico)" },
-];
+type CatalogItem = { modelo: string; marca: string; display: string };
 
-function detectarNuestros(texto: string): { display: string; marca: string; snippet: string }[] {
+function detectarNuestros(texto: string, catalog: CatalogItem[]): { display: string; marca: string; snippet: string }[] {
   const t = texto.toLowerCase();
   const encontrados: { display: string; marca: string; snippet: string }[] = [];
   const marcasYaAgregadas = new Set<string>();
 
-  for (const item of CATALOGO_EXCLUSIVO) {
+  for (const item of catalog) {
     const idx = t.indexOf(item.modelo);
     if (idx >= 0) {
       const esGenerico = item.modelo === item.marca;
@@ -72,7 +29,7 @@ function detectarNuestros(texto: string): { display: string; marca: string; snip
   return encontrados;
 }
 
-// Visibilidad real = score del DB + 1 punto por cada marca exclusiva mencionada (máx 5)
+// Visibilidad real = score del DB + 1 punto por cada marca del cliente mencionada (máx 5)
 function scoreEfectivo(scoreDB: number, nuestros: { display: string }[]): number {
   return Math.min(5, scoreDB + nuestros.length);
 }
@@ -90,23 +47,30 @@ function fmt(d: Date | string) {
 export default async function GeoPage({
   searchParams,
 }: {
-  searchParams: { client?: string };
+  searchParams: { client?: string; tab?: string };
 }) {
   const { client: clientSlug } = searchParams;
   const activeClient = await requirePageClient(prisma, clientSlug);
+  if (searchParams.tab !== "ias") return <BusinessAnalysisPanel clientSlug={activeClient.slug} initialTab={searchParams.tab === "competitors" ? "competitors" : searchParams.tab === "seo" ? "seo" : "business"} />;
   const clientFilter = { clientId: activeClient.id };
 
-  const [audits, avg] = await Promise.all([
+  const [audits, avg, products, brands] = await Promise.all([
     prisma.geoAudit.findMany({
       where: clientFilter,
       orderBy: { createdAt: "desc" },
       take: 200,
     }),
     prisma.geoAudit.aggregate({ where: clientFilter, _avg: { score: true }, _count: { id: true } }),
+    prisma.product.findMany({ where: { brand: { clientId: activeClient.id } }, select: { name: true, brand: { select: { name: true } } } }),
+    prisma.brand.findMany({ where: { clientId: activeClient.id }, select: { name: true } }),
   ]);
 
-  // Score efectivo por consulta = score DB + menciones de productos exclusivos (máx 5)
-  const scoresEfectivos = audits.map(a => scoreEfectivo(a.score, detectarNuestros(a.respuestaCompleta)));
+  const catalog: CatalogItem[] = [
+    ...products.map(p => ({ modelo: p.name.toLowerCase(), marca: p.brand.name.toLowerCase(), display: p.name })).sort((a, b) => b.modelo.length - a.modelo.length),
+    ...brands.map(b => ({ modelo: b.name.toLowerCase(), marca: b.name.toLowerCase(), display: `${b.name} (sin modelo específico)` })),
+  ];
+  // Score efectivo por consulta = score DB + menciones de productos del catálogo (máx 5)
+  const scoresEfectivos = audits.map(a => scoreEfectivo(a.score, detectarNuestros(a.respuestaCompleta, catalog)));
   const avgEfectivo = scoresEfectivos.length
     ? (scoresEfectivos.reduce((s, v) => s + v, 0) / scoresEfectivos.length).toFixed(1)
     : "—";
@@ -117,7 +81,7 @@ export default async function GeoPage({
   let auditsMLconNuestros = 0;
   const productoConteo: Record<string, number> = {};
   for (const audit of audits) {
-    const nuestros = detectarNuestros(audit.respuestaCompleta);
+    const nuestros = detectarNuestros(audit.respuestaCompleta, catalog);
     const tieneML = (audit.competidores as string[]).some((c) =>
       c.toLowerCase().includes("mercado")
     );
@@ -147,6 +111,7 @@ export default async function GeoPage({
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col px-5 py-8">
+      <nav className="mb-6 flex flex-wrap gap-3 text-sm">{[["business", "Mi negocio"], ["competitors", "Competidores"], ["seo", "SEO y oportunidades"]].map(([tab, label]) => <Link key={tab} href={`/geo?client=${activeClient.slug}&tab=${tab}`} className="rounded-full bg-ink/5 px-4 py-2 text-slate">{label}</Link>)}<span className="rounded-full bg-ink px-4 py-2 text-paper">Presencia en IAs</span></nav>
       <header className="mb-8 flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-ink">Presencia en IAs</h1>
@@ -170,7 +135,7 @@ export default async function GeoPage({
           <p className="mb-4 text-xs text-slate">
             En <span className="font-semibold text-signal">{auditsMLconNuestros}</span> de las {audits.length} consultas,
             la IA recomienda marcas de nuestro catálogo (Arturia, Focusrite, etc.) pero
-            dirige la compra a MercadoLibre en vez de a PC MIDI Center.
+            dirige la compra a MercadoLibre en vez de a {activeClient.name}.
             {auditsConNuestros - auditsMLconNuestros > 0 && (
               <> En otras <span className="font-semibold text-moss">{auditsConNuestros - auditsMLconNuestros}</span> nos menciona sin redirigir a ML.</>
             )}
@@ -190,7 +155,7 @@ export default async function GeoPage({
       {topCompetitors.length > 0 && (
         <section className="mb-8 rounded-xl border border-signal/20 bg-signal/5 p-5">
           <h2 className="mb-1 text-sm font-bold text-ink">
-            Marcas que la IA menciona en lugar de PC MIDI
+            Marcas que la IA menciona junto a {activeClient.name}
           </h2>
           <p className="mb-4 text-xs text-slate">
             Cuántas veces apareció cada marca en las {avg._count.id} consultas analizadas.
@@ -226,7 +191,7 @@ export default async function GeoPage({
           {audits.map((audit) => {
             const competidores = Array.isArray(audit.competidores) ? audit.competidores : [];
             const gaps = Array.isArray(audit.gapsSugeridos) ? audit.gapsSugeridos : [];
-            const nuestros = detectarNuestros(audit.respuestaCompleta);
+            const nuestros = detectarNuestros(audit.respuestaCompleta, catalog);
             const tieneML = (competidores as string[]).some(c => c.toLowerCase().includes("mercado"));
             const scoreEf = scoreEfectivo(audit.score, nuestros);
             const scoreSubio = scoreEf > audit.score;

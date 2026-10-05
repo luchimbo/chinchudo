@@ -7,7 +7,7 @@ export type MarkerKind = "p" | "c" | "g" | "s";
 
 export type ArticleLinkAttrs = { kind: MarkerKind; ref: string; label: string | null };
 
-export type CatalogEntry = { ref: string; name: string; detail?: string };
+export type CatalogEntry = { ref: string; name: string; detail?: string; disabled?: boolean };
 
 export type ArticleCatalog = {
   products: CatalogEntry[];

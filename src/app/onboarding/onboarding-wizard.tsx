@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { normalizeWebsiteUrl } from "@/lib/website-url";
 import type { OnboardingDraft } from "@/lib/onboarding";
 import { getOnboardingCompletionIssues } from "@/lib/onboarding-completion";
+import { BusinessAnalysisPanel } from "@/components/business-analysis-panel";
 import { LoadingSpinner } from "@/components/loading-ui";
 import {
   reanalysisImpact,
@@ -41,6 +42,8 @@ type Notice = {
 function clientDraft(value?: OnboardingDraft): Required<OnboardingDraft> {
   const raw = value ?? {};
   return {
+    market: raw.market || { country: "Argentina", language: "Español latinoamericano", reach: "national", city: "", timezone: "America/Argentina/Buenos_Aires" },
+    priorities: raw.priorities || [], exclusions: raw.exclusions || [], differentiators: raw.differentiators || [], analysisRunId: raw.analysisRunId || "",
     name: raw.name || "",
     description: raw.description || "",
     brand: raw.brand || "",
@@ -155,7 +158,11 @@ export function OnboardingWizard({
   >("product");
   const [reanalysisPanelOpen, setReanalysisPanelOpen] = useState(false);
   const firstSave = useRef(true);
-  const markManual = (field: string) =>
+  const analysisRequest = useRef<AbortController | null>(null);
+  useEffect(() => () => analysisRequest.current?.abort(), []);
+  const changedFields = useRef(new Set<string>());
+  const markManual = (field: string) => {
+    changedFields.current.add(field);
     setDraft((current) => ({
       ...current,
       manualFields: [...new Set([...current.manualFields, field])],
@@ -168,6 +175,7 @@ export function OnboardingWizard({
         },
       },
     }));
+  };
   const setField = <K extends keyof Required<OnboardingDraft>>(
     field: K,
     value: Required<OnboardingDraft>[K],
@@ -176,16 +184,19 @@ export function OnboardingWizard({
     markManual(String(field));
   };
   const toggleOfferingSelected = (id: string, selected: boolean) => {
+    changedFields.current.add("offerings");
     setDraft((current) => ({
       ...current,
+      manualFields: [...new Set([...current.manualFields, `offering:${id}`])],
       offerings: current.offerings.map((item) =>
-        item.id === id ? { ...item, selected } : item,
+        item.id === id ? { ...item, selected, evidence: { ...item.evidence, status: "manual" as const } } : item,
       ),
     }));
   };
   const addManualOffering = () => {
     const name = manualOfferingName.trim();
     if (!name) return;
+    changedFields.current.add("offerings");
     const id = `manual-${Date.now()}`;
     setDraft((current) => ({
       ...current,
@@ -215,6 +226,7 @@ export function OnboardingWizard({
     setManualOfferingName("");
   };
   useEffect(() => {
+    if (isAnalyzing) return;
     if (preview || firstSave.current) {
       firstSave.current = false;
       return;
@@ -231,6 +243,7 @@ export function OnboardingWizard({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             draft,
+            changedFields: [...changedFields.current],
             sourceUrl: url,
             businessType: draft.detectedBusinessType,
             currentStep: step + 1,
@@ -247,7 +260,7 @@ export function OnboardingWizard({
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [draft, preview, step, url, clientSlug]);
+  }, [draft, preview, step, url, clientSlug, isAnalyzing]);
   const analyze = async () => {
     const normalizedUrl = normalizeWebsiteUrl(url);
     if (!/^https?:\/\//i.test(normalizedUrl)) {
@@ -255,27 +268,45 @@ export function OnboardingWizard({
       return;
     }
     setUrl(normalizedUrl);
+    analysisRequest.current?.abort();
+    const controller = new AbortController();
+    analysisRequest.current = controller;
     setIsAnalyzing(true);
     setNotice(null);
     try {
       const endpoint = preview ? "/api/onboarding/preview" : apiUrl("/api/onboarding");
       const body = preview
         ? { url: normalizedUrl }
-        : { action: "analyze", url: normalizedUrl };
+        : { action: "analyze", url: normalizedUrl, market: draft.market };
       const response = await fetch(endpoint, {
         method: "POST",
+        signal: controller.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const data = await response.json();
+      let data = await response.json();
       if (!response.ok)
         throw new Error(data.error || "No se pudo analizar el sitio.");
+      if (data.run) {
+        let profileReady = false;
+        while (!profileReady) {
+          await new Promise(resolve => window.setTimeout(resolve, 2000));
+          controller.signal.throwIfAborted();
+          const progressResponse = await fetch(apiUrl("/api/business-analysis"), { signal: controller.signal });
+          const progress = await progressResponse.json();
+          if (!progressResponse.ok) throw new Error(progress.error || "No se pudo consultar el análisis.");
+          if (progress.profile?.data?.draft?.analysisRunId === data.run.id) {
+            data = { ...data, draft: progress.profile.data.draft }; profileReady = true;
+          } else if (progress.run?.status === "FAILED") throw new Error(progress.run.errors?.[0] || "No se pudo leer el sitio. Podés completar los datos a mano.");
+        }
+      }
       const next = clientDraft(data.draft || data.onboarding?.draft);
       setDraft(next);
       setNotice(data.warning ? { level: "warning", message: data.warning } : null);
       setStep(1);
       setSaveState("saved");
     } catch (error) {
+      if (controller.signal.aborted) return;
       setNotice({
         level: "error",
         message:
@@ -285,7 +316,7 @@ export function OnboardingWizard({
       });
       setSaveState("error");
     } finally {
-      setIsAnalyzing(false);
+      if (analysisRequest.current === controller) setIsAnalyzing(false);
     }
   };
   function beginAnalysis() {
@@ -306,6 +337,7 @@ export function OnboardingWizard({
         ...draft,
         manualFields: draft.manualFields.filter((field) => field.startsWith("offering:")),
       };
+      changedFields.current.clear();
       setDraft(nextDraft);
       try {
         await fetch(apiUrl("/api/onboarding"), {
@@ -313,6 +345,7 @@ export function OnboardingWizard({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             draft: nextDraft,
+            resetManualCorrections: true,
             sourceUrl: url,
             businessType: nextDraft.detectedBusinessType,
             currentStep: step + 1,
@@ -559,6 +592,14 @@ export function OnboardingWizard({
                         : "Analizar mi página →"}
                 </button>
               </div>
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                <Field label="País"><input className={input} value={draft.market.country} onChange={e => setField("market", { ...draft.market, country: e.target.value })} /></Field>
+                <Field label="Idioma"><input className={input} value={draft.market.language} onChange={e => setField("market", { ...draft.market, language: e.target.value })} /></Field>
+                <Field label="Alcance"><select className={input} value={draft.market.reach} onChange={e => setField("market", { ...draft.market, reach: e.target.value as "national" | "local" })}><option value="national">Nacional</option><option value="local">Local</option></select></Field>
+                {draft.market.reach === "local" ? <Field label="Ciudad o zona"><input className={input} value={draft.market.city} onChange={e => setField("market", { ...draft.market, city: e.target.value })} /></Field> : null}
+                <Field label="Zona horaria"><input className={input} value={draft.market.timezone} onChange={e => setField("market", { ...draft.market, timezone: e.target.value })} /></Field>
+              </div>
+              <button type="button" onClick={() => { analysisRequest.current?.abort(); setIsAnalyzing(false); setStep(1); }} className="mt-4 text-sm font-semibold text-moss underline">No tengo web / completar a mano</button>
               {mode === "edit" && reanalysisPanelOpen ? (
                 <div className="mt-5 rounded-2xl border border-brass/25 bg-brass/[.06] p-5">
                   <p className="text-sm font-bold text-ink">¿Volver a leer tu sitio?</p>
@@ -908,6 +949,7 @@ export function OnboardingWizard({
               </div>
             </div>
           ) : null}
+          {!preview && step === 2 && clientSlug ? <div className="mb-6"><BusinessAnalysisPanel clientSlug={clientSlug} initialTab="competitors" embedded /></div> : null}
           {step === 2 ? (
             <div className="grid max-w-3xl gap-5">
               <div className="rounded-3xl border border-moss/25 bg-moss/[.07] p-6">

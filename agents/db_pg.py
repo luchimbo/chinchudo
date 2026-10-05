@@ -84,11 +84,11 @@ def load_landing_catalog(client_slug: str) -> tuple[dict, dict]:
         client_id = client_row["id"]
 
         cat_rows = conn.execute(
-            'SELECT key, name, url, description, keywords FROM "LandingCategory" WHERE "clientId" = %s',
+            'SELECT key, name, url, description, keywords, "linkStatus" FROM "LandingCategory" WHERE "clientId" = %s',
             (client_id,),
         ).fetchall()
         prod_rows = conn.execute(
-            'SELECT "externalId", name, brand, model, "categoryKey", url, "useText", "updatedAt" FROM "LandingProduct" WHERE "clientId" = %s',
+            'SELECT "externalId", name, brand, model, "categoryKey", url, "useText", "updatedAt", "linkStatus", "sourceSnapshot" FROM "LandingProduct" WHERE "clientId" = %s',
             (client_id,),
         ).fetchall()
 
@@ -101,6 +101,7 @@ def load_landing_catalog(client_slug: str) -> tuple[dict, dict]:
             "url": r["url"],
             "descripcion": r["description"],
             "keywords": kws,
+            "linkStatus": r["linkStatus"],
         }
 
     products = {}
@@ -113,7 +114,9 @@ def load_landing_catalog(client_slug: str) -> tuple[dict, dict]:
             "categoria_id": r["categoryKey"],
             "url": r["url"],
             "uso": r["useText"],
+            "linkStatus": r["linkStatus"],
             "updatedAt": (r["updatedAt"] if r["updatedAt"].tzinfo else r["updatedAt"].replace(tzinfo=timezone.utc)).isoformat(),
+            "editorialEligible": (r["sourceSnapshot"] or {}).get("editorialEligible", True),
         }
 
     return categories, products
