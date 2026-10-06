@@ -28,9 +28,9 @@ export default function LoginPage() {
   return (
     <main className="shell" style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: "40px 0" }}>
       <section className="card" style={{ width: "min(100%, 460px)", padding: "42px" }}>
-        <p className="eyebrow">Superficie aislada</p>
-        <h1 style={{ fontSize: "clamp(42px, 8vw, 68px)", lineHeight: .88, margin: "22px 0 16px" }}>Control<br /><i>Room</i></h1>
-        <p className="sans" style={{ color: "rgba(23,35,30,.65)", lineHeight: 1.5 }}>Acceso exclusivo para administración de plataforma. Toda entrada a un cliente queda registrada.</p>
+        <p className="eyebrow">Los 5 Apóstoles</p>
+        <h1 style={{ fontSize: "clamp(36px, 8vw, 54px)", lineHeight: 1.05, margin: "22px 0 16px" }}>Panel de<br /><i>administración</i></h1>
+        <p className="sans" style={{ color: "rgba(23,35,30,.65)", lineHeight: 1.5 }}>Ingresá para ver clientes, pendientes y problemas. Los cambios y accesos quedan guardados en el historial.</p>
         {error ? <p className="sans" role="alert" style={{ color: "#9d3825", fontWeight: 700 }}>{error}</p> : null}
         <form onSubmit={submit} className="grid" style={{ marginTop: 28 }}>
           <label className="sans"><span className="eyebrow">Email</span><input className="field" name="email" type="email" required autoComplete="email" /></label>

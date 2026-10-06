@@ -47,6 +47,7 @@
     "agents:discover-sources": "node node_modules/tsx/dist/cli.mjs scripts/discover-radar-sources.mts",
     "agents:validate-sources": "node node_modules/tsx/dist/cli.mjs scripts/validate-radar-sources.mts",
     "agents:listening-health": "python agents/social-listen.py --health",
+    "agents:recheck-errors": "node scripts/recheck-listening-errors.mjs",
     "agents:seed-prestige-radar": "npx tsx scripts/seed-prestige-radar.mts",
     "agents:monitor": "python agents/orchestrator.py monitor",
     "agents:healthcheck": "python agents/orchestrator.py healthcheck",

@@ -32,6 +32,8 @@ data/nst-profiles.json
 data/1browser-profile.json
 data/nstbrowser_import_*.xlsx
 reports/*.json
+reports/*listener-recheck-evidence.jsonl
+data/listener-health.json
 exports/*.csv
 models/wav2lip/
 public/videos/*.mp4

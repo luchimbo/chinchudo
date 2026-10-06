@@ -23,6 +23,6 @@ describe("señales administrativas", () => {
   it("detecta errores, tareas sin plazo y configuración pendiente", () => {
     const alerts = clientAttention({ ...healthy, description: " ", userCount: 0, onboarding: { status: "IN_REVIEW", analysisError: "Falló" }, sourceErrors: 2, draftFailures: 1, staleDrafts: 1, blogFailures: 2, catalogStatus: "PENDING_DEPLOY", businessStatus: "PARTIAL", staleAnalysis: true });
     expect(alerts).toHaveLength(11);
-    expect(alerts).toContain("2 fuentes con errores o bloqueos");
+    expect(alerts).toContain("2 sitios o búsquedas con errores o bloqueos");
   });
 });

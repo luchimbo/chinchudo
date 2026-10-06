@@ -14,7 +14,6 @@ if hasattr(sys.stdout, "reconfigure"):
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _log import get_logger  # noqa: E402
-import listening_connectors  # noqa: E402
 
 log = get_logger("social-listen")
 DATA_DIR = ROOT / "data"
@@ -27,6 +26,7 @@ browser_cdp = importlib.util.module_from_spec(spec)
 assert spec and spec.loader
 spec.loader.exec_module(browser_cdp)
 browser_cdp.load_env()  # carga .env antes de cualquier llamada a Dolphin
+import listening_connectors  # noqa: E402 -- endpoints configurados en .env
 
 TECHNICAL_KEYWORDS = [
     "driver", "compatib", "instalar", "instala", "funciona", "funcionar",
@@ -508,6 +508,7 @@ def load_own_usernames() -> set[str]:
 
 
 def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str | None, source_id: str | None = None, client_id: str | None = None, language: str = "es", public_discovery: bool = True, indexed_only: bool = False) -> dict:
+    started_at = datetime.now(timezone.utc).isoformat()
     log.info("listen_start", channel=channel, account=account or "default", query=query[:60], limit=limit, dry_run=dry_run, language=language)
     
     # Cargar dinámicamente palabras clave y exclusiones del cliente
@@ -654,6 +655,8 @@ def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str
     ]
     summary = {
         "command": "listen",
+        "started_at": started_at,
+        "source_id": source_id or "",
         "channel": channel,
         "account": account or "default",
         "query": query,
@@ -695,6 +698,7 @@ def main() -> None:
     parser.add_argument("--indexed-only", action="store_true", help="Omitir el conector directo y usar solo descubrimiento público indexado")
     parser.add_argument("--health", action="store_true", help="Verificar conectores de escucha y salir")
     parser.add_argument("--output-json", action="store_true", help="Devolver TODOS los rows en JSON por stdout (modo machine-readable)")
+    parser.add_argument("--record-source-status", action="store_true", help="Registrar el resultado observado de la fuente en Postgres")
     args = parser.parse_args()
 
     if args.health:
@@ -706,6 +710,12 @@ def main() -> None:
         source_id=args.source_id or None, client_id=args.client_id or None,
         language=args.language, public_discovery=not args.no_public_discovery, indexed_only=args.indexed_only
     )
+    if args.record_source_status and args.source_id and not args.dry_run:
+        import shutil
+        import subprocess
+        result = subprocess.run([shutil.which("node") or "node", str(ROOT / "scripts" / "record-listening-status.mjs"), args.source_id, summary["report"]], cwd=ROOT, capture_output=True, text=True, timeout=30)
+        if result.returncode:
+            raise RuntimeError(f"No se pudo registrar el estado: {result.stderr[-1000:]}")
     if args.output_json:
         # El orquestador/ai-presence-radar necesita la lista completa de rows, no solo el sample.
         print(json.dumps({"rows": summary.get("rows", []), "summary": summary}, ensure_ascii=False, indent=2))

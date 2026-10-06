@@ -23,7 +23,7 @@ const client = (id: string, name: string, alerts: string[] = []) => ({ id, name,
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.auth.mockResolvedValue({ profile: { name: "Administrador de prueba" } });
-  mocks.load.mockResolvedValue({ now, totals: { users: 245, activeSupport: 50, audits: 9800, openReports: 12 }, clients: [client("demo-a", "Cliente música", ["1 fuente con errores", "2 tareas de borradores fallidas"]), client("demo-b", "Cliente running"), { ...client("demo-c", "Cliente editorial"), active: false }] });
+  mocks.load.mockResolvedValue({ now, totals: { users: 245, activeSupport: 50, audits: 9800, openReports: 12 }, clients: [client("demo-a", "Cliente música", ["1 fuente con errores", "No se pudieron preparar 2 respuestas"]), client("demo-b", "Cliente running"), { ...client("demo-c", "Cliente editorial"), active: false }] });
   mocks.db.user.findMany.mockResolvedValue([{ id: "u", name: "Operador de prueba", email: "operador@example.com", role: "operator", client: { name: "Cliente música" } }]);
   mocks.db.supportSession.findMany.mockResolvedValue([{ id: "s", reason: "Soporte", revokedAt: null, endedAt: null, exchangedAt: null, expiresAt: new Date("2026-10-05T17:00:00Z"), client: { name: "Cliente música" }, platformAdmin: { name: "Administrador de prueba" } }]);
   mocks.db.adminAuditEvent.findMany.mockResolvedValue([{ id: "audit", createdAt: now, action: "issue_report.resolved", targetType: "IssueReport", actor: { name: "Administrador de prueba" }, client: null }]);
@@ -39,19 +39,40 @@ describe("pantallas del backoffice", () => {
   });
   it("renderiza módulos, totales y sesiones pendientes sin contarlas como activas", async () => {
     const html = renderToStaticMarkup(await DashboardPage({}));
-    expect(html).toContain("245"); expect(html).toContain("Presencia en IAs"); expect(html).toContain("Pendiente de ingreso");
+    expect(html).toContain("245"); expect(html).toContain("Mediciones de visibilidad en inteligencia artificial"); expect(html).toContain("Pendiente de ingreso");
     expect(html).toContain("Marcar resuelto"); expect(html).toContain("Cliente editorial");
+    const overview = html.slice(html.indexOf('<section class="stats-grid"'), html.indexOf('<section id="clientes"'));
+    expect(overview).toContain("102"); expect(overview).toContain("3.720"); expect(overview).toContain("108");
+    expect(overview).not.toContain("Eventos auditados"); expect(overview).not.toContain("Soportes activos");
+    expect(html).toContain('<details id="administracion" class="advanced-section">');
+    expect(html).toContain("Marcó un problema como resuelto");
+    expect(html).not.toContain("issue_report.resolved"); expect(html).not.toContain("IssueReport");
     if (process.env.ADMIN_PREVIEW_HTML) {
       const css = readFileSync(resolve("app/globals.css"), "utf8");
       writeFileSync(process.env.ADMIN_PREVIEW_HTML, `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vista de prueba del backoffice</title><style>${css}</style></head><body><div style="background:#17231e;color:white;padding:10px;text-align:center;font:12px sans-serif">Vista de prueba · Datos ficticios · Acciones sin conexión</div>${html}</body></html>`);
     }
   });
   it("filtra tarjetas y limita usuarios/auditoría al cliente seleccionado", async () => {
-    const html = renderToStaticMarkup(await DashboardPage({ searchParams: { client: "demo-a", state: "attention", q: "música" } }));
+    const html = renderToStaticMarkup(await DashboardPage({ searchParams: { client: "demo-a", state: "active", q: "música" } }));
     expect(html).toContain("1 de 3 clientes");
     expect(mocks.db.user.findMany.mock.calls[0][0].where).toEqual({ clientId: "demo-a" });
     expect(mocks.db.adminAuditEvent.findMany.mock.calls[0][0].where).toEqual({ clientId: "demo-a" });
     expect(mocks.db.issueReport.findMany.mock.calls[0][0].where).toEqual({ status: "OPEN" });
+    expect(html).toContain('href="/?q=m%C3%BAsica&amp;client=demo-a&amp;state=active">Actualizar datos</a>');
+    const overview = html.slice(html.indexOf('<section class="stats-grid"'), html.indexOf('<section id="clientes"'));
+    expect(overview).toContain("102"); expect(overview).toContain("3.720");
+  });
+  it("muestra resultados sin asignar tareas al cliente y descarta el filtro anterior de revisión", async () => {
+    const html = renderToStaticMarkup(await DashboardPage({ searchParams: { state: "attention" } }));
+    expect(html).toContain("3 de 3 clientes");
+    expect(html).toContain("Oportunidades encontradas");
+    expect(html).toContain("Artículos registrados");
+    expect(html).not.toMatch(/Por atender|por aprobar|Necesita revisión|Necesitan revisión|necesita atención|has-attention|value="attention"/);
+    expect(html).not.toContain("state=attention");
+    expect(html).not.toMatch(/objetivo diario|Objetivo diario|Qué querés ver|con errores o bloqueos/);
+    expect(html).toContain("Abrir Cliente música");
+    expect(html).toContain("búsquedas no se pudieron completar");
+    expect(html).toContain("Sin fallos registrados");
   });
   it("muestra el vacío de filtros sin ocultar totales globales", async () => {
     const html = renderToStaticMarkup(await DashboardPage({ searchParams: { q: "inexistente" } }));

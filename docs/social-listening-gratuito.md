@@ -30,7 +30,23 @@ la escucha continúa con los conectores disponibles.
 
 Un motor externo que responda con CAPTCHA o rate limit se informa como
 `degraded`, no como SearXNG caído. Solo los timeouts reciben un reintento único;
-los bloqueos explícitos quedan en espera para no agravar el límite.
+se reintenta únicamente el motor que agotó el tiempo, conservando los resultados
+de los demás. Los motores suspendidos y los bloqueos explícitos no se reintentan.
+Las consultas al buscador se serializan entre procesos con un mínimo de 2
+segundos entre solicitudes (`SEARXNG_REQUEST_INTERVAL_SEC`), también cuando la
+cuota diaria utiliza varios workers. La espera de una cola ocupada se limita
+a 35 segundos; un candado abandonado caduca al minuto.
+
+En Windows, si el daemon está apagado, la recuperación intenta iniciar Docker
+Desktop mediante su CLI y levantar los contenedores. El intento completo está
+acotado a 40 segundos y deja `desktop_start` en el reporte. Esto evita depender
+del inicio manual de Docker antes de las búsquedas programadas.
+
+La instancia del radar usa Bing y Yandex, comprobados desde esta conexión, con
+8 segundos de espera. La imagen instalada se actualizó el 6 de octubre a
+`2026.10.4+d48c4b555`. Los demás motores predeterminados devolvían CAPTCHA, 429 o
+errores en consultas `site:`. La búsqueda usa el dominio de cada red y valida
+después que el enlace sea una publicación, video o comentario, no un perfil.
 
 Para desactivarlo de forma explícita:
 
@@ -77,3 +93,27 @@ npm run agents:listening-health
 
 El estado se guarda en `data/listener-health.json` y cada corrida conserva los
 proveedores, errores y resultados en su reporte dentro de `reports/`.
+
+El monitor registra ahora el resultado de cada fuente en Postgres, incluso
+cuando no encuentra oportunidades. Una respuesta correcta sin resultados no es
+un error. Un error real se conserva hasta comprobar que la consulta funciona.
+
+Para volver a comprobar las fuentes con errores sin importar oportunidades:
+
+```powershell
+node scripts/recheck-listening-errors.mjs --dry-run --limit 5
+node scripts/recheck-listening-errors.mjs
+```
+
+Las comprobaciones se ejecutan una a una, con 3 segundos entre consultas.
+El historial anterior y la evidencia quedan en `reports/*listener-error-recheck.json`
+y `reports/*listener-recheck-evidence.jsonl`. Solo se actualiza el estado técnico;
+no se cambian los contadores de oportunidades de la última corrida. Si otra
+corrida o una edición cambió la fuente durante la comprobación, se omite la
+actualización para no pisarla.
+
+Validación del 6/10/2026: se volvieron a consultar las 185 fuentes activas que
+tenían errores (PC MIDI 143, Prestige 34 y Jurispedia 8). Las 185 respondieron
+correctamente; Postgres quedó con 0 errores de búsqueda activos. La comprobación
+no importó oportunidades. Evidencia:
+`reports/20261006201141178-listener-error-recheck.json`.

@@ -409,6 +409,7 @@ def _run_monitor_locked(args: argparse.Namespace) -> None:
             "--account", account,
             "--limit", str(src.get("limit", 5)),
             "--source-id", src["id"],
+            "--record-source-status",
         ]
         if src.get("clientId"):
             command.extend(["--client-id", src["clientId"]])

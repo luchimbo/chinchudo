@@ -23,6 +23,7 @@ HEALTH_PATH = DATA_DIR / "listener-health.json"
 SEARXNG_URL = os.getenv("SEARXNG_URL", "http://127.0.0.1:8080").rstrip("/")
 RSSHUB_URL = os.getenv("RSSHUB_URL", "http://127.0.0.1:1200").rstrip("/")
 COMPOSE_FILE = ROOT / "docker-compose.social-listening.yml"
+SEARCH_LOCK_PATH = ROOT / "runtime" / "searxng-search.lock"
 
 CHANNEL_HOSTS = {
     "facebook": ("facebook.com",),
@@ -35,13 +36,16 @@ CHANNEL_HOSTS = {
 }
 
 CHANNEL_SITE_FILTERS = {
-    "facebook": ("site:facebook.com/groups/posts",),
-    "instagram": ("site:instagram.com/reel",),
-    "linkedin": ("site:linkedin.com/posts",),
-    "reddit": ("site:reddit.com/comments",),
-    "tiktok": ("site:tiktok.com/@",),
-    "x": ("site:x.com/status",),
-    "youtube": ("site:youtube.com/watch",),
+    # El nombre del usuario/grupo va entre el dominio y /posts/, /comments/
+    # o /status/. Buscar un prefijo inexistente excluía publicaciones válidas.
+    # La URL concreta se valida con _valid_social_result después de buscar.
+    "facebook": ("site:facebook.com",),
+    "instagram": ("site:instagram.com",),
+    "linkedin": ("site:linkedin.com",),
+    "reddit": ("site:reddit.com",),
+    "tiktok": ("site:tiktok.com",),
+    "x": ("site:x.com",),
+    "youtube": ("site:youtube.com",),
 }
 
 
@@ -55,6 +59,38 @@ def _request(url: str, accept: str) -> bytes:
     })
     with urllib.request.urlopen(request, timeout=15) as response:
         return response.read()
+
+
+def _search_request(url: str, accept: str) -> bytes:
+    """Share a small request budget across monitor/quota processes.
+
+    Three quota workers must not each send an immediate burst to the same
+    external engine. An abandoned lock expires after a minute.
+    """
+    interval = min(30, max(0, float(os.getenv("SEARXNG_REQUEST_INTERVAL_SEC", "2"))))
+    SEARCH_LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + 35
+    while True:
+        try:
+            fd = os.open(SEARCH_LOCK_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.close(fd)
+            break
+        except FileExistsError:
+            try:
+                if time.time() - SEARCH_LOCK_PATH.stat().st_mtime > 60:
+                    SEARCH_LOCK_PATH.unlink(missing_ok=True)
+                    continue
+            except FileNotFoundError:
+                continue
+            if time.monotonic() >= deadline:
+                raise TimeoutError("El buscador está ocupado; se evitó enviar otra consulta simultánea")
+            time.sleep(0.1)
+    started = time.monotonic()
+    try:
+        return _request(url, accept)
+    finally:
+        time.sleep(max(0, interval - (time.monotonic() - started)))
+        SEARCH_LOCK_PATH.unlink(missing_ok=True)
 
 
 def _valid_host(url: str, hosts: tuple[str, ...]) -> bool:
@@ -108,28 +144,32 @@ def discover_searxng(channel: str, query: str, limit: int) -> tuple[list[dict[st
     site_filters = CHANNEL_SITE_FILTERS.get(channel) or tuple(f"site:{host}" for host in hosts)
     for site_filter in site_filters:
         search = urllib.parse.quote(f"{site_filter} {query}")
-        # Google CSE (the reliable engine in the local SearXNG set) returns no
-        # results when forced to the es-AR engine locale. Language is validated
-        # later from the actual snippet by social-listen.py.
+        # Language is validated later from the actual snippet by social-listen.py.
         url = f"{SEARXNG_URL}/search?format=json&q={search}"
         try:
-            payload = json.loads(_request(url, "application/json").decode("utf-8", "replace"))
+            payload = json.loads(_search_request(url, "application/json").decode("utf-8", "replace"))
         except Exception as exc:
             errors.append(str(exc))
             continue
         engines = payload.get("unresponsive_engines", [])
         # Reintentar una sola vez ante un timeout transitorio. CAPTCHA y rate
         # limits no se reintentan porque insistir empeora el bloqueo externo.
-        transient_timeout = any("timeout" in " ".join(str(part) for part in engine).lower() for engine in engines if isinstance(engine, (list, tuple)))
-        if transient_timeout:
+        transient_engines = [str(engine[0]) for engine in engines
+                             if isinstance(engine, (list, tuple)) and len(engine) >= 2
+                             and str(engine[1]).lower() == "timeout"]
+        if transient_engines:
             retries += 1
             time.sleep(float(os.getenv("SEARXNG_TIMEOUT_RETRY_DELAY_SEC", "1")))
             try:
-                payload = json.loads(_request(url, "application/json").decode("utf-8", "replace"))
-                engines = payload.get("unresponsive_engines", [])
+                retry_url = url + "&" + urllib.parse.urlencode({"engines": ",".join(transient_engines)})
+                retry_payload = json.loads(_search_request(retry_url, "application/json").decode("utf-8", "replace"))
+                payload.setdefault("results", []).extend(retry_payload.get("results", []))
+                engines = [engine for engine in engines if not isinstance(engine, (list, tuple)) or not engine or str(engine[0]) not in transient_engines]
+                engines.extend(retry_payload.get("unresponsive_engines", []))
             except Exception as exc:
-                errors.append(str(exc))
-                continue
+                # Una segunda conexión fallida no descarta resultados que ya
+                # habían devuelto otros motores en el primer intento.
+                unresponsive.append(f"retry: {exc}")
         for engine in engines:
             if isinstance(engine, (list, tuple)) and engine:
                 unresponsive.append(": ".join(str(value) for value in engine[:2]))
@@ -156,7 +196,7 @@ def discover_searxng(channel: str, query: str, limit: int) -> tuple[list[dict[st
         return [], {"provider": "searxng", "status": "unavailable", "error": errors[-1]}
     if not items and unresponsive:
         return [], {"provider": "searxng", "status": "degraded", "items": 0, "error": "; ".join(unresponsive[:4]), "retry_attempted": retries}
-    return items, {"provider": "searxng", "status": "ok", "items": len(items), "retry_attempted": retries}
+    return items, {"provider": "searxng", "status": "ok", "items": len(items), "retry_attempted": retries, "warnings": unresponsive + errors}
 
 
 def _feed_template(channel: str) -> str:
@@ -288,9 +328,8 @@ def _probe_service(name: str) -> dict[str, Any]:
 def recover_local_services() -> dict[str, Any]:
     """Start unavailable local discovery containers, then wait briefly for them.
 
-    This is deliberately best-effort: discovery remains non-blocking when Docker
-    Desktop is stopped or unavailable, and the returned detail is kept in the
-    normal listening report for an operator to inspect.
+    Windows can start Docker Desktop when its daemon is stopped. Recovery is
+    bounded and the observed result stays in the listening report.
     """
     before = [_probe_service(name) for name in ("searxng", "rsshub")]
     unavailable = [service["name"] for service in before if service["status"] != "ok"]
@@ -305,16 +344,29 @@ def recover_local_services() -> dict[str, Any]:
         result["error"] = "Docker no está disponible en PATH"
         return result
     result["attempted"] = True
+    deadline = time.monotonic() + 40
+    compose = [docker, "compose", "-f", str(COMPOSE_FILE), "up", "-d", *unavailable]
+    run_options = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
     try:
         completed = subprocess.run(
-            [docker, "compose", "-f", str(COMPOSE_FILE), "up", "-d", *unavailable],
-            cwd=ROOT, capture_output=True, text=True, timeout=45, check=False,
+            compose, cwd=ROOT, capture_output=True, text=True, timeout=10, check=False, **run_options,
         )
         result["command"] = "docker compose -f docker-compose.social-listening.yml up -d " + " ".join(unavailable)
+        daemon_error = (completed.stderr or completed.stdout or "").lower()
+        if completed.returncode and os.name == "nt" and any(marker in daemon_error for marker in ("error during connect", "dockerdesktoplinuxengine", "cannot connect to the docker daemon", "is the docker daemon running")):
+            desktop = subprocess.run(
+                [docker, "desktop", "start", "--timeout", "15"], cwd=ROOT,
+                capture_output=True, text=True, timeout=18, check=False, **run_options,
+            )
+            result["desktop_start"] = {"attempted": True, "exit_code": desktop.returncode}
+            if desktop.returncode:
+                result["error"] = (desktop.stderr or desktop.stdout or "No se pudo iniciar Docker Desktop").strip()[-1000:]
+                return result
+            completed = subprocess.run(compose, cwd=ROOT, capture_output=True, text=True, timeout=max(1, min(10, deadline - time.monotonic())), check=False, **run_options)
         if completed.returncode:
             result["error"] = (completed.stderr or completed.stdout or f"docker exit {completed.returncode}").strip()[-1000:]
             return result
-        deadline = time.monotonic() + 20
+        deadline = min(deadline, time.monotonic() + 20)
         while time.monotonic() < deadline:
             after = [_probe_service(name) for name in ("searxng", "rsshub")]
             if all(service["status"] == "ok" for service in after if service["name"] in unavailable):

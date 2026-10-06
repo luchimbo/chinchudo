@@ -1,7 +1,7 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Control Room · Los 5 Apóstoles",
+  title: "Resumen del negocio · Los 5 Apóstoles",
   robots: { index: false, follow: false },
 };
 

@@ -2,16 +2,15 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { SUPPORT_MODULES, SUPPORT_PATHS } from "@/lib/dashboard-model";
+import type { SUPPORT_PATHS } from "@/lib/dashboard-model";
 
 function BusyLabel({ children }: { children: React.ReactNode }) {
   return <span role="status" className="admin-pending"><span className="admin-spinner" aria-hidden="true" />{children}</span>;
 }
 
-export function SupportAccess({ clientId, clientName, defaultPath = "/", compact = false }: { clientId: string; clientName: string; defaultPath?: typeof SUPPORT_PATHS[number]; compact?: boolean }) {
+export function SupportAccess({ clientId, clientName, defaultPath = "/" }: { clientId: string; clientName: string; defaultPath?: typeof SUPPORT_PATHS[number] }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [targetPath, setTargetPath] = useState<string>(defaultPath);
 
   async function start() {
     setBusy(true); setError("");
@@ -19,7 +18,7 @@ export function SupportAccess({ clientId, clientName, defaultPath = "/", compact
     const response = await fetch("/api/support-sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ clientId, targetPath }),
+      body: JSON.stringify({ clientId, targetPath: defaultPath }),
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "No se pudo iniciar.");
@@ -39,7 +38,6 @@ export function SupportAccess({ clientId, clientName, defaultPath = "/", compact
 
   return (
     <div className="support-access">
-      {compact ? null : <label className="sans"><span className="sr-only">Módulo de {clientName}</span><select className="field" value={targetPath} onChange={event => setTargetPath(event.target.value)} disabled={busy}>{SUPPORT_MODULES.map(module => <option key={module.path} value={module.path}>{module.label}</option>)}</select></label>}
       <button className="button" onClick={start} disabled={busy}>{busy ? <BusyLabel>Abriendo…</BusyLabel> : `Abrir ${clientName}`}</button>
       {error ? <small className="sans" role="alert" style={{ color: "#9d3825" }}>{error}</small> : null}
     </div>
@@ -79,7 +77,7 @@ export function RevokeButton({ id }: { id: string }) {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "No se pudo revocar el acceso."); }
     finally { setBusy(false); }
   }
-  return <span><button className="button danger" onClick={revoke} disabled={busy}>{busy ? <BusyLabel>Revocando…</BusyLabel> : "Revocar"}</button>{error ? <small className="sans" role="alert" style={{ display: "block", color: "#9d3825", marginTop: 6 }}>{error}</small> : null}</span>;
+  return <span><button className="button danger" onClick={revoke} disabled={busy}>{busy ? <BusyLabel>Quitando acceso…</BusyLabel> : "Quitar acceso"}</button>{error ? <small className="sans" role="alert" style={{ display: "block", color: "#9d3825", marginTop: 6 }}>{error}</small> : null}</span>;
 }
 
 export function ReportStateButton({ id, status }: { id: string; status: "OPEN" | "RESOLVED" }) {

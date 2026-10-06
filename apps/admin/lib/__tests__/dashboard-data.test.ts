@@ -23,8 +23,15 @@ describe("resumen de plataforma", () => {
     const db = fixtureDb();
     const data = await loadDashboard(db as unknown as PrismaClient, new Date("2026-10-05T16:00:00Z"));
     expect(data.totals).toEqual({ users: 245, activeSupport: 50, audits: 900, openReports: 75 });
-    expect(data.clients[0]).toMatchObject({ todayOpportunities: 9, pendingOpportunities: 0, sourceErrors: 2, draft: { failed: 3, queued: 0 } });
-    expect(data.clients[1]).toMatchObject({ todayOpportunities: 0, pendingOpportunities: 7, sourceErrors: 0, blogApproval: 4, draft: { queued: 5, failed: 0 }, alerts: [] });
+    expect(data.clients[0]).toMatchObject({ todayOpportunities: 9, sourceErrors: 2, draft: { failed: 3, queued: 0 } });
+    expect(data.clients[1]).toMatchObject({ todayOpportunities: 0, sourceErrors: 0, draft: { queued: 5, failed: 0 } });
+    expect(data.clients[0]).not.toHaveProperty("pendingOpportunities");
+    expect(data.clients[0]).not.toHaveProperty("blogApproval");
+    expect(data.clients[0]).not.toHaveProperty("alerts");
+    expect(db.opportunity.groupBy).toHaveBeenCalledTimes(1);
+    expect(db.opportunity.groupBy.mock.calls[0][0].where).not.toHaveProperty("status");
+    expect(db.blogPublication.groupBy).toHaveBeenCalledTimes(1);
+    expect(db.monitoredSource.groupBy.mock.calls[0][0].where).toEqual({ active: true, lastError: { not: "" } });
     expect(data.clients[0].lastActivityAt?.toISOString()).toBe("2026-10-05T15:00:00.000Z");
     expect(data.clients[0].blog).toMatchObject({ ready: 5, pendingDeploy: 3 });
     expect(db.supportSession.count).toHaveBeenCalledWith({ where: { revokedAt: null, endedAt: null, exchangedAt: { not: null }, expiresAt: { gt: data.now } } });

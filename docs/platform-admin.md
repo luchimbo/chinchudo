@@ -33,15 +33,16 @@ de los límites de las listas), filtros por cliente/estado/nombre y un resumen d
 oportunidades, artículos, contactos, tendencias, guiones y presencia en IAs.
 Las fechas y el corte de actividad diaria usan la hora de Argentina.
 
-Las señales de atención incluyen configuración inicial incompleta, fuentes con
-errores o bloqueos, borradores fallidos/con plazo vencido, publicaciones fallidas
-y la última sincronización o análisis que requiere revisión. Un cliente anterior
-al alta autoservicio no se considera incompleto solo por no tener onboarding.
-El estado operativo refleja registros persistidos; no comprueba en vivo los
-procesos de Windows, navegadores ni servicios externos.
+El detalle técnico muestra búsquedas que no pudieron completarse, generación de respuestas,
+publicaciones y las últimas actualizaciones del catálogo y análisis del negocio.
+Estos estados quedan dentro de Administración y detalles; no etiquetan a un cliente
+como pendiente de revisión. La pantalla general muestra resultados registrados.
+El estado técnico refleja registros persistidos; no comprueba en vivo los procesos
+de Windows, navegadores ni servicios externos.
 
-El selector de módulos abre el destino mediante el intercambio de soporte. La
-ruta se guarda en los metadatos de la sesión y se valida en ambas apps; el slug
+El botón Abrir cliente ingresa al inicio mediante el intercambio de soporte.
+Abrir calendario mantiene su destino directo. La ruta se guarda en los metadatos
+de la sesión y se valida en ambas apps; el slug
 siempre se obtiene del cliente asociado al código. No se aceptan URLs externas.
 Los códigos no usados se muestran como pendientes de ingreso, no como activos.
 
@@ -65,3 +66,27 @@ npm run admin:dev
 
 El admin abre en `http://localhost:3010`. Al desplegar, actualizar también la app
 cliente para que el intercambio de soporte respete el módulo elegido.
+
+## Resumen para dirección
+
+La pantalla principal usa lenguaje simple y muestra cuatro totales globales:
+clientes activos, oportunidades encontradas hoy (día de Argentina), oportunidades
+encontradas en total y artículos registrados. Cada cliente muestra oportunidades
+encontradas en total y hoy, artículos registrados y contactos registrados.
+Estos totales incluyen todos los estados; no clasifican los resultados como tareas
+pendientes ni muestran avisos de revisión. La revisión y aprobación pertenecen al
+panel de cada cliente. Los contactos no se presentan como ventas confirmadas.
+
+Los datos se consultan al abrir la pantalla. `Actualizar datos` vuelve a consultar
+el servidor conservando los filtros. Los totales superiores siempre incluyen a
+todos los clientes; las tarjetas y tareas respetan los filtros elegidos.
+
+El estado de procesos, usuarios, accesos de soporte e historial de cambios queda
+en `Administración y detalles`, cerrado al entrar. Las acciones del historial se
+traducen a frases como `Ingresó al panel de un cliente` o `Marcó un problema como
+resuelto`. Este historial registra cambios administrativos, no resultados comerciales.
+La suspensión de un cliente queda dentro de su configuración desplegable.
+Los objetivos diarios no se muestran en el backoffice; su configuración operativa
+se mantiene en cada cliente. El contador de errores de búsqueda incluye únicamente
+fuentes activas con `lastError` guardado. Una lectura correcta sin candidatos o
+sin resultados no se considera un error solo por tener `blockedReason`.
