@@ -3,6 +3,7 @@ const mocks = vi.hoisted(() => ({ completion: vi.fn(), inspect: vi.fn() }));
 vi.mock("./llm-provider", () => ({ resolveLLMConfig: () => ({}), fetchChatCompletion: mocks.completion }));
 vi.mock("./blog-evidence", () => ({ inspectBlogArticle: mocks.inspect }));
 import { generatePrivateBusinessArticle } from "./business-article-generator";
+import { discoverContentOpportunities } from "./business-analysis-worker";
 import { DEFAULT_MARKET, type BusinessProfileData } from "./business-analysis";
 import { defaultDraft } from "./onboarding";
 const client = { id: "a", name: "Clases Norte" } as any;
@@ -27,6 +28,18 @@ beforeEach(() => {
   mocks.inspect.mockResolvedValue({ publishable: true, checks: [] });
 });
 describe("generación privada del análisis", () => {
+  it("propone temas sin enviar diagnósticos SEO y conserva el filtro de fuentes", async () => {
+    mocks.completion.mockResolvedValue({ response: { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ opportunities: [{ ...topic, sourceUrls: [...topic.sourceUrls, "https://invented.example"] }] }) } }] }) } });
+    const page = { url: topic.sourceUrls[0], title: "Clases de piano", pageType: "service", fetchedAt: "2026-10-06", seo: { h2: ["diagnóstico extenso"], findings: [{ evidence: "detalle técnico" }] } };
+    const opportunities = await discoverContentOpportunities(client, profile, { own: { domain: "clases.example", description: "Clases", offer: "Piano", audience: "Alumnos", categories: ["Clases"], topics: [], pages: [page] } } as any);
+    const payload = mocks.completion.mock.calls[0][1];
+    const input = JSON.parse(payload.messages[1].content);
+    expect(input.own.pages).toEqual([{ url: page.url, title: page.title, pageType: page.pageType }]);
+    expect(payload.max_tokens).toBe(3000);
+    expect(payload.response_format).toEqual({ type: "json_object" });
+    expect(opportunities[0].sourceUrls).toEqual(topic.sourceUrls);
+    expect(page.seo.findings).toHaveLength(1);
+  });
   it("guarda DRAFT sin URLs públicas y mantiene la aprobación incluso con autoPublish", async () => {
     const { db, slot } = database();
     await generatePrivateBusinessArticle(db, { ...client, autoPublish: true }, profile, topic, slot.id);

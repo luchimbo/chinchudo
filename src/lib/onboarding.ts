@@ -1276,6 +1276,9 @@ async function syncCatalogOfferings(
   let services = 0;
   for (const item of draft.offerings) {
     if (!item.selected) continue;
+    // An analysis keeps unobserved offerings in the profile for human review;
+    // they are not a fresh catalog observation and must not be re-imported.
+    if (preserveCommercialTerms && draft.analysisRunId && item.evidence.status === "needs_confirmation") continue;
     if (item.kind === "product") {
       products += 1;
       const fields = {

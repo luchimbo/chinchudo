@@ -5,6 +5,10 @@ import { confirmedDraftFor, readConfirmedSnapshot, rehydrateDraftFromConfirmed }
 
 export const jsonData = (value: unknown): Prisma.InputJsonValue => JSON.parse(JSON.stringify(value));
 
+// A website sample can include 100 offerings. Catalog writes use this same
+// transaction, with no network work, and need time for the remote DB round trips.
+const profileTransactionOptions = { timeout: 120000, maxWait: 10000 };
+
 // Reuse onboarding's transaction without opening a nested transaction. All
 // profile/context writers take the same tenant lock before reading corrections.
 function transactionDatabase(tx: Prisma.TransactionClient): PrismaClient {
@@ -79,7 +83,7 @@ export async function editBusinessProfile(db: PrismaClient, client: Client, patc
     const updated = await tx.businessProfile.update({ where: { id: profile.id }, data: { data: jsonData(data) } });
     await tx.clientOnboarding.updateMany({ where: { clientId: client.id }, data: { draft: jsonData(data.draft) } });
     return updated;
-  }, { timeout: 30000 });
+  }, profileTransactionOptions);
 }
 export async function saveAnalyzedProfile(db: PrismaClient, client: Client, fresh: Required<import("./onboarding").OnboardingDraft>, runId: string) {
   await ensureBusinessProfile(db, client);
@@ -93,7 +97,7 @@ export async function saveAnalyzedProfile(db: PrismaClient, client: Client, fres
     await tx.businessProfile.update({ where: { id: row.id }, data: { data: jsonData(data), lastSuccessfulAt: now, nextAnalysisAt: monthAfter(now, data.market.timezone) } });
     await tx.clientOnboarding.upsert({ where: { clientId: client.id }, create: { clientId: client.id, sourceUrl: row.sourceUrl, draft: jsonData(data.draft), status: "IN_REVIEW", currentStep: 2 }, update: { sourceUrl: row.sourceUrl, draft: jsonData(data.draft), analysisError: "" } });
     return data;
-  }, { timeout: 30000 });
+  }, profileTransactionOptions);
 }
 export async function syncBusinessDraft(db: PrismaClient, client: Client, draft: Required<import("./onboarding").OnboardingDraft>, changedFields: string[] = [], resetManualCorrections = false) {
   await ensureBusinessProfile(db, client);
@@ -111,5 +115,5 @@ export async function syncBusinessDraft(db: PrismaClient, client: Client, draft:
     await tx.businessProfile.update({ where: { id: row.id }, data: { data: jsonData(data) } });
     await tx.clientOnboarding.updateMany({ where: { clientId: client.id }, data: { draft: jsonData(data.draft) } });
     return data.draft;
-  }, { timeout: 30000 });
+  }, profileTransactionOptions);
 }

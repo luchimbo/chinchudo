@@ -16,6 +16,11 @@ Los artículos nuevos se guardan como `DRAFT`, con `generation_mode: private-dra
 
 El análisis automático conserva precios, stock y disponibilidad existentes. Una oferta conocida que no aparece en una nueva lectura se mantiene con una advertencia para confirmar su vigencia.
 
+Las ofertas no observadas que se conservan para revisión no se reimportan al catálogo
+como si fueran una lectura reciente. El guardado del perfil y su catálogo admite
+hasta 120 segundos para las escrituras en la base remota; la lectura web y la IA
+se ejecutan fuera de esa transacción.
+
 ## Instalación y worker local
 
 La migración aditiva es `prisma/migrations/20261005_business_analysis/migration.sql`. Crea `BusinessProfile`, `BusinessCompetitor` y `BusinessAnalysisRun`, y amplía `BlogPublication`. No borra tablas ni modifica reservas anteriores. Las tablas nuevas usan RLS, sin permisos para `anon`, `authenticated` ni `PUBLIC`; la API opera desde el servidor y valida acceso por cliente.

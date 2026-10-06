@@ -111,6 +111,22 @@ function makeFakePrisma(options: {
 }
 
 describe("syncOnboarding", () => {
+  it("conserva ofertas no observadas sin reimportarlas durante el análisis", async () => {
+    const { prisma, tx } = makeFakePrisma({ clientName: "Cliente" });
+    const draft = sanitizeDraft({ name: "Cliente", brand: "Marca", analysisRunId: "run-1", offerings: [
+      { id: "observed", name: "Piano", kind: "product", selected: true, evidence: { url: "https://example.com/piano", status: "extracted", confidence: "high" } },
+      { id: "old", name: "Sintetizador", kind: "product", selected: true, evidence: { url: "https://example.com/synth", status: "needs_confirmation", confidence: "low" } },
+      { id: "old-service", name: "Clases", kind: "service", selected: true, evidence: { url: "https://example.com/classes", status: "needs_confirmation", confidence: "low" } },
+    ] });
+    await syncOnboarding(prisma, "client-1", draft, { preserveCommercialTerms: true });
+    expect(tx.product.upsert).toHaveBeenCalledTimes(1);
+    expect(tx.product.upsert.mock.calls[0][0].create.name).toBe("Piano");
+    expect(tx.service.upsert).not.toHaveBeenCalled();
+    // Manual onboarding may still import an offering awaiting confirmation.
+    await syncOnboarding(prisma, "client-1", draft);
+    expect(tx.product.upsert).toHaveBeenCalledTimes(3);
+    expect(tx.service.upsert).toHaveBeenCalledTimes(1);
+  });
   it("el análisis observable no modifica precios ni disponibilidad", async () => {
     const { prisma, tx } = makeFakePrisma({ clientName: "Cliente" });
     const draft = sanitizeDraft({ name: "Cliente", brand: "Marca", offerings: [

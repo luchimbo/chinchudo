@@ -16,9 +16,10 @@ const articleSchema = z.object({
   faqs: z.array(z.object({ q: z.string().min(5).max(300), a: z.string().min(20).max(2000) })).min(3).max(6),
   brand_solution: z.object({ title: z.string().max(200), body: z.string().max(2000) }),
 });
-export async function businessJson<T>(client: Client, system: string, input: unknown, schema: z.ZodType<T>, signal?: AbortSignal): Promise<T> {
+export async function businessJson<T>(client: Client, system: string, input: unknown, schema: z.ZodType<T>, signal?: AbortSignal, maxTokens = 8000): Promise<T> {
   const completion = await fetchChatCompletion(resolveLLMConfig(client), {
-    temperature: 0.25, max_tokens: 8000,
+    temperature: 0.25, max_tokens: maxTokens,
+    response_format: { type: "json_object" },
     messages: [{ role: "system", content: system }, { role: "user", content: JSON.stringify(input) }],
   }, "Cafishia Business Analysis", client, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(120000)]) : AbortSignal.timeout(120000) });
   if (!completion.response.ok) throw new Error(`La IA respondió ${completion.response.status}.`);
