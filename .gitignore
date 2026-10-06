@@ -62,3 +62,23 @@ landing-build/reports/
 data/*.lock
 data/*.lock.*
 backups/*.json
+
+# Estado, registros y memoria de los agentes (se generan al correr; no se versionan)
+agents/data/content_feedback.jsonl
+agents/data/geo_audits.jsonl
+backups/*.db
+landing-build/data/app.db
+landing-build/data/agent_heartbeat.json
+landing-build/data/auto_browser_*.json
+!landing-build/data/auto_browser_example.json
+landing-build/data/browser_action_memory.json
+landing-build/data/content_feedback.jsonl
+landing-build/data/conversion_sales.jsonl
+landing-build/data/distribution_log.jsonl
+landing-build/data/distribution_search_tasks.jsonl
+landing-build/data/engagement_log.jsonl
+landing-build/data/geo_audits.jsonl
+landing-build/data/ig_state.json
+landing-build/data/nurture_metrics.json
+landing-build/data/oportunidades_research.jsonl
+landing-build/data/social_intel.jsonl
