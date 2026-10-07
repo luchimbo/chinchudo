@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ completion: vi.fn(), inspect: vi.fn() }));
-vi.mock("./llm-provider", () => ({ resolveLLMConfig: () => ({}), fetchChatCompletion: mocks.completion }));
+const mocks = vi.hoisted(() => ({ completion: vi.fn(), inspect: vi.fn(), complete: vi.fn(), config: { provider: "openrouter", model: "deepseek/deepseek-v4-flash" } }));
+vi.mock("./llm-provider", () => ({ resolveLLMConfig: () => mocks.config, fetchChatCompletion: mocks.completion }));
 vi.mock("./blog-evidence", () => ({ inspectBlogArticle: mocks.inspect }));
+vi.mock("./complete-blog-article", () => ({ completeBlogArticle: mocks.complete }));
 import { generatePrivateBusinessArticle } from "./business-article-generator";
 import { discoverContentOpportunities } from "./business-analysis-worker";
 import { DEFAULT_MARKET, type BusinessProfileData } from "./business-analysis";
@@ -15,6 +16,7 @@ function database() {
   const db: any = {
     blogPublication: { findFirstOrThrow: vi.fn(async ({ where }: any) => { if (where.clientId !== slot.clientId) throw new Error("No encontrado"); return slot; }), update: vi.fn(async ({ data }: any) => Object.assign(slot, data)) },
     landingCategory: { findMany: vi.fn(async () => []) }, landingProduct: { findMany: vi.fn(async () => []) },
+    contentCluster: { upsert: vi.fn(async ({ create }: any) => ({ id: "cluster", ...create })) },
     landing: { findFirst: vi.fn(async () => null), create: vi.fn(async ({ data }: any) => ({ id: "article", ...data })) },
     businessAnalysisRun: { findFirst: vi.fn(async () => ({ id: "run" })) },
     $queryRaw: vi.fn(async () => [slot]),
@@ -26,6 +28,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.completion.mockResolvedValue({ response: { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify(generated) } }] }) } });
   mocks.inspect.mockResolvedValue({ publishable: true, checks: [] });
+  mocks.complete.mockImplementation(async (_db, _clientId, content) => ({ content, changes: [] }));
 });
 describe("generación privada del análisis", () => {
   it("propone temas sin enviar diagnósticos SEO y conserva el filtro de fuentes", async () => {
@@ -37,6 +40,7 @@ describe("generación privada del análisis", () => {
     expect(input.own.pages).toEqual([{ url: page.url, title: page.title, pageType: page.pageType }]);
     expect(payload.max_tokens).toBe(3000);
     expect(payload.response_format).toEqual({ type: "json_object" });
+    expect(payload.reasoning).toEqual({ enabled: false });
     expect(opportunities[0].sourceUrls).toEqual(topic.sourceUrls);
     expect(page.seo.findings).toHaveLength(1);
   });
@@ -48,10 +52,21 @@ describe("generación privada del análisis", () => {
     expect(data.publicPreviewUrl).toBeUndefined();
     expect(data.previewPublishedAt).toBeUndefined();
     expect(data.publishedAt).toBeUndefined();
-    expect(JSON.parse(data.htmlContent)).toMatchObject({ generation_mode: "private-draft", analysis_run_id: "run" });
+    expect(data.contentClusterId).toBe("cluster");
+    expect(JSON.parse(data.htmlContent)).toMatchObject({ generation_mode: "private-draft", analysis_run_id: "run", hero_lede: generated.direct_answer, cluster_slug: "guias", cluster_name: "Guías" });
     expect(slot).toMatchObject({ requiresApproval: true, approvedAt: null, status: "READY", landingId: "article" });
     await generatePrivateBusinessArticle(db, client, profile, topic, slot.id);
     expect(db.landing.create).toHaveBeenCalledTimes(1);
+  });
+  it("completa enlaces y fuentes antes de revisar y persistir la respuesta de IA", async () => {
+    const { db, slot } = database();
+    mocks.complete.mockImplementation(async (_db, _clientId, content) => ({ content: { ...content, seo_title: "Primera clase de piano", sections: [{ h2: "Preparación", body: "Consultá [[c:clases|las clases]]." }], source_refs: [{ id: "catalog-clases" }] }, changes: ["catalog-link"] }));
+    await generatePrivateBusinessArticle(db, client, profile, topic, slot.id);
+    expect(mocks.complete).toHaveBeenCalledWith(db, client.id, expect.objectContaining({ source_refs: [], research_source_urls: topic.sourceUrls }));
+    expect(mocks.inspect.mock.calls[0][2].sections[0].body).toContain("[[c:clases");
+    const saved = db.landing.create.mock.calls[0][0].data;
+    expect(saved.seoTitle).toBe("Primera clase de piano");
+    expect(JSON.parse(saved.htmlContent).source_refs).toEqual([{ id: "catalog-clases" }]);
   });
   it("rechaza una reserva de otro cliente antes de invocar IA", async () => {
     const { db } = database();
@@ -67,5 +82,12 @@ describe("generación privada del análisis", () => {
     const { db, slot } = database(); mocks.completion.mockRejectedValue(new Error("Proveedor caído"));
     await expect(generatePrivateBusinessArticle(db, client, profile, topic, "s")).rejects.toThrow("Proveedor caído");
     expect(db.landing.create).not.toHaveBeenCalled(); expect(slot.status).toBe("PLANNED");
+  });
+  it("rechaza una salida truncada sin persistir un artículo ni levantar la revisión", async () => {
+    const { db, slot } = database();
+    mocks.completion.mockResolvedValue({ response: { ok: true, json: async () => ({ choices: [{ finish_reason: "length", message: { content: '{"sections":[{}' } }] }) } });
+    await expect(generatePrivateBusinessArticle(db, client, profile, topic, slot.id)).rejects.toThrow("límite de salida");
+    expect(db.landing.create).not.toHaveBeenCalled();
+    expect(slot).toMatchObject({ requiresApproval: true, landingId: null, status: "PLANNED" });
   });
 });

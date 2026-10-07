@@ -2150,6 +2150,7 @@ def review_generated_editorial(landing: dict, topic: dict, source_bank: list[dic
     landing["source_refs"] = [trusted.get(sid, {"id": sid}) for sid in sorted(source_ids)]
     landing["editorial_intent"] = topic["editorial_intent"]
     landing["editorial_brief"] = {key: value for key, value in brief.items() if key != "evidence"}
+    landing = quality_bridge("complete", content=landing, sources=source_bank, products=products, categories=categories, existing=existing)["content"]
     landing["editorial_quality"] = quality_bridge("review", content=landing, sources=source_bank, products=products, categories=categories, existing=existing)
     return landing
 
@@ -2616,6 +2617,10 @@ def render_landing(landing: dict, categories: dict[str, dict], products: dict[st
     logo_markup = f'<img src="{esc(logo_url)}" alt="{esc(brand)}" class="logo-img">' if logo_url else f'<span class="brand-text">{esc(brand)}</span>'
     logo_light_markup = f'<img src="{esc(logo_url)}" alt="{esc(brand)}" class="brand-mark-light reveal" style="--delay: 0ms;">' if logo_url else f'<span class="brand-mark-light brand-wordmark reveal" style="--delay: 0ms;">{esc(brand)}</span>'
     logo_light_plain = f'<img src="{esc(logo_url)}" alt="{esc(brand)}" class="brand-mark-light">' if logo_url else f'<span class="brand-mark-light brand-wordmark">{esc(brand)}</span>'
+    # La marca de PC MIDI es monocromática; otros clientes conservan sus colores.
+    if client_slug_active() == "pcmidi":
+        logo_markup = logo_markup.replace('class="logo-img"', 'class="logo-img brand-monochrome"')
+        logo_light_plain = logo_light_plain.replace('class="brand-mark-light"', 'class="brand-mark-light brand-monochrome"')
     components_title = landing.get("components_title") or f"Opciones para resolver: {landing['keyword']}"
     components_subtitle = landing.get("components_subtitle") or (
         f"Estas categorias ayudan a comparar {display_category_name(primary).lower()} y alternativas relacionadas segun el uso real: "
@@ -2852,23 +2857,40 @@ def editorial_lead_magnet(landing: dict, landings: list[dict], lead_magnets: dic
     return None
 
 
-# Ajustes de lectura sobre la base visual del template activo: sólo usa sus
-# variables (--paper, --ink, --accent, --font-sans...), así cada cliente
-# conserva el diseño de sus landings.
+# Ajustes de lectura sobre la base visual del template activo, con sus
+# colores y tipografías; el logo monocromático se limita a PC MIDI.
 ARTICLE_CSS = """<style>
     .article-page main > section { order: 0 !important; }
-    .article-page .reveal.in { transform: none; }
+    /* El artículo también se lee sin JS, incluido el iframe privado. */
+    .article-page .reveal, .article-page .reveal.in { opacity: 1; transform: none; animation: none; transition: none; }
+    .article-page .header-grid { grid-template-columns: auto minmax(0, 1fr) auto; gap: 24px; padding-top: 12px; padding-bottom: 12px; }
+    .article-page .brand-logo { background: #181816; padding: 10px 14px; border-radius: 4px; box-shadow: none; }
+    .article-page .logo-img { width: 140px; max-height: 64px; object-fit: contain; }
+    .article-page .brand-text { color: #fff; }
+    .article-page .brand-monochrome { filter: brightness(0) invert(1); }
+    .article-page .site-nav { justify-content: center; flex-wrap: wrap; border: 0; padding: 0; }
+    .article-page .header-cta > .mono-label { display: none; }
+    .article-page .hero-grid { grid-template-columns: minmax(0, 1fr); padding-top: clamp(28px, 4vw, 48px); padding-bottom: clamp(28px, 4vw, 48px); }
+    .article-page .hero-title { max-width: 1000px; font-size: clamp(34px, 5.6vw, 72px); line-height: 1.04; letter-spacing: -.045em; overflow-wrap: anywhere; }
+    .article-page .hero-eyebrow { margin-bottom: 18px; }
+    .article-page .hero-lede { max-width: 900px; font-size: clamp(17px, 1.6vw, 21px); line-height: 1.55; margin-top: 20px; }
+    .article-page.tpl-minimalist .hero { background: #F5F2EC; border-top: 3px solid var(--accent); }
     .article-page .section.article-flow { padding: clamp(28px, 4vw, 52px) 0; }
     .article-page .article-prose { max-width: calc(780px + 2 * var(--container-pad)); }
-    .article-page .article-crumbs { position: relative; z-index: 1; margin-bottom: 1.4rem; font-family: var(--font-mono); font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase; opacity: .72; }
-    .article-page .article-byline { display: block; margin: 1.6rem 0 0; }
+    .article-page .article-prose.article-intro { max-width: var(--container); display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 28px; align-items: start; }
+    .article-page .article-intro > :only-child { grid-column: 1 / -1; }
+    .article-page .article-intro > .article-note { grid-column: 1 / -1; order: 1; }
+    .article-page .article-crumbs { position: relative; z-index: 1; margin-bottom: 24px; font-family: var(--font-mono); font-size: 11px; letter-spacing: .02em; opacity: .72; overflow-wrap: anywhere; }
+    .article-page .article-byline { display: block; margin: 20px 0 0; }
     .article-page .article-crumbs a { text-decoration: underline; text-underline-offset: 3px; }
     .article-page .article-answer { padding: clamp(20px, 3vw, 32px); background: var(--paper-2); border-left: 4px solid var(--accent); }
     .article-page .article-answer p:last-child { margin: .7rem 0 0; font-size: clamp(19px, 1.8vw, 23px); line-height: 1.45; color: var(--ink); }
     .article-page .article-note { margin: 1.4rem 0 0; font-size: 17px; color: var(--ink-3); }
-    .article-page .article-toc { margin-top: 1.8rem; padding: 1.2rem 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+    .article-page .article-toc { padding: 24px; border: 1px solid var(--rule); background: var(--paper); }
     .article-page .article-toc ol { margin: .8rem 0 0; padding-left: 1.3rem; color: var(--ink-3); }
-    .article-page .article-toc li { margin: .35rem 0; }
+    .article-page .article-toc li { padding: .45rem 0; border-bottom: 1px solid var(--rule); font-size: 14px; line-height: 1.4; }
+    .article-page .article-toc li:last-child { border-bottom: 0; }
+    .article-page .article-toc a:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
     .article-page .article-body section + section, .article-page .article-body aside + section { margin-top: clamp(28px, 4vw, 48px); }
     .article-page .article-callout { margin: clamp(24px, 3vw, 36px) 0 0; padding: 1rem 1.2rem; border-left: 3px solid var(--accent); background: var(--paper-2); }
     .article-page .article-callout p { margin: .4rem 0 0; font-weight: 600; }
@@ -2883,6 +2905,22 @@ ARTICLE_CSS = """<style>
     .article-page .mega .reveal > .mono-label { display: flex; margin-top: .4rem; }
     .article-page .mega p { max-width: 720px; font-size: clamp(17px, 1.5vw, 21px); }
     .article-page .mega h2 { font-size: clamp(36px, 5vw, 72px); }
+    @media (max-width: 980px) {
+      .article-page .header-grid { grid-template-columns: auto minmax(0, 1fr); gap: 12px 20px; }
+      .article-page .site-nav { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; }
+      .article-page .header-cta { justify-content: flex-end; }
+    }
+    @media (max-width: 760px) {
+      .article-page .article-prose.article-intro { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+      .article-page .hero-grid { padding-top: 24px; padding-bottom: 28px; }
+    }
+    @media (max-width: 640px) {
+      .article-page .site-nav { display: none; }
+      .article-page .header-cta { width: auto; }
+      .article-page .header-cta .cta { width: auto; }
+      .article-page .logo-img { width: 110px; max-height: 50px; }
+      .article-page .hero .mono-label { font-size: 10px; }
+    }
   </style>"""
 
 
@@ -2923,7 +2961,7 @@ def render_editorial_article(
         '<section class="hero"><div class="hero-bg-grid" aria-hidden="true"></div><div class="hero-bg-glow" aria-hidden="true"></div>'
         '<div class="container hero-grid"><div>'
         '<nav class="article-crumbs" aria-label="Miga de pan"><a href="/">Blog</a> / '
-        f'<a href="{esc(hub_path)}" data-internal-link="true" data-link-type="hub">{esc(cluster_name)}</a> / <span>{esc(title)}</span></nav>'
+        f'<a href="{esc(hub_path)}" data-internal-link="true" data-link-type="hub">{esc(cluster_name)}</a></nav>'
         f'<div class="hero-eyebrow reveal" style="--delay: 90ms;"><span class="rec-dot" aria-hidden="true"></span><span class="mono-label">{esc(kicker)}</span></div>'
         f'<h1 class="hero-title reveal" style="--delay: 180ms;">{values["h1"]}</h1>'
         f'<p class="hero-lede reveal" style="--delay: 300ms;">{values["hero_lede"]}</p>'
@@ -2944,7 +2982,7 @@ def render_editorial_article(
     if len(sections) >= 3:
         items = "".join(f'<li><a href="#seccion-{index}">{esc(section["h2"])}</a></li>' for index, section in enumerate(sections, start=1))
         intro_parts.append(f'<nav class="article-toc" aria-label="En esta guía"><span class="mono-label dim">En esta guía</span><ol>{items}</ol></nav>')
-    intro_html = f'<section class="section article-flow"><div class="container article-prose">{"".join(intro_parts)}</div></section>' if intro_parts else ""
+    intro_html = f'<section class="section article-flow"><div class="container article-prose article-intro">{"".join(intro_parts)}</div></section>' if intro_parts else ""
 
     section_html = [
         f'<section id="seccion-{index}"><h2>{esc(section["h2"])}</h2>{linker.paragraphs(str(section["body"]))}</section>'
@@ -3007,7 +3045,7 @@ def render_editorial_article(
         f'<section class="mega article-solution" id="donde-conseguirlo" aria-label="Solución en {esc(brand)}"><div class="container mega-grid"><div class="reveal">'
         f'{values["logo_light_plain"]}<span class="mono-label">{esc(cluster_name)}</span><h2>{esc(solution_title)}</h2>'
         f"<p>{linker.inline(str(solution_body))}</p>{other_html}{strip_html}</div>"
-        f'<a class="cta cta-mega" href="{esc(primary["url"])}" data-link-type="solution_cta"><span>Ver {esc(primary["nombre"])}</span><span class="cta-arrow">&rarr;</span></a>'
+        f'<a class="cta cta-mega" href="{esc(primary["url"] or store_url + "/")}" data-link-type="solution_cta"><span>{"Ver " + esc(primary["nombre"]) if primary["url"] else "Ver tienda"}</span><span class="cta-arrow">&rarr;</span></a>'
         "</div></section>"
     )
 
@@ -3133,6 +3171,12 @@ def render_editorial_article(
     rendered = re.sub(r'<script type="application/ld\+json">\s*\{[^<]*"@type":\s*"FAQPage"[^<]*</script>', "", rendered)
     head_meta += "<style>.article-comparison{border-collapse:collapse;width:100%;font-size:16px}.article-comparison th,.article-comparison td{border-bottom:1px solid var(--rule);padding:12px;text-align:left;vertical-align:top}.article-comparison caption{text-align:left;font-weight:700;padding:12px 0}</style>"
     rendered = re.sub(r'<nav class="site-nav">.*?</nav>', lambda _: nav_html, rendered, count=1, flags=re.DOTALL)
+    # La cabecera del blog usa una acción breve, sin el código de campaña.
+    header, rest = rendered.split("</header>", 1)
+    header = header.replace(f'<span class="mono-label dim">{values["code"]}</span>', "")
+    header = header.replace(f'<span>{values["cta_text"]}</span>', '<span>Ver tienda</span>')
+    header = header.replace(f'class="cta cta-primary cta-sm" href="{values["primary_url"]}"', f'class="cta cta-primary cta-sm" href="{esc(store_url)}/"')
+    rendered = header + "</header>" + rest
     rendered = rendered.replace('<body class="', '<body class="article-page ', 1)
     rendered = rendered.replace("</head>", head_meta + "</head>", 1)
     return rendered.replace("</body>", tracking + "</body>", 1)

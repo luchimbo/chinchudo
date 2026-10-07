@@ -5,6 +5,7 @@ import type { Client, PrismaClient } from "@prisma/client";
 import { fetchChatCompletion, resolveLLMConfig } from "./llm-provider";
 import { editorialIntentForDate } from "./blog-quality.mjs";
 import { inspectBlogArticle } from "./blog-evidence";
+import { completeBlogArticle } from "./complete-blog-article";
 import { jsonData } from "./business-analysis-service";
 import type { BusinessProfileData, ContentOpportunity } from "./business-analysis";
 
@@ -17,9 +18,13 @@ const articleSchema = z.object({
   brand_solution: z.object({ title: z.string().max(200), body: z.string().max(2000) }),
 });
 export async function businessJson<T>(client: Client, system: string, input: unknown, schema: z.ZodType<T>, signal?: AbortSignal, maxTokens = 8000): Promise<T> {
-  const completion = await fetchChatCompletion(resolveLLMConfig(client), {
+  const config = resolveLLMConfig(client);
+  const reasoning = config.provider === "openrouter" && (config.model === "deepseek/deepseek-v4-flash" || "BLOG_LLM_REASONING_ENABLED" in process.env)
+    ? { reasoning: { enabled: process.env.BLOG_LLM_REASONING_ENABLED?.toLowerCase() === "true" } } : {};
+  const completion = await fetchChatCompletion(config, {
     temperature: 0.25, max_tokens: maxTokens,
     response_format: { type: "json_object" },
+    ...reasoning,
     messages: [{ role: "system", content: system }, { role: "user", content: JSON.stringify(input) }],
   }, "Cafishia Business Analysis", client, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(120000)]) : AbortSignal.timeout(120000) });
   if (!completion.response.ok) throw new Error(`La IA respondió ${completion.response.status}.`);
@@ -27,7 +32,10 @@ export async function businessJson<T>(client: Client, system: string, input: unk
   const content = String(payload.choices?.[0]?.message?.content || "");
   const start = content.indexOf("{"), end = content.lastIndexOf("}");
   if (start < 0 || end < start) throw new Error("La IA no devolvió un resultado válido.");
-  return schema.parse(JSON.parse(content.slice(start, end + 1)));
+  let parsed: unknown;
+  try { parsed = JSON.parse(content.slice(start, end + 1)); }
+  catch { throw new Error(payload.choices?.[0]?.finish_reason === "length" ? "La IA agotó el límite de salida antes de completar el JSON. Reintentá la generación." : "La IA devolvió JSON inválido. Reintentá la generación."); }
+  return schema.parse(parsed);
 }
 
 /** This path only persists private drafts. It never calls a builder/deployer/publisher. */
@@ -50,13 +58,14 @@ export async function generatePrivateBusinessArticle(db: PrismaClient, client: C
   signal?.throwIfAborted();
   const category = catalog.find(c => c.name.toLowerCase() === topic.category.toLowerCase()) || catalog[0];
   const slug = `analisis-${slot.analysisRunId}-${slot.scheduledDate.toISOString().slice(0, 10)}`;
-  const content = {
-    ...generated, slug, keyword: topic.keyword, titulo: generated.h1, intro: generated.direct_answer,
+  const rawContent = {
+    ...generated, slug, keyword: topic.keyword, titulo: generated.h1, intro: generated.direct_answer, hero_lede: generated.direct_answer,
     editorial_intent: editorialIntentForDate(slot.scheduledDate.toISOString().slice(0, 10)), content_type: "GUIDE", indexing_state: "INDEX", author_name: `Equipo ${client.name}`,
     primary_category_id: category?.key || "", secondary_category_ids: [], product_ids: [],
-    components: [], steps: [], source_refs: topic.sourceUrls.map((url, i) => ({ id: `analysis-${slot.analysisRunId}-${i}`, url, title: "Página examinada", type: "external", verifiedAt: new Date().toISOString() })),
+    components: [], steps: [], source_refs: [], research_source_urls: topic.sourceUrls,
     generation_mode: "private-draft", analysis_run_id: slot.analysisRunId,
   };
+  const { content } = await completeBlogArticle(db, client.id, rawContent);
   const quality = await inspectBlogArticle(db, client.id, content);
   signal?.throwIfAborted();
   return db.$transaction(async tx => {
@@ -69,14 +78,19 @@ export async function generatePrivateBusinessArticle(db: PrismaClient, client: C
     }
     const duplicate = await tx.landing.findFirst({ where: { clientId: client.id, keyword: topic.keyword } });
     if (duplicate) throw new Error("La búsqueda ya tiene un artículo; elegí otro tema.");
+    const cluster = await tx.contentCluster.upsert({
+      where: { clientId_slug: { clientId: client.id, slug: category?.key || "guias" } },
+      create: { clientId: client.id, slug: category?.key || "guias", name: category?.name || "Guías" }, update: {},
+    });
     const article = await tx.landing.create({ data: {
       clientId: client.id, slug, keyword: topic.keyword, intent: content.editorial_intent, titulo: generated.h1,
-      htmlContent: JSON.stringify({ ...content, editorial_quality: quality }), seoTitle: generated.seo_title,
-      seoDescription: generated.meta_description, status: "DRAFT", contentType: "GUIDE",
+      contentClusterId: cluster.id,
+      htmlContent: JSON.stringify({ ...content, cluster_slug: cluster.slug, cluster_name: cluster.name, editorial_quality: quality }), seoTitle: content.seo_title,
+      seoDescription: content.meta_description, status: "DRAFT", contentType: "GUIDE",
       authorName: `Equipo ${client.name}`, sourceRefs: jsonData(content.source_refs),
       // publicPreviewUrl/previewPublishedAt/publishedAt remain empty/null by construction.
     } });
     await tx.blogPublication.update({ where: { id: slotId }, data: { landingId: article.id, status: "READY", requiresApproval: true, approvedAt: null, lastError: quality.checks.filter(c => c.level === "error").map(c => c.message).join(" · ").slice(0, 2000) } });
     return article.id;
-  });
+  }, { timeout: 30000 });
 }

@@ -21,6 +21,12 @@ evidencia operativa, no la fuente de verdad.
 3. Revisar los artículos desde el editor. Se pueden modificar metadatos,
    respuesta inicial, secciones, FAQ, referencias y comparación. Los motivos de
    bloqueo aparecen agrupados por SEO, AEO, GEO y DEO.
+   Al generar y guardar, el sistema enlaza las menciones del catálogo, cita
+   las fichas usadas y agrega una guía publicada cuando hay coincidencia de
+   tema. Los borradores anteriores se pueden completar y guardar en un clic.
+   Las URLs examinadas se conservan como investigación; no se convierten en
+   evidencia revisada por haber sido visitadas. Si faltan destinos o fuentes
+   pertinentes, la revisión conserva el pendiente sin inventarlos.
 4. Confirmar la revisión de la tanda completa cuando los 14 estén listos.
 5. Activar la publicación diaria en `/blog/configuracion`, con hora argentina.
    La primera fecha es el día siguiente, incluidos sábados y domingos.
@@ -46,6 +52,11 @@ Los errores de generación sin artículo permiten reintentar la preparación.
   Las fichas incompletas requieren documentación adicional o quitar el dato.
 - Los borradores no forman parte del sitio público ni del sitemap. La vista
   previa autenticada lleva `noindex`.
+- El contenido del artículo es visible sin JavaScript, también dentro de la
+  vista previa privada. La cabecera es compacta y el logo monocromático de PC
+  MIDI se presenta en blanco sobre fondo oscuro; los demás clientes conservan
+  los colores de sus logos. Los cambios de plantilla se ven al volver a abrir
+  la vista previa; el sitio público los incorpora en el siguiente despliegue.
 - La publicación necesita despliegue correcto y comprobación del identificador
   de esa versión en la URL pública; un HTTP 200 de la versión anterior no basta.
 - Una edición publicada conserva el slug y la URL. La versión anterior se

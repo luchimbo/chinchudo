@@ -3,13 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import { assertClientAccess } from "@/lib/auth";
-import { applyArticleDraft, type ArticleDraft } from "@/lib/article-edit";
+import { applyArticleDraft, draftFromContent, type ArticleDraft } from "@/lib/article-edit";
+import { completeArticle } from "@/lib/article-completion.mjs";
 import { loadArticleCatalog } from "@/lib/article-catalog";
 import { editableArticleContent, inspectBlogArticle, loadBlogEvidence } from "@/lib/blog-evidence";
 import type { EditorialQuality } from "@/lib/blog-quality.mjs";
 import { parseMarkers } from "@/lib/article-markers";
 
-export type SaveArticleResult = { ok: true; updatedAt: string; redeploy: boolean; quality: EditorialQuality } | { ok: false; error: string };
+export type SaveArticleResult = { ok: true; updatedAt: string; redeploy: boolean; quality: EditorialQuality; draft: ArticleDraft } | { ok: false; error: string };
 
 export async function saveBlogArticle(input: { id: string; expectedUpdatedAt: string; draft: ArticleDraft }): Promise<SaveArticleResult> {
   const landing = await prisma.landing.findUnique({ where: { id: input.id }, include: { client: { select: { slug: true } }, blogPublication: true } });
@@ -29,8 +30,11 @@ export async function saveBlogArticle(input: { id: string; expectedUpdatedAt: st
   if (content.deployment_started_at && Date.parse(content.deployment_started_at) > Date.now() - 15 * 60000) return { ok: false, error: "Esperá a que termine el despliegue de la revisión." };
   const [catalog, evidence] = await Promise.all([loadArticleCatalog(prisma, landing.clientId, landing.id), loadBlogEvidence(prisma, landing.clientId)]);
   catalog.sources = evidence.sources.map((s) => ({ ref: s.id, name: s.title }));
+  if (Array.isArray(content.editorial_brief?.allowedProductIds)) catalog.products = catalog.products.filter(p => content.editorial_brief.allowedProductIds.includes(p.ref));
   const result = applyArticleDraft(editableArticleContent(content), input.draft, catalog);
   if (!result.ok) return result;
+  result.content = completeArticle({ content: result.content, catalog, sources: evidence.sources }).content;
+  result.draft = draftFromContent(result.content);
   const cited = parseMarkers(JSON.stringify(result.content)).filter((m) => m.kind === "s").map((m) => m.ref);
   const ids = [...new Set([...(result.draft.sourceIds || []), ...cited, ...(result.content.decision_support?.options || []).flatMap((o: any) => o.evidence_ids || [])])];
   result.content.source_refs = ids.map((id) => evidence.sources.find((s) => s.id === id) || { id });
@@ -66,5 +70,5 @@ export async function saveBlogArticle(input: { id: string; expectedUpdatedAt: st
   }); } catch (error) { return { ok: false, error: error instanceof Error ? error.message : "No se pudo guardar el artículo." }; }
   revalidatePath(`/blog/articulos/${landing.id}`);
   revalidatePath("/blog/calendario");
-  return { ok: true, updatedAt: updated.updatedAt.toISOString(), redeploy, quality };
+  return { ok: true, updatedAt: updated.updatedAt.toISOString(), redeploy, quality, draft: result.draft };
 }

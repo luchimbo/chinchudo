@@ -14,6 +14,7 @@ scripts/*
 !scripts/terminate-child.d.mts
 agents/
 scratch/
+tmp/
 .venv/
 .venv-wav2lip/
 node_modules

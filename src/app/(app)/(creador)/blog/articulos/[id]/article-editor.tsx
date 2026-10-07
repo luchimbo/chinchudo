@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { articleChecks, changedBlocks, mergeDraft, type ArticleDraft } from "@/lib/article-edit";
+import { articleChecks, changedBlocks, draftFromContent, mergeDraft, type ArticleDraft } from "@/lib/article-edit";
+import { completeArticle } from "@/lib/article-completion.mjs";
 import type { ArticleCatalog } from "@/lib/article-markers";
 import { parseMarkers } from "@/lib/article-markers";
 import { BodyEditor } from "./body-editor";
@@ -106,6 +107,7 @@ export function ArticleEditor({ articleId, initialDraft, updatedAt: initialUpdat
   const blocking = checks.some((check) => check.level === "error");
   const dirty = changes.length > 0;
   const quality = useMemo(() => reviewArticle({ ...evidence, content: { ...mergeDraft(content, draft), source_refs: evidence.sources.filter((s) => draft.sourceIds?.includes(s.id)) } }), [content, draft, evidence]);
+  const completion = useMemo(() => completeArticle({ content: { ...mergeDraft(content, draft), source_refs: evidence.sources.filter(s => draft.sourceIds?.includes(s.id)) }, catalog, sources: evidence.sources }), [content, draft, catalog, evidence]);
 
   // Borrador local: protege lo escrito si se cierra la pestaña o se corta la sesión.
   useEffect(() => {
@@ -145,15 +147,16 @@ export function ArticleEditor({ articleId, initialDraft, updatedAt: initialUpdat
     setEpoch((current) => current + 1);
   }
 
-  async function submit() {
-    if (!dirty || blocking || saving) return;
+  async function submit(nextDraft = draft) {
+    if (!changedBlocks(saved, nextDraft).length || articleChecks(nextDraft, saved, catalog).some(c => c.level === "error") || saving) return;
     setSaving(true);
     setMessage(null);
     try {
-      const result = await save({ id: articleId, expectedUpdatedAt: updatedAt, draft });
+      const result = await save({ id: articleId, expectedUpdatedAt: updatedAt, draft: nextDraft });
       if (!result.ok) { setMessage({ tone: "error", text: result.error }); return; }
       try { window.localStorage.removeItem(storageKey(articleId, updatedAt)); } catch { /* ignorado */ }
-      setSaved(draft);
+      replaceAll(result.draft);
+      setSaved(result.draft);
       setUpdatedAt(result.updatedAt);
       setRecoverable(null);
       setServerQuality(result.quality);
@@ -234,7 +237,8 @@ export function ArticleEditor({ articleId, initialDraft, updatedAt: initialUpdat
         </article>
 
         <div className="space-y-4"><SeoPanel draft={draft} onField={update} changed={changedIds} url={publicUrl} checks={checks} status={status} />
-          <section className="rounded-2xl border border-ink/10 bg-paper p-4"><h2 className="font-display text-base">Revisión editorial</h2><p className="mt-1 text-xs text-slate">{quality.publishable ? "Sin bloqueos locales. El servidor revisa duplicados y evidencia al guardar." : "Pendiente de revisión. Los errores suspenden la publicación."}</p>
+          <section className="rounded-2xl border border-ink/10 bg-paper p-4"><h2 className="font-display text-base">Revisión editorial</h2><p className="mt-1 text-xs text-slate">Los enlaces y las citas se completan automáticamente al generar y guardar, usando el catálogo y las fuentes disponibles.</p>
+            {completion.changes.length > 0 ? <button type="button" disabled={saving} onClick={() => { void submit(draftFromContent(completion.content)); }} className="mt-3 rounded-full bg-ink px-3 py-2 text-xs font-semibold text-paper disabled:opacity-40">{saving ? "Completando…" : "Completar y guardar"}</button> : null}
             {!dirty && serverQuality?.checks.some((c) => c.level === "error") ? <div className="mt-3 text-xs text-rose-700"><p className="font-semibold">Revisión al guardar: pendiente</p>{serverQuality.checks.filter((c) => c.level === "error").map((c) => <p key={c.id} className="mt-1">{c.group}: {c.message}</p>)}</div> : null}
             {(["SEO", "AEO", "GEO", "DEO"] as const).map((group) => <div key={group} className="mt-3"><h3 className="text-xs font-bold">{group}</h3><ul className="mt-1 space-y-2">{quality.checks.filter((c) => c.group === group).map((c) => <li key={c.id} className={`text-xs ${c.level === "error" ? "text-rose-700" : c.level === "warning" ? "text-amber-800" : "text-slate"}`}>{c.level === "ok" ? "✓" : c.level === "error" ? "✕" : "!"} {c.message}</li>)}</ul></div>)}
           </section></div>
@@ -250,7 +254,7 @@ export function ArticleEditor({ articleId, initialDraft, updatedAt: initialUpdat
           <div className="ml-auto flex flex-wrap items-center gap-2">
             {dirty ? <button type="button" onClick={() => { if (window.confirm("¿Descartar todos los cambios sin guardar?")) replaceAll(saved); }} className="rounded-full px-3 py-2 text-sm text-slate hover:text-ink">Descartar</button> : null}
             <button type="button" onClick={() => setDialog("preview")} className="rounded-full border border-ink/20 px-4 py-2 text-sm font-semibold text-ink hover:bg-ink/5">Vista previa exacta</button>
-            <button type="button" onClick={submit} disabled={!dirty || blocking || saving} title={blocking ? "Corregí los puntos marcados con ✕" : undefined}
+            <button type="button" onClick={() => { void submit(); }} disabled={!dirty || blocking || saving} title={blocking ? "Corregí los puntos marcados con ✕" : undefined}
               className="rounded-full bg-ink px-5 py-2 text-sm font-semibold text-paper disabled:opacity-40">
               {saving ? "Guardando…" : published ? "Guardar revisión" : "Guardar"}
             </button>

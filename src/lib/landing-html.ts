@@ -104,7 +104,8 @@ export async function renderLandingHtml(client: LandingClientConfig, landingId =
     const { stdout } = await pending;
 
     const htmlStart = stdout.indexOf("<!DOCTYPE html>");
-    return htmlStart >= 0 ? stdout.slice(htmlStart) : stdout;
+    const htmlEnd = stdout.indexOf("</html>", htmlStart);
+    return htmlStart >= 0 ? stdout.slice(htmlStart, htmlEnd >= 0 ? htmlEnd + 7 : undefined) : stdout;
   } catch (error: any) {
     if (error?.code === "ENOENT") {
       return renderOnRelay(clientSlug, landingId, client, content);
