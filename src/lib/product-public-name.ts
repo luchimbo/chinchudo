@@ -1,3 +1,5 @@
+import { brandMentionPattern, STORE_BRANDS } from "./brand-identity";
+
 /** A product's catalogue title is useful for matching, but rarely reads well in a comment. */
 export type PublicProduct = {
   nombre: string;
@@ -51,13 +53,15 @@ function modelFromTitle(product: PublicProduct): string {
   const withoutPrestigeLabel = /^prestige$/i.test(product.marca.trim())
     ? withoutBrand.replace(/^medias\s+/i, "")
     : withoutBrand;
-  const withoutPrefix = withoutPrestigeLabel.replace(CATALOG_PREFIX, "").trim();
+  const withoutPrefix = withoutPrestigeLabel.replace(CATALOG_PREFIX, "")
+    .replace(/^(?:teclado(?: musical)?|[oó]rgano(?: musical)?(?: infantil)?)\s+/i, "").trim();
   const firstSegment = withoutPrefix.split(/\s+[-–—]\s+|[.;]/)[0].trim();
   const description = firstSegment.match(DESCRIPTION_START);
   const model = description && description.index && description.index > 0
     ? firstSegment.slice(0, description.index).trim()
     : firstSegment;
-  return model.replace(/\s+teclas?$/i, "").trim() || withoutPrefix;
+  const withoutKeyCount = /[a-z]-?\d/i.test(model) ? model.replace(/\s+\d+\s+teclas?\b.*$/i, "") : model;
+  return withoutKeyCount.replace(/\s+teclas?$/i, "").trim() || withoutPrefix;
 }
 
 export function publicProductParts(product: PublicProduct, context: NameContext = {}) {
@@ -75,9 +79,34 @@ export function formatPublicProductName(product: PublicProduct, context: NameCon
   return publicProductParts(product, context).fullName;
 }
 
+/** A valid model code is not enough: its manufacturer must match as well. */
+export function validateGeneratedProductBrands(text: string, products: PublicProduct[], extraBrands: string[] = []): string[] {
+  const brands = [...new Set([...STORE_BRANDS, ...products.map((product) => product.marca), ...extraBrands].filter(Boolean))];
+  for (const product of products) {
+    const model = stripColor(modelFromTitle(product));
+    const codes = model.match(/\b[a-z]{1,6}[- ]?\d{1,5}[a-z]*\b/gi) ?? [];
+    const models = [...new Set([model, ...codes])].filter((value) => /\d/.test(value) || value.split(/\s+/).length > 1 || value.length >= 7);
+    for (const alias of models) {
+      const modelPattern = alias.replace(/([a-z])[- ]?(?=\d)/gi, "$1~")
+        .split(/[\s~-]+/).map(escapeRegExp).join("[\\s-]*");
+      const owners = products.filter((candidate) => new RegExp(`(?<![\\p{L}\\p{N}])${modelPattern}(?![\\p{L}\\p{N}])`, "iu").test(modelFromTitle(candidate)))
+        .map((candidate) => candidate.marca.toLocaleLowerCase("es"));
+      for (const brand of brands) {
+        if (owners.includes(brand.toLocaleLowerCase("es"))) continue;
+        const ownBrand = brandMentionPattern(product.marca).source;
+        const pattern = new RegExp(`${brandMentionPattern(brand).source}\\s+(?:${ownBrand}\\s+)?${modelPattern}(?![\\p{L}\\p{N}])`, "iu");
+        if (pattern.test(text)) return ["product_brand_mismatch"];
+      }
+    }
+  }
+  return [];
+}
+
 /** Rewrite only catalogue-backed product mentions; leave the rest of the operator's prose alone. */
 export function normalizeGeneratedProductMentions(text: string, products: PublicProduct[], context: NameContext = {}): string {
   const aliases = new Map<string, string>();
+  const ambiguous = new Set<string>();
+  const brands = [...new Set([...STORE_BRANDS, ...products.map((product) => product.marca)].filter(Boolean))];
   for (const product of products) {
     const { fullName } = publicProductParts(product, context);
     const rawModel = modelFromTitle(product);
@@ -89,10 +118,22 @@ export function normalizeGeneratedProductMentions(text: string, products: Public
     }
     for (const option of options) {
       const alias = option.replace(/\s+/g, " ").trim();
-      if (alias.length >= 4 && !aliases.has(alias.toLocaleLowerCase("es"))) aliases.set(alias.toLocaleLowerCase("es"), fullName);
+      const key = alias.toLocaleLowerCase("es");
+      if ((alias.length < 4 && !/^[a-z]+\d+[a-z]*$/i.test(alias)) || ambiguous.has(key)) continue;
+      if (aliases.has(key) && aliases.get(key) !== fullName) {
+        aliases.delete(key);
+        ambiguous.add(key);
+      } else {
+        aliases.set(key, fullName);
+      }
     }
   }
   if (aliases.size === 0) return text;
   const pattern = new RegExp(`(?<![\\p{L}\\p{N}])(${[...aliases.keys()].sort((a, b) => b.length - a.length).map(escapeRegExp).join("|")})(?:\\s+${PUBLIC_DESCRIPTION_SUFFIX})?(?![\\p{L}\\p{N}])`, "giu");
-  return text.replace(pattern, (match, alias: string) => aliases.get(alias.toLocaleLowerCase("es")) ?? match);
+  return text.replace(pattern, (match, alias: string, offset: number) => {
+    // A bare model inside another manufacturer's full name is not our alias.
+    const prefix = text.slice(0, offset).trimEnd();
+    if (brands.some((brand) => new RegExp(`${brandMentionPattern(brand).source}$`, "iu").test(prefix))) return match;
+    return aliases.get(alias.toLocaleLowerCase("es")) ?? match;
+  });
 }

@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { catalogProductSelect, loadClientCatalogIndex } from "../src/lib/product-identity";
+import { resolveCatalogBrand } from "../src/lib/brand-identity";
 
 // Catálogo completo de la tienda de PC MIDI: aporta la descripción larga de cada producto.
 // Reconoce productos existentes por SKU o por nombre normalizado (mayúsculas, acentos y
@@ -17,18 +18,8 @@ const JSON_PATH = join(process.cwd(), "landing-build", "data", "catalogo_engagem
 type EngagementProduct = { nombre: string; marca?: string; categoria?: string; sku?: string; descripcion?: string };
 
 function detectBrand(name: string, rawBrand?: string) {
-  let brand = rawBrand?.trim() || "";
-  if (!brand) {
-    const lowerName = name.toLowerCase();
-    if (lowerName.includes("arturia")) brand = "Arturia";
-    else if (lowerName.includes("midiplus")) brand = "MidiPlus";
-    else if (lowerName.includes("kressmer")) brand = "Kressmer";
-    else if (lowerName.includes("audio technica") || lowerName.includes("audio-technica") || lowerName.includes("ath-")) brand = "Audio Technica";
-    else if (lowerName.includes("alctron")) brand = "Alctron";
-    else if (lowerName.includes("synido")) brand = "Synido";
-    else if (lowerName.includes("meike")) brand = "Meike";
-    else brand = "MidiPlus"; // default fallback
-  }
+  const brand = resolveCatalogBrand(name, rawBrand);
+  if (!brand) return null;
 
   // Normalizar nombres
   if (/^midiplus$/i.test(brand)) return "MidiPlus";
@@ -83,9 +74,15 @@ async function main() {
   let brandsCreated = 0;
   let productsCreated = 0;
   let productsUpdated = 0;
+  let productsSkipped = 0;
 
   for (const p of products) {
     const brandName = detectBrand(p.nombre, p.marca);
+    if (!brandName) {
+      console.warn(`[!] Sin fabricante verificable: ${p.nombre}. Requiere revisión.`);
+      productsSkipped++;
+      continue;
+    }
 
     // 1. Obtener o crear la marca ("MidiPlus" y "MIDIPLUS" son la misma)
     let brand = catalog.brands.find({ name: brandName });
@@ -120,6 +117,7 @@ async function main() {
     if (existing) {
       // La tienda es la fuente de la descripción larga; la categoría normalizada del catálogo curado no se pisa.
       const data = {
+        ...(existing.brandId !== brand.id ? { brandId: brand.id } : {}),
         ...(p.descripcion?.trim() ? { description: p.descripcion } : {}),
         ...(!existing.category.trim() || existing.category === "General" ? { category: p.categoria || "General" } : {}),
         ...(sku && !existing.sourceExternalId ? { sourceExternalId: sku } : {}),
@@ -144,6 +142,7 @@ async function main() {
   console.log(`- Marcas nuevas: ${brandsCreated}`);
   console.log(`- Productos nuevos: ${productsCreated}`);
   console.log(`- Productos existentes actualizados: ${productsUpdated}`);
+  console.log(`- Productos sin marca verificable: ${productsSkipped}`);
 
   const dbCount = await prisma.product.count({ where: { brand: { clientId: client.id } } });
   console.log(`- Productos de PC MIDI en la base: ${dbCount}`);

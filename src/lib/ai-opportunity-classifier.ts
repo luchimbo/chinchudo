@@ -1,5 +1,6 @@
 import type { Brand, PrismaClient, Service } from "@prisma/client";
 import { logger } from "./logger";
+import { validateClassifiedEntities } from "./brand-identity";
 import { fetchChatCompletion, resolveLLMConfig } from "./llm-provider";
 import {
   calculateOpportunityScore,
@@ -108,7 +109,7 @@ export async function classifyOpportunity(
   ]);
 
   // 2. Construir sumarios para el prompt
-  const brandsList = brands.map((b) => `- ${b.name}: Fortalezas: ${b.strengths} | Debilidades competencia: ${b.competitorWeaknesses || "No especificadas"}`).join("\n");
+  const brandsList = brands.map((b) => `- ID: ${b.id} | ${b.name}: Fortalezas: ${b.strengths} | Debilidades competencia: ${b.competitorWeaknesses || "No especificadas"}`).join("\n");
   const productsList = products
     .map((p) => `- ID: ${p.id} | Nombre: ${p.name} | Marca: ${p.brand.name} | Categoría: ${p.category} | Descripción: ${p.description}`)
     .join("\n");
@@ -158,6 +159,7 @@ ${kbSummary || "- Ningún conocimiento cargado"}
    - MEDIUM si es una duda técnica normal o de precios.
    - LOW para discusiones generales de baja urgencia.
 7. **Mapeo de Entidades**:
+   - No confundas fabricante con tienda ni con una marca alternativa recomendada.${client.slug === "pcmidi" ? " Un teclado Meike no es MidiPlus." : ""} Nunca asignes una marca por defecto ni un producto solo porque sea de la misma categoría. La pareja marca/modelo debe coincidir con el catálogo y con evidencia del texto o título.
    - "matchedBrandId": ID exacto de la marca (de las listadas arriba) que se discute. Si no se puede determinar, usa null.
    - "matchedProductId": ID exacto del producto del catálogo (de los listados arriba con su ID) que se menciona o consulta. Si no se menciona ningún modelo específico de tu catálogo, usa null.
 
@@ -238,6 +240,10 @@ Devuelve únicamente un objeto JSON con las siguientes propiedades. No agregues 
     }
 
     const parsed = JSON.parse(content) as ClassificationResult;
+    const entities = validateClassifiedEntities(
+      `${candidate.sourceTitle || ""} ${candidate.videoTitle || ""} ${candidate.sourceText}`,
+      parsed.matchedProductId || null, brands, products,
+    );
     const detectedIntent = parsed.detectedIntent || "GENERAL_DISCUSSION";
     let assessment = normalizeAssessment(parsed.assessment, detectedIntent);
     let opportunityScore = calculateOpportunityScore(assessment, detectedIntent);
@@ -263,8 +269,7 @@ Devuelve únicamente un objeto JSON con las siguientes propiedades. No agregues 
       actionableReason: parsed.actionableReason || "",
       detectedIntent,
       priority: priorityFromOpportunityScore(opportunityScore, detectedIntent),
-      matchedBrandId: parsed.matchedBrandId || null,
-      matchedProductId: parsed.matchedProductId || null,
+      ...entities,
       confidence: parsed.confidence || "low",
       assessment,
       opportunityScore,

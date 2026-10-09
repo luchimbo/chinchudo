@@ -2,6 +2,7 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import type { Brand, CatalogRule, Product } from "@prisma/client";
 import { catalogRuleMatches, normalizeForMatch, parseClientList } from "./client-context";
+import { mentionsBrand } from "./brand-identity";
 
 export type ProductEntry = {
   id: string;
@@ -139,7 +140,7 @@ function selectScopedProducts(
     const useScore = keywords.filter((kw) => productUse.includes(normalize(kw)) && norm.includes(normalize(kw))).length;
     const categoryScore = matchingCategories.has(cat) ? 4 : 0;
     const productScore = norm.includes(productName) ? 10 : nameTokenScore;
-    const brandScore = product.brand?.name && norm.includes(normalize(product.brand.name)) ? 5 : 0;
+    const brandScore = product.brand?.name && mentionsBrand(sourceText, product.brand.name) ? 5 : 0;
     const exactScore = detectedProduct?.id === product.id ? 10 : 0;
     const wantsKeyboardController = /\b(controlador|controller|minilab|mpk|akai|teclas|pads|knobs)\b/.test(norm);
     const windControllerPenalty = wantsKeyboardController && /\b(flauta|elefue|saxo|viento)\b/.test(productName) ? -8 : 0;
@@ -172,6 +173,9 @@ function selectScopedProducts(
     const aIsDetected = a.product.id === detectedProduct?.id;
     const bIsDetected = b.product.id === detectedProduct?.id;
     if (aIsDetected !== bIsDetected) return aIsDetected ? -1 : 1;
+    const aBrandMentioned = !!a.product.brand && mentionsBrand(sourceText, a.product.brand.name);
+    const bBrandMentioned = !!b.product.brand && mentionsBrand(sourceText, b.product.brand.name);
+    if (aBrandMentioned !== bBrandMentioned) return aBrandMentioned ? -1 : 1;
     if (b.score !== a.score) return b.score - a.score;
     return a.product.name.localeCompare(b.product.name);
   });

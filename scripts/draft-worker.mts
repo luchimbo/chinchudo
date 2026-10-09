@@ -22,6 +22,7 @@ import { loadRelevantCompetitorEvidence } from "../src/lib/competitor-evidence";
 import { getAcceptedExamples, getClientMemories } from "../src/lib/client-memory";
 import { findSimilarDraft } from "../src/lib/draft-uniqueness";
 import { operationalOpportunityWhere } from "../src/lib/opportunity-channels";
+import { mentionedBrandId } from "../src/lib/brand-identity";
 
 loadEnv();
 
@@ -267,7 +268,7 @@ async function main() {
 
       try {
         const ctx = {
-          opportunity,
+          opportunity: { ...opportunity, detectedProduct: clientContext.detectedProduct },
           persona,
           brand,
           client: resolution.client,
@@ -386,7 +387,7 @@ async function main() {
           allRows.push({
             id: randomUUID(),
             opportunityId: opportunity.id,
-            brandId: brand.id,
+            brandId: mentionedBrandId(v.draftText, clientContext.catalogProducts.flatMap((product) => product.brand ? [product.brand] : [])) ?? brand.id,
             personaId: persona.id,
             variantType: v.variantType as any,
             voiceVariant: suggestion.voiceVariant ?? "",
@@ -463,7 +464,7 @@ async function main() {
         prisma.opportunity.update({
           where: { id: opportunity.id },
           data: {
-            detectedBrandId: brand.id,
+            detectedBrandId: clientContext.detectedBrandId,
             status: args.replacePending ? "DRAFTED" : opportunityStatus,
             notes: !legalPublish.allowed ? [opportunity.notes, `Publicación automática bloqueada: ${legalPublish.reason}`].filter(Boolean).join(" ") : undefined,
           },

@@ -13,7 +13,7 @@ import { generateAICopilotDraft, generateAIDrafts, shortenCopilotText } from "@/
 import { COPILOT_MAX_CHARACTERS, COPILOT_TARGET_CHARACTERS } from "@/lib/copilot-limits";
 import { selectHumorSignal } from "@/lib/radar-editorial";
 import { ensureRequiredBrandMention, sanitizeCopilotDraft } from "@/lib/draft-output";
-import { formatPublicProductName, normalizeGeneratedProductMentions } from "@/lib/product-public-name";
+import { formatPublicProductName, normalizeGeneratedProductMentions, validateGeneratedProductBrands } from "@/lib/product-public-name";
 import { loadRelevantKnowledge } from "@/lib/knowledge";
 import { loadActivePrompt } from "@/lib/prompts";
 import { opportunityIntents, opportunityPriorities, opportunityStatuses } from "@/lib/labels";
@@ -22,6 +22,7 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { logger } from "@/lib/logger";
 import { getRelayUrl } from "@/lib/settings";
 import { loadClientContext, resolveOpportunityClient } from "@/lib/client-context";
+import { resolveCatalogBrand } from "@/lib/brand-identity";
 import { detectCrossClientTerms, validateClientScopedActors } from "@/lib/guardrails";
 import { triageOpportunity } from "@/lib/opportunity-triage";
 import { authorFromUrl } from "@/lib/source-author";
@@ -198,9 +199,12 @@ export async function generateCopilotDrafts(formData: FormData) {
     ? null
     : { productId: chosenProduct?.id ?? null };
 
+  const resolvedContext = !chosenProduct ? await loadClientContext(prisma, resolution.client.id, opportunity) : null;
   const [brand, personas] = await Promise.all([
     chosenProduct
       ? Promise.resolve(chosenProduct.brand)
+      : resolvedContext?.brand
+        ? Promise.resolve(resolvedContext.brand)
       : opportunity.detectedBrandId
         ? prisma.brand.findUnique({ where: { id: opportunity.detectedBrandId } })
         : prisma.brand.findFirst({ where: { clientId: resolution.client.id }, orderBy: { name: "asc" } }),
@@ -1568,7 +1572,7 @@ export async function sendRefinementMessageAction(formData: FormData) {
   const response = await prisma.response.findUniqueOrThrow({
     where: { id: parsed.responseId },
     include: {
-      opportunity: { include: { channel: true, detectedProduct: true } },
+      opportunity: { include: { channel: true, detectedProduct: { include: { brand: true } } } },
       brand: true,
       persona: true,
     },
@@ -1587,7 +1591,7 @@ export async function sendRefinementMessageAction(formData: FormData) {
     ? parsed.chatHistory.slice(0, -1)
     : parsed.chatHistory;
   const chatProduct = response.opportunity.detectedProduct
-    ? { nombre: response.opportunity.detectedProduct.name, marca: response.brand.name }
+    ? { nombre: response.opportunity.detectedProduct.name, marca: response.opportunity.detectedProduct.brand?.name ?? resolveCatalogBrand(response.opportunity.detectedProduct.name) ?? response.brand.name }
     : null;
   const nameContext = {
     sourceText: `${response.opportunity.sourceText}\n${parsed.userMessage}`,
@@ -1599,7 +1603,7 @@ export async function sendRefinementMessageAction(formData: FormData) {
     currentResponseText: parsed.currentText?.trim() || response.editedText || response.draftText,
     chatHistory: historyForModel,
     userMessage: parsed.userMessage,
-    brandName: response.brand.name,
+    brandName: chatProduct?.marca ?? response.brand.name,
     productName: chatProduct ? formatPublicProductName(chatProduct, nameContext) : undefined,
     personaName: response.persona.name,
     clientName: resolution.client.name,
@@ -1614,6 +1618,9 @@ export async function sendRefinementMessageAction(formData: FormData) {
   const normalizedSuggestion = assistantReply.suggestion
     ? normalizeGeneratedProductMentions(assistantReply.suggestion, chatProduct ? [chatProduct] : [], nameContext)
     : null;
+  if (normalizedSuggestion && chatProduct && validateGeneratedProductBrands(normalizedSuggestion, [chatProduct]).length > 0) {
+    throw new Error("La propuesta mezcla la marca con un modelo de otro fabricante. Rehacé la respuesta antes de aplicarla.");
+  }
   const suggestion = normalizedSuggestion && refinementMaxCharacters(response.opportunity.contextAssessment)
     ? shortenCopilotText(sanitizeCopilotDraft(normalizedSuggestion, resolution.client.slug)) || null
     : normalizedSuggestion;
@@ -1688,7 +1695,7 @@ export async function applyRefinedResponseAction(formData: FormData) {
   const response = await prisma.response.findUniqueOrThrow({
     where: { id: parsed.responseId },
     include: {
-      opportunity: { include: { channel: true, detectedProduct: true } },
+      opportunity: { include: { channel: true, detectedProduct: { include: { brand: true } } } },
       brand: true,
       persona: true,
     },
@@ -1701,7 +1708,7 @@ export async function applyRefinedResponseAction(formData: FormData) {
     getAcceptedExamples(prisma, { clientId: resolution.client.id, brandId: response.brandId, limit: 5 }),
   ]);
   const chatProduct = response.opportunity.detectedProduct
-    ? { nombre: response.opportunity.detectedProduct.name, marca: response.brand.name }
+    ? { nombre: response.opportunity.detectedProduct.name, marca: response.opportunity.detectedProduct.brand?.name ?? resolveCatalogBrand(response.opportunity.detectedProduct.name) ?? response.brand.name }
     : null;
   const nameContext = {
     sourceText: `${response.opportunity.sourceText}\n${parsed.chatHistory.filter((message) => message.sender === "user").map((message) => message.text).join("\n")}`,
@@ -1714,12 +1721,15 @@ export async function applyRefinedResponseAction(formData: FormData) {
     opportunityText: response.opportunity.sourceText,
     chatHistory: parsed.chatHistory,
     currentResponseText: response.editedText || response.draftText,
-    brandName: response.brand.name,
+    brandName: chatProduct?.marca ?? response.brand.name,
     productName: chatProduct ? formatPublicProductName(chatProduct, nameContext) : undefined,
     personaName: response.persona.name,
     clientMemories: clientMemories.map((m) => ({ rule: m.rule })),
   });
   const normalizedDraft = normalizeGeneratedProductMentions(compiledDraft, chatProduct ? [chatProduct] : [], nameContext);
+  if (chatProduct && validateGeneratedProductBrands(normalizedDraft, [chatProduct]).length > 0) {
+    throw new Error("La propuesta mezcla la marca con un modelo de otro fabricante. Rehacé la respuesta antes de aplicarla.");
+  }
   const compiledText = refinementMaxCharacters(response.opportunity.contextAssessment)
     ? shortenCopilotText(sanitizeCopilotDraft(normalizedDraft, resolution.client.slug))
     : normalizedDraft;

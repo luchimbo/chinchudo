@@ -7,6 +7,7 @@ import type {
   PrismaClient,
   Product,
 } from "@prisma/client";
+import { mentionsBrand } from "./brand-identity";
 
 type OpportunityLike = Pick<Opportunity, "sourceText" | "detectedBrandId" | "monitoredSourceId"> & {
   detectedBrand?: (Brand & { client?: Client | null }) | null;
@@ -109,7 +110,7 @@ export async function resolveOpportunityClient(
 export async function loadClientContext(
   prisma: PrismaClient,
   clientId: string,
-  opportunity: Pick<Opportunity, "sourceText" | "detectedBrandId" | "detectedProductId">,
+  opportunity: Pick<Opportunity, "sourceText" | "detectedBrandId" | "detectedProductId"> & { sourceTitle?: string },
 ) {
   const [client, personas, catalogRules, detectedBrand, detectedProduct] = await Promise.all([
     prisma.client.findUniqueOrThrow({ where: { id: clientId } }),
@@ -119,23 +120,27 @@ export async function loadClientContext(
     opportunity.detectedProductId ? prisma.product.findUnique({ where: { id: opportunity.detectedProductId } }) : null,
   ]);
 
-  // Una oportunidad sin marca detectada no debe caer en la primera marca
-  // alfabética (antes PC MIDI terminaba sistemáticamente en Alctron).
-  const fallbackBrand = client.slug === "pcmidi"
-    ? await prisma.brand.findFirst({ where: { clientId, name: { equals: "MidiPlus", mode: "insensitive" } } })
-    : null;
-  const detectedBrandIsExplicit = !!detectedBrand
-    && normalizeForMatch(opportunity.sourceText).includes(normalizeForMatch(detectedBrand.name));
-  const brand = detectedBrand?.clientId === clientId && (detectedBrandIsExplicit || detectedProduct?.brandId === detectedBrand.id)
-    ? detectedBrand
-    : fallbackBrand ?? await prisma.brand.findFirst({ where: { clientId }, orderBy: { name: "asc" } });
-  if (!brand) throw new Error(`No hay marca configurada para clientId=${clientId}.`);
-
   const catalogProducts = await prisma.product.findMany({
     where: { brand: { clientId } },
     include: { brand: true },
     orderBy: { name: "asc" },
   });
+  const sourceText = `${opportunity.sourceTitle ?? ""} ${opportunity.sourceText}`;
+  const productBrand = catalogProducts.find((product) => product.id === detectedProduct?.id)?.brand;
+  const explicitBrands = [...new Map(catalogProducts.filter((product) => mentionsBrand(sourceText, product.brand.name))
+    .map((product) => [product.brand.id, product.brand])).values()];
+  // Una oportunidad sin marca detectada no debe caer en la primera marca
+  // alfabética (antes PC MIDI terminaba sistemáticamente en Alctron).
+  const fallbackBrand = client.slug === "pcmidi"
+    ? await prisma.brand.findFirst({ where: { clientId, name: { equals: "MidiPlus", mode: "insensitive" } } })
+    : null;
+  const detectedBrandIsExplicit = !!detectedBrand && mentionsBrand(sourceText, detectedBrand.name);
+  // El fabricante del producto y la evidencia textual mandan sobre el respaldo operativo.
+  const brand = productBrand ?? (explicitBrands.length === 1 ? explicitBrands[0] : null)
+    ?? (detectedBrand?.clientId === clientId && detectedBrandIsExplicit ? detectedBrand : null)
+    ?? fallbackBrand ?? await prisma.brand.findFirst({ where: { clientId }, orderBy: { name: "asc" } });
+  if (!brand) throw new Error(`No hay marca configurada para clientId=${clientId}.`);
+
   const services = await prisma.service.findMany({
     where: { brand: { clientId } },
     include: { brand: true },
@@ -145,6 +150,9 @@ export async function loadClientContext(
   return {
     client,
     brand,
+    // El respaldo operativo no es una detección del fabricante de la consulta.
+    detectedBrandId: productBrand?.id ?? (explicitBrands.length === 1 ? explicitBrands[0].id : null)
+      ?? (detectedBrand?.clientId === clientId && detectedBrandIsExplicit ? detectedBrand.id : null),
     personas,
     catalogRules,
     catalogProducts,

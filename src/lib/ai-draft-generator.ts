@@ -7,7 +7,7 @@ import { fetchChatCompletion, resolveLLMConfig, resolveOpenRouterConfig, type LL
 import { policyInstructions } from "./response-policy";
 import { ensureRequiredBrandMention, sanitizeCopilotDraft, sanitizePublicDraft, validateDraftForClient } from "./draft-output";
 import { COPILOT_MAX_CHARACTERS, COPILOT_TARGET_CHARACTERS } from "./copilot-limits";
-import { formatPublicProductName, normalizeGeneratedProductMentions } from "./product-public-name";
+import { formatPublicProductName, normalizeGeneratedProductMentions, validateGeneratedProductBrands } from "./product-public-name";
 
 type DraftContext = {
   opportunity: Opportunity & {
@@ -126,8 +126,17 @@ function hasUncataloguedProductCode(text: string, ctx: DraftContext): boolean {
   return false;
 }
 
+function productBrandErrors(text: string, ctx: DraftContext): string[] {
+  const products = selectRelevantProducts(`${ctx.opportunity.sourceTitle ?? ""} ${ctx.opportunity.sourceText}`, ctx.opportunity.detectedProduct, 5, {
+    catalogProducts: ctx.catalogProducts,
+    catalogRules: ctx.catalogRules,
+    scoped: !!ctx.client,
+  });
+  return validateGeneratedProductBrands(text, products, [ctx.brand.name, ctx.opportunity.detectedBrand?.name ?? ""]);
+}
+
 function normalizeDraftProductNames(text: string, ctx: DraftContext): string {
-  const products = selectRelevantProducts(ctx.opportunity.sourceText, ctx.opportunity.detectedProduct, 5, {
+  const products = selectRelevantProducts(`${ctx.opportunity.sourceTitle ?? ""} ${ctx.opportunity.sourceText}`, ctx.opportunity.detectedProduct, 5, {
     catalogProducts: ctx.catalogProducts,
     catalogRules: ctx.catalogRules,
     scoped: !!ctx.client,
@@ -165,7 +174,7 @@ export function buildPrompt(ctx: DraftContext): string {
   const product = opportunity.detectedProduct;
   const intent = intentLabel(opportunity.detectedIntent, client);
 
-  const relevant = selectRelevantProducts(opportunity.sourceText, product, 5, {
+  const relevant = selectRelevantProducts(`${opportunity.sourceTitle ?? ""} ${opportunity.sourceText}`, product, 5, {
     catalogProducts: ctx.catalogProducts,
     catalogRules: ctx.catalogRules,
     scoped: !!client,
@@ -281,6 +290,7 @@ export function buildPrompt(ctx: DraftContext): string {
 
   const absoluteRules = [
     "- NUNCA mezcles productos, marcas, rubros ni claims de otro cliente.",
+    `- Cada modelo pertenece exclusivamente a la marca indicada en su ficha. Nunca combines la marca de fondo con el modelo de otro fabricante.${isPcmidi ? " Un teclado Meike sigue siendo Meike aunque el contexto operativo diga MidiPlus." : ""} Copiá la pareja marca y modelo autorizada; una alternativa debe presentarse como otro producto, sin renombrar el original.`,
     "- El tema principal de la respuesta lo decide el comentario actual, no el historial viejo.",
     rubroRule,
     exclusionsLine,
@@ -364,6 +374,7 @@ ${knowledgeBlock}${objectionsBlock}${competitorEvidenceBlock}${observedProfileBl
 
 ## Comentario al que vas a responder
 Canal: ${opportunity.channel.name}
+Título de origen: ${opportunity.sourceTitle || "Sin título"}
 Intención: ${intent}
 Texto: "${opportunity.sourceText.slice(0, 800)}"
 
@@ -530,6 +541,9 @@ class ValidationRetryError extends Error {
 
 function buildStyleCorrection(errors: string[]): string {
   const notes: string[] = [];
+  if (errors.includes("product_brand_mismatch")) {
+    notes.push("La marca y el modelo no corresponden al mismo producto. Usá exactamente la pareja marca y modelo del catálogo; no uses la marca de fondo como fabricante de un producto ajeno.");
+  }
   if (errors.includes("prestige_missing_brand_mention")) {
     notes.push("Falta integrar la marca Prestige Medias de forma natural dentro del flujo de la respuesta (experiencia o dato concreto en primera persona). No la agregues como oración de cierre desconectada ni como remate de venta.");
   }
@@ -595,6 +609,8 @@ async function attemptAIDrafts(ctx: DraftContext): Promise<DraftVariant[] | null
     const parsed = JSON.parse(raw) as { variants?: { type: string; text: string; riskNotes?: string }[] };
     const variants = parsed.variants ?? [];
     const order: DraftVariant["variantType"][] = ["SHORT", "TECHNICAL", "CONVERSATIONAL"];
+    const identityErrors = variants.flatMap((variant) => productBrandErrors(variant.text ?? "", ctx));
+    if (identityErrors.length > 0) throw new ValidationRetryError(buildStyleCorrection(identityErrors));
 
     const drafts = order.map((variantType) => {
       const match = variants.find((v) => v.type === variantType);
@@ -654,6 +670,8 @@ async function requestCopilotDraft(ctx: DraftContext, condensationOf?: string): 
     }, "Los 5 Apostoles - Asistente CM", ctx.client);
     if (!completion) return null;
     const parsed = JSON.parse(completion.raw) as { text?: string; riskNotes?: string };
+    const identityErrors = productBrandErrors(parsed.text ?? "", ctx);
+    if (identityErrors.length > 0) throw new ValidationRetryError(buildStyleCorrection(identityErrors));
     const text = ensureRequiredBrandMention(normalizeDraftProductNames(sanitizeCopilotDraft(parsed.text ?? "", ctx.client?.slug), ctx), ctx.client?.slug);
     if (!text || hasUncataloguedProductCode(text, ctx)) return null;
     const validationErrors = validateDraftForClient(text, ctx.client?.slug);

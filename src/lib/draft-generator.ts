@@ -503,7 +503,7 @@ export function generateLocalDrafts(ctx: DraftContext): DraftVariant[] {
   }
   const { opportunity, brand, persona, knowledge, objections, observedProfile } = ctx;
   const original = compactText(opportunity.sourceText);
-  const products = selectRelevantProducts(opportunity.sourceText, opportunity.detectedProduct, 1, {
+  const products = selectRelevantProducts(`${opportunity.sourceTitle ?? ""} ${opportunity.sourceText}`, opportunity.detectedProduct, 1, {
     catalogProducts: ctx.catalogProducts,
     catalogRules: ctx.catalogRules,
     scoped: !!ctx.client,

@@ -162,6 +162,23 @@ describe("propuestas editables del chat del Asistente CM", () => {
     expect(result.suggestion).toBe("El Arturia Minilab 3 Rose Quartz suma controles útiles.");
   });
 
+  it("usa el fabricante Meike aunque el borrador anterior esté etiquetado MidiPlus", async () => {
+    state.brandName = "MidiPlus";
+    state.productName = "Teclado Meike MK137 Verde 37 Teclas Sensitivas Controlador MIDI";
+    vi.mocked(chatRefinementStep).mockResolvedValueOnce({ message: "Nueva versión:", suggestion: "El Meike MK137 tiene 37 teclas." });
+    const result = await sendRefinementMessageAction(form({ responseId: "response-1", userMessage: "Corregí la marca", chatHistory: "[]" }));
+    expect(vi.mocked(chatRefinementStep).mock.calls[0][0]).toMatchObject({ brandName: "Meike", productName: "Meike Mk137" });
+    expect(result.suggestion).toBe("El Meike Mk137 tiene 37 teclas.");
+  });
+
+  it("bloquea la propuesta del chat si combina MidiPlus con el modelo Meike", async () => {
+    state.brandName = "MidiPlus";
+    state.productName = "Teclado Meike MK137 Verde 37 Teclas Sensitivas Controlador MIDI";
+    vi.mocked(chatRefinementStep).mockResolvedValueOnce({ message: "Nueva versión:", suggestion: "El MidiPlus MK137 tiene 37 teclas." });
+    await expect(sendRefinementMessageAction(form({ responseId: "response-1", userMessage: "Acortala", chatHistory: "[]" }))).rejects.toThrow("mezcla la marca");
+    expect(state.responses[0].chatHistory).toEqual([]);
+  });
+
   it("guarda sin cambios el nombre escrito manualmente al usar una respuesta", async () => {
     state.brandName = "Arturia";
     state.productName = "Arturia MiniLab 3 Black Controlador MIDI 25 Teclas";
