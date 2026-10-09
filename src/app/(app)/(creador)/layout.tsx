@@ -14,7 +14,7 @@ export default function CreadorLayout({ children }: { children: React.ReactNode 
   return (
     <div className="flex flex-col">
       <Suspense>
-        <SectorTabs tabs={TABS} />
+        <SectorTabs tabs={TABS} loadingFeedback />
       </Suspense>
       {children}
     </div>

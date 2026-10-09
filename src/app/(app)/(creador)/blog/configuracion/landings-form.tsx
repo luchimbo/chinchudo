@@ -151,6 +151,7 @@ export function LandingsForm({
         <button
           type="submit"
           disabled={saving}
+          aria-busy={saving}
           className="rounded-full bg-ink px-6 py-2.5 text-sm font-bold text-paper transition hover:bg-slate disabled:opacity-60"
         >
           {saving ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Guardando…</span> : "Guardar cambios"}

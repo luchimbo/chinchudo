@@ -338,6 +338,7 @@ export function EditorForm({
           name="intent"
           value="preview"
           disabled={saving}
+          aria-busy={saving && actionLabel === "preview"}
           className="rounded-full bg-ink px-8 py-3 text-sm font-bold text-paper transition hover:bg-slate disabled:opacity-60"
         >
           {saving && actionLabel === "preview" ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Previsualizando…</span> : "Previsualizar diseño"}
@@ -347,6 +348,7 @@ export function EditorForm({
           name="intent"
           value="confirm"
           disabled={saving}
+          aria-busy={saving && actionLabel === "confirm"}
           className="rounded-full border border-ink/20 bg-paper px-8 py-3 text-sm font-bold text-ink transition hover:border-ink/45 disabled:opacity-60"
         >
           {saving && actionLabel === "confirm" ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Confirmando…</span> : "Confirmar diseño del blog"}
@@ -375,13 +377,13 @@ export function EditorForm({
             <p className="text-sm font-bold">La previsualización es opcional</p>
             <p className="max-w-md text-xs leading-5 text-white/55">Podés crear artículos sin esperarla. Cargala solo si querés revisar el diseño.</p>
           </div>
-        ) : <div className="relative bg-[#202326] p-3">
+        ) : <div aria-busy={previewStatus === "loading"} className="relative bg-[#202326] p-3">
           {previewStatus !== "ready" ? (
             <div className="absolute inset-3 z-10 flex items-center justify-center rounded-lg bg-[#202326] text-center text-paper">
-              <div className="flex max-w-xs flex-col items-center gap-3 px-6">
+              <div role={previewStatus === "loading" ? "status" : "alert"} className="flex max-w-xs flex-col items-center gap-3 px-6">
                 {previewStatus === "loading" ? (
                   <>
-                    <span className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-brass" aria-hidden="true" />
+                    <LoadingSpinner className="!h-8 !w-8 text-brass" />
                     <div>
                       <p className="text-sm font-bold">Generando previsualización</p>
                       <p className="mt-1 text-xs leading-5 text-white/55">Estamos preparando un artículo con el diseño elegido.</p>

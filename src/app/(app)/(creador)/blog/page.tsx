@@ -1,6 +1,6 @@
 import { PendingSubmitButton } from "@/components/pending-submit-button";
 import { ArticlePreviewButton } from "@/components/article-preview";
-import Link from "next/link";
+import { PendingNavigationLink as Link } from "@/components/pending-navigation-link";
 import { prisma } from "@/lib/db";
 import { requirePageClient } from "@/lib/auth";
 import { deleteLanding, publishAllOnlineLandings, publishLandingPreview, publishSelectedLandings, updateLandingStatus } from "./actions";

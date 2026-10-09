@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { PendingNavigationLink } from "./pending-navigation-link";
 import { usePathname, useSearchParams } from "next/navigation";
 
 export type TabItem = { href: string; label: string };
@@ -11,7 +12,8 @@ function isTabActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function SectorTabs({ tabs }: { tabs: TabItem[] }) {
+export function SectorTabs({ tabs, loadingFeedback = false }: { tabs: TabItem[]; loadingFeedback?: boolean }) {
+  const TabLink = loadingFeedback ? PendingNavigationLink : Link;
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const client = searchParams.get("client");
@@ -27,7 +29,7 @@ export function SectorTabs({ tabs }: { tabs: TabItem[] }) {
       {tabs.map((tab) => {
         const active = tab.href === activeHref;
         return (
-          <Link
+          <TabLink
             key={tab.href}
             href={`${tab.href}${q}`}
             className={`-mb-px shrink-0 border-b-2 px-4 py-3 text-sm font-medium transition-colors ${
@@ -37,7 +39,7 @@ export function SectorTabs({ tabs }: { tabs: TabItem[] }) {
             }`}
           >
             {tab.label}
-          </Link>
+          </TabLink>
         );
       })}
     </div>

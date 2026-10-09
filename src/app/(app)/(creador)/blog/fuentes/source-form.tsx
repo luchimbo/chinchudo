@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { LoadingMessage } from "@/components/loading-ui";
 import { addEditorialSource } from "./actions";
 
 const input = "w-full rounded-lg border border-ink/15 bg-white px-3 py-2 text-sm text-ink";
@@ -22,6 +23,6 @@ export function SourceForm({ clientId, products }: { clientId: string; products:
     <label className="grid gap-1 text-xs font-semibold text-slate">Productos que respalda<select name="productIds" multiple size={5} className={input}>{products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select><span className="font-normal">Seleccioná los modelos cubiertos por la documentación para habilitar comparativas.</span></label>
     <label className="flex items-start gap-2 text-sm text-ink"><input name="verified" type="checkbox" required className="mt-1" /><span>Revisé la fuente y las afirmaciones. Si es un caso o testimonio, confirmé que es real y puede publicarse.</span></label>
     {result ? <p role="status" className={`text-sm ${result.ok ? "text-moss" : "text-rose-700"}`}>{result.message}</p> : null}
-    <button disabled={busy} className="w-fit rounded-full bg-ink px-5 py-2 text-sm font-semibold text-paper disabled:opacity-50">{busy ? "Guardando…" : "Guardar fuente revisada"}</button>
+    <button type="submit" disabled={busy} aria-busy={busy} className="w-fit rounded-full bg-ink px-5 py-2 text-sm font-semibold text-paper disabled:cursor-wait disabled:opacity-50">{busy ? <LoadingMessage>Guardando…</LoadingMessage> : "Guardar fuente revisada"}</button>
   </form>;
 }

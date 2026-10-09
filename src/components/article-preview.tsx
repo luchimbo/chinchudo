@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { LoadingMessage } from "./loading-ui";
 import type { ArticleDraft } from "@/lib/article-edit";
 
 type PreviewProps = { articleId: string; draft?: ArticleDraft; onClose: () => void };
@@ -27,6 +28,7 @@ export function PreviewDialog({ articleId, draft, onClose }: PreviewProps) {
   const [error, setError] = useState("");
   const [mobile, setMobile] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const [frameReady, setFrameReady] = useState(false);
 
   useEffect(() => { closeRef.current = onClose; }, [onClose]);
   const close = useCallback(() => closeRef.current(), []);
@@ -69,6 +71,7 @@ export function PreviewDialog({ articleId, draft, onClose }: PreviewProps) {
     const controller = new AbortController();
     setHtml("");
     setError("");
+    setFrameReady(false);
     fetch(`/api/blog/articles/${encodeURIComponent(articleId)}/preview`, {
       method: snapshot ? "POST" : "GET",
       ...(snapshot ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ draft: snapshot }) } : {}),
@@ -124,15 +127,18 @@ export function PreviewDialog({ articleId, draft, onClose }: PreviewProps) {
           <button type="button" onClick={() => setMobile(true)} aria-pressed={mobile} className={`rounded-md px-2.5 py-1 font-semibold ${mobile ? "bg-paper shadow-sm" : "text-slate"}`}>Celular</button>
         </div>
       </div>
-      <div className="flex min-h-0 flex-1 justify-center overflow-auto bg-ink/[0.04] p-3">
+      <div aria-busy={!error && (!html || !frameReady)} className="relative flex min-h-0 flex-1 justify-center overflow-auto bg-ink/[0.04] p-3">
         {error ? (
           <div className="flex min-h-[60dvh] max-w-full flex-col items-center justify-center gap-4 p-4">
             <p role="alert" className="max-w-full whitespace-pre-wrap break-words text-sm text-rose-700">{error}</p>
             <button type="button" onClick={() => { closeButtonRef.current?.focus(); setAttempt((value) => value + 1); }} className="rounded-lg border border-ink/20 px-4 py-2 text-sm font-semibold hover:bg-ink/5">Reintentar</button>
           </div>
         ) : html ? (
-          <iframe title="Vista previa del artículo" srcDoc={html} sandbox="allow-same-origin" onLoad={(event) => connectIframe(event.currentTarget)} className={`h-[70dvh] max-w-full shrink-0 rounded-lg border border-ink/10 bg-white shadow-sm ${mobile ? "w-[390px]" : "w-full"}`} />
-        ) : <p className="flex min-h-[60dvh] items-center text-sm text-slate" role="status">Generando vista previa…</p>}
+          <>
+            {!frameReady ? <div className="absolute inset-0 z-10 flex items-center justify-center bg-paper"><LoadingMessage className="text-sm text-slate">Cargando vista previa…</LoadingMessage></div> : null}
+            <iframe title="Vista previa del artículo" srcDoc={html} sandbox="allow-same-origin" onLoad={(event) => { connectIframe(event.currentTarget); setFrameReady(true); }} className={`h-[70dvh] max-w-full shrink-0 rounded-lg border border-ink/10 bg-white shadow-sm ${mobile ? "w-[390px]" : "w-full"}`} />
+          </>
+        ) : <div className="flex min-h-[60dvh] items-center"><LoadingMessage className="text-sm text-slate">Generando vista previa…</LoadingMessage></div>}
       </div>
     </dialog>,
     document.body,

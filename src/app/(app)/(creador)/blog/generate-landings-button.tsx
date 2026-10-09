@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { PendingNavigationLink as Link } from "@/components/pending-navigation-link";
 import { useRouter } from "next/navigation";
+import { LoadingSpinner } from "@/components/loading-ui";
 
 export function GenerateLandingsButton({
   clientSlug,
@@ -122,11 +123,12 @@ export function GenerateLandingsButton({
           type="button"
           onClick={generate}
           disabled={state === "starting" || state === "running"}
+          aria-busy={state === "starting" || state === "running"}
           className={`inline-flex min-w-40 items-center justify-center gap-2 rounded-full px-5 py-3 text-sm font-bold transition disabled:cursor-wait disabled:opacity-65 ${
             isEditor ? "bg-paper text-ink hover:bg-paper/85" : "bg-ink text-paper hover:bg-slate"
           }`}
         >
-          {state === "starting" || state === "running" ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-ink/20 border-t-ink" aria-hidden="true" /> : null}
+          {state === "starting" || state === "running" ? <LoadingSpinner /> : null}
           {state === "starting" ? "Iniciando…" : state === "running" ? "Generando…" : "Crear artículos"}
         </button>
         {isEditor ? <Link href={`/blog/configuracion?client=${encodeURIComponent(clientSlug)}`} className="pb-3 text-xs font-semibold text-paper/70 underline underline-offset-4 hover:text-paper">Automatizar</Link> : null}

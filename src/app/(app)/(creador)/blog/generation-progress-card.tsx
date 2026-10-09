@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { LoadingMessage } from "@/components/loading-ui";
 
 type Job = { state: "running" | "completed" | "failed"; requested: number; completed: number; currentTopic?: string; created?: Array<{ keyword: string; title: string; source?: string }> };
 
@@ -28,7 +29,7 @@ export function GenerationProgressCard({ clientSlug }: { clientSlug: string }) {
 
   return <section className="mb-6 rounded-xl border border-sky-300/70 bg-sky-50 p-5 shadow-sm">
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <div><p className="font-semibold text-sky-900">Generación en proceso</p><p className="mt-1 text-sm text-sky-800/75">{job.currentTopic || "Preparando temas…"}</p></div>
+      <div><p className="font-semibold text-sky-900"><LoadingMessage>Generación en proceso</LoadingMessage></p><p className="mt-1 text-sm text-sky-800/75">{job.currentTopic || "Preparando temas…"}</p></div>
       <span className="rounded-full bg-sky-700 px-3 py-1 text-xs font-bold text-white">{job.completed}/{job.requested}</span>
     </div>
     <div role="progressbar" aria-label="Artículos generados" aria-valuemin={0} aria-valuemax={job.requested} aria-valuenow={job.completed} className="mt-4 h-2 overflow-hidden rounded-full bg-sky-200"><div className="h-full bg-sky-600 transition-all duration-500" style={{ width: `${percent}%` }} /></div>
