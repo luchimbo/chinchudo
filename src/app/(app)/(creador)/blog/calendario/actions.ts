@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { assertClientAccess } from "@/lib/auth";
@@ -9,6 +10,10 @@ import { businessTimezone, localDay } from "@/lib/business-analysis";
 import { inspectBlogArticle } from "@/lib/blog-evidence";
 import { editorialIntentForDate } from "@/lib/blog-quality.mjs";
 import { relayFetch } from "@/lib/relay-client";
+
+export type RescheduleFormState = { error: string | null };
+class CalendarValidationError extends Error {}
+class CalendarDateConflictError extends Error {}
 
 export async function publishCalendarArticle(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
@@ -61,33 +66,76 @@ async function pcMidiClient(formData: FormData) {
 
 async function editableSlot(id: string, allowMissed = false) {
   const slot = await prisma.blogPublication.findUnique({ where: { id }, include: { client: { select: { slug: true, responsePolicy: true } } } });
-  if (!slot) throw new Error("Fecha editorial no encontrada.");
+  if (!slot) throw new CalendarValidationError("Fecha editorial no encontrada.");
   await assertClientAccess(prisma, slot.clientId);
-  if (slot.scheduledDate.toISOString().slice(0, 10) <= localDay(new Date(), businessTimezone(slot.client.responsePolicy)) && !(slot.analysisRunId && slot.requiresApproval) && !(allowMissed && ["SKIPPED", "FAILED"].includes(slot.status) && slot.landingId)) throw new Error("Solo se pueden modificar fechas futuras.");
-  if (["PUBLISHING", "PUBLISHED"].includes(slot.status)) throw new Error("Este artículo ya está en publicación.");
+  if (slot.scheduledDate.toISOString().slice(0, 10) <= localDay(new Date(), businessTimezone(slot.client.responsePolicy)) && !(slot.analysisRunId && slot.requiresApproval) && !(allowMissed && ["SKIPPED", "FAILED"].includes(slot.status) && slot.landingId)) throw new CalendarValidationError("Solo se pueden modificar fechas futuras.");
+  if (["PUBLISHING", "PUBLISHED"].includes(slot.status)) throw new CalendarValidationError("Este artículo ya está en publicación.");
   return slot;
 }
 
-export async function rescheduleBlogArticle(formData: FormData) {
-  const id = z.string().min(1).parse(formData.get("id"));
-  const target = z.string().parse(formData.get("scheduledDate"));
-  const scheduledDate = dateOnly(target);
-  const slot = await editableSlot(id, true);
-  if (target <= localDay(new Date(), businessTimezone(slot.client.responsePolicy))) throw new Error("Elegí una fecha futura.");
-  if (!slot.landingId) throw new Error("Esta fecha aún no tiene artículo para mover.");
-  if (slot.scheduledDate.toISOString().slice(0, 10) === target) return;
-  const landing = await prisma.landing.findUniqueOrThrow({ where: { id: slot.landingId } });
-  const content = JSON.parse(landing.htmlContent);
-  if (content.editorial_intent !== editorialIntentForDate(target)) throw new Error("Elegí una fecha para el mismo tipo de artículo (educativo o de elección), para mantener el equilibrio.");
-  const quality = await inspectBlogArticle(prisma, slot.clientId, content, landing.id);
-  await prisma.$transaction(async (tx) => {
-    const occupied = await tx.blogPublication.findUnique({ where: { clientId_scheduledDate: { clientId: slot.clientId, scheduledDate } } });
-    if (occupied?.landingId || (occupied && occupied.status !== "PLANNED")) throw new Error("La fecha de destino ya está ocupada.");
-    if (occupied) await tx.blogPublication.delete({ where: { id: occupied.id } });
-    await tx.landing.update({ where: { id: landing.id }, data: { status: "DRAFT", publishedAt: null } });
-    await tx.blogPublication.update({ where: { id }, data: { ...(slot.analysisRunId ? { requiresApproval: true, approvedAt: null } : {}), scheduledDate, status: quality.publishable ? "READY" : "FAILED", attempts: quality.publishable ? 0 : 3, lastError: quality.checks.filter((c) => c.level === "error").map((c) => c.message).join(" · ") } });
-  });
+export async function rescheduleBlogArticle(_state: RescheduleFormState, formData: FormData): Promise<RescheduleFormState> {
+  const input = z.object({ id: z.string().min(1), scheduledDate: z.string() }).safeParse({ id: formData.get("id"), scheduledDate: formData.get("scheduledDate") });
+  if (!input.success) return { error: "Elegí un artículo y una fecha válida." };
+  const { id, scheduledDate: target } = input.data;
+  try { dateOnly(target); } catch { return { error: "Elegí una fecha válida." }; }
+  let clientSlug: string;
+  let finalDate = target;
+  try {
+    const slot = await editableSlot(id, true);
+    clientSlug = slot.client.slug;
+    if (target <= localDay(new Date(), businessTimezone(slot.client.responsePolicy))) return { error: "Elegí una fecha futura." };
+    if (!slot.landingId) return { error: "Esta fecha aún no tiene artículo para mover." };
+    if (slot.scheduledDate.toISOString().slice(0, 10) === target) return { error: null };
+    const landing = await prisma.landing.findUniqueOrThrow({ where: { id: slot.landingId } });
+    let content: Record<string, any>;
+    try {
+      content = JSON.parse(landing.htmlContent);
+      if (!content || typeof content !== "object" || Array.isArray(content)) throw new Error();
+    } catch { return { error: "El artículo no tiene una estructura válida. Revisalo desde el editor." }; }
+    if (!["educational", "decision"].includes(content.editorial_intent)) return { error: "El artículo no tiene un tipo editorial válido. Revisalo antes de reprogramar." };
+    const quality = await inspectBlogArticle(prisma, slot.clientId, content, landing.id);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        finalDate = await prisma.$transaction(async (tx) => {
+          const futureSlots = await tx.blogPublication.findMany({
+            where: { clientId: slot.clientId, id: { not: id }, scheduledDate: { gte: dateOnly(target) } },
+            select: { id: true, scheduledDate: true, landingId: true, status: true, updatedAt: true },
+          });
+          const byDate = new Map(futureSlots.map(entry => [entry.scheduledDate.toISOString().slice(0, 10), entry]));
+          let candidate = target;
+          if (editorialIntentForDate(candidate) !== content.editorial_intent) candidate = shiftDate(candidate, 1);
+          while (byDate.get(candidate)?.landingId || (byDate.has(candidate) && byDate.get(candidate)!.status !== "PLANNED")) candidate = shiftDate(candidate, 2);
+          if (candidate === slot.scheduledDate.toISOString().slice(0, 10)) return candidate;
+          const occupied = byDate.get(candidate);
+          if (occupied) {
+            const removed = await tx.blogPublication.deleteMany({ where: { id: occupied.id, landingId: null, status: "PLANNED", updatedAt: occupied.updatedAt } });
+            if (removed.count !== 1) throw new CalendarDateConflictError();
+          }
+          const changed = await tx.blogPublication.updateMany({
+            where: { id, updatedAt: slot.updatedAt, status: slot.status, landingId: landing.id, landing: { updatedAt: landing.updatedAt } },
+            data: { ...(slot.analysisRunId ? { requiresApproval: true, approvedAt: null } : {}), scheduledDate: dateOnly(candidate), status: quality.publishable ? "READY" : "FAILED", attempts: quality.publishable ? 0 : 3, lastError: quality.checks.filter((c) => c.level === "error").map((c) => c.message).join(" · ") },
+          });
+          if (changed.count !== 1) throw new CalendarValidationError("El artículo cambió durante la reprogramación. Recargá el calendario y reintentá.");
+          await tx.landing.update({ where: { id: landing.id }, data: { status: "DRAFT", publishedAt: null } });
+          return candidate;
+        });
+        break;
+      } catch (error) {
+        const conflict = error instanceof CalendarDateConflictError || (error && typeof error === "object" && "code" in error && ["P2002", "P2034"].includes(String(error.code)));
+        if (!conflict) throw error;
+        if (attempt === 2) throw new CalendarValidationError("El calendario cambió mientras buscábamos una fecha libre. Reintentá para buscar la próxima disponible.");
+      }
+    }
+    revalidatePath(`/blog/articulos/${landing.id}`);
+  } catch (error) {
+    if (error instanceof CalendarValidationError) return { error: error.message };
+    if (error instanceof Error && ["No autenticado.", "No tenés acceso a este cliente."].includes(error.message)) return { error: error.message };
+    console.error("[blog] No se pudo reprogramar el artículo", error);
+    return { error: "No se pudo reprogramar el artículo. Reintentá en unos instantes." };
+  }
+  revalidatePath("/blog");
   revalidatePath("/blog/calendario");
+  redirect(`/blog/calendario?client=${encodeURIComponent(clientSlug)}&month=${finalDate.slice(0, 7)}&rescheduled=${encodeURIComponent(id)}&requestedDate=${target}`);
 }
 
 export async function replaceBlogArticle(formData: FormData) {
