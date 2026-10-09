@@ -99,6 +99,11 @@ function build(overrides: Row = {}) {
 const deploys = (fn: { mock: { calls: any[][] } }) => fn.mock.calls.filter(([args]) => args[0] === "deploy").length;
 const failingDeploy = (message: string) => vi.fn(async (args: string[]) => { if (args[0] === "deploy") throw new Error(message); return "ok"; });
 
+function manualInput(date: string) {
+  const slot = row(date);
+  return { id: slot.id, clientId: slot.clientId, expectedUpdatedAt: slot.updatedAt.toISOString() };
+}
+
 beforeEach(() => {
   clock = new Date("2026-10-01T15:00:00Z"); // 12:00 en Buenos Aires
   rows = [];
@@ -108,6 +113,90 @@ beforeEach(() => {
 });
 
 describe("rutina diaria del blog", () => {
+  it("publica a pedido una fecha futura con la automatización apagada y conserva su fecha", async () => {
+    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: false });
+    addReady("2026-10-20");
+    const { daily, runBlogPython, fetchUrl } = build();
+    const accepted = vi.fn(() => expect(row("2026-10-20").status).toBe("PUBLISHING"));
+    await daily.publishBlogArticle(manualInput("2026-10-20"), accepted);
+    expect(accepted).toHaveBeenCalledOnce();
+    expect(row("2026-10-20")).toMatchObject({ status: "PUBLISHED", scheduledDate: new Date("2026-10-20T00:00:00Z") });
+    expect(deploys(runBlogPython)).toBe(1);
+    expect(fetchUrl).toHaveBeenCalledOnce();
+  });
+
+  it("la publicación manual exige aprobación y respeta el cliente", async () => {
+    addReady("2026-10-20");
+    const { daily, runBlogPython } = build();
+    row("2026-10-20").requiresApproval = true;
+    await expect(daily.publishBlogArticle(manualInput("2026-10-20"))).rejects.toThrow("Aprobá");
+    row("2026-10-20").requiresApproval = false;
+    await expect(daily.publishBlogArticle({ ...manualInput("2026-10-20"), clientId: "otro" })).rejects.toThrow("cliente");
+    expect(deploys(runBlogPython)).toBe(0);
+  });
+
+  it.each(["PUBLISHED", "PUBLISHING", "SKIPPED", "PLANNED"])("rechaza la publicación manual en estado %s", async (status) => {
+    addReady("2026-10-20");
+    row("2026-10-20").status = status;
+    const { daily, runBlogPython } = build();
+    await expect(daily.publishBlogArticle(manualInput("2026-10-20"))).rejects.toThrow("listo");
+    expect(deploys(runBlogPython)).toBe(0);
+  });
+
+  it("dos pedidos manuales simultáneos producen un solo despliegue", async () => {
+    addReady("2026-10-20");
+    const { daily, runBlogPython } = build();
+    const input = manualInput("2026-10-20");
+    const results = await Promise.allSettled([daily.publishBlogArticle(input), daily.publishBlogArticle(input)]);
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    expect(deploys(runBlogPython)).toBe(1);
+  });
+
+  it("rechaza cambios posteriores a la revisión y un blog ocupado", async () => {
+    addReady("2026-10-20");
+    const input = manualInput("2026-10-20");
+    clock = new Date(clock.getTime() + 1000);
+    row("2026-10-20").updatedAt = clock;
+    const { daily, runBlogPython } = build();
+    await expect(daily.publishBlogArticle(input)).rejects.toThrow("cambió");
+    const busy = build({ withLease: async () => null });
+    await expect(busy.daily.publishBlogArticle(manualInput("2026-10-20"))).rejects.toThrow("ocupado");
+    expect(deploys(runBlogPython)).toBe(0);
+  });
+
+  it("un pedido manual se detiene mientras se actualiza el catálogo", async () => {
+    addReady("2026-10-20");
+    const { daily, runBlogPython } = build({ catalogPending: async () => true });
+    await expect(daily.publishBlogArticle(manualInput("2026-10-20"))).rejects.toThrow("catálogo");
+    expect(deploys(runBlogPython)).toBe(0);
+    expect(row("2026-10-20").status).toBe("READY");
+  });
+
+  it("recupera una publicación manual interrumpida de otro cliente después de reiniciar", async () => {
+    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: false });
+    addReady("2026-10-20");
+    Object.assign(row("2026-10-20"), { clientId: "c2", status: "PUBLISHING", updatedAt: new Date(clock.getTime() - 20 * 60_000) });
+    Object.assign(landings["l-2026-10-20"], { status: "PUBLISHED", htmlContent: JSON.stringify({ h1: "Pendiente", published_at: "2026-10-01", publication_token: "viejo" }) });
+    const { daily } = build();
+    await daily.runDailyBlogCalendar();
+    expect(row("2026-10-20").status).toBe("FAILED");
+    expect(landings["l-2026-10-20"].status).toBe("DRAFT");
+    expect(JSON.parse(landings["l-2026-10-20"].htmlContent).publication_token).toBeUndefined();
+  });
+
+  it("un bloqueo de calidad o una URL desactualizada impiden confirmar la publicación manual", async () => {
+    addReady("2026-10-20");
+    const blocked = build({ inspect: async () => ({ publishable: false, checks: [{ level: "error", message: "Sin evidencia" }] }) });
+    await blocked.daily.publishBlogArticle(manualInput("2026-10-20"));
+    expect(row("2026-10-20")).toMatchObject({ status: "FAILED", lastError: "Sin evidencia" });
+    expect(deploys(blocked.runBlogPython)).toBe(0);
+    const stale = build({ fetchUrl: async () => ({ ok: true, text: async () => "contenido anterior" }) });
+    await stale.daily.publishBlogArticle(manualInput("2026-10-20"));
+    expect(row("2026-10-20").status).toBe("FAILED");
+    expect(landings["l-2026-10-20"].status).toBe("DRAFT");
+    expect(JSON.parse(landings["l-2026-10-20"].htmlContent).published_at).toBeUndefined();
+  });
+
   it("despliega una revisión de un artículo anterior al calendario conservando su URL", async () => {
     settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: false });
     landings.old = { id: "old", slug: "guia-existente", status: "PUBLISHED", updatedAt: clock, contentCluster: { slug: "controladores" }, htmlContent: JSON.stringify({ h1: "Original", pending_revision: { content: { h1: "Editado" }, publishable: true } }) };

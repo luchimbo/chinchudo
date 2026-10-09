@@ -63,10 +63,11 @@ async function runBlogPython(args, clientId, timeoutMs = 300_000) {
   return result;
 }
 
-function runBlogPythonProcess(args, clientId, timeoutMs = 300_000, lease, catalogVersion = "") {
+async function runBlogPythonProcess(args, clientId, timeoutMs = 300_000, lease, catalogVersion = "") {
+  const client = await prisma.client.findUniqueOrThrow({ where: { id: clientId }, select: { slug: true } });
   const python = getPythonCommand();
   return new Promise((resolve, reject) => {
-    const child = spawn(python.command, [...python.argsPrefix, join(ROOT, "landing-build", "build_landings.py"), "--client-slug", "pcmidi", ...args], {
+    const child = spawn(python.command, [...python.argsPrefix, join(ROOT, "landing-build", "build_landings.py"), "--client-slug", client.slug, ...args], {
       cwd: ROOT, windowsHide: true,
       env: { ...process.env, PYTHONIOENCODING: "utf-8", LANDING_EXPECTED_CLIENT_ID: clientId, LANDING_CATALOG_VERSION: catalogVersion },
     });
@@ -345,6 +346,22 @@ const server = http.createServer(async (req, res) => {
 
   if (!authOk(req)) {
     return json(res, 401, { error: "unauthorized" });
+  }
+
+  if (method === "POST" && url === "/blog/publish") {
+    let body;
+    try { body = await readBody(req); }
+    catch { return json(res, 400, { error: "No se pudo leer el pedido de publicación." }); }
+    if (![body?.id, body?.clientId, body?.expectedUpdatedAt].every(value => typeof value === "string" && value.trim())) {
+      return json(res, 400, { error: "Faltan los datos del artículo para publicar." });
+    }
+    try {
+      await blogDaily.publishBlogArticle(body, () => json(res, 202, { accepted: true }));
+    } catch (error) {
+      if (!res.writableEnded) json(res, 409, { error: error.message });
+      else console.error("[blog] Publicación manual interrumpida:", error);
+    }
+    return;
   }
 
   // POST /v1/chat/completions — proxy autenticado hacia la IA local.

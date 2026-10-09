@@ -76,6 +76,56 @@ export function createBlogDaily({ prisma, runBlogPython, fetchUrl = fetch, now =
     return true;
   }
 
+  // Publicación explícita del operador, independiente del horario automático.
+  async function publishBlogArticle({ id, clientId, expectedUpdatedAt }, onAccepted = () => {}) {
+    if (await catalogPending(clientId)) throw new Error("El catálogo se está actualizando. Reintentá en unos minutos.");
+    const result = await withLease(clientId, async () => {
+      const [client, slot] = await Promise.all([
+        prisma.client.findUnique({ where: { id: clientId }, select: { id: true, active: true, blogBaseUrl: true } }),
+        prisma.blogPublication.findUnique({ where: { id }, include: { landing: { include: { contentCluster: { select: { slug: true } } } } } }),
+      ]);
+      if (!client?.active || !slot?.landing || slot.clientId !== clientId) throw new Error("Artículo no encontrado para este cliente.");
+      if (slot.requiresApproval) throw new Error("Aprobá el borrador antes de publicarlo.");
+      if (!["READY", "FAILED"].includes(slot.status)) throw new Error("El artículo no está listo para publicar. Recargá el calendario.");
+      if (!client.blogBaseUrl?.trim()) throw new Error("Configurá la URL pública del blog antes de publicar.");
+      if (slot.updatedAt.toISOString() !== expectedUpdatedAt) throw new Error("El artículo cambió. Recargá el calendario antes de publicar.");
+      const claimed = await prisma.blogPublication.updateMany({
+        where: { id, clientId, updatedAt: slot.updatedAt, requiresApproval: false, status: { in: ["READY", "FAILED"] }, landing: { updatedAt: slot.landing.updatedAt } },
+        data: { status: "PUBLISHING", attempts: { increment: 1 }, lastError: "" },
+      });
+      if (!claimed.count) throw new Error("El artículo cambió o ya se está publicando. Recargá el calendario.");
+      onAccepted();
+      await publishClaimedArticle(client, slot);
+      return true;
+    });
+    if (result === null) throw new Error("El blog está ocupado. Reintentá en unos minutos.");
+  }
+
+  async function publishClaimedArticle(client, slot) {
+    let landing;
+    try {
+      landing = await prisma.landing.findUnique({ where: { id: slot.landingId }, include: { contentCluster: { select: { slug: true } } } });
+      const content = parseContent(landing);
+      const quality = await validate(client, landing, content);
+      if (!quality.publishable) {
+        await prisma.landing.update({ where: { id: landing.id }, data: { htmlContent: JSON.stringify(content), status: "DRAFT", publishedAt: null } });
+        await prisma.blogPublication.update({ where: { id: slot.id }, data: { status: "FAILED", attempts: 3, lastError: errors(quality) } });
+        return;
+      }
+      const day = slot.scheduledDate.toISOString().slice(0, 10);
+      if (content.editorial_intent !== editorialIntentForDate(day)) throw new Error("La intención del artículo no coincide con la fecha; reprogramá para conservar el equilibrio.");
+      content.published_at = now().toISOString();
+      await prisma.landing.update({ where: { id: landing.id }, data: { status: "PUBLISHED", publishedAt: now() } });
+      const url = await deployVerified(client, landing, content);
+      await prisma.blogPublication.update({ where: { id: slot.id }, data: { status: "PUBLISHED", publishedAt: now(), lastError: "" } });
+      log.log(`[blog] Artículo publicado: ${url}`);
+    } catch (error) {
+      if (landing) await restorePrivateDraft(landing);
+      await prisma.blogPublication.update({ where: { id: slot.id }, data: { status: "FAILED", lastError: String(error).slice(-1000) } });
+      log.error("[blog] No se pudo publicar:", error);
+    }
+  }
+
   async function deployExistingArticleRevision(client) {
     const candidates = await prisma.landing.findMany({ where: { clientId: client.id, status: "PUBLISHED", contentType: { in: ["GUIDE", "PILLAR"] }, blogPublication: { is: null }, htmlContent: { contains: '"pending_revision"' } }, include: { contentCluster: { select: { slug: true } } }, orderBy: { updatedAt: "asc" }, take: 50 });
     const landing = candidates.find((l) => { const c = parseContent(l); return c.pending_revision?.publishable && Number(c.revision_attempts || 0) < 3 && !(Date.parse(c.deployment_started_at || "") > now().getTime() - 15 * 60000); });
@@ -149,28 +199,7 @@ export function createBlogDaily({ prisma, runBlogPython, fetchUrl = fetch, now =
       const due = await prisma.blogPublication.findUnique({ where: { clientId_scheduledDate: { clientId: client.id, scheduledDate: dateValue(local.date) } }, include: { landing: { include: { contentCluster: { select: { slug: true } } } } } });
       if (active && (!config.firstPublishDate || local.date >= config.firstPublishDate) && local.time >= config.publishTime && due?.landing && !due.requiresApproval && ["READY", "FAILED"].includes(due.status) && due.attempts < 3) {
         const claimed = await prisma.blogPublication.updateMany({ where: { id: due.id, requiresApproval: false, status: { in: ["READY", "FAILED"] }, attempts: { lt: 3 } }, data: { status: "PUBLISHING", attempts: { increment: 1 }, lastError: "" } });
-        if (claimed.count) {
-          const landing = await prisma.landing.findUnique({ where: { id: due.landingId }, include: { contentCluster: { select: { slug: true } } } });
-          try {
-            const content = parseContent(landing);
-            const quality = await validate(client, landing, content);
-            if (!quality.publishable) {
-              await prisma.landing.update({ where: { id: landing.id }, data: { htmlContent: JSON.stringify(content), status: "DRAFT", publishedAt: null } });
-              await prisma.blogPublication.update({ where: { id: due.id }, data: { status: "FAILED", attempts: 3, lastError: errors(quality) } });
-              return;
-            }
-            if (content.editorial_intent !== editorialIntentForDate(local.date)) throw new Error("La intención del artículo no coincide con la fecha; reprogramá para conservar el equilibrio.");
-            content.published_at = now().toISOString();
-            await prisma.landing.update({ where: { id: landing.id }, data: { status: "PUBLISHED", publishedAt: now() } });
-            const url = await deployVerified(client, landing, content);
-            await prisma.blogPublication.update({ where: { id: due.id }, data: { status: "PUBLISHED", publishedAt: now(), lastError: "" } });
-            log.log(`[blog] Artículo diario publicado: ${url}`);
-          } catch (error) {
-            if (landing) await restorePrivateDraft(landing);
-            await prisma.blogPublication.update({ where: { id: due.id }, data: { status: "FAILED", lastError: String(error).slice(-1000) } });
-            log.error("[blog] No se pudo publicar:", error);
-          }
-        }
+        if (claimed.count) await publishClaimedArticle(client, due);
         return;
       }
       if (await deployEditedBlogArticle(client)) return;
@@ -194,8 +223,13 @@ export function createBlogDaily({ prisma, runBlogPython, fetchUrl = fetch, now =
     finally { running = false; }
   }
   const runLeasedCalendar = async () => {
+    // Las publicaciones manuales también pueden pertenecer a otros clientes.
+    const interrupted = await prisma.blogPublication.findMany({ where: { status: "PUBLISHING", updatedAt: { lt: new Date(now().getTime() - 15 * 60_000) } }, select: { clientId: true } });
+    for (const clientId of new Set(interrupted.map(slot => slot.clientId))) {
+      await withLease(clientId, () => recoverInterrupted(clientId));
+    }
     const client = await prisma.client.findUnique({ where: { slug: "pcmidi" }, select: { id: true } });
     if (client && !(await catalogPending(client.id))) return withLease(client.id, runDailyBlogCalendar);
   };
-  return { runDailyBlogCalendar: runLeasedCalendar, deployEditedBlogArticle };
+  return { runDailyBlogCalendar: runLeasedCalendar, deployEditedBlogArticle, publishBlogArticle };
 }

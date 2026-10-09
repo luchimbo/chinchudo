@@ -7,6 +7,7 @@ import { businessTimezone, localDay } from "@/lib/business-analysis";
 import { addBlogDays, replaceBlogArticle, rescheduleBlogArticle, restoreBlogDate, skipBlogDate, retryBlogPreparation, approveAnalysisArticle } from "./actions";
 import { editorialIntentForDate } from "@/lib/blog-quality.mjs";
 import { blogReferral } from "@/lib/blog-referrals";
+import { PublishArticleButton } from "./publish-article-button";
 
 const WEEKDAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 const STATUS: Record<string, { label: string; style: string }> = {
@@ -118,6 +119,7 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
                   {slot.landingId ? <Link href={`/blog/articulos/${slot.landingId}?client=${activeClient.slug}`} className="block text-[11px] font-semibold text-moss underline underline-offset-2">Editar artículo</Link> : null}
                   {slot.status === "PUBLISHED" && liveUrl ? <a href={liveUrl} target="_blank" rel="noreferrer" className="block text-[11px] font-semibold text-sky-700 underline underline-offset-2">Ver online ↗</a> : null}
                   {slot.requiresApproval && slot.landingId ? <form action={approveAnalysisArticle}><input type="hidden" name="id" value={slot.id} /><button type="submit" className="text-[11px] font-semibold text-moss underline">Aprobar borrador</button></form> : null}
+                  {slot.landingId && !slot.requiresApproval && ["READY", "FAILED", "PUBLISHING"].includes(slot.status) ? <PublishArticleButton key={`${slot.id}-${slot.status}-${slot.updatedAt.toISOString()}`} id={slot.id} publishing={slot.status === "PUBLISHING"} /> : null}
                   {slot.lastError ? <p className="line-clamp-3 text-[10px] text-signal">{slot.lastError}</p> : null}
                   {day <= today && (["SKIPPED", "FAILED"].includes(slot.status) || slot.requiresApproval) && slot.landingId ? <form action={rescheduleBlogArticle} className="space-y-1 text-[11px]"><input type="hidden" name="id" value={slot.id} /><input type="date" name="scheduledDate" min={shiftDate(today, 1)} required className="w-full rounded border border-ink/15 px-1 py-1" /><button type="submit" className="font-semibold text-moss underline">Reprogramar artículo</button></form> : null}
                   {day > today && slot.landingId && !["PUBLISHED", "PUBLISHING"].includes(slot.status) ? <details className="text-[11px] text-slate"><summary className="cursor-pointer font-semibold">Mover o cambiar</summary><div className="mt-2 space-y-1.5"><form action={rescheduleBlogArticle} className="space-y-1"><input type="hidden" name="id" value={slot.id} /><input type="date" name="scheduledDate" min={shiftDate(today, 1)} required className="w-full rounded border border-ink/15 px-1 py-1" /><button type="submit" className="font-semibold text-moss underline">Mover</button></form><form action={replaceBlogArticle}><input type="hidden" name="id" value={slot.id} /><button type="submit" className="text-sky-700 underline">Generar otro artículo</button></form></div></details> : null}

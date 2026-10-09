@@ -8,6 +8,30 @@ import { argentinaDate, dateOnly, shiftDate } from "@/lib/blog-calendar";
 import { businessTimezone, localDay } from "@/lib/business-analysis";
 import { inspectBlogArticle } from "@/lib/blog-evidence";
 import { editorialIntentForDate } from "@/lib/blog-quality.mjs";
+import { relayFetch } from "@/lib/relay-client";
+
+export async function publishCalendarArticle(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    z.string().min(1).parse(id);
+    const slot = await prisma.blogPublication.findUnique({ where: { id }, include: { landing: true } });
+    if (!slot?.landing) return { ok: false, error: "Artículo no encontrado. Recargá el calendario." };
+    await assertClientAccess(prisma, slot.clientId);
+    if (slot.requiresApproval) return { ok: false, error: "Aprobá el borrador antes de publicarlo." };
+    if (!["READY", "FAILED"].includes(slot.status)) return { ok: false, error: "El artículo no está listo para publicar. Recargá el calendario." };
+    const response = await relayFetch("/blog/publish", {
+      method: "POST", signal: AbortSignal.timeout(30_000),
+      body: JSON.stringify({ id, clientId: slot.clientId, expectedUpdatedAt: slot.updatedAt.toISOString() }),
+    });
+    const result = await response.json();
+    if (response.status !== 202 || !result.accepted) return { ok: false, error: result.error || "No se pudo iniciar la publicación. Reintentá." };
+    revalidatePath("/blog");
+    revalidatePath("/blog/calendario");
+    revalidatePath(`/blog/articulos/${slot.landing.id}`);
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "No se pudo iniciar la publicación. Verificá tu acceso y la conexión con el agente local, y reintentá." };
+  }
+}
 
 export async function approveAnalysisArticle(formData: FormData) {
   const id = z.string().min(1).parse(formData.get("id"));
