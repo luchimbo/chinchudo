@@ -459,9 +459,11 @@ export function OnboardingWizard({
           <div className="absolute -right-20 -top-20 h-52 w-52 rounded-full bg-[#b9872f]/35 blur-3xl" />
           <div className="relative">
             <div className="mb-12 flex items-center gap-3">
-              <span className="grid h-9 w-9 place-items-center rounded-xl bg-[#d8b465] font-display text-xl text-[#17231e]">
-                C
-              </span>
+              <svg viewBox="0 0 64 64" aria-hidden="true" className="h-9 w-9 shrink-0">
+                <rect width="64" height="64" rx="14" fill="#d8b465" />
+                <path d="M44.02 19.98A17 17 0 1 0 44.02 44.02" fill="none" stroke="#17231e" strokeWidth="8" strokeLinecap="round" />
+                <circle cx="47" cy="32" r="4.5" fill="#f7f3ea" />
+              </svg>
               <div>
                 <p className="font-display text-xl tracking-tight">Cafishia</p>
                 <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#eff3e8]/55">
