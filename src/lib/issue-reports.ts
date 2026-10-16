@@ -8,8 +8,7 @@ export function getIssueSector(originPath: string): string {
   const pathname = originPath.split("?", 1)[0];
   if (pathname === "/") return "Inicio";
   if (pathname.startsWith("/blog") || pathname.startsWith("/leads")) return "Blog";
-  if (pathname.startsWith("/videos")) return "Tendencias y guiones";
-  if (pathname.startsWith("/tendencias")) return "Tendencias";
+  if (pathname.startsWith("/estudio") || pathname.startsWith("/videos") || pathname.startsWith("/tendencias")) return "Estudio de Reels";
   if (["/oportunidades", "/bitacora", "/historial", "/distribution", "/actividad", "/redes"].some((path) => pathname.startsWith(path))) return "Publicador en Redes";
   if (["/analytics", "/informe", "/geo"].some((path) => pathname.startsWith(path))) return "Analíticas";
   if (["/configuracion", "/brands", "/products", "/personas", "/prompts", "/knowledge", "/clients"].some((path) => pathname.startsWith(path))) return "Configuración";

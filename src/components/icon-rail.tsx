@@ -60,13 +60,6 @@ const VideoIcon = () => (
   </svg>
 );
 
-const RadarIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="9" />
-    <path d="M12 3v9l6.4 6.4" />
-    <path d="M12 12 5.6 18.4" />
-  </svg>
-);
 
 const GearIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -112,18 +105,11 @@ const MAIN_SECTORS: Sector[] = [
     icon: <ContactsIcon />,
   },
   {
-    id: "videos",
-    href: "/videos",
-    label: "Tendencias y guiones",
-    paths: ["/videos"],
+    id: "estudio",
+    href: "/estudio",
+    label: "Estudio de Reels",
+    paths: ["/estudio", "/videos", "/tendencias", "/radar"],
     icon: <VideoIcon />,
-  },
-  {
-    id: "tendencias",
-    href: "/tendencias",
-    label: "Tendencias",
-    paths: ["/tendencias"],
-    icon: <RadarIcon />,
   },
   {
     id: "analiticas",

@@ -109,7 +109,7 @@ export async function analyzeTrend(trendId: string) {
   }
 }
 
-function fallbackAngles(product: Product, intent: ContentIntent, trends: Trend[]): EditorialAngle[] {
+export function fallbackAngles(product: Pick<Product, "name">, intent: ContentIntent, trends: Pick<Trend, "id">[]): EditorialAngle[] {
   const reference = trends[0];
   const base = product.name;
   const maps: Record<ContentIntent, EditorialAngle[]> = {

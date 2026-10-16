@@ -15,6 +15,7 @@ export * from "./hook-score";
 export * from "./humanize";
 export * from "./labels";
 export * from "./rioplatense";
+export * from "./swipe";
 export * from "./outlier";
 export { timecode } from "./text";
 

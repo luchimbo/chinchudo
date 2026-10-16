@@ -1391,6 +1391,13 @@ model ContentIdea {
   visualDirection String
   viabilityScore  Int               @default(3)
   status          ContentIdeaStatus @default(REVIEW)
+  pieceType       String            @default("REEL") // REEL | CAROUSEL | STORY
+  plannedFor      DateTime?         @db.Date
+  formulaId       Int?
+  publishedUrl    String            @default("")
+  publishedAt     DateTime?
+  extras          Json              @default("{}") // carrusel, historias
+  notes           String            @default("")
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
   client          Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -1399,6 +1406,7 @@ model ContentIdea {
   videoScripts    VideoScript[]
 
   @@index([clientId, status])
+  @@index([clientId, plannedFor])
   @@index([productId])
   @@index([trendId])
   @@index([createdAt])

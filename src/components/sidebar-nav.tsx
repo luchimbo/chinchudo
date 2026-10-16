@@ -23,8 +23,7 @@ export const NAV_GROUPS: NavGroup[] = [
     title: "Contenido",
     items: [
       { href: "/blog", label: "Blog" },
-      { href: "/videos", label: "Tendencias y guiones" },
-      { href: "/tendencias", label: "Tendencias" },
+      { href: "/estudio", label: "Estudio de Reels" },
       { href: "/actividad", label: "Publicado" },
     ],
   },

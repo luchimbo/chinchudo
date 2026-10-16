@@ -1,12 +1,11 @@
-export const SUPPORT_PATHS = ["/", "/asistente-cm", "/blog", "/blog/calendario", "/blog/configuracion", "/videos", "/tendencias", "/leads", "/analytics", "/geo", "/monitoring", "/configuracion", "/onboarding"] as const;
+export const SUPPORT_PATHS = ["/", "/asistente-cm", "/blog", "/blog/calendario", "/blog/configuracion", "/estudio", "/leads", "/analytics", "/geo", "/monitoring", "/configuracion", "/onboarding"] as const;
 export const SUPPORT_MODULES = [
   { path: "/", label: "Inicio" },
   { path: "/asistente-cm", label: "Consultas y respuestas" },
   { path: "/blog", label: "Artículos del blog" },
   { path: "/blog/calendario", label: "Calendario del blog" },
   { path: "/blog/configuracion", label: "Configuración del blog" },
-  { path: "/videos", label: "Tendencias y guiones" },
-  { path: "/tendencias", label: "Tendencias" },
+  { path: "/estudio", label: "Estudio de Reels" },
   { path: "/leads", label: "Contactos" },
   { path: "/analytics", label: "Resultados e informes" },
   { path: "/geo", label: "Visibilidad en inteligencia artificial" },
