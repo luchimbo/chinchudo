@@ -4,6 +4,7 @@ import { rename } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { PrismaClient } from "@prisma/client";
 import { analyzeTrend } from "../src/lib/content-idea-generator";
+import { analyzeReference, type ReelCraftTrendMeta } from "../src/lib/reel-craft";
 // @ts-ignore
 import { dataDir, loadEnv, readJsonl, writeReport, runtimeArchivePath } from "./agent-utils.mjs";
 
@@ -11,6 +12,29 @@ loadEnv();
 
 const prisma = new PrismaClient();
 const intakePath = join(dataDir, "trends-intake.jsonl");
+const CHANNEL_WINDOW_DAYS = 90;
+
+/**
+ * ig-viral: la mediana de un canal sale de las referencias que ya guardamos de
+ * ese mismo canal (sin requests extra). Con menos de 3 muestras no hay múltiplo.
+ */
+async function reelCraftFor(row: any): Promise<ReelCraftTrendMeta> {
+  const metadata = row.metadata || {};
+  const views = Number(metadata.views) > 0 ? Number(metadata.views) : null;
+  const channel = typeof metadata.channel_id === "string" && metadata.channel_id ? metadata.channel_id : typeof metadata.channel === "string" && metadata.channel ? metadata.channel : null;
+  let channelViews: number[] = [];
+  if (channel && views) {
+    const key = metadata.channel_id ? "channel_id" : "channel";
+    const previous = await prisma.trend.findMany({
+      where: { clientId: row.clientId, metadata: { path: [key], equals: channel }, createdAt: { gte: new Date(Date.now() - CHANNEL_WINDOW_DAYS * 24 * 60 * 60 * 1000) } },
+      select: { metadata: true },
+      take: 12,
+      orderBy: { createdAt: "desc" },
+    });
+    channelViews = previous.map((trend) => Number((trend.metadata as any)?.views)).filter((value) => value > 0);
+  }
+  return analyzeReference({ title: row.title, views, channel: metadata.channel ?? null, channelViews });
+}
 
 function parseArgs() {
   return {
@@ -32,6 +56,7 @@ async function main() {
   let created = 0;
   let duplicates = 0;
   let skipped = 0;
+  let outliers = 0;
   const errors: { title: string; error: string }[] = [];
 
   console.log(`import-trends: Iniciando importación de ${rows.length} registros...`);
@@ -56,6 +81,9 @@ async function main() {
         continue;
       }
 
+      const reelCraft = await reelCraftFor(row);
+      if (reelCraft.band === "signal") outliers++;
+
       if (!args.dryRun) {
         const trend = await prisma.trend.create({
           data: {
@@ -65,7 +93,7 @@ async function main() {
             sourceUrl: row.source_url || "",
             platform: row.platform || "GOOGLE_TRENDS",
             queryUsed: row.query_used || "",
-            metadata: row.metadata || {},
+            metadata: { ...(row.metadata || {}), reelCraft },
           },
         });
         await analyzeTrend(trend.id);
@@ -94,6 +122,7 @@ async function main() {
     created,
     duplicates,
     skipped,
+    outliers_3x: outliers,
     errors,
   });
 
@@ -104,7 +133,7 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(`import-trends: ${created} tendencias importadas, ${duplicates} duplicadas, ${skipped} omitidas. Reporte: ${report}`);
+  console.log(`import-trends: ${created} tendencias importadas (${outliers} outliers 3x), ${duplicates} duplicadas, ${skipped} omitidas. Reporte: ${report}`);
 }
 
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;

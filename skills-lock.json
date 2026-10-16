@@ -1,6 +1,30 @@
 {
   "version": 1,
   "skills": {
+    "ig-caption": {
+      "source": "jakeschincariol/instagram-agent-skill",
+      "sourceType": "github",
+      "skillPath": "skills/ig-caption/SKILL.md",
+      "computedHash": "e28945b0112423689e91133b51a67034b4957230793322fb946b47c728d50894"
+    },
+    "ig-human": {
+      "source": "jakeschincariol/instagram-agent-skill",
+      "sourceType": "github",
+      "skillPath": "skills/ig-human/SKILL.md",
+      "computedHash": "15a3aa711efb5e0d4b83681b9b443030eeed363b9933ea6205bc5847944911fb"
+    },
+    "ig-reel": {
+      "source": "jakeschincariol/instagram-agent-skill",
+      "sourceType": "github",
+      "skillPath": "skills/ig-reel/SKILL.md",
+      "computedHash": "cb0b9bddc8bef8cbcfb97fae887734b50a152e124a01757a480fb3e5fcc1b9f9"
+    },
+    "ig-viral": {
+      "source": "jakeschincariol/instagram-agent-skill",
+      "sourceType": "github",
+      "skillPath": "skills/ig-viral/SKILL.md",
+      "computedHash": "c85376311b692f4b2b0079da3b410c03185b244008abf7fde8c71b3f53142240"
+    },
     "supabase": {
       "source": "supabase/agent-skills",
       "sourceType": "github",

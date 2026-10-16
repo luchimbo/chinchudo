@@ -1,0 +1,3 @@
+ALTER TABLE "VideoScript" ADD COLUMN "hookFormula" TEXT NOT NULL DEFAULT '';
+ALTER TABLE "VideoScript" ADD COLUMN "caption" TEXT NOT NULL DEFAULT '';
+ALTER TABLE "VideoScript" ADD COLUMN "qualityReport" JSONB NOT NULL DEFAULT '{}';

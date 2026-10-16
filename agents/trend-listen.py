@@ -380,6 +380,35 @@ def get_argentina_data_context() -> list[dict]:
     return signals
 
 
+_VIEW_MULTIPLIERS = {"k": 1_000, "mil": 1_000, "m": 1_000_000, "mill": 1_000_000, "millones": 1_000_000, "b": 1_000_000_000}
+
+
+def parse_view_count(text: str | None) -> int | None:
+    """Convierte "12.345 vistas", "1,2 M de vistas" o "15K views" en entero.
+
+    Devuelve None si no hay número ("Sin vistas", vacío). Es la materia prima
+    del múltiplo outlier de ig-viral (vistas / mediana del canal).
+    """
+    if not text:
+        return None
+    match = re.search(r"(\d[\d.,]*)\s*(k|mil|millones|mill|m|b)?\b", text.strip().lower())
+    if not match:
+        return None
+    number, unit = match.group(1), match.group(2)
+    if unit:
+        value = float(number.replace(".", "").replace(",", ".") if re.search(r",\d{1,2}$", number) else number.replace(",", ""))
+        return int(round(value * _VIEW_MULTIPLIERS[unit]))
+    digits = re.sub(r"[.,]", "", number)
+    return int(digits) if digits else None
+
+
+def _youtube_view_text(renderer: dict) -> str:
+    view = renderer.get("viewCountText") or renderer.get("shortViewCountText") or {}
+    if "simpleText" in view:
+        return view.get("simpleText", "")
+    return "".join(part.get("text", "") for part in view.get("runs", []))
+
+
 def get_youtube_videos_direct(query: str, limit: int = 3) -> list[dict]:
     url = f"https://www.youtube.com/results?search_query={urllib.parse.quote(query)}"
     videos = []
@@ -405,10 +434,15 @@ def get_youtube_videos_direct(query: str, limit: int = 3) -> list[dict]:
                 title = renderer.get("title", {}).get("runs", [{}])[0].get("text", "")
                 desc = "".join(part.get("text", "") for part in renderer.get("descriptionSnippet", {}).get("runs", []))
                 if video_id and title:
+                    owner = (renderer.get("ownerText") or renderer.get("longBylineText") or {}).get("runs", [{}])[0]
                     videos.append({
                         "title": title,
                         "description": desc,
                         "url": f"https://www.youtube.com/watch?v={video_id}",
+                        "views": parse_view_count(_youtube_view_text(renderer)),
+                        "channel": owner.get("text") or None,
+                        "channel_id": owner.get("navigationEndpoint", {}).get("browseEndpoint", {}).get("browseId"),
+                        "published": renderer.get("publishedTimeText", {}).get("simpleText"),
                     })
                 if len(videos) >= limit:
                     return videos
@@ -430,7 +464,14 @@ def get_youtube_trends(keywords: list[str]) -> list[dict]:
                 "source_url": video["url"],
                 "platform": "YOUTUBE",
                 "query_used": keyword,
-                "metadata": {"source": "youtube_html_search", "format_hint": "Short"},
+                "metadata": {
+                    "source": "youtube_html_search",
+                    "format_hint": "Short",
+                    "views": video.get("views"),
+                    "channel": video.get("channel"),
+                    "channel_id": video.get("channel_id"),
+                    "published": video.get("published"),
+                },
             })
     log.info("youtube_trends_done", found=len(trends))
     return trends
@@ -536,6 +577,8 @@ def get_tiktok_creative_center_trends(keywords: list[str], limit: int = 6) -> li
             "metadata": {
                 "source": "tiktok_creative_center_hashtag_api",
                 "country": "AR",
+                "views": parse_view_count(str(row.get("video_views") or row.get("vv") or "")),
+                "publish_count": row.get("publish_cnt"),
                 "raw": row,
             },
         })

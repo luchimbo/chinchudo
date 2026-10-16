@@ -2,6 +2,7 @@ import type { ContentIntent, Product, Trend } from "@prisma/client";
 import { prisma } from "./db";
 import { policyInstructions } from "./response-policy";
 import { fetchChatCompletion, resolveLLMConfig } from "./llm-provider";
+import { candidateFormulas, classifyHook, formulaPromptBlock, getFormula, readReelCraftMeta, referenceRank, scoreHook } from "./reel-craft";
 
 export type EditorialAngle = {
   format: string;
@@ -10,6 +11,9 @@ export type EditorialAngle = {
   visualDirection: string;
   viabilityScore: number;
   trendId?: string;
+  formulaId?: number;
+  hookScore?: number;
+  hookVerdict?: string;
 };
 
 const INTENT_LABELS: Record<ContentIntent, string> = {
@@ -25,36 +29,52 @@ function clampScore(value: unknown) {
 }
 
 function cleanAngle(value: any, fallback: EditorialAngle): EditorialAngle {
-  return {
+  return withHookCraft({
     format: String(value?.format || fallback.format),
     hook: String(value?.hook || fallback.hook),
     rationale: String(value?.rationale || fallback.rationale),
     visualDirection: String(value?.visualDirection || fallback.visualDirection),
     viabilityScore: clampScore(value?.viabilityScore),
     trendId: typeof value?.trendId === "string" ? value.trendId : undefined,
-  };
+    formulaId: Number(value?.formulaId) || undefined,
+  });
+}
+
+/** Puntúa el hook (ig-reel/hookscore) y nombra la fórmula en el formato. */
+function withHookCraft(angle: EditorialAngle): EditorialAngle {
+  const formula = getFormula(angle.formulaId) ?? classifyHook(angle.hook);
+  const score = scoreHook(angle.hook);
+  const format = formula && !angle.format.startsWith(formula.name) ? `${formula.name} · ${angle.format}` : angle.format;
+  return { ...angle, format, formulaId: formula?.id, hookScore: score.score, hookVerdict: score.verdict };
 }
 
 export async function generateEditorialAngles({ clientId, productId, intent }: { clientId: string; productId: string; intent: ContentIntent }): Promise<EditorialAngle[]> {
-  const [client, product, trends] = await Promise.all([
+  const [client, product, candidates] = await Promise.all([
     prisma.client.findUnique({ where: { id: clientId } }),
     prisma.product.findUnique({ where: { id: productId }, include: { brand: true } }),
-    prisma.trend.findMany({ where: { clientId, analysisStatus: "ANALYZED", platform: { in: ["TIKTOK", "TIKTOK_HASHTAG", "TIKTOK_CREATIVE_CENTER", "INSTAGRAM", "YOUTUBE", "VIRAL_MARKETING"] }, createdAt: { gte: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) } }, orderBy: [{ viabilityScore: "desc" }, { createdAt: "desc" }], take: 5 }),
+    prisma.trend.findMany({ where: { clientId, analysisStatus: "ANALYZED", platform: { in: ["TIKTOK", "TIKTOK_HASHTAG", "TIKTOK_CREATIVE_CENTER", "INSTAGRAM", "YOUTUBE", "VIRAL_MARKETING"] }, createdAt: { gte: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) } }, orderBy: [{ viabilityScore: "desc" }, { createdAt: "desc" }], take: 25 }),
   ]);
+  // ig-viral: primero las referencias que le ganaron 3x a su propia cuenta.
+  const trends = candidates.sort((a, b) => referenceRank(b) - referenceRank(a)).slice(0, 5);
   if (!client || !product) throw new Error("Producto o cliente no encontrado.");
 
   const fallback = fallbackAngles(product, intent, trends);
   const llm = resolveLLMConfig(client);
   if (!llm.apiKey) return fallback;
 
-  const trendContext = trends.map((trend) => `- id: ${trend.id}; formato: ${trend.viralFormula}; idea: ${trend.suggestedAngle}; viabilidad: ${trend.viabilityScore}`).join("\n") || "No hay referencias analizadas: usar estructuras evergreen.";
-  const prompt = `Genera exactamente 3 angulos de contenido vertical para Argentina. Cliente: ${client.name}. Contexto: ${policyInstructions(client).text}. Rubro del cliente: ${client.description}. Producto: ${product.name} (${product.brand.name}). Descripcion: ${product.description}. Usos: ${product.useCases}. Intencion: ${INTENT_LABELS[intent]}.\nReferencias disponibles, ya relacionadas con este rubro:\n${trendContext}\n\nAdaptá los ejemplos, escenas y lenguaje al rubro del cliente. No inventes precio, stock, garantia ni especificaciones. Cada angulo debe ser grabable con manos, producto y un espacio comercial u hogareno simple. Devuelve JSON: {"angles":[{"format":"","hook":"","rationale":"","visualDirection":"","viabilityScore":1-5,"trendId":"opcional"}]}`;
+  const trendContext = trends.map((trend) => {
+    const meta = readReelCraftMeta(trend.metadata);
+    const evidence = [meta.formulaName ? `hook: #${meta.formulaId} ${meta.formulaName}` : "", meta.outlierMultiple ? `rinde ${meta.outlierMultiple}x su canal` : ""].filter(Boolean).join("; ");
+    return `- id: ${trend.id}; formato: ${trend.viralFormula}; idea: ${trend.suggestedAngle}; viabilidad: ${trend.viabilityScore}${evidence ? `; ${evidence}` : ""}`;
+  }).join("\n") || "No hay referencias analizadas: usar estructuras evergreen.";
+  const prompt = `Genera exactamente 3 angulos de contenido vertical para Argentina. Cliente: ${client.name}. Contexto: ${policyInstructions(client).text}. Rubro del cliente: ${client.description}. Producto: ${product.name} (${product.brand.name}). Descripcion: ${product.description}. Usos: ${product.useCases}. Intencion: ${INTENT_LABELS[intent]}.\nReferencias disponibles, ya relacionadas con este rubro:\n${trendContext}\n\nAdaptá los ejemplos, escenas y lenguaje al rubro del cliente. No inventes precio, stock, garantia ni especificaciones. Cada angulo debe ser grabable con manos, producto y un espacio comercial u hogareno simple. Cada angulo usa una formula de hook distinta de esta lista (hook de 5 a 12 palabras, con algo concreto y algo en juego, sin saludo ni "en este video"; si la formula pide un dato real que no tenes, usa {{dato}}):\n${formulaPromptBlock(candidateFormulas(intent, readReelCraftMeta(trends[0]?.metadata).formulaId ?? null))}\nDevuelve JSON: {"angles":[{"formulaId":0,"format":"","hook":"","rationale":"","visualDirection":"","viabilityScore":1-5,"trendId":"opcional"}]}`;
   try {
     const { response } = await fetchChatCompletion(llm, { messages: [{ role: "system", content: "Devolves solamente JSON valido." }, { role: "user", content: prompt }], response_format: { type: "json_object" }, temperature: 0.8, max_tokens: 1400 }, "Los 5 Apostoles - Ideas para grabar", client);
     if (!response.ok) return fallback;
     const json = JSON.parse((await response.json()).choices?.[0]?.message?.content || "{}");
     const angles = Array.isArray(json.angles) ? json.angles.slice(0, 3) : [];
-    return angles.length === 3 ? angles.map((angle: any, index: number) => cleanAngle(angle, fallback[index])) : fallback;
+    const cleaned: EditorialAngle[] = angles.length === 3 ? angles.map((angle: any, index: number) => cleanAngle(angle, fallback[index])) : fallback;
+    return cleaned.sort((a, b) => (b.hookScore ?? 0) - (a.hookScore ?? 0));
   } catch {
     return fallback;
   }
@@ -68,7 +88,9 @@ export async function analyzeTrend(trendId: string) {
   const llm = resolveLLMConfig(client);
   if (!llm.apiKey) return prisma.trend.update({ where: { id: trendId }, data: { analysisStatus: "NEEDS_REVIEW" } });
   const catalog = products.map((p) => `${p.id}: ${p.name} — ${p.category}`).join("\n");
-  const prompt = `Analiza esta referencia para contenido corto para ${client.name}, cuyo rubro es: ${client.description}. Contexto: ${policyInstructions(client).text}. titulo=${trend.title}; descripcion=${trend.description}; plataforma=${trend.platform}. Catalogo:\n${catalog}\nDevuelve JSON {"isAudiovisual":true,"viabilityScore":1-5,"viralFormula":"una oracion","suggestedProductId":"id o vacio","suggestedAngle":"una oracion","visualDirection":"una oracion"}. Priorizá escenas, necesidades y vocabulario propios del rubro. Si es una busqueda abstracta o no tiene formato audiovisual, isAudiovisual es false.`;
+  const meta = readReelCraftMeta(trend.metadata);
+  const evidence = [meta.formulaName ? `formula_hook=#${meta.formulaId} ${meta.formulaName}` : "", meta.outlierMultiple ? `rendimiento=${meta.outlierMultiple}x la mediana de su canal` : "", meta.views ? `vistas=${meta.views}` : ""].filter(Boolean).join("; ");
+  const prompt = `Analiza esta referencia para contenido corto para ${client.name}, cuyo rubro es: ${client.description}. Contexto: ${policyInstructions(client).text}. titulo=${trend.title}; descripcion=${trend.description}; plataforma=${trend.platform}${evidence ? `; ${evidence}` : ""}. Una referencia que rinde 3x o mas su canal merece mas viabilidad que una que rinde como siempre. Catalogo:\n${catalog}\nDevuelve JSON {"isAudiovisual":true,"viabilityScore":1-5,"viralFormula":"una oracion","suggestedProductId":"id o vacio","suggestedAngle":"una oracion","visualDirection":"una oracion"}. Priorizá escenas, necesidades y vocabulario propios del rubro. Si es una busqueda abstracta o no tiene formato audiovisual, isAudiovisual es false.`;
   try {
     const { response } = await fetchChatCompletion(llm, { messages: [{ role: "system", content: "Devolves solamente JSON valido." }, { role: "user", content: prompt }], response_format: { type: "json_object" }, temperature: 0.2, max_tokens: 700 }, "Los 5 Apostoles - Analisis de radar", client);
     if (!response.ok) throw new Error("LLM unavailable");
@@ -105,5 +127,5 @@ function fallbackAngles(product: Product, intent: ContentIntent, trends: Trend[]
       { format: "Reto de 15 segundos", hook: `¿Se puede hacer esto con ${base} en 15 segundos?`, rationale: "Genera tension y una prueba visual concreta.", visualDirection: "Cronometro en pantalla y toma continua de manos.", viabilityScore: 5 },
     ],
   };
-  return maps[intent].map((angle) => ({ ...angle, trendId: reference?.id }));
+  return maps[intent].map((angle) => withHookCraft({ ...angle, trendId: reference?.id }));
 }

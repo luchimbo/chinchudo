@@ -1339,6 +1339,9 @@ model VideoScript {
   cta            String
   visualCues     String   @default("") // Instrucciones visuales
   audioPrompt    String   @default("") // Estilo de música o audio de fondo
+  hookFormula    String   @default("") // "#3 Nadie te dice" (reel-craft)
+  caption        String   @default("") // Caption + hashtags (máx. 5)
+  qualityReport  Json     @default("{}") // Puntaje de hook, beat sheet, humanizador
   avatarVideoUrl String   @default("") // Video renderizado final
   avatarJobId    String   @default("") // ID del Talk en D-ID
   avatarStatus   String   @default("PENDING") // PENDING | PROCESSING | COMPLETED | FAILED

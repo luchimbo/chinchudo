@@ -4,7 +4,8 @@ import { prisma } from "@/lib/db";
 import { generateVideoScript } from "@/lib/video-script-generator";
 import { analyzeTrend, generateEditorialAngles } from "@/lib/content-idea-generator";
 import { findSelectedVideoPersona } from "@/lib/video-persona-selector";
-import type { ContentIdeaStatus, ContentIntent } from "@prisma/client";
+import { beatsFromScriptText, buildScriptQualityReport, withOnScreenCards, type ScriptQualityReport } from "@/lib/reel-craft";
+import type { ContentIdeaStatus, ContentIntent, Prisma } from "@prisma/client";
 
 const INTENTS = new Set<ContentIntent>(["SALE", "EDUCATION", "USE_CASE", "ENTERTAINMENT"]);
 const IDEA_STATUSES = new Set<ContentIdeaStatus>(["REVIEW", "APPROVED", "SCRIPT_READY", "READY_TO_RECORD", "RECORDED", "PUBLISHED", "DISCARDED"]);
@@ -184,7 +185,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === "update_script") {
-      const { scriptId, hook, bodyText, cta, visualCues, audioPrompt } = body;
+      const { scriptId, hook, bodyText, cta, visualCues, audioPrompt, caption } = body;
 
       if (!scriptId) {
         return NextResponse.json({ error: "Falta scriptId" }, { status: 400 });
@@ -196,15 +197,33 @@ export async function POST(req: NextRequest) {
       }
       await assertClientAccess(prisma, script.clientId);
 
+      // Al editar se vuelve a puntuar con las mismas reglas que al generar.
+      // Los hooks alternativos se conservan para poder volver a elegirlos.
+      const nextHook = String(hook || "");
+      const nextCaption = typeof caption === "string" ? caption : script.caption;
+      const previous = script.qualityReport as Partial<ScriptQualityReport> | null;
+      const alternatives = (previous?.hookOptions ?? []).filter((option) => option.spoken !== nextHook);
+      const chosen = (previous?.hookOptions ?? []).find((option) => option.spoken === nextHook);
+      const report = buildScriptQualityReport({
+        hookOptions: [{ formulaId: chosen?.formulaId ?? null, spoken: nextHook, onScreen: chosen?.onScreen ?? "" }],
+        beats: beatsFromScriptText(bodyText || "", cta || "", previous?.beatSheet),
+        caption: nextCaption,
+      });
+      const qualityReport = { ...report, hookOptions: [report.hook, ...alternatives] };
+
       const updated = await prisma.videoScript.update({
         where: { id: scriptId },
         data: {
-          hook: hook || "",
+          hook: nextHook,
           bodyText: bodyText || "",
           cta: cta || "",
-          visualCues: visualCues || "",
+          visualCues: withOnScreenCards(visualCues || "", report.beatSheet),
           audioPrompt: audioPrompt || "",
+          caption: nextCaption,
+          hookFormula: report.hook.formulaId ? `#${report.hook.formulaId} ${report.hook.formulaName}` : "",
+          qualityReport: qualityReport as unknown as Prisma.InputJsonValue,
         },
+        include: { product: true, persona: true, trend: { select: { title: true } }, contentIdea: { select: { hook: true } } },
       });
 
       return NextResponse.json({ success: true, script: updated });

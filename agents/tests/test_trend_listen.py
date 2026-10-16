@@ -108,5 +108,23 @@ class VideoReferenceTests(unittest.TestCase):
         }))
 
 
+class ViewCountTests(unittest.TestCase):
+    def test_parses_spanish_and_english_view_counts(self):
+        self.assertEqual(trend_listen.parse_view_count("12.345 vistas"), 12345)
+        self.assertEqual(trend_listen.parse_view_count("1,2 M de vistas"), 1_200_000)
+        self.assertEqual(trend_listen.parse_view_count("15 K vistas"), 15_000)
+        self.assertEqual(trend_listen.parse_view_count("1,234,567 views"), 1_234_567)
+        self.assertEqual(trend_listen.parse_view_count("3,4 mil vistas"), 3_400)
+
+    def test_returns_none_without_a_number(self):
+        self.assertIsNone(trend_listen.parse_view_count("Sin vistas"))
+        self.assertIsNone(trend_listen.parse_view_count(""))
+        self.assertIsNone(trend_listen.parse_view_count(None))
+
+    def test_reads_view_text_from_renderer(self):
+        self.assertEqual(trend_listen._youtube_view_text({"viewCountText": {"simpleText": "980 vistas"}}), "980 vistas")
+        self.assertEqual(trend_listen._youtube_view_text({"shortViewCountText": {"runs": [{"text": "2,5 M"}, {"text": " de vistas"}]}}), "2,5 M de vistas")
+
+
 if __name__ == "__main__":
     unittest.main()
