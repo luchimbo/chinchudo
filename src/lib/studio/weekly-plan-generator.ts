@@ -7,6 +7,7 @@ import { ARGENTINE_SPANISH_RULES, SCRIPT_SYSTEM_MESSAGE } from "@/lib/script-voi
 import { argentinaDate, dateOnly } from "@/lib/blog-calendar";
 import { fallbackAngles } from "@/lib/content-idea-generator";
 import { loadSwipeSummary } from "./sources";
+import { loadOwnBestFormulas } from "./results";
 import { weekBounds } from "./week";
 
 export type PlannedPiece = {
@@ -29,11 +30,16 @@ const DEFAULT_MIX: PlannedPiece["pieceType"][] = ["REEL", "CAROUSEL", "REEL", "S
 const DEFAULT_DAY_INDEXES = [0, 1, 2, 3, 4];
 const RECENT_DAYS = 14;
 
-/** Fórmulas candidatas: primero lo que funciona en el rubro, después el orden fijo por intención. */
-export function rankedFormulasFor(intent: ContentIntent, swipe: SwipeSummary | null): HookFormula[] {
+/**
+ * Fórmulas candidatas en orden de preferencia: lo que le funcionó al propio
+ * cliente (ig-audit), después lo que funciona en el rubro (ig-viral) y por
+ * último el orden fijo por intención.
+ */
+export function rankedFormulasFor(intent: ContentIntent, swipe: SwipeSummary | null, ownBest: number[] = []): HookFormula[] {
+  const fromOwn = ownBest.map((id) => getFormula(id)).filter((formula): formula is HookFormula => Boolean(formula));
   const fromSwipe = (swipe?.formulas ?? []).map((entry) => getFormula(entry.formulaId)).filter((formula): formula is HookFormula => Boolean(formula));
   const fallback = candidateFormulas(intent, null, 6);
-  return Array.from(new Map([...fromSwipe, ...fallback].map((formula) => [formula.id, formula])).values());
+  return Array.from(new Map([...fromOwn, ...fromSwipe, ...fallback].map((formula) => [formula.id, formula])).values());
 }
 
 /** Reparte piezas en los días libres de la semana sin repetir producto. */
@@ -91,12 +97,13 @@ function cleanPiece(raw: any, days: string[], productIds: Set<string>): PlannedP
 export async function proposeWeek({ clientId, week, count = 4 }: { clientId: string; week: string; count?: number }): Promise<{ created: number; usedFallback: boolean; noDaysLeft?: boolean }> {
   const { days, startDate, endDate } = weekBounds(week);
   const recentSince = new Date(Date.now() - RECENT_DAYS * 24 * 60 * 60 * 1000);
-  const [client, products, existing, recent, { summary }] = await Promise.all([
+  const [client, products, existing, recent, { summary }, ownBest] = await Promise.all([
     prisma.client.findUniqueOrThrow({ where: { id: clientId } }),
     prisma.product.findMany({ where: { brand: { clientId } }, include: { brand: true }, take: 60, orderBy: { updatedAt: "desc" } }),
     prisma.contentIdea.findMany({ where: { clientId, plannedFor: { gte: startDate, lte: endDate }, status: { not: "DISCARDED" } }, select: { plannedFor: true } }),
     prisma.contentIdea.findMany({ where: { clientId, createdAt: { gte: recentSince } }, select: { productId: true, hook: true }, take: 40 }),
     loadSwipeSummary(clientId),
+    loadOwnBestFormulas(clientId),
   ]);
   if (!products.length) throw new Error("Cargá productos para poder planificar la semana.");
 
@@ -116,7 +123,9 @@ export async function proposeWeek({ clientId, week, count = 4 }: { clientId: str
   let usedFallback = false;
   const llm = resolveLLMConfig(client);
   if (llm.apiKey) {
-    const formulas = rankedFormulasFor("USE_CASE", summary).slice(0, 6);
+    const formulas = rankedFormulasFor("USE_CASE", summary, ownBest).slice(0, 6);
+    const ownText = ownBest.length ? `Lo que mejor le funcionó a ${client.name} en sus propias publicaciones: ${ownBest.map((id) => getFormula(id)?.name).filter(Boolean).join(", ")}.
+` : "";
     const swipeText = summary.formulas.length
       ? summary.formulas.slice(0, 4).map((entry) => `- #${entry.formulaId} ${entry.name}: ${entry.topCount} de las referencias que mejor les fue`).join("\n")
       : "Todavía no hay referencias medidas: usá fórmulas probadas.";
@@ -127,7 +136,7 @@ Proponé exactamente ${target} piezas, una por día, solo en estos días (dayInd
 Mezcla sugerida: mayoría reels, un carrusel para guardar y una historia para conversar.
 No repitas producto en la semana y evitá estos ganchos recientes: ${recent.slice(0, 10).map((idea) => `"${idea.hook}"`).join("; ") || "ninguno"}.
 
-Lo que funciona en el rubro:
+${ownText}Lo que funciona en el rubro:
 ${swipeText}
 
 Tipos de gancho disponibles:

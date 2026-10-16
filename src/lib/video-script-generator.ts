@@ -2,6 +2,7 @@ import type { Client, ContentIntent, Prisma } from "@prisma/client";
 import { prisma } from "./db";
 import { fetchChatCompletion, resolveLLMConfig } from "./llm-provider";
 import { ARGENTINE_SPANISH_RULES, SCRIPT_SYSTEM_MESSAGE, voiceExamplesBlock } from "./script-voice";
+import { loadOwnBestFormulas } from "./studio/results";
 import {
   DEFAULT_TARGET_SECONDS,
   HOOK_MIN_SCORE,
@@ -72,12 +73,12 @@ export async function generateVideoScript(ctx: ScriptGenerationContext): Promise
   }
 
   const { taskInstruction, contextDetail } = idea
-    ? { taskInstruction: "Escribí el guion a partir de una idea editorial ya aprobada. Respetá su formato, gancho y dirección visual.", contextDetail: `1. Idea aprobada:\n- Formato: ${idea.format}\n- Hook: ${idea.hook}\n- Por que funciona: ${idea.rationale}\n- Direccion visual: ${idea.visualDirection}\n- Intencion: ${idea.intent}\n- Referencia: ${trend?.title || "Estructura evergreen"}` }
+    ? { taskInstruction: `Escribí el guion a partir de una idea editorial ya aprobada. Respetá su formato, gancho y dirección visual.${idea.pieceType === "CAROUSEL" ? " Esta pieza se publica como carrusel: cada línea del cuerpo va a ser una diapositiva, así que escribí una idea completa por línea y no menciones \"video\" ni \"reel\" en el cierre." : idea.pieceType === "STORY" ? " Esta pieza se publica como historias: frases cortas que inviten a responder, y no menciones \"reel\" en el cierre." : ""}`, contextDetail: `1. Idea aprobada:\n- Formato: ${idea.format}\n- Hook: ${idea.hook}\n- Por que funciona: ${idea.rationale}\n- Direccion visual: ${idea.visualDirection}\n- Intencion: ${idea.intent}\n- Referencia: ${trend?.title || "Estructura evergreen"}` }
     : trend ? buildTrendContext(trend) : { taskInstruction: "Escribí un guion basado en el producto.", contextDetail: `1. Enfoque editorial elegido: ${focus || "Mostrar uso"}. Desarrollalo con una estructura clara y grabable.` };
 
   // Fórmulas de hook (ig-reel): la de la idea o la referencia va primera.
   const intent: ContentIntent = idea?.intent ?? SCRIPT_FOCUS_INTENT[focus || "Mostrar uso"] ?? "USE_CASE";
-  const preferredFormula = (idea ? classifyHook(idea.hook)?.id : null) ?? readReelCraftMeta(trend?.metadata).formulaId ?? null;
+  const preferredFormula = (idea ? idea.formulaId ?? classifyHook(idea.hook)?.id : null) ?? readReelCraftMeta(trend?.metadata).formulaId ?? (await loadOwnBestFormulas(clientId))[0] ?? null;
   const formulas = candidateFormulas(intent, preferredFormula);
 
   const examples = await voiceExamplesBlock(persona);

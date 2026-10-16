@@ -10,6 +10,8 @@ import { generateVideoScript } from "@/lib/video-script-generator";
 import { findSelectedVideoPersona } from "@/lib/video-persona-selector";
 import { proposeWeek } from "@/lib/studio/weekly-plan-generator";
 import { REFERENCE_MAX, parseReferenceAccount } from "@/lib/studio/reference-accounts";
+import { buildCarousel, buildMorePieces, buildStories } from "@/lib/studio/piece-formats";
+import { syncInstagramMetrics } from "@/lib/instagram-insights";
 import { SCRIPT_FOCUS_INTENT, buildScriptQualityReport, classifyHook, readReelCraftMeta, toRioplatense, withOnScreenCards, type DraftBeat, type HookOption, type ScriptQualityReport } from "@/lib/reel-craft";
 
 export type ActionState = { error: string | null; message?: string };
@@ -311,5 +313,88 @@ export async function requestReferenceScan(clientId: string): Promise<ActionStat
     return ok(count ? `Pedimos leer ${count} cuenta${count === 1 ? "" : "s"}. Los videos aparecen cuando termine la lectura.` : "No hay cuentas activas para leer.");
   } catch {
     return fail("No se pudo pedir la lectura.");
+  }
+}
+
+// ── Paso 4: Publicar (ig-carousel, ig-story, ig-repurpose) ───────────
+
+export async function generateCarouselAction(id: string): Promise<ActionState> {
+  try {
+    await pieceWithAccess(id);
+    await buildCarousel(id);
+    revalidatePath("/estudio/publicar");
+    return ok("Carrusel listo.");
+  } catch {
+    return fail("No se pudo armar el carrusel.");
+  }
+}
+
+export async function generateStoriesAction(id: string): Promise<ActionState> {
+  try {
+    await pieceWithAccess(id);
+    await buildStories(id);
+    revalidatePath("/estudio/publicar");
+    return ok("Historias listas.");
+  } catch {
+    return fail("No se pudieron armar las historias.");
+  }
+}
+
+export async function morePiecesAction(id: string): Promise<ActionState> {
+  try {
+    await pieceWithAccess(id);
+    const created = await buildMorePieces(id);
+    revalidateStudio();
+    return ok(`Sumamos ${created} idea${created === 1 ? "" : "s"} al plan, en "Sin día asignado".`);
+  } catch {
+    return fail("No se pudieron sacar más piezas.");
+  }
+}
+
+// ── Paso 5: Resultados (ig-audit) ────────────────────────────────────
+
+const metric = z.preprocess((value) => (value === "" || value == null ? null : Number(String(value).replace(/[.\s]/g, "").replace(",", "."))), z.number().int().min(0).nullable());
+
+export async function saveManualMetrics(_state: ActionState, formData: FormData): Promise<ActionState> {
+  try {
+    const id = z.string().min(1).parse(formData.get("pieceId"));
+    await pieceWithAccess(id);
+    const values = {
+      views: metric.parse(formData.get("views")),
+      saves: metric.parse(formData.get("saves")),
+      shares: metric.parse(formData.get("shares")),
+      likes: metric.parse(formData.get("likes")),
+      comments: metric.parse(formData.get("comments")),
+    };
+    if (Object.values(values).every((value) => value == null)) return fail("Cargá al menos un número.");
+    await prisma.pieceMetricSnapshot.create({ data: { contentIdeaId: id, source: "MANUAL", ...values } });
+    revalidatePath("/estudio/resultados");
+    return ok("Guardado.");
+  } catch (err) {
+    if (err instanceof z.ZodError) return fail("Usá solo números enteros.");
+    return fail("No se pudieron guardar los números.");
+  }
+}
+
+export async function syncInstagramAction(clientId: string): Promise<ActionState> {
+  try {
+    await assertClientAccess(prisma, clientId);
+    const { updated, unmatched } = await syncInstagramMetrics(prisma, clientId);
+    revalidatePath("/estudio/resultados");
+    if (!updated && !unmatched) return ok("No hay piezas publicadas con link de Instagram todavía.");
+    return ok(`Actualizamos ${updated} pieza${updated === 1 ? "" : "s"}.${unmatched ? ` ${unmatched} link${unmatched === 1 ? "" : "s"} no coinciden con publicaciones de la cuenta conectada.` : ""}`);
+  } catch (err) {
+    return fail(err instanceof Error && err.message.startsWith("Instagram no") ? err.message : "No se pudo traer los números de Instagram. Probá reconectar la cuenta.");
+  }
+}
+
+export async function disconnectInstagram(clientId: string): Promise<ActionState> {
+  try {
+    await assertClientAccess(prisma, clientId);
+    await prisma.instagramConnection.deleteMany({ where: { clientId } });
+    revalidatePath("/estudio/resultados");
+    return ok("Instagram desconectado.");
+  } catch {
+    return fail("No se pudo desconectar.");
   }
 }

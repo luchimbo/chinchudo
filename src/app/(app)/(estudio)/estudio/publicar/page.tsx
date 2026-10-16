@@ -3,7 +3,8 @@ import { requirePageClient } from "@/lib/auth";
 import { formatDay } from "@/lib/studio/week";
 import { lintCaption } from "@/lib/reel-craft";
 import { Card, Chip, EmptyState, NextStepLink, PIECE_TYPE_LABEL, SectionTitle, StatusChip, StepHeader, withClient } from "@/components/studio/ui";
-import { CopyButton, PublishControls } from "./publish-controls";
+import { CopyButton, FormatTools, PublishControls } from "./publish-controls";
+import { readExtras } from "@/lib/studio/piece-formats";
 
 type PageProps = { searchParams: { client?: string } };
 
@@ -46,6 +47,7 @@ export default async function PublicarPage({ searchParams }: PageProps) {
             <p className="rounded-lg border border-ink/10 bg-white p-3 text-sm"><span className="font-bold">Se ve en el feed: </span>{preview.visible}{preview.truncated && <span className="text-slate"> más</span>}</p>
             <div className="flex flex-wrap items-center gap-2"><CopyButton text={caption} label="Copiar descripción" />{preview.checks.filter((check) => check.status !== "PASS").map((check) => <span key={check.name} className="text-xs text-brass">· {check.detail}</span>)}</div>
           </div> : null}
+          <FormatTools pieceId={piece.id} pieceType={piece.pieceType} extras={readExtras(piece.extras)} />
           <PublishControls pieceId={piece.id} status={piece.status} />
         </Card>;
       })}</div> : <EmptyState title="Nada listo para publicar todavía" body="Cuando marques un guion como listo para grabar, aparece acá con todo lo necesario para subirlo." action={<NextStepLink href={withClient("/estudio/guiones", client.slug)}>Ir a guiones</NextStepLink>} />}

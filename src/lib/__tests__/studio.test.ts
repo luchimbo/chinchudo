@@ -89,3 +89,62 @@ describe("studio: cuentas de referencia", async () => {
     expect(parseReferenceAccount("https://example.com/algo")).toBeNull();
   });
 });
+
+describe("studio: formatos y resultados", async () => {
+  const { carouselFromScript, shortCover, storiesFromScript } = await import("../studio/piece-formats");
+  const { summarizeResults, ownBestFormulas, multipleOwnPhrase } = await import("../studio/results");
+
+  it("arma un carrusel base desde el guion", () => {
+    const carousel = carouselFromScript("Tres ajustes del KeyLab que te ahorran tiempo todos los días en casa", "Uno.\nDos.\n\nTres.", "Guardalo.");
+    expect(carousel.cover.split(" ").length).toBeLessThanOrEqual(9);
+    expect(carousel.slides.map((slide) => slide.body)).toEqual(["Uno.", "Dos.", "Tres."]);
+    expect(carousel.lastSlide).toBe("Guardalo.");
+    expect(shortCover("Corto")).toBe("Corto");
+    expect(storiesFromScript("¿Te pasa?", "")).toHaveLength(3);
+  });
+
+  const piece = (id: string, views: number | null, formulaId: number | null, pieceType = "REEL") => ({ id, hook: id, pieceType, formulaId, metrics: views == null ? null : { views, reach: null, likes: null, comments: null, saves: null, shares: null, source: "MANUAL", capturedAt: new Date() } });
+
+  it("compara cada pieza con la mediana propia", () => {
+    const summary = summarizeResults([piece("a", 1000, 3), piece("b", 2000, 3), piece("c", 4000, 17), piece("d", null, 3)]);
+    expect(summary.ownMedian).toBe(2000);
+    expect(summary.rows.find((row) => row.id === "c")?.multiple).toBe(2);
+    expect(summary.enoughData).toBe(false);
+    expect(summary.byFormula).toEqual([]);
+    expect(multipleOwnPhrase(2)).toBe("2 veces tu promedio");
+  });
+
+  it("con 8 piezas medidas aprende qué gancho funciona", () => {
+    const pieces = [piece("a", 9000, 3), piece("b", 8000, 3), piece("c", 1000, 17), piece("d", 1200, 17), piece("e", 1100, 18), piece("f", 900, 18), piece("g", 7000, 3, "CAROUSEL"), piece("h", 1000, 17)];
+    const summary = summarizeResults(pieces);
+    expect(summary.enoughData).toBe(true);
+    expect(summary.byFormula[0].key).toBe("3");
+    expect(ownBestFormulas(summary)).toEqual([3]);
+  });
+});
+
+describe("studio: retroalimentación", () => {
+  it("los resultados propios van antes que el rubro", () => {
+    const swipe = buildSwipeSummary([ref("a", "x", 6, 3), ref("b", "y", 5, 3), ref("c", "z", 1, 18), ref("d", "w", 1, 18), ref("e", "v", 1, 18), ref("f", "u", 1, 18)]);
+    const ranked = rankedFormulasFor("SALE", swipe, [20]).map((formula) => formula.id);
+    expect(ranked.slice(0, 2)).toEqual([20, 3]);
+    expect(new Set(ranked).size).toBe(ranked.length);
+  });
+});
+
+describe("studio: Instagram", async () => {
+  const { instagramShortcode } = await import("../instagram-insights");
+  it("cruza links con o sin usuario y parámetros", () => {
+    expect(instagramShortcode("https://www.instagram.com/reel/DAbc-12_x/?igsh=xyz")).toBe("DAbc-12_x");
+    expect(instagramShortcode("https://instagram.com/pcmidicenter/p/C9zz/")).toBe("C9zz");
+    expect(instagramShortcode("https://www.tiktok.com/@x/video/1")).toBeNull();
+  });
+});
+
+describe("studio: textos de carrusel", async () => {
+  const { asCarouselText } = await import("../studio/piece-formats");
+  it("no habla de reel en un carrusel", () => {
+    expect(asCarouselText("Guardá este reel para tu próxima sesión.")).toBe("Guardá este carrusel para tu próxima sesión.");
+    expect(asCarouselText("Mirá el video completo")).toBe("Mirá el carrusel completo");
+  });
+});
