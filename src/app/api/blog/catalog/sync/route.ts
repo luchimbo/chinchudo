@@ -4,6 +4,8 @@ import { requireOwnedClientId, toErrorResponse } from "@/lib/auth-guards";
 import { ACTIVE_SYNC_STATUSES, enqueueCatalogSync, importedFields, type SyncChange } from "@/lib/blog-catalog-sync";
 import { withBlogLease } from "../../../../../../scripts/blog-lease.mjs";
 import { z } from "zod";
+import { loadCatalogIssues } from "@/lib/blog-catalog-issue-query";
+import { createStoreReader, parseStorePage, catalogUrl } from "@/lib/tiendanube-public";
 
 export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
@@ -12,16 +14,17 @@ export async function GET(request: Request) {
     const [setting,runs,products,categories] = await Promise.all([
       prisma.appSetting.findUnique({where:{key:`blog_catalog_sync:${client.id}`}}),
       prisma.catalogSyncRun.findMany({where:{clientId:client.id},orderBy:{startedAt:"desc"},take:10}),
-      prisma.landingProduct.findMany({where:{clientId:client.id},select:{id:true,name:true,externalId:true,linkStatus:true}}),
-      prisma.landingCategory.findMany({where:{clientId:client.id},select:{id:true,name:true,key:true,linkStatus:true}}),
+      prisma.landingProduct.findMany({where:{clientId:client.id},select:{id:true,name:true,externalId:true,linkStatus:true,url:true,brand:true,tiendanubeId:true,missingRuns:true}}),
+      prisma.landingCategory.findMany({where:{clientId:client.id},select:{id:true,name:true,key:true,linkStatus:true,url:true,tiendanubeId:true,missingRuns:true}}),
     ]);
     let config={enabled:false}; try {config=JSON.parse(setting?.value||"{}");}catch{/* disabled */}
-    return NextResponse.json({config,runs:runs.map(run=>{
+    const issues = await loadCatalogIssues(prisma,client.id);
+    return NextResponse.json({config,issues,runs:runs.map(run=>{
       const checkpoint=run.checkpoint as any;
       const deployment=run.deployment as any;
       const changes=(run.changes as unknown as SyncChange[]).filter(c=>c.action!=="seen").map(c=>({kind:c.kind,ref:c.ref,action:c.action,name:c.name,beforeUrl:c.beforeUrl,afterUrl:c.afterUrl,candidates:c.candidates,...(c.action==="review"&&c.incoming?{incoming:true}:{})}));
       return {id:run.id,status:run.status,startedAt:run.startedAt,finishedAt:run.finishedAt,progress:{read:checkpoint.cursor||0,total:checkpoint.urls?.length||0},changes,errors:run.errors,deployment:{verified:deployment.verified,skipped:deployment.skipped,error:deployment.error,version:deployment.version,verifiedAt:deployment.verifiedAt},deploymentAttempts:run.deploymentAttempts};
-    }),products,categories});
+    }),products,categories},{headers:{"Cache-Control":"private, no-store"}});
   }catch(error){return toErrorResponse(error);}
 }
 const bodySchema=z.object({clientId:z.string().min(1),action:z.enum(["sync","configure","retry","resolve"]).default("sync"),enabled:z.boolean().optional(),runId:z.string().optional(),ref:z.string().optional(),targetId:z.string().optional()});
@@ -51,15 +54,23 @@ export async function POST(request: Request) {
     const result=await withBlogLease(prisma,client.id,async lease=>{
       const active=await prisma.catalogSyncRun.findFirst({where:{clientId:client.id,status:{in:ACTIVE_SYNC_STATUSES}}});
       if(active)throw new Error("Esperá a que termine la sincronización activa antes de vincular productos.");
+      const previous = await prisma.catalogSyncRun.findFirst({where:{clientId:client.id,checkpoint:{path:["resolvedFrom"],equals:run.id},AND:{checkpoint:{path:["reviewRef"],equals:change.ref}}}});
+      if(previous)throw new Error("Esta vinculación ya fue solicitada. Revisá su actualización.");
+      const latest = await prisma.catalogSyncRun.findFirst({where:{clientId:client.id,checkpoint:{path:["discoveryComplete"],equals:true},AND:{checkpoint:{path:["applied"],equals:true}}},orderBy:{startedAt:"desc"}});
+      if(latest?.id !== run.id)throw new Error("Hay una sincronización más reciente. Recargá las vinculaciones.");
       const target=change.kind==="product"?await prisma.landingProduct.findFirst({where:{id:body.targetId,clientId:client.id}}):await prisma.landingCategory.findFirst({where:{id:body.targetId,clientId:client.id}});
       if(!target)throw new Error("El registro no pertenece a este cliente.");
+      const reader = createStoreReader(client.storeUrl,{signal:lease.signal});
+      const page = await reader.read(change.incoming!.url);
+      const fresh = parseStorePage(page.text,page.url);
+      if(!fresh || fresh.id !== change.incoming!.id || fresh.kind !== change.kind || catalogUrl(fresh.url) !== catalogUrl(page.url))throw new Error("La ficha de la tienda cambió. Sincronizá de nuevo antes de vincular.");
       lease.assert();
       return prisma.$transaction(async tx=>{
-        const fields=importedFields(target,change.incoming!);
+        const fields=importedFields(target,fresh);
         if(change.kind==="product")await tx.landingProduct.update({where:{id:target.id},data:fields});
         else await tx.landingCategory.update({where:{id:target.id},data:fields});
         const ref="externalId"in target?target.externalId:target.key;
-        return tx.catalogSyncRun.create({data:{clientId:client.id,status:"PENDING_DEPLOY",checkpoint:{applied:true,resolvedFrom:run.id},changes:[{...change,ref,action:"update",beforeUrl:target.url,afterUrl:change.incoming!.url,resolvedFrom:run.id}] as any}});
+        return tx.catalogSyncRun.create({data:{clientId:client.id,status:"PENDING_DEPLOY",checkpoint:{applied:true,resolvedFrom:run.id,reviewRef:change.ref,targetId:target.id},changes:[{...change,ref,action:"update",beforeUrl:target.url,afterUrl:fresh.url,incoming:fresh,resolvedFrom:run.id,reviewRef:change.ref}] as any}});
       });
     });
     if(!result)return NextResponse.json({error:"El blog está trabajando. Reintentá cuando termine."},{status:409});

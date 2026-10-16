@@ -12,6 +12,73 @@ evidencia operativa, no la fuente de verdad.
 
 ## Operación
 
+La entrada `/blog` abre el calendario mensual. El listado y sus filtros viven
+en `/blog/articulos`; los enlaces anteriores `/blog?status=...` redirigen al
+listado conservando el cliente y el filtro. Cada día muestra título y estado;
+al seleccionarlo se abre el detalle con vista previa, edición, acciones y
+resultados. El mes y el día se conservan en la URL y al volver del editor.
+Fuentes, Diseño y Configuración están agrupados en **Herramientas**. Contactos
+mantiene su entrada propia. **Agregar días** conserva la preparación al final
+del calendario y la política de publicación existente.
+
+En PC MIDI, cualquier día vacío posterior a hoy ofrece **Generar artículo**,
+incluso fuera del horizonte de 14 días. Se reserva la fecha exacta de forma
+atómica y el agente existente prepara el contenido en segundo plano, conservando
+la alternancia editorial, la revisión de calidad y la política de aprobación.
+El detalle se actualiza durante la preparación. Hoy y los días pasados no
+ofrecen esta acción; una fecha ocupada nunca se sobrescribe.
+
+La solicitud aceptada cierra el detalle y se sigue desde **Tareas del blog**,
+junto con las publicaciones. `GET /api/blog/jobs` consulta únicamente tareas
+del cliente autenticado; la consulta anterior de publicaciones sigue compatible.
+Se guardan los identificadores en la sesión de la pestaña para recuperar el
+seguimiento al recargar. El sondeo es serial: cinco segundos mientras hay
+tareas y veinte cuando no hay actividad. Un cambio de etapa refresca el panel.
+
+La migración `20261014_blog_preparation` añade `preparation` y `errorCode` a
+`BlogPublication`. No modifica sus estados ni la programación diaria. Las etapas
+son **En espera**, **Generando** y **Revisando calidad**, informadas por el
+trabajador real. El generador Python transmite eventos con el identificador
+del intento; la persistencia rechaza resultados de intentos reemplazados o
+finalizados. Los trabajos que superan su límite se recuperan bajo la reserva
+del cliente. Los borradores del análisis mantienen su requisito de aprobación.
+
+Los errores nuevos distinguen conexión, generación, calidad, fecha incompatible
+y despliegue. Cada uno ofrece su acción permitida; el texto técnico se despliega
+aparte. Un error antiguo sin código conserva **Ver detalle**. Una corrección
+que pasa calidad limpia el bloqueo; una publicación solo termina al verificarse
+la versión pública.
+
+El catálogo distingue incidencias abiertas de evidencia histórica. Los retiros
+de fichas antiguas también requieren dos fechas independientes; la recuperación
+puede usar recorridos completos anteriores ya verificados, sin contar otra vez
+el mismo día. Una URL antigua sin ficha ni uso en artículos se conserva como
+referencia histórica después de confirmar su ausencia. Las vinculaciones
+ambiguas muestran la ficha entrante y los candidatos; elegir un candidato no
+escribe nada hasta pulsar **Vincular**. La resolución se vuelve a verificar contra
+la tienda y queda pendiente hasta confirmar el despliegue del blog.
+
+El ciclo del catálogo comprueba si hay trabajo antes de tomar la reserva
+compartida del blog, y vuelve a comprobarlo bajo esa reserva. Una consulta
+programada sin trabajo no bloquea la generación. El estado técnico del
+trabajador puede comprobarse desde `/health`, sin exponer errores ni credenciales.
+
+La navegación de Blog muestra progreso inmediatamente, incluidos los cambios de
+mes, filtros y apertura de días. El detalle tiene un esqueleto propio durante
+la carga; las acciones conservan sus indicadores y bloquean envíos duplicados.
+La preparación usa una barra indeterminada y respeta la preferencia de reducir
+movimiento. El calendario se muestra sin esperar el chequeo del agente local,
+que se consulta por separado. El listado pide solo los campos visibles y carga
+sus consultas independientes en paralelo.
+
+Al aceptar una publicación manual, el detalle se cierra automáticamente y un
+aviso con barra indeterminada acompaña al operador por la app. El seguimiento
+consulta el estado real de `BlogPublication` y se recupera al recargar la misma
+pestaña. No calcula porcentajes por tiempo ni inicia nuevas publicaciones al
+consultar el estado. Solo ofrece **Ver artículo** después de `PUBLISHED`, cuando
+el trabajador ya verificó la revisión en la URL pública. Los fallos conservan
+su motivo y los cortes de conexión se reintentan sin anunciar un éxito falso.
+
 1. En `/blog/fuentes`, incorporar fuentes revisadas. Cada fuente lleva título,
    tipo, URL o referencia interna, fecha, responsable y afirmaciones respaldadas.
    Las referencias del catálogo y del conocimiento de confianza alta también
@@ -35,6 +102,41 @@ La automatización comienza apagada. El relay puede preparar contenido privado
 con `preparing=true` mientras la publicación sigue apagada. Necesita permanecer
 en ejecución; los cambios de código del relay requieren reiniciarlo durante la
 puesta en marcha. No se creó una automatización adicional de Codex.
+
+### Publicación automática de PC MIDI
+
+La opción **Aprobar artículos automáticamente** pertenece exclusivamente a
+`blog_daily_schedule:<clientId>.autoApprove` y comienza en `false`. No cambia
+`Client.autoApprove` ni `Client.autoPublish`, utilizados por otros flujos.
+Con publicación diaria activa, el relay revisa también los borradores del
+análisis comercial. Solo aprueba contenido con evidencia válida, sin duplicados
+y con intención editorial compatible con su fecha. Los bloqueados conservan
+la aprobación pendiente y el motivo del error. Al publicar se repite la revisión.
+
+La puesta en marcha acordada es un artículo diario a las **12:00 de Argentina**,
+incluidos fines de semana, desde el día siguiente a la activación. El panel
+muestra la conexión del agente, el próximo artículo, borradores y bloqueos.
+
+```powershell
+node node_modules/tsx/dist/cli.mjs scripts/blog-launch.mts --dry-run
+node node_modules/tsx/dist/cli.mjs scripts/blog-launch.mts --recover
+node node_modules/tsx/dist/cli.mjs scripts/blog-launch.mts --activate
+```
+
+La recuperación revalida artículos vencidos (incluido el día de activación),
+conserva sus identificadores y los mueve a fechas libres del mismo tipo.
+Una repetición no vuelve a mover los recuperados. No toca artículos publicados,
+archivados ni omisiones sin artículo. Los bloqueados quedan para revisión.
+`--activate` recupera primero y exige un artículo apto para mañana, sitio y relay
+disponibles y un despliegue verificado del catálogo. Guarda la configuración
+anterior y el resultado en `reports/blog-launch-*.json`. Repetirlo con la
+automatización activa conserva la primera fecha. Nunca publica en bloque.
+
+Después de cambiar el relay, reiniciar la tarea **PCMidi Relay** y comprobar
+`/health`: debe responder `blogAutomationVersion: 2`. El equipo debe permanecer
+encendido y conectado para publicar. Una sincronización `PARTIAL` puede tener
+un despliegue verificado: las URLs 404 y vinculaciones ambiguas se conservan
+como pendientes de catálogo, sin aprobar artículos ni inventar reemplazos.
 
 Las fechas se pueden omitir, reemplazar o reprogramar. Al mover un artículo se
 elige una fecha del mismo tipo para conservar el equilibrio. Las fechas pasadas

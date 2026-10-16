@@ -39,6 +39,7 @@ function withLanding(item: Row, include: any) {
 }
 
 const prisma = {
+  $transaction: async (callback: any) => callback(prisma),
   client: { findUnique: async () => ({ id: "c1", active: true, blogBaseUrl: "https://blog.test" }) },
   appSetting: { findUnique: async ({ where }: any) => (settings[where.key] ? { value: settings[where.key] } : null) },
   landing: {
@@ -113,6 +114,51 @@ beforeEach(() => {
 });
 
 describe("rutina diaria del blog", () => {
+  it("aprueba y publica un artículo del análisis comercial con la opción del blog", async () => {
+    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: true, autoApprove: true, publishTime: "12:00" });
+    addReady("2026-10-01"); Object.assign(row("2026-10-01"), { analysisRunId: "analysis", requiresApproval: true });
+    const { daily, runBlogPython } = build();
+    await daily.runDailyBlogCalendar();
+    expect(row("2026-10-01")).toMatchObject({ status: "PUBLISHED", requiresApproval: false, approvedAt: clock });
+    expect(deploys(runBlogPython)).toBe(1);
+  });
+
+  it.each([false, undefined])("con aprobación automática %s conserva la revisión humana", async autoApprove => {
+    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: true, autoApprove, publishTime: "12:00" });
+    addReady("2026-10-01"); row("2026-10-01").requiresApproval = true;
+    const { daily, runBlogPython } = build(); await daily.runDailyBlogCalendar();
+    expect(row("2026-10-01").requiresApproval).toBe(true);
+    expect(deploys(runBlogPython)).toBe(0);
+  });
+
+  it("no aprueba contenido sin evidencia ni repite su validación cada minuto", async () => {
+    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: true, autoApprove: true, publishTime: "12:00" });
+    addReady("2026-10-01"); row("2026-10-01").requiresApproval = true;
+    const inspect = vi.fn(async () => ({ publishable: false, checks: [{ level: "error", message: "Sin evidencia" }] }));
+    const { daily, runBlogPython } = build({ inspect });
+    await daily.runDailyBlogCalendar(); await daily.runDailyBlogCalendar();
+    expect(row("2026-10-01")).toMatchObject({ status: "FAILED", attempts: 3, requiresApproval: true, lastError: "Sin evidencia" });
+    expect(inspect).toHaveBeenCalledOnce(); expect(deploys(runBlogPython)).toBe(0);
+  });
+
+  it("aprueba antes del horario pero espera hasta las 12 argentinas para publicar", async () => {
+    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: true, autoApprove: true, publishTime: "12:00" });
+    clock = new Date("2026-10-01T14:59:00Z");
+    addReady("2026-10-01"); row("2026-10-01").requiresApproval = true;
+    const { daily, runBlogPython } = build(); await daily.runDailyBlogCalendar();
+    expect(row("2026-10-01")).toMatchObject({ status: "READY", requiresApproval: false });
+    expect(deploys(runBlogPython)).toBe(0);
+    clock = new Date("2026-10-01T15:00:00Z"); await daily.runDailyBlogCalendar();
+    expect(deploys(runBlogPython)).toBe(1);
+  });
+
+  it("la aprobación automática apagada no cambia borradores aunque la opción esté elegida", async () => {
+    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: false, autoApprove: true, publishTime: "12:00" });
+    addReady("2026-10-02"); row("2026-10-02").requiresApproval = true;
+    const inspect = vi.fn(); const { daily } = build({ inspect }); await daily.runDailyBlogCalendar();
+    expect(inspect).not.toHaveBeenCalled(); expect(row("2026-10-02").requiresApproval).toBe(true);
+  });
+
   it("publica a pedido una fecha futura con la automatización apagada y conserva su fecha", async () => {
     settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: false });
     addReady("2026-10-20");

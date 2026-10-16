@@ -6,7 +6,7 @@ vi.mock("node:fs/promises",()=>({readdir:async()=>[{name:"index.html",isDirector
 import { deployCatalogRun,catalogHtmlHash } from "./blog-catalog-worker";
 function database(previous?:any){
   const run:any={id:"run",clientId:"a",status:"PENDING_DEPLOY",deploymentAttempts:0,deployment:{},changes:[],errors:[]};
-  const prisma:any={client:{findUniqueOrThrow:async()=>({id:"a",storeUrl:"https://shop.example",blogBaseUrl:"https://blog.example"})},catalogSyncRun:{findFirstOrThrow:async()=>structuredClone(run),findFirst:async()=>previous?{deployment:previous}:null,update:vi.fn(async({data}:any)=>{for(const[key,value]of Object.entries(data))run[key]=key==="deploymentAttempts"?run[key]+(value as any).increment:value;return run;})},appSetting:{findUnique:async()=>null,upsert:vi.fn(async()=>({}))},$transaction:async(values:any[])=>Promise.all(values)};
+  const prisma:any={client:{findUniqueOrThrow:async()=>({id:"a",storeUrl:"https://shop.example",blogBaseUrl:"https://blog.example"})},landingProduct:{findMany:vi.fn(async()=>[])},landingCategory:{findMany:async()=>[]},catalogSyncRun:{findFirstOrThrow:async()=>structuredClone(run),findMany:async()=>[],findFirst:async({where}:any)=>where.checkpoint?(run.checkpoint?.discoveryComplete?run:null):previous?{deployment:previous}:null,update:vi.fn(async({data}:any)=>{for(const[key,value]of Object.entries(data))run[key]=key==="deploymentAttempts"?run[key]+(value as any).increment:value;return run;})},appSetting:{findUnique:async()=>null,upsert:vi.fn(async()=>({}))},$transaction:async(values:any[])=>Promise.all(values)};
   return {run,prisma};
 }
 const lease=()=>({clientId:"a",signal:new AbortController().signal,assert:()=>{}});
@@ -32,6 +32,11 @@ describe("despliegue del catálogo",()=>{
     const{prisma,run}=database();vi.mocked(fetch).mockResolvedValue(new Response('<meta name="catalog-sync-version" content="run"><a href="https://shop.example/old/">Producto</a>'));await expect(deployCatalogRun(prisma,"run",lease())).rejects.toThrow("enlaces online");expect(run.status).toBe("PENDING_DEPLOY");
   });
   it("confirma una actualización y conserva sus alertas de lectura",async()=>{
-    const{prisma,run}=database();run.errors=[{error:"Ficha sin identidad"}];await deployCatalogRun(prisma,"run",lease());expect(run).toMatchObject({status:"PARTIAL",deployment:{verified:true,changed:["index.html"],version:"run"}});expect(prisma.appSetting.upsert).toHaveBeenCalledWith(expect.objectContaining({where:{key:"blog_catalog_version:a"}}));
+    const{prisma,run}=database();run.checkpoint={discoveryComplete:true};run.errors=[{error:"Ficha sin identidad"}];await deployCatalogRun(prisma,"run",lease());expect(run).toMatchObject({status:"PARTIAL",deployment:{verified:true,changed:["index.html"],version:"run"}});expect(prisma.appSetting.upsert).toHaveBeenCalledWith(expect.objectContaining({where:{key:"blog_catalog_version:a"}}));
+  });
+  it("un retiro confirmado deja de mantener la corrida parcial y conserva el error histórico",async()=>{
+    const{prisma,run}=database();run.checkpoint={discoveryComplete:true};run.errors=[{url:"https://shop.example/old/",status:404,error:"404"}];
+    prisma.landingProduct.findMany.mockResolvedValue([{id:"p",name:"Producto",url:"https://shop.example/old/",linkStatus:"missing"}]);
+    await deployCatalogRun(prisma,"run",lease());expect(run.status).toBe("COMPLETED");expect(run.errors).toHaveLength(1);expect(run.deployment.verified).toBe(true);
   });
 });

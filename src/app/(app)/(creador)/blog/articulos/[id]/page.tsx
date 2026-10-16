@@ -6,6 +6,7 @@ import { loadArticleCatalog } from "@/lib/article-catalog";
 import { ArticleEditor } from "./article-editor";
 import { saveBlogArticle } from "./actions";
 import { editableArticleContent, loadBlogEvidence } from "@/lib/blog-evidence";
+import { articleBackHref } from "@/lib/blog-navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +19,7 @@ const STATUS: Record<string, { label: string; tone: string }> = {
   SKIPPED: { label: "Omitido", tone: "border-ink/10 bg-ink/5 text-slate" },
 };
 
-export default async function BlogArticleEditorPage({ params }: { params: { id: string } }) {
+export default async function BlogArticleEditorPage({ params, searchParams }: { params: { id: string }; searchParams: { calendarMonth?: string; calendarDay?: string } }) {
   const landing = await prisma.landing.findUnique({
     where: { id: params.id },
     include: {
@@ -62,7 +63,7 @@ export default async function BlogArticleEditorPage({ params }: { params: { id: 
         content={content}
         published={slot.status === "PUBLISHED"}
         publicUrl={publicUrl}
-        backHref={landing.blogPublication ? `/blog/calendario?client=${landing.client.slug}&month=${scheduled.slice(0, 7)}` : `/blog?client=${landing.client.slug}`}
+        backHref={articleBackHref(landing.client.slug, landing.blogPublication ? scheduled : undefined, searchParams.calendarMonth, searchParams.calendarDay)}
         clusterName={landing.contentCluster?.name || "Blog"}
         status={{ label: state.label, tone: state.tone, date: dateLabel, note }}
         save={saveBlogArticle}

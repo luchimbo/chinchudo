@@ -13,6 +13,8 @@ import { ensureRequiredBrandMention } from "../src/lib/draft-output";
 import { shouldUseAi } from "../src/lib/draft-policy";
 import { loadRelevantKnowledge } from "../src/lib/knowledge";
 import { loadActivePrompt } from "../src/lib/prompts";
+import { loadCMVersion } from "../src/lib/cm-version";
+import { cmStamp } from "../src/lib/cm-freshness";
 import { loadClientContext, resolveOpportunityClient } from "../src/lib/client-context";
 import { detectCrossClientTerms, validateClientScopedActors } from "../src/lib/guardrails";
 import { triageOpportunity } from "../src/lib/opportunity-triage";
@@ -197,6 +199,7 @@ async function main() {
     }
 
     const brand = clientContext.brand;
+    const generationVersion = await loadCMVersion(prisma, resolution.client.id);
     const personaByName = new Map(clientContext.personas.map((p) => [p.name, p]));
     let knowledge: Awaited<ReturnType<typeof loadRelevantKnowledge>>["knowledge"];
     let objections: Awaited<ReturnType<typeof loadRelevantKnowledge>>["objections"];
@@ -245,6 +248,7 @@ async function main() {
       draftText: string;
       riskNotes: string;
       approvedBy?: string;
+      evidence: import("@prisma/client").Prisma.InputJsonValue;
     }[] = [];
     let opportunityHadError = false;
 
@@ -394,6 +398,7 @@ async function main() {
             voiceVariantReason: suggestion.voiceVariantReason ?? "",
             draftText: ensureRequiredBrandMention(v.draftText, resolution.client.slug),
             riskNotes,
+            evidence: [cmStamp(generationVersion, { ...opportunity, detectedBrandId: clientContext.detectedBrandId }, source.startsWith("ai") ? "ai" : "local")],
           });
         }
       } catch (error) {
@@ -409,6 +414,12 @@ async function main() {
 
     if (args.dryRun) {
       drafted += allRows.length;
+      continue;
+    }
+
+    if (await loadCMVersion(prisma, resolution.client.id) !== generationVersion) {
+      errors.push({ opportunityId: opportunity.id, error: "Las reglas cambiaron durante la generación; no se guardaron borradores viejos." });
+      await prisma.draftJob.updateMany({ where: { opportunityId: opportunity.id, lockedBy: workerId }, data: { status: "QUEUED", leaseUntil: null } });
       continue;
     }
 

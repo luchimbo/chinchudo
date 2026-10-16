@@ -19,7 +19,7 @@ type Config = {
   autoApprove: boolean;
   autoPublish: boolean;
   generationSchedule: { enabled: boolean; intervalHours: number; limit: number; weeklyTarget: number };
-  dailyBlogSchedule: { enabled: boolean; publishTime: string };
+  dailyBlogSchedule: { enabled: boolean; publishTime: string; autoApprove: boolean };
 };
 
 export function LandingsForm({
@@ -82,6 +82,7 @@ export function LandingsForm({
         </label>
       </div>
 
+      {config.clientSlug !== "pcmidi" ? <>
       <p className={subHead}>Comportamiento</p>
       <div className="flex flex-col gap-3">
         <label className="flex items-start gap-3 text-sm text-slate">
@@ -99,6 +100,7 @@ export function LandingsForm({
           </span>
         </label>
       </div>
+      </> : null}
 
       {config.clientSlug === "pcmidi" ? (
         <>
@@ -110,6 +112,10 @@ export function LandingsForm({
             <label className="flex items-start gap-3 text-sm text-slate">
               <input type="checkbox" name="blogDailyEnabled" defaultChecked={config.dailyBlogSchedule.enabled} className="mt-0.5" />
               <span><span className="font-semibold text-ink">Publicar un artículo diario</span><span className={`block ${hintCls}`}>Comienza al día siguiente de la activación.</span></span>
+            </label>
+            <label className="mt-4 flex items-start gap-3 text-sm text-slate">
+              <input type="checkbox" name="blogAutoApprove" defaultChecked={config.dailyBlogSchedule.autoApprove} className="mt-0.5" />
+              <span><span className="font-semibold text-ink">Aprobar artículos automáticamente</span><span className={`block ${hintCls}`}>Incluye los borradores del análisis comercial. Solo se publican artículos que pasan los controles de calidad; los bloqueados quedan para revisión.</span></span>
             </label>
             <label className={`${labelCls} mt-4 max-w-xs`}>Hora de publicación en Argentina
               <input name="blogPublishTime" type="time" defaultValue={config.dailyBlogSchedule.publishTime} className={inputCls} />

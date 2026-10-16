@@ -1,5 +1,5 @@
 import { describe,it,expect,vi,afterEach } from "vitest";
-import { applyCatalogSync,importedFields,matchCatalogRow,planCatalogChanges,crawlCatalog, type CrawlCheckpoint } from "./blog-catalog-sync";
+import { applyCatalogSync,importedFields,matchCatalogRow,planCatalogChanges,crawlCatalog,confirmedMissingDays, type CrawlCheckpoint } from "./blog-catalog-sync";
 import type { StoreSnapshot } from "./tiendanube-public";
 import { catalogHtmlHash,catalogHtmlLinks } from "./blog-catalog-worker";
 
@@ -14,6 +14,11 @@ function fakeDb(initial:any[]){
 }
 const checkpoint=(snapshots:StoreSnapshot[]=[],failures:CrawlCheckpoint["failures"]=[]):CrawlCheckpoint=>({urls:[row.url],cursor:1,snapshots,failures,discoveryComplete:true});
 describe("sincronización del catálogo del blog",()=>{
+  it("la recuperación histórica cuenta días independientes y omite recorridos incompletos o no verificados",()=>{
+    const missing=checkpoint([],[{url:row.url,status:404,error:"404"}]);const records=[{startedAt:new Date("2026-10-02T12:00:00Z"),checkpoint:missing,deployment:{verified:true}},{startedAt:new Date("2026-10-02T15:00:00Z"),checkpoint:missing,deployment:{verified:true}},{startedAt:new Date("2026-10-01T12:00:00Z"),checkpoint:missing,deployment:{verified:false}}];
+    expect(Object.values(confirmedMissingDays(records,missing,new Date("2026-10-03T12:00:00Z")))) .toEqual([2]);
+    expect(Object.values(confirmedMissingDays(records,{...missing,cursor:0},new Date("2026-10-03T12:00:00Z")))) .toEqual([1]);
+  });
   it("conserva la referencia del artículo al cambiar URL",()=>expect(planCatalogChanges([row],[],checkpoint([snapshot]))[0]).toMatchObject({ref:"arturia-minilab",action:"update",afterUrl:snapshot.url}));
   it("vincula una URL anterior que redirige aunque también haya cambiado el nombre",()=>expect(matchCatalogRow([{...row,tiendanubeId:null}],{...snapshot,name:"Nuevo nombre",requestedUrls:[row.url]}).row?.id).toBe("local"));
   it("no duplica coincidencias ambiguas",()=>expect(planCatalogChanges([{...row,tiendanubeId:null},{...row,id:"otro",tiendanubeId:null}],[],checkpoint([snapshot]))[0]).toMatchObject({action:"review",candidates:["local","otro"]}));
@@ -52,6 +57,12 @@ describe("sincronización del catálogo del blog",()=>{
   });
   it("un recorrido incompleto no suma bajas ni toca otro cliente",async()=>{
     const db=fakeDb([row,{...row,id:"b",clientId:"b"}]);await applyCatalogSync(db.db,"run","a",checkpoint([],[{url:row.url,status:404,error:"404"},{url:"https://shop.example/productos/otro/",status:503,error:"503"}]));expect(db.products().map(p=>p.missingRuns)).toEqual([0,0]);
+  });
+  it("confirma retiros de fichas antiguas sin id de Tiendanube en dos días distintos",async()=>{
+    vi.useFakeTimers();vi.setSystemTime(new Date("2026-10-03T12:00:00Z"));const db=fakeDb([{...row,tiendanubeId:null}]);const missing=checkpoint([],[{url:row.url,status:404,error:"404"}]);
+    await applyCatalogSync(db.db,"run","a",missing);expect(db.products()[0].missingRuns).toBe(1);
+    db.resetRun();await applyCatalogSync(db.db,"run","a",missing);expect(db.products()[0].missingRuns).toBe(1);
+    vi.setSystemTime(new Date("2026-10-04T12:00:00Z"));db.resetRun();await applyCatalogSync(db.db,"run","a",missing);expect(db.products()[0].linkStatus).toBe("missing");
   });
   it("retoma desde el checkpoint sin leer otra vez fichas completadas",async()=>{
     const reader:any={setRobots:vi.fn(),read:vi.fn(async(url:string)=>({url,text:url.endsWith("robots.txt")?"User-agent: *":"<h1>Categoría</h1><script>LS.category = {id : 4,};</script>"})),validate:async()=>{}};

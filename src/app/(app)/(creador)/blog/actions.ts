@@ -16,7 +16,7 @@ export async function updateLandingStatus(formData: FormData) {
     where: { id },
     data: { status: status as any, publishedAt: status === "PUBLISHED" ? new Date() : null },
   });
-  revalidatePath("/blog");
+  revalidatePath("/blog"); revalidatePath("/blog/articulos");
 }
 
 export async function publishLandingPreview(formData: FormData) {
@@ -55,7 +55,7 @@ export async function publishLandingPreview(formData: FormData) {
     },
   });
 
-  revalidatePath("/blog");
+  revalidatePath("/blog"); revalidatePath("/blog/articulos");
 }
 
 export async function publishSelectedLandings(formData: FormData) {
@@ -71,7 +71,7 @@ export async function publishSelectedLandings(formData: FormData) {
     where: { id: { in: landings.map((landing) => landing.id) }, status: "PREVIEW_ONLINE" },
     data: { status: "PUBLISHED", publishedAt: new Date() },
   });
-  revalidatePath("/blog");
+  revalidatePath("/blog"); revalidatePath("/blog/articulos");
 }
 
 export async function publishAllOnlineLandings(formData: FormData) {
@@ -82,7 +82,7 @@ export async function publishAllOnlineLandings(formData: FormData) {
   if (ids.length) {
     await prisma.landing.updateMany({ where: { id: { in: ids } }, data: { status: "PUBLISHED", publishedAt: new Date() } });
   }
-  revalidatePath("/blog");
+  revalidatePath("/blog"); revalidatePath("/blog/articulos");
 }
 
 // ─── Enlaces internos del blog editorial ─────────────────────────────────────
@@ -129,7 +129,7 @@ export async function pinInternalLink(formData: FormData) {
     },
     update: { mode: "PINNED", ...(anchorText ? { anchorText } : {}) },
   });
-  revalidatePath("/blog");
+  revalidatePath("/blog"); revalidatePath("/blog/articulos");
 }
 
 export async function excludeInternalLink(formData: FormData) {
@@ -141,7 +141,7 @@ export async function excludeInternalLink(formData: FormData) {
     create: { clientId: source.clientId, sourceLandingId: source.id, targetLandingId: target.id, mode: "EXCLUDED" },
     update: { mode: "EXCLUDED" },
   });
-  revalidatePath("/blog");
+  revalidatePath("/blog"); revalidatePath("/blog/articulos");
 }
 
 export async function resetInternalLink(formData: FormData) {
@@ -152,7 +152,7 @@ export async function resetInternalLink(formData: FormData) {
   await prisma.landingInternalLink.deleteMany({
     where: { sourceLandingId: source.id, targetLandingId: target.id, mode: { in: ["PINNED", "EXCLUDED"] } },
   });
-  revalidatePath("/blog");
+  revalidatePath("/blog"); revalidatePath("/blog/articulos");
 }
 
 export async function deleteLanding(formData: FormData) {
@@ -174,5 +174,5 @@ export async function deleteLanding(formData: FormData) {
   }
 
   await prisma.landing.delete({ where: { id } });
-  revalidatePath("/blog");
+  revalidatePath("/blog"); revalidatePath("/blog/articulos");
 }

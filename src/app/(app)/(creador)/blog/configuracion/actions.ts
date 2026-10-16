@@ -36,8 +36,7 @@ export async function updateLandingsConfig(formData: FormData) {
       logoUrl: str(formData, "logoUrl"),
       storeUrl,
       blogBaseUrl,
-      autoApprove: formData.get("autoApprove") === "on",
-      autoPublish: formData.get("autoPublish") === "on",
+      ...(client.slug === "pcmidi" ? {} : { autoApprove: formData.get("autoApprove") === "on", autoPublish: formData.get("autoPublish") === "on" }),
     },
   });
 
@@ -48,10 +47,12 @@ export async function updateLandingsConfig(formData: FormData) {
   await setSetting(`landing_generation_schedule:${id}`, JSON.stringify({ enabled, intervalHours, limit, weeklyTarget, lastRunAt: new Date().toISOString() }));
 
   if (client.slug === "pcmidi") {
-    await setSetting(`blog_daily_schedule:${id}`, JSON.stringify({ ...dailyConfig, enabled: dailyEnabled, publishTime, timezone: "America/Argentina/Buenos_Aires", horizonDays: 14 }));
+    await setSetting(`blog_daily_schedule:${id}`, JSON.stringify({ ...dailyConfig, enabled: dailyEnabled, autoApprove: formData.get("blogAutoApprove") === "on", publishTime, timezone: "America/Argentina/Buenos_Aires", horizonDays: 14 }));
   }
 
   revalidatePath("/blog/configuracion");
+  revalidatePath("/blog"); revalidatePath("/blog/articulos");
+  revalidatePath("/blog/calendario");
 }
 
 export async function updateEmailConfig(formData: FormData) {

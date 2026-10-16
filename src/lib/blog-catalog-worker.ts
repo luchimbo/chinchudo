@@ -5,8 +5,9 @@ import { readFile, readdir, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import * as cheerio from "cheerio";
 import { createStoreReader } from "./tiendanube-public";
-import { ACTIVE_SYNC_STATUSES, applyCatalogSync, argentinaDay, crawlCatalog, enqueueCatalogSync, planCatalogChanges, type CrawlCheckpoint } from "./blog-catalog-sync";
+import { ACTIVE_SYNC_STATUSES, applyCatalogSync, argentinaDay, confirmedMissingDays, crawlCatalog, enqueueCatalogSync, planCatalogChanges, type CrawlCheckpoint } from "./blog-catalog-sync";
 import { withBlogLease, type BlogLease } from "../../scripts/blog-lease.mjs";
+import { loadCatalogIssues } from "./blog-catalog-issue-query";
 
 const root = process.cwd(), site = join(root,"landing-build","site");
 async function htmlFiles(directory = site, prefix = ""): Promise<Record<string,string>> {
@@ -71,8 +72,8 @@ async function deployCatalogArtifact(prisma: PrismaClient, runId: string, lease:
   const manifest = Object.fromEntries(Object.entries(files).map(([path,html]) => [path,catalogHtmlHash(html)]));
   const changed = Object.keys(manifest).filter(path => manifest[path] !== baseline?.[path]);
   if (baseline) changed.push(...Object.keys(baseline).filter(path => !manifest[path]));
-  const errors = run.errors as any[];
-  const finalStatus = errors.length || (run.changes as any[]).some(c => c.action === "review") ? "PARTIAL" : "COMPLETED";
+  const issues = await loadCatalogIssues(prisma, client.id, run.id);
+  const finalStatus = issues.open.length ? "PARTIAL" : "COMPLETED";
   if (!changed.length) {
     await prisma.catalogSyncRun.update({ where: { id: run.id }, data: { status: finalStatus, finishedAt: new Date(), deployment: { verified: true, skipped: true, manifest, version: previousVersion } } });
     return;
@@ -121,6 +122,18 @@ export async function runCatalogWorker(prisma: PrismaClient, clientSlug = "pcmid
     const path = await report({ command:"blog:sync-catalog",date:new Date().toISOString(),channel:"tiendanube-public",client:client.slug,dryRun:true,read:state.cursor,created:changes.filter(c=>c.action==="create").length,discarded:changes.filter(c=>c.action==="review").length,products:state.snapshots.filter(s=>s.kind==="product").length,categories:state.snapshots.filter(s=>s.kind==="category").length,changes,errors:state.failures });
     return { dryRun:true,report:path,read:state.cursor,errors:state.failures.length };
   }
+  // An idle catalog tick must not repeatedly win the shared lease ahead of generation.
+  // Work is checked again under the lease, so a newly queued sync remains protected.
+  if (options.scheduled) {
+    const [active,setting,last] = await Promise.all([
+      prisma.catalogSyncRun.findFirst({where:{clientId:client.id,status:{in:ACTIVE_SYNC_STATUSES},deploymentAttempts:{lt:3}}}),
+      prisma.appSetting.findUnique({where:{key:`blog_catalog_sync:${client.id}`}}),
+      prisma.catalogSyncRun.findFirst({where:{clientId:client.id},orderBy:{startedAt:"desc"}}),
+    ]);
+    let enabled=false;try{enabled=JSON.parse(setting?.value||"{}").enabled===true;}catch{/* disabled */}
+    const hour=Number(new Intl.DateTimeFormat("en-US",{timeZone:"America/Argentina/Buenos_Aires",hour:"2-digit",hourCycle:"h23"}).format(new Date()));
+    if(!active&&(!enabled||last&&(argentinaDay(last.startedAt)===argentinaDay()||hour<6)))return{skipped:true};
+  }
   return withBlogLease(prisma,client.id,async lease => {
     let run = await prisma.catalogSyncRun.findFirst({ where: { clientId:client.id,status:{in:ACTIVE_SYNC_STATUSES} },orderBy:{startedAt:"desc"} });
     if (!run) {
@@ -144,6 +157,8 @@ export async function runCatalogWorker(prisma: PrismaClient, clientSlug = "pcmid
         const state=await crawlCatalog(createStoreReader(client.storeUrl,{signal:lease.signal}),[...products,...categories].map(r=>r.url),raw.discoveryComplete ? raw : undefined,async checkpoint=>{
           lease.assert(); await prisma.catalogSyncRun.update({where:{id:run!.id},data:{checkpoint:checkpoint as any}});
         },()=>lease.assert());
+        const history = await prisma.catalogSyncRun.findMany({where:{clientId:client.id,status:{in:["COMPLETED","PARTIAL"]}},orderBy:{startedAt:"desc"},take:30,select:{startedAt:true,checkpoint:true,deployment:true}});
+        state.verifiedMissing = confirmedMissingDays(history,state);
         await applyCatalogSync(prisma,run.id,client.id,state,()=>lease.assert());
       }
       await deployCatalogRun(prisma,run.id,lease);

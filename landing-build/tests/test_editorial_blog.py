@@ -549,3 +549,16 @@ def test_decision_prompt_includes_required_comparison_in_json_shape(monkeypatch)
     shape = user.split("Genera un artículo JSON con exactamente esta forma:", 1)[1].split("Reglas:", 1)[0]
     assert '"decision_support"' in shape and '"source_ids"' in shape and '"evidence_ids"' in shape
     assert "No menciones precios, stock" not in system
+
+
+def test_editorial_sections_do_not_require_commercial_landing_blocks():
+    candidate = article("guia-solo-secciones", "controladores-midi", **BODY)
+    candidate.pop("components", None)
+    candidate.pop("steps", None)
+    assert bl.validate_landings([candidate], CATEGORIES, PRODUCTS) == []
+
+
+def test_legacy_still_requires_commercial_landing_blocks():
+    candidate = legacy("landing-incompleta")
+    candidate.pop("components", None)
+    assert any("falta bloque components" in error for error in bl.validate_landings([candidate], CATEGORIES, PRODUCTS))

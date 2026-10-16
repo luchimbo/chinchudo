@@ -1,20 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { publishCalendarArticle } from "./actions";
+import { useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { publishCalendarArticle, retryBlogDeployment } from "./actions";
+import { notifyPublicationStarted } from "@/lib/blog-publications";
+import { LoadingMessage } from "@/components/loading-ui";
+import { PendingNavigationLink as Link } from "@/components/pending-navigation-link";
 
-export function PublishArticleButton({ id, publishing }: { id: string; publishing: boolean }) {
-  const router = useRouter();
+export function PublishArticleButton({ id, publishing, title = "Artículo del blog", client, retry = false, revision = false }: { id: string; publishing: boolean; title?: string; client?: string; retry?: boolean; revision?: boolean }) {
+  const params = useSearchParams();
+  const clientSlug = client || params.get("client") || "";
   const [pending, setPending] = useState(false);
   const [accepted, setAccepted] = useState(false);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (!publishing && !accepted) return;
-    const timer = window.setInterval(() => router.refresh(), 5_000);
-    return () => window.clearInterval(timer);
-  }, [publishing, accepted, router]);
+  const [connectionError, setConnectionError] = useState(false);
 
   return <div className="space-y-1">
     <button type="button" disabled={pending || publishing || accepted} aria-busy={pending || publishing || accepted}
@@ -22,19 +21,21 @@ export function PublishArticleButton({ id, publishing }: { id: string; publishin
       onClick={async () => {
         setPending(true);
         setError("");
+        setConnectionError(false);
         try {
-          const result = await publishCalendarArticle(id);
-          if (!result.ok) { setError(result.error); return; }
+          const result = await (revision ? retryBlogDeployment(id) : publishCalendarArticle(id));
+          if (!result.ok) { setError(result.error); setConnectionError("code" in result && result.code === "CONNECTION"); return; }
           setAccepted(true);
-          router.refresh();
+          notifyPublicationStarted({ id, client: clientSlug, title });
         } catch {
           setError("No se pudo iniciar la publicación. Recargá el calendario y reintentá.");
         } finally {
           setPending(false);
         }
       }}>
-      {pending ? "Iniciando…" : publishing || accepted ? "Publicando…" : "Publicar artículo"}
+      {pending || publishing || accepted ? <LoadingMessage>{pending ? "Iniciando…" : "Publicando…"}</LoadingMessage> : retry ? "Reintentar publicación" : "Publicar artículo"}
     </button>
     {error ? <p role="alert" className="text-[10px] text-signal">{error}</p> : null}
+    {connectionError ? <Link href={`/blog/configuracion?client=${encodeURIComponent(clientSlug)}`} className="inline-block text-xs font-semibold text-moss underline">Revisar conexión</Link> : null}
   </div>;
 }

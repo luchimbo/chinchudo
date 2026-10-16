@@ -64,11 +64,12 @@ export async function saveBlogArticle(input: { id: string; expectedUpdatedAt: st
     });
     const errors = quality.checks.filter((c) => c.level === "error").map((c) => c.message).join(" · ").slice(0, 2000);
     if (landing.blogPublication) await tx.blogPublication.update({ where: { id: landing.blogPublication.id }, data: published
-      ? { needsDeploy: redeploy, revisionAttempts: 0, lastError: errors }
-      : { ...(landing.blogPublication.analysisRunId ? { requiresApproval: true, approvedAt: null } : {}), status: quality.publishable ? "READY" : "FAILED", attempts: quality.publishable ? 0 : 3, lastError: errors } });
+      ? { needsDeploy: redeploy, revisionAttempts: 0, lastError: errors, errorCode: quality.publishable ? "" : "QUALITY_BLOCKED" }
+      : { ...(landing.blogPublication.analysisRunId ? { requiresApproval: true, approvedAt: null } : {}), status: quality.publishable ? "READY" : "FAILED", attempts: quality.publishable ? 0 : 3, lastError: errors, errorCode: quality.publishable ? "" : "QUALITY_BLOCKED" } });
     return saved;
   }); } catch (error) { return { ok: false, error: error instanceof Error ? error.message : "No se pudo guardar el artículo." }; }
   revalidatePath(`/blog/articulos/${landing.id}`);
   revalidatePath("/blog/calendario");
+  revalidatePath("/blog/articulos");
   return { ok: true, updatedAt: updated.updatedAt.toISOString(), redeploy, quality, draft: result.draft };
 }

@@ -4,8 +4,10 @@ import { prisma } from "@/lib/db";
 import { OPPORTUNITY_CHANNEL_NAMES, operationalOpportunityWhere } from "@/lib/opportunity-channels";
 import type { ChatMessage } from "@/lib/refine-draft";
 import { CopilotWorkspace } from "./workspace";
+import { loadCMCoverage, CM_ACTIVE_STATUSES } from "@/lib/cm-maintenance";
+import { cmIsFresh } from "@/lib/cm-freshness";
 
-const COPILOT_OPEN_STATUSES: OpportunityStatus[] = ["NEW", "NEEDS_REVIEW", "DRAFTED"];
+const COPILOT_OPEN_STATUSES: OpportunityStatus[] = [...CM_ACTIVE_STATUSES];
 
 function parseChatHistory(value: Prisma.JsonValue): ChatMessage[] {
   if (!Array.isArray(value)) return [];
@@ -36,10 +38,14 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
       orderBy: { name: "asc" },
     }),
   ]);
-  const brands = await prisma.brand.findMany({ where: { clientId: activeClient.id }, orderBy: { name: "asc" } });
+  const [brands, coverage] = await Promise.all([
+    prisma.brand.findMany({ where: { clientId: activeClient.id }, orderBy: { name: "asc" } }),
+    loadCMCoverage(prisma, activeClient.id),
+  ]);
+  const coverageById = new Map(coverage.rows.map((row) => [row.id, row]));
   const selectedBrand = brands.find((brand) => brand.id === searchParams.brand)?.id;
   const selectedChannel = channels.find((channel) => channel.id === searchParams.channel)?.id;
-  const selectedResponse = searchParams.response === "generated" ? "generated" : "";
+  const selectedResponse = ["generated", "missing", "stale", "fresh", "review", "error"].includes(searchParams.response ?? "") ? searchParams.response! : "";
   const selectedSort = searchParams.sort === "newest" || searchParams.sort === "oldest" ? searchParams.sort : "";
   const orderBy: Prisma.OpportunityOrderByWithRelationInput[] = selectedSort === "newest"
     ? [{ createdAt: "desc" }]
@@ -51,9 +57,11 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
     ...operationalOpportunityWhere(),
     clientId: activeClient?.id,
     status: { in: COPILOT_OPEN_STATUSES },
+    publishingLogs: { none: {} },
     ...(selectedBrand ? { detectedBrandId: selectedBrand } : {}),
     ...(selectedChannel ? { channelId: selectedChannel } : {}),
-    ...(selectedResponse ? { responses: { some: {} } } : {}),
+    ...(selectedResponse === "generated" ? { responses: { some: {} } } : selectedResponse
+      ? { id: { in: coverage.rows.filter((row) => row.status === selectedResponse).map((row) => row.id) } } : {}),
   };
 
   const [opportunities, youtubeConnection, products] = await Promise.all([
@@ -84,6 +92,7 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
   return (
     <CopilotWorkspace
       activeClient={activeClient ? { slug: activeClient.slug, name: activeClient.name } : null}
+      coverage={coverage.counts}
       youtube={activeClient ? {
         account: youtubeConnection?.account ?? "youtube-principal",
         connected: Boolean(youtubeConnection),
@@ -104,6 +113,8 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
         productId: opportunity.detectedProductId ?? "",
         createdAt: opportunity.createdAt.toISOString(),
         status: opportunity.status,
+        freshness: coverageById.get(opportunity.id)?.status ?? "missing",
+        refreshError: coverageById.get(opportunity.id)?.error ?? "",
         hasDrafts: opportunity.responses.length > 0,
         responses: opportunity.responses.map((response) => ({
           id: response.id,
@@ -112,6 +123,7 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
           isPrimary: response.isPrimary,
           persona: response.persona.name,
           acceptedAsCorrect: Boolean(response.acceptedAsCorrectAt),
+          fresh: cmIsFresh(response.evidence, coverage.version, opportunity),
           chatHistory: parseChatHistory(response.chatHistory),
         })),
       }))}

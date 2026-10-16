@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "prebuild": "node scripts/cm-rules-version.mjs",
+    "predev": "node scripts/cm-rules-version.mjs",
+    "agents:cm-maintenance": "tsx scripts/cm-maintenance.mts",
+    "agents:cm-maintenance:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/registrar-cm-maintenance.ps1",
     "dev": "next dev",
     "dev:server": "node scripts/dev-server.mjs",
     "build": "prisma generate && next build",
@@ -29,6 +33,7 @@
     "db:studio": "prisma studio",
     "agents:listen": "python agents/orchestrator.py listen",
     "blog:sync-catalog": "tsx scripts/sync-blog-catalog.mts",
+    "blog:launch": "tsx scripts/blog-launch.mts",
     "agents:business-analysis": "tsx scripts/business-analysis-worker.mts",
     "onboarding:sync-catalog": "tsx scripts/sync-pending-onboarding-catalog.mts",
     "onboarding:audit-contamination": "tsx scripts/audit-onboarding-contamination.mts",

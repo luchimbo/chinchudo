@@ -1,10 +1,22 @@
 import type { PrismaClient } from "@prisma/client";
 import { catalogUrl, normalizeCatalogText, type StoreSnapshot, createStoreReader, parseStorePage, StoreHttpError } from "./tiendanube-public";
 export const ACTIVE_SYNC_STATUSES = ["QUEUED", "RUNNING", "PENDING_DEPLOY", "DEPLOYING"];
-export type SyncChange = { kind: "product" | "category"; ref: string; action: "create" | "update" | "missing" | "review" | "seen"; beforeUrl: string; afterUrl: string; name: string; incoming?: StoreSnapshot; candidates?: string[] };
+export type SyncChange = { kind: "product" | "category"; ref: string; action: "create" | "update" | "missing" | "review" | "seen"; beforeUrl: string; afterUrl: string; name: string; incoming?: StoreSnapshot; candidates?: string[]; resolvedFrom?: string; reviewRef?: string };
 type CatalogRow = { id: string; clientId: string; name: string; url: string; externalId?: string; key?: string; brand?: string; useText?: string; description?: string; categoryKey?: string; tiendanubeId?: string | null; sourceSnapshot?: unknown; linkStatus?: string; missingRuns?: number; lastMissingDate?: string };
 export type CrawlCheckpoint = { urls: string[]; cursor: number; snapshots: StoreSnapshot[]; failures: Array<{ url: string; error: string; status?: number }>; discoveryComplete: boolean; verifiedMissing?: Record<string, number>; applied?: boolean };
 export const argentinaDay = (now = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Argentina/Buenos_Aires", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+
+/** Usa solo recorridos completos y evidencia fechada; repetir el mismo día no suma. */
+export function confirmedMissingDays(runs: Array<{ startedAt: Date; checkpoint: unknown; deployment?: unknown }>, current: CrawlCheckpoint, now = new Date()): Record<string, number> {
+  const days = new Map<string, Set<string>>();
+  const record = (checkpoint: CrawlCheckpoint, date: Date) => {
+    if (!checkpoint?.discoveryComplete || checkpoint.cursor < checkpoint.urls.length || checkpoint.failures.some(f => ![404,410].includes(f.status || 0))) return;
+    for (const failure of checkpoint.failures) { const url = catalogUrl(failure.url); const values = days.get(url) || new Set<string>(); values.add(argentinaDay(date)); days.set(url, values); }
+  };
+  for (const run of runs) if ((run.deployment as any)?.verified) record(run.checkpoint as CrawlCheckpoint, run.startedAt);
+  record(current, now);
+  return Object.fromEntries([...days].map(([url, dates]) => [url, dates.size]));
+}
 
 export function matchCatalogRow(rows: CatalogRow[], snapshot: StoreSnapshot): { row?: CatalogRow; candidates: CatalogRow[] } {
   const sameId = rows.filter(r => r.tiendanubeId === snapshot.id);
@@ -128,10 +140,11 @@ export async function applyCatalogSync(prisma: PrismaClient, runId: string, clie
     if(newProducts.length)await tx.landingProduct.createMany({data:newProducts});
     // Absence alone is insufficient: the old URL must also have returned 404/410.
     if (complete) for (const row of [...products.map(p => ({ ...p, kind: "product" as const, ref: p.externalId })), ...categories.map(c => ({ ...c, kind: "category" as const, ref: c.key }))]) {
-      if (!row.tiendanubeId || checkpoint.snapshots.some(s => s.kind === row.kind && s.id === row.tiendanubeId) || row.lastMissingDate === day) continue;
+      const evidenceCount = checkpoint.verifiedMissing?.[catalogUrl(row.url)] || 0;
+      if (checkpoint.snapshots.some(s => s.kind === row.kind && row.tiendanubeId && s.id === row.tiendanubeId) || changes.some(c => c.kind === row.kind && c.ref === row.ref && ["update", "seen"].includes(c.action)) || row.lastMissingDate === day && evidenceCount <= row.missingRuns) continue;
       const failure = checkpoint.failures.find(f => catalogUrl(f.url) === catalogUrl(row.url) && [404,410].includes(f.status || 0));
       if (!failure) continue;
-      const missingRuns = row.missingRuns + 1, status = missingRuns >= 2 ? "missing" : "active";
+      const missingRuns = Math.max(row.missingRuns + (row.lastMissingDate === day ? 0 : 1), evidenceCount), status = missingRuns >= 2 ? "missing" : "active";
       const data = { missingRuns, lastMissingDate: day, linkStatus: status };
       (row.kind === "product" ? updateProducts : updateCategories).push({id:row.id,fields:data});
       changes.push({ kind: row.kind, ref: row.ref, action: missingRuns >= 2 ? "missing" : "review", beforeUrl: row.url, afterUrl: missingRuns >= 2 ? "" : row.url, name: row.name });

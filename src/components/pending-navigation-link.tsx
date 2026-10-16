@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTransition, type ComponentProps } from "react";
 import { LoadingSpinner } from "./loading-ui";
+import { BlogNavigationFeedback } from "./blog-navigation-feedback";
 
 type Props = Omit<ComponentProps<typeof Link>, "href"> & { href: string };
 
@@ -22,6 +23,7 @@ export function PendingNavigationLink({ href, children, onClick, scroll, ...prop
     }}>
       {children}
       {pending ? <span role="status" className="ml-2 inline-flex align-middle"><LoadingSpinner /><span className="sr-only">Cargando…</span></span> : null}
+      {pending ? <BlogNavigationFeedback href={href} /> : null}
     </Link>
   );
 }

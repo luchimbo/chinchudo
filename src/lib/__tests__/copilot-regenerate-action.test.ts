@@ -36,6 +36,7 @@ function matches(response: StoredResponse, where: Record<string, unknown>) {
 }
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("@/lib/cm-version", () => ({ loadCMVersion: vi.fn(async () => "rules-v1") }));
 vi.mock("@/lib/auth-guards", () => ({ requireOwnedClientId: vi.fn(async () => ({ id: "client-1" })) }));
 vi.mock("@/lib/auth", () => ({ assertClientAccess: vi.fn(async () => {}) }));
 vi.mock("@/lib/publish-agent", () => ({ checkPublishRateLimits: vi.fn(), closeSiblingOpportunities: vi.fn(), runPublisher: vi.fn() }));
@@ -150,13 +151,14 @@ describe("Regenerar respuesta en Copiloto", () => {
     vi.clearAllMocks();
   });
 
-  it("reemplaza la respuesta sin aceptar, aunque sea de otra voz, por una nueva principal", async () => {
+  it("conserva la versión anterior y deja la regenerada como principal", async () => {
     state.responses = [storedResponse({ personaId: "persona-anterior" })];
 
     await regenerateCopilotResponse(regenerateForm());
 
-    expect(state.responses).toHaveLength(1);
-    expect(state.responses[0]).toMatchObject({ id: "response-new-1", draftText: "Respuesta con lo aprendido", isPrimary: true });
+    expect(state.responses).toHaveLength(2);
+    expect(state.responses.find((response) => response.id === "response-old")).toMatchObject({ isPrimary: false });
+    expect(state.responses.find((response) => response.id === "response-new-1")).toMatchObject({ draftText: "Respuesta con lo aprendido", isPrimary: true });
     expect(generateAICopilotDraft).toHaveBeenCalledTimes(1);
   });
 
@@ -190,7 +192,7 @@ describe("Regenerar respuesta en Copiloto", () => {
     await regenerateCopilotResponse(form);
 
     expect(lastDraftContext().refinementGuidance).toEqual(["No uses tecnicismos", "Nombrá solo el dato confirmado"]);
-    expect(state.responses[0].chatHistory).toEqual(latestHistory);
+    expect(state.responses.find((response) => response.isPrimary)?.chatHistory).toEqual(latestHistory);
   });
 
   it("rehace la propuesta con el producto elegido, su marca y su ficha", async () => {
@@ -199,8 +201,8 @@ describe("Regenerar respuesta en Copiloto", () => {
     await regenerateCopilotResponse(regenerateForm("response-old", "product-otra-marca"));
 
     expect(lastDraftContext()).toMatchObject({ productChosenByCm: true, catalogProducts: [{ id: "product-otra-marca" }] });
-    expect(state.responses).toHaveLength(1);
-    expect(state.responses[0]).toMatchObject({ id: "response-new-1", brandId: "brand-2", isPrimary: true });
+    expect(state.responses).toHaveLength(2);
+    expect(state.responses.find((response) => response.isPrimary)).toMatchObject({ id: "response-new-1", brandId: "brand-2" });
     expect(state.context.copilot).toMatchObject({ productChoice: { productId: "product-otra-marca" } });
   });
 

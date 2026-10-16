@@ -7,12 +7,14 @@ import { IconRail } from "./icon-rail";
 import { ClientSwitcher } from "./client-switcher";
 import { IssueReportButton } from "./issue-report-button";
 import { NativePendingButton, NativePendingForm } from "./native-pending-form";
+import { BlogPublicationProgress } from "./blog-publication-progress";
 
 type ClientOption = { slug: string; name: string };
 
 const SECTOR_LABEL: Array<{ paths: string[]; label: string }> = [
   { paths: ["/"], label: "Inicio" },
-  { paths: ["/blog", "/leads"], label: "Blog" },
+  { paths: ["/blog"], label: "Blog" },
+  { paths: ["/leads"], label: "Contactos" },
   { paths: ["/videos"], label: "Tendencias y guiones" },
   { paths: ["/tendencias"], label: "Tendencias" },
   { paths: ["/radar"], label: "Radar editorial" },
@@ -35,6 +37,7 @@ const MOBILE_SECTORS = [
   { href: "/", label: "Inicio" },
   { href: "/asistente-cm", label: "Asistente CM" },
   { href: "/blog", label: "Blog" },
+  { href: "/leads", label: "Contactos" },
   { href: "/videos", label: "Tendencias y guiones" },
   { href: "/tendencias", label: "Tendencias" },
   { href: "/analytics", label: "Analíticas" },
@@ -186,6 +189,7 @@ export function AppShell({
         <main className="min-w-0 flex-1 pt-14 lg:pt-0">{children}</main>
       </div>
       {canReportIssues ? <IssueReportButton /> : null}
+      {activeSlug ? <BlogPublicationProgress key={activeSlug} client={activeSlug} raised={canReportIssues} /> : null}
     </div>
   );
 }

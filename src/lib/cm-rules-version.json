@@ -1,0 +1,31 @@
+{
+  "files": [
+    "ai-draft-generator.ts",
+    "draft-generator.ts",
+    "draft-output.ts",
+    "cm-editorial.ts",
+    "copilot-limits.ts",
+    "response-policy.ts",
+    "catalog.ts",
+    "knowledge.ts",
+    "client-context.ts",
+    "persona-router.ts",
+    "product-public-name.ts",
+    "brand-identity.ts",
+    "guardrails.ts",
+    "jurispedia-policy.ts",
+    "vidia-policy.ts",
+    "llm-provider.ts",
+    "client-memory.ts",
+    "observed-profiles.ts",
+    "competitor-evidence.ts",
+    "product-identity.ts",
+    "cm-maintenance.ts",
+    "../app/(app)/opportunities/actions.ts",
+    "cm-freshness.ts",
+    "cm-version.ts",
+    "prompts.ts",
+    "../../scripts/draft-worker.mts"
+  ],
+  "version": "399d61afd6fb2f23bb264944a086d70fbffcf8ff26b4f4e142fc1fa3a6f2aaf2"
+}

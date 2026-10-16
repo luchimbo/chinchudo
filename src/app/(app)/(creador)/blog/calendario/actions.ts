@@ -10,12 +10,39 @@ import { businessTimezone, localDay } from "@/lib/business-analysis";
 import { inspectBlogArticle } from "@/lib/blog-evidence";
 import { editorialIntentForDate } from "@/lib/blog-quality.mjs";
 import { relayFetch } from "@/lib/relay-client";
+import type { Prisma } from "@prisma/client";
 
 export type RescheduleFormState = { error: string | null };
+export type GenerateDateState = { error: string | null; queued: boolean; id?: string; client?: string };
+
+/** Reserva exactamente el día pedido; el worker existente prepara el artículo. */
+export async function generateBlogDate(_state: GenerateDateState, formData: FormData): Promise<GenerateDateState> {
+  try {
+    const clientId = z.string().min(1).parse(formData.get("clientId"));
+    await assertClientAccess(prisma, clientId);
+    const client = await prisma.client.findUniqueOrThrow({ where: { id: clientId }, select: { slug: true, responsePolicy: true } });
+    if (client.slug !== "pcmidi") return { error: "La generación por fecha está disponible para PC MIDI.", queued: false };
+    let scheduledDate: Date;
+    try { scheduledDate = dateOnly(String(formData.get("scheduledDate") || "")); }
+    catch { return { error: "Elegí una fecha válida.", queued: false }; }
+    if (scheduledDate.toISOString().slice(0, 10) <= localDay(new Date(), businessTimezone(client.responsePolicy))) {
+      return { error: "Elegí un día posterior a hoy.", queued: false };
+    }
+    // La restricción única evita sobrescribir artículos incluso con pedidos simultáneos.
+    const created = await prisma.blogPublication.createMany({ data: [{ clientId, scheduledDate }], skipDuplicates: true });
+    if (!created.count) return { error: "Este día ya tiene una publicación programada. Revisá el calendario.", queued: false };
+    const slot = await prisma.blogPublication.findUniqueOrThrow({ where: { clientId_scheduledDate: { clientId, scheduledDate } }, select: { id: true } });
+    revalidatePath("/blog/calendario");
+    revalidatePath("/blog/articulos");
+    return { error: null, queued: true, id: slot.id, client: client.slug };
+  } catch {
+    return { error: "No se pudo solicitar el artículo. Verificá tu acceso y reintentá.", queued: false };
+  }
+}
 class CalendarValidationError extends Error {}
 class CalendarDateConflictError extends Error {}
 
-export async function publishCalendarArticle(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function publishCalendarArticle(id: string): Promise<{ ok: true } | { ok: false; error: string; code?: string }> {
   try {
     z.string().min(1).parse(id);
     const slot = await prisma.blogPublication.findUnique({ where: { id }, include: { landing: true } });
@@ -23,19 +50,33 @@ export async function publishCalendarArticle(id: string): Promise<{ ok: true } |
     await assertClientAccess(prisma, slot.clientId);
     if (slot.requiresApproval) return { ok: false, error: "Aprobá el borrador antes de publicarlo." };
     if (!["READY", "FAILED"].includes(slot.status)) return { ok: false, error: "El artículo no está listo para publicar. Recargá el calendario." };
-    const response = await relayFetch("/blog/publish", {
+    let response: Response;
+    try { response = await relayFetch("/blog/publish", {
       method: "POST", signal: AbortSignal.timeout(30_000),
       body: JSON.stringify({ id, clientId: slot.clientId, expectedUpdatedAt: slot.updatedAt.toISOString() }),
-    });
+    }); } catch { return { ok: false, error: "No se pudo conectar con el agente local. Revisá la conexión y reintentá.", code: "CONNECTION" }; }
     const result = await response.json();
     if (response.status !== 202 || !result.accepted) return { ok: false, error: result.error || "No se pudo iniciar la publicación. Reintentá." };
-    revalidatePath("/blog");
+    revalidatePath("/blog"); revalidatePath("/blog/articulos");
     revalidatePath("/blog/calendario");
     revalidatePath(`/blog/articulos/${slot.landing.id}`);
     return { ok: true };
   } catch {
     return { ok: false, error: "No se pudo iniciar la publicación. Verificá tu acceso y la conexión con el agente local, y reintentá." };
   }
+}
+
+export async function retryBlogDeployment(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const slot = await prisma.blogPublication.findUnique({ where: { id }, include: { landing: true } });
+    if (!slot?.landing) return { ok: false, error: "Artículo no encontrado." };
+    await assertClientAccess(prisma, slot.clientId);
+    if (slot.status !== "PUBLISHED" || !slot.needsDeploy || slot.requiresApproval || slot.errorCode !== "DEPLOYMENT_FAILED") return { ok: false, error: "Esta actualización no admite un reintento. Revisá el artículo." };
+    const updated = await prisma.blogPublication.updateMany({ where: { id, clientId: slot.clientId, status: "PUBLISHED", needsDeploy: true, updatedAt: slot.updatedAt, errorCode: "DEPLOYMENT_FAILED" }, data: { revisionAttempts: 0, lastError: "", errorCode: "" } });
+    if (!updated.count) return { ok: false, error: "El artículo cambió. Recargá el calendario." };
+    revalidatePath("/blog/calendario"); revalidatePath("/blog/articulos");
+    return { ok: true };
+  } catch { return { ok: false, error: "No se pudo reintentar la actualización. Verificá tu acceso y la conexión." }; }
 }
 
 export async function approveAnalysisArticle(formData: FormData) {
@@ -49,11 +90,11 @@ export async function approveAnalysisArticle(formData: FormData) {
   const issues = quality.checks.filter(c => c.level === "error");
   if (issues.length) throw new Error(`Corregí el artículo antes de aprobarlo: ${issues.map(c => c.message).join(" · ")}`);
   await prisma.$transaction(async tx => {
-    const updated = await tx.blogPublication.updateMany({ where: { id, requiresApproval: true, status: { in: ["READY", "FAILED"] }, landing: { updatedAt: slot.landing!.updatedAt } }, data: { requiresApproval: false, approvedAt: new Date(), status: "READY", lastError: "" } });
+    const updated = await tx.blogPublication.updateMany({ where: { id, requiresApproval: true, status: { in: ["READY", "FAILED"] }, landing: { updatedAt: slot.landing!.updatedAt } }, data: { requiresApproval: false, approvedAt: new Date(), status: "READY", lastError: "", errorCode: "" } });
     if (!updated.count) throw new Error("El artículo cambió durante la revisión. Recargá la página.");
     await tx.landing.update({ where: { id: slot.landing!.id }, data: { status: "APPROVED" } });
   });
-  revalidatePath("/blog"); revalidatePath("/blog/calendario"); revalidatePath(`/blog/articulos/${slot.landing.id}`);
+  revalidatePath("/blog"); revalidatePath("/blog/articulos"); revalidatePath("/blog/calendario"); revalidatePath(`/blog/articulos/${slot.landing.id}`);
 }
 
 async function pcMidiClient(formData: FormData) {
@@ -113,7 +154,7 @@ export async function rescheduleBlogArticle(_state: RescheduleFormState, formDat
           }
           const changed = await tx.blogPublication.updateMany({
             where: { id, updatedAt: slot.updatedAt, status: slot.status, landingId: landing.id, landing: { updatedAt: landing.updatedAt } },
-            data: { ...(slot.analysisRunId ? { requiresApproval: true, approvedAt: null } : {}), scheduledDate: dateOnly(candidate), status: quality.publishable ? "READY" : "FAILED", attempts: quality.publishable ? 0 : 3, lastError: quality.checks.filter((c) => c.level === "error").map((c) => c.message).join(" · ") },
+            data: { ...(slot.analysisRunId ? { requiresApproval: true, approvedAt: null } : {}), scheduledDate: dateOnly(candidate), status: quality.publishable ? "READY" : "FAILED", attempts: quality.publishable ? 0 : 3, lastError: quality.checks.filter((c) => c.level === "error").map((c) => c.message).join(" · "), errorCode: quality.publishable ? "" : "QUALITY_BLOCKED" },
           });
           if (changed.count !== 1) throw new CalendarValidationError("El artículo cambió durante la reprogramación. Recargá el calendario y reintentá.");
           await tx.landing.update({ where: { id: landing.id }, data: { status: "DRAFT", publishedAt: null } });
@@ -133,7 +174,7 @@ export async function rescheduleBlogArticle(_state: RescheduleFormState, formDat
     console.error("[blog] No se pudo reprogramar el artículo", error);
     return { error: "No se pudo reprogramar el artículo. Reintentá en unos instantes." };
   }
-  revalidatePath("/blog");
+  revalidatePath("/blog"); revalidatePath("/blog/articulos");
   revalidatePath("/blog/calendario");
   redirect(`/blog/calendario?client=${encodeURIComponent(clientSlug)}&month=${finalDate.slice(0, 7)}&rescheduled=${encodeURIComponent(id)}&requestedDate=${target}`);
 }
@@ -142,10 +183,11 @@ export async function replaceBlogArticle(formData: FormData) {
   const id = z.string().min(1).parse(formData.get("id"));
   const slot = await editableSlot(id);
   await prisma.$transaction(async (tx) => {
+    if (slot.analysisRunId) await requeueAnalysis(tx, slot.analysisRunId, slot.clientId, slot.client.slug === "pcmidi");
+    const changed = await tx.blogPublication.updateMany({ where: { id, status: slot.status, updatedAt: slot.updatedAt, landingId: slot.landingId }, data: { ...(slot.analysisRunId ? { requiresApproval: true, approvedAt: null } : {}), landingId: null, status: "PLANNED", attempts: 0, lastError: "", errorCode: "", preparation: { phase: "WAITING" } } });
+    if (!changed.count) throw new CalendarValidationError("La fecha cambió. Recargá el calendario.");
     if (slot.landingId) await tx.landing.update({ where: { id: slot.landingId }, data: { status: "ARCHIVED" } });
-    await tx.blogPublication.update({ where: { id }, data: { ...(slot.analysisRunId ? { requiresApproval: true, approvedAt: null } : {}), landingId: null, status: "PLANNED", attempts: 0, lastError: "" } });
   });
-  if (slot.analysisRunId) await requeueAnalysis(slot.analysisRunId, slot.clientId);
   revalidatePath("/blog/calendario");
 }
 
@@ -153,8 +195,9 @@ export async function skipBlogDate(formData: FormData) {
   const id = z.string().min(1).parse(formData.get("id"));
   const slot = await editableSlot(id);
   await prisma.$transaction(async (tx) => {
+    const changed = await tx.blogPublication.updateMany({ where: { id, status: slot.status, updatedAt: slot.updatedAt, landingId: slot.landingId }, data: { landingId: null, status: "SKIPPED", lastError: "Fecha omitida por el operador.", errorCode: "" } });
+    if (!changed.count) throw new CalendarValidationError("La fecha cambió. Recargá el calendario.");
     if (slot.landingId) await tx.landing.update({ where: { id: slot.landingId }, data: { status: "ARCHIVED" } });
-    await tx.blogPublication.update({ where: { id }, data: { landingId: null, status: "SKIPPED", lastError: "Fecha omitida por el operador." } });
   });
   revalidatePath("/blog/calendario");
 }
@@ -162,28 +205,48 @@ export async function skipBlogDate(formData: FormData) {
 export async function restoreBlogDate(formData: FormData) {
   const id = z.string().min(1).parse(formData.get("id"));
   const slot = await editableSlot(id);
-  if (slot.status !== "SKIPPED" || slot.landingId) throw new Error("Solo se puede reactivar una fecha omitida sin artículo.");
-  await prisma.blogPublication.update({ where: { id }, data: { ...(slot.analysisRunId ? { requiresApproval: true, approvedAt: null } : {}), status: "PLANNED", attempts: 0, lastError: "" } });
-  if (slot.analysisRunId) await requeueAnalysis(slot.analysisRunId, slot.clientId);
+  if (slot.status !== "SKIPPED" || slot.landingId) throw new CalendarValidationError("Solo se puede reactivar una fecha omitida sin artículo.");
+  await prisma.$transaction(async tx => {
+    if (slot.analysisRunId) await requeueAnalysis(tx, slot.analysisRunId, slot.clientId, slot.client.slug === "pcmidi");
+    const changed = await tx.blogPublication.updateMany({ where: { id, status: "SKIPPED", landingId: null, updatedAt: slot.updatedAt }, data: { ...(slot.analysisRunId ? { requiresApproval: true, approvedAt: null } : {}), status: "PLANNED", attempts: 0, lastError: "", errorCode: "", preparation: { phase: "WAITING" } } });
+    if (!changed.count) throw new CalendarValidationError("La fecha cambió. Recargá el calendario.");
+  });
   revalidatePath("/blog/calendario");
 }
 
 export async function retryBlogPreparation(formData: FormData) {
   const id = z.string().min(1).parse(formData.get("id"));
   const slot = await editableSlot(id);
-  if (slot.status !== "FAILED" || slot.landingId) throw new Error("El artículo existente debe corregirse desde el editor.");
-  await prisma.blogPublication.updateMany({ where: { id, status: "FAILED", landingId: null }, data: { ...(slot.analysisRunId ? { requiresApproval: true, approvedAt: null } : {}), status: "PLANNED", attempts: 0, lastError: "" } });
-  if (slot.analysisRunId) await requeueAnalysis(slot.analysisRunId, slot.clientId);
+  if (slot.status !== "FAILED" || slot.landingId) throw new CalendarValidationError("El artículo existente debe corregirse desde el editor.");
+  await prisma.$transaction(async tx => {
+    if (slot.analysisRunId) await requeueAnalysis(tx, slot.analysisRunId, slot.clientId, slot.client.slug === "pcmidi");
+    const changed = await tx.blogPublication.updateMany({ where: { id, status: "FAILED", landingId: null, updatedAt: slot.updatedAt }, data: { ...(slot.analysisRunId ? { requiresApproval: true, approvedAt: null } : {}), status: "PLANNED", attempts: 0, lastError: "", errorCode: "", preparation: { phase: "WAITING" } } });
+    if (!changed.count) throw new CalendarValidationError("La fecha cambió. Recargá el calendario.");
+  });
   revalidatePath("/blog/calendario");
 }
 
-async function requeueAnalysis(runId: string, clientId: string) {
-  await prisma.$transaction(async tx => {
+async function requeueAnalysis(tx: Prisma.TransactionClient, runId: string, clientId: string, rejectActive: boolean) {
     await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${clientId} FOR UPDATE`;
     const active = await tx.businessAnalysisRun.findFirst({ where: { clientId, status: { in: ["QUEUED", "RUNNING"] } } });
-    if (active && active.id !== runId) throw new Error("Esperá a que termine el análisis activo y reintentá.");
+    if (active && (active.id !== runId || rejectActive)) throw new CalendarValidationError("Esperá a que termine el análisis activo y reintentá.");
     await tx.businessAnalysisRun.updateMany({ where: { id: runId, clientId, status: { notIn: ["QUEUED", "RUNNING"] } }, data: { status: "QUEUED", attempts: 0, errors: [], finishedAt: null } });
-  });
+}
+
+/** Las acciones del panel devuelven errores seguros, también en producción. */
+export async function requestBlogPreparation(kind: "replace" | "restore" | "retry", id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const input = z.object({ kind: z.enum(["replace", "restore", "retry"]), id: z.string().min(1) }).safeParse({kind,id});
+  if (!input.success) return { ok: false, error: "Elegí una acción válida para el artículo." };
+  try {
+    const slot = await editableSlot(id);
+    if (slot.client.slug !== "pcmidi") return { ok: false, error: "La preparación por fecha está disponible para PC MIDI." };
+    const data = new FormData(); data.set("id",id);
+    await ({ replace: replaceBlogArticle, restore: restoreBlogDate, retry: retryBlogPreparation }[kind])(data);
+    return { ok: true };
+  } catch (error) {
+    if (error instanceof CalendarValidationError || error instanceof Error && ["No autenticado.","No tenés acceso a este cliente."].includes(error.message)) return { ok: false, error: error.message };
+    return { ok: false, error: "No se pudo solicitar la preparación. Verificá tu acceso y reintentá." };
+  }
 }
 
 /** Reserva más fechas después del último día planificado; el relay escribe un artículo por fecha. */

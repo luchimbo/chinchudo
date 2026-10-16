@@ -38,6 +38,13 @@ const ShareIcon = () => (
   </svg>
 );
 
+const ContactsIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="9" cy="8" r="3" />
+    <path d="M3 21v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6M21 21v-2a6 6 0 0 0-4-5.65" />
+  </svg>
+);
+
 const ChartIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <line x1="18" y1="20" x2="18" y2="10" />
@@ -94,8 +101,15 @@ const MAIN_SECTORS: Sector[] = [
     id: "creador",
     href: "/blog",
     label: "Blog",
-    paths: ["/blog", "/leads"],
+    paths: ["/blog"],
     icon: <FileTextIcon />,
+  },
+  {
+    id: "contactos",
+    href: "/leads",
+    label: "Contactos",
+    paths: ["/leads"],
+    icon: <ContactsIcon />,
   },
   {
     id: "videos",

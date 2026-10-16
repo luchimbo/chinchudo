@@ -108,6 +108,10 @@ textarea {
 }
 
 .loading-reveal { opacity: 0; animation: loading-reveal 180ms ease-out 140ms both; }
+.loading-progress-track { position: relative; overflow: hidden; background: rgba(83, 107, 69, .12); }
+.loading-progress-track > span { display: block; width: 40%; height: 100%; background: #536b45; animation: loading-progress 1.3s ease-in-out infinite; }
+@keyframes loading-progress { from { transform: translateX(-100%); } to { transform: translateX(350%); } }
+@media (prefers-reduced-motion: reduce) { .loading-progress-track > span { animation: none; margin: 0 auto; } }
 .loading-page-indicator { display: flex; align-items: center; gap: 14px; color: var(--ink); font-size: 16px; font-weight: 700; }
 .loading-block {
   border-radius: 6px;

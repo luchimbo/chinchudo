@@ -21,6 +21,7 @@ export function GenerateLandingsButton({
 
   useEffect(() => {
     if (clientSlug === "pcmidi") return;
+    if (clientSlug === "pcmidi") return;
     const refresh = async () => {
       let data;
       try {

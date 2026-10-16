@@ -260,13 +260,19 @@ def update_landing_status(landing_id: str, status: str) -> None:
 
 
 def _attach_scheduled_landing(conn, client_id: str, landing_id: str, scheduled_date: str, error: str = "") -> None:
+    attempt = os.environ.get("BLOG_PREPARATION_ATTEMPT_ID", "")
+    # Legacy CLI calls keep their behavior; tracked jobs must still own the attempt.
+    guard = ''' AND "preparation"->>'attemptId' = %s AND "preparation"->>'phase' IN ('GENERATING', 'REVIEWING')''' if attempt else ''' AND COALESCE("preparation"->>'phase', 'WAITING') NOT IN ('GENERATING', 'REVIEWING')'''
     row = conn.execute(
         '''UPDATE "BlogPublication"
-           SET "landingId" = %s, status = %s::"BlogPublicationStatus", attempts = %s, "lastError" = %s, "updatedAt" = NOW()
+           SET "landingId" = %s, status = %s::"BlogPublicationStatus", attempts = %s, "lastError" = %s,
+               "errorCode" = %s,
+               "preparation" = CASE WHEN "preparation" IS NULL THEN NULL ELSE "preparation" || jsonb_build_object('phase', %s::text, 'finishedAt', NOW()) END,
+               "updatedAt" = NOW()
            WHERE "clientId" = %s AND "scheduledDate" = %s::date
              AND status IN ('PLANNED', 'FAILED') AND "landingId" IS NULL
-           RETURNING id''',
-        (landing_id, "FAILED" if error else "READY", 3 if error else 0, error, client_id, scheduled_date),
+           ''' + guard + ''' RETURNING id''',
+        (landing_id, "FAILED" if error else "READY", 3 if error else 0, error, "QUALITY_BLOCKED" if error else "", "FAILED" if error else "DONE", client_id, scheduled_date, *((attempt,) if attempt else ())),
     ).fetchone()
     if not row:
         raise RuntimeError(f"No hay un día libre reservado para {scheduled_date}")

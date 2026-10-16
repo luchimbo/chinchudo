@@ -9,6 +9,8 @@ export function GenerationProgressCard({ clientSlug }: { clientSlug: string }) {
   const [job, setJob] = useState<Job | null>(null);
 
   useEffect(() => {
+    // PC MIDI usa la cola por fechas del calendario, no la generación de landings.
+    if (clientSlug === "pcmidi") return;
     const refresh = async () => {
       try {
         const response = await fetch(`/api/landings/generation-status?client=${encodeURIComponent(clientSlug)}`);

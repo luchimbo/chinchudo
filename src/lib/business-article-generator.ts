@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { newPreparation, setPreparationPhase, failPreparation } from "../../scripts/blog-preparation.mjs";
 import { join } from "node:path";
 import { z } from "zod";
 import type { Client, PrismaClient } from "@prisma/client";
@@ -43,6 +44,13 @@ export async function generatePrivateBusinessArticle(db: PrismaClient, client: C
   const slot = await db.blogPublication.findFirstOrThrow({ where: { id: slotId, clientId: client.id } });
   if (slot.landingId) return slot.landingId;
   if (!slot.requiresApproval || !slot.analysisRunId || !["PLANNED", "FAILED"].includes(slot.status)) throw new Error("La fecha no admite un borrador del análisis.");
+  const preparation = client.slug === "pcmidi" ? newPreparation(new Date(), 240_000) : null;
+  if (preparation) {
+    const claimed = await db.blogPublication.updateMany({ where: { id: slotId, clientId: client.id, updatedAt: slot.updatedAt, landingId: null, status: slot.status }, data: { status: "PLANNED", preparation, errorCode: "", lastError: "" } });
+    if (!claimed.count) throw new Error("La reserva editorial cambió durante la generación.");
+    signal = signal ? AbortSignal.any([signal, AbortSignal.timeout(240_000)]) : AbortSignal.timeout(240_000);
+  }
+  try {
   const [catalog, products] = await Promise.all([
     db.landingCategory.findMany({ where: { clientId: client.id, linkStatus: { not: "missing" } }, take: 100 }),
     db.landingProduct.findMany({ where: { clientId: client.id, linkStatus: { not: "missing" } }, take: 100 }),
@@ -65,11 +73,13 @@ export async function generatePrivateBusinessArticle(db: PrismaClient, client: C
     components: [], steps: [], source_refs: [], research_source_urls: topic.sourceUrls,
     generation_mode: "private-draft", analysis_run_id: slot.analysisRunId,
   };
+  if (preparation) await setPreparationPhase(db, slotId, client.id, preparation, "REVIEWING");
   const { content } = await completeBlogArticle(db, client.id, rawContent);
   const quality = await inspectBlogArticle(db, client.id, content);
   signal?.throwIfAborted();
-  return db.$transaction(async tx => {
-    const rows = await tx.$queryRaw<Array<{ landingId: string | null; requiresApproval: boolean; status: string }>>`SELECT "landingId", "requiresApproval", status::text FROM "BlogPublication" WHERE id = ${slotId} AND "clientId" = ${client.id} FOR UPDATE`;
+  return await db.$transaction(async tx => {
+    const rows = await tx.$queryRaw<Array<{ landingId: string | null; requiresApproval: boolean; status: string; preparation?: { attemptId?: string; phase?: string } }>>`SELECT "landingId", "requiresApproval", status::text, preparation FROM "BlogPublication" WHERE id = ${slotId} AND "clientId" = ${client.id} FOR UPDATE`;
+    if (preparation && (rows[0]?.preparation?.attemptId !== preparation.attemptId || !["GENERATING", "REVIEWING"].includes(rows[0]?.preparation?.phase || ""))) throw new Error("La reserva editorial cambió durante la generación.");
     if (rows[0]?.landingId) return rows[0].landingId;
     if (!rows[0]?.requiresApproval || !["PLANNED", "FAILED"].includes(rows[0].status)) throw new Error("La reserva editorial cambió durante la generación.");
     if (leaseToken) {
@@ -90,7 +100,11 @@ export async function generatePrivateBusinessArticle(db: PrismaClient, client: C
       authorName: `Equipo ${client.name}`, sourceRefs: jsonData(content.source_refs),
       // publicPreviewUrl/previewPublishedAt/publishedAt remain empty/null by construction.
     } });
-    await tx.blogPublication.update({ where: { id: slotId }, data: { landingId: article.id, status: "READY", requiresApproval: true, approvedAt: null, lastError: quality.checks.filter(c => c.level === "error").map(c => c.message).join(" · ").slice(0, 2000) } });
+    await tx.blogPublication.update({ where: { id: slotId }, data: { landingId: article.id, status: preparation && !quality.publishable ? "FAILED" : "READY", requiresApproval: true, approvedAt: null, lastError: quality.checks.filter(c => c.level === "error").map(c => c.message).join(" · ").slice(0, 2000), ...(preparation ? { errorCode: quality.publishable ? "" : "QUALITY_BLOCKED", preparation: { ...preparation, phase: quality.publishable ? "DONE" : "FAILED", finishedAt: new Date().toISOString() } } : {}) } });
     return article.id;
   }, { timeout: 30000 });
+  } catch (error) {
+    if (preparation) await failPreparation(db, slotId, client.id, preparation, error);
+    throw error;
+  }
 }

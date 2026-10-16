@@ -53,6 +53,6 @@ describe("publicar desde el calendario", () => {
 
   it("un relay desconectado permite reintentar", async () => {
     mocks.relayFetch.mockRejectedValue(new Error("Timeout"));
-    expect(await publishCalendarArticle("slot")).toMatchObject({ ok: false, error: expect.stringContaining("reintentá") });
+    expect(await publishCalendarArticle("slot")).toMatchObject({ ok: false, code: "CONNECTION", error: expect.stringContaining("reintentá") });
   });
 });

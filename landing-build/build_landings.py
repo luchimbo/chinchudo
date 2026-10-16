@@ -360,17 +360,18 @@ def _load_landings_from_pg(include_drafts: bool = False) -> list[dict] | None:
         url = psycopg_url(db_url)
         client_id = _CLIENT_CONFIG.get("id")
         statuses = ("APPROVED", "PUBLISHED", "DRAFT") if include_drafts else ("APPROVED", "PUBLISHED")
+        scheduled_filter = "" if include_drafts else " AND (l.status::text = 'PUBLISHED' OR NOT EXISTS (SELECT 1 FROM \"BlogPublication\" bp WHERE bp.\"landingId\" = l.id))"
         with psycopg.connect(url, row_factory=dict_row) as conn:
             if client_id:
                 rows = conn.execute(
                     "SELECT l.id, l.slug, l.keyword, l.intent, l.titulo, l.status, l.\"htmlContent\", l.\"seoTitle\", l.\"seoDescription\", l.\"leadMagnetId\", l.\"createdAt\", l.\"updatedAt\", l.\"publishedAt\", l.\"contentType\", l.\"indexingState\", l.\"authorName\", l.\"sourceRefs\", cc.slug AS cluster_slug, cc.name AS cluster_name "
-                    "FROM \"Landing\" l LEFT JOIN \"ContentCluster\" cc ON cc.id = l.\"contentClusterId\" WHERE l.status::text = ANY(%s) AND l.\"clientId\" = %s ORDER BY l.\"createdAt\" DESC",
+                    "FROM \"Landing\" l LEFT JOIN \"ContentCluster\" cc ON cc.id = l.\"contentClusterId\" WHERE l.status::text = ANY(%s) AND l.\"clientId\" = %s" + scheduled_filter + " ORDER BY l.\"createdAt\" DESC",
                     (list(statuses), client_id),
                 ).fetchall()
             else:
                 rows = conn.execute(
                     "SELECT l.id, l.slug, l.keyword, l.intent, l.titulo, l.status, l.\"htmlContent\", l.\"seoTitle\", l.\"seoDescription\", l.\"leadMagnetId\", l.\"createdAt\", l.\"updatedAt\", l.\"publishedAt\", l.\"contentType\", l.\"indexingState\", l.\"authorName\", l.\"sourceRefs\", cc.slug AS cluster_slug, cc.name AS cluster_name "
-                    "FROM \"Landing\" l LEFT JOIN \"ContentCluster\" cc ON cc.id = l.\"contentClusterId\" WHERE l.status::text = ANY(%s) ORDER BY l.\"createdAt\" DESC",
+                    "FROM \"Landing\" l LEFT JOIN \"ContentCluster\" cc ON cc.id = l.\"contentClusterId\" WHERE l.status::text = ANY(%s)" + scheduled_filter + " ORDER BY l.\"createdAt\" DESC",
                     (list(statuses),),
                 ).fetchall()
         # Mapear campos Prisma → formato que espera el builder. El contenido
@@ -836,7 +837,10 @@ def validate_landings(landings: list[dict], categories: dict[str, dict], product
             if claim.lower() in text:
                 errors.append(f"{label}: claim prohibido detectado: {claim}")
 
-        for field in ("components", "steps", "faqs"):
+        # Editorial articles render sections; components and steps belong to
+        # commercial landing templates and are not required by that renderer.
+        blocks = ("sections", "faqs") if is_editorial(landing) and landing.get("sections") else ("components", "steps", "faqs")
+        for field in blocks:
             if not landing.get(field):
                 errors.append(f"{label}: falta bloque {field}")
 
@@ -2155,6 +2159,12 @@ def review_generated_editorial(landing: dict, topic: dict, source_bank: list[dic
     return landing
 
 
+def preparation_progress(phase: str) -> None:
+    attempt = os.environ.get("BLOG_PREPARATION_ATTEMPT_ID", "")
+    if attempt:
+        print("BLOG_PROGRESS:" + json.dumps({"attemptId": attempt, "phase": phase}), flush=True)
+
+
 def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds: int = 0, research_first: bool = False, schedule_date: str = "") -> dict:
     if client_slug_active() == "pcmidi" and _CLIENT_CONFIG.get("id") and os.environ.get("DATABASE_URL") and not schedule_date and not dry_run:
         raise RuntimeError("Para PC MIDI, prepará artículos privados desde el calendario con --schedule-date.")
@@ -2281,6 +2291,7 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
                 related_articles = [item for item in existing if is_editorial(item) and item.get("status") == "PUBLISHED"] if editorial_mode else None
                 allowed_products = {pid: product for pid, product in products.items() if not use_quality or pid in topic["_editorial_brief"]["allowedProductIds"]}
                 system, user = generation_prompt(topic, categories, allowed_products, related_articles)
+                preparation_progress("GENERATING")
                 landing = normalize_generated_landing(chat_json(system, user, model=model))
         except Exception as exc:
             blocked = {"keyword": topic.get("keyword") or topic.get("busqueda_objetivo"), "reason": "generation_error", "error": str(exc)}
@@ -2293,14 +2304,17 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
                 landing = normalize_generated_landing(catalogue_fallback_landing(topic, categories, products))
         landing = apply_editorial_metadata(topic, landing, cluster)
         if use_quality:
+            preparation_progress("REVIEWING")
             landing = review_generated_editorial(landing, topic, source_bank, products, categories, existing)
             issues = [c["message"] for c in landing["editorial_quality"]["checks"] if c["level"] == "error"]
             # Una corrección acotada usa la misma evidencia; nunca levanta un
             # bloqueo ni agrega datos para justificar lo que inventó el modelo.
             if issues and (not max_seconds or max_seconds - (time.monotonic() - started_at) > 100):
                 try:
+                    preparation_progress("GENERATING")
                     revision_user = user + "\nCORRECCIÓN EDITORIAL: Devolvé el artículo JSON completo corregido. Conservá la búsqueda. Eliminá afirmaciones sin evidencia; no agregues nuevas fuentes. Los criterios generales no requieren prometer características del producto.\n" + json.dumps({"errors": issues, "article": {k: v for k, v in landing.items() if k not in ("editorial_quality", "editorial_brief", "source_refs")}}, ensure_ascii=False)
                     revised = normalize_generated_landing(chat_json(system, revision_user, model=model, temperature=0.2))
+                    preparation_progress("REVIEWING")
                     revised["keyword"], revised["slug"] = landing["keyword"], landing["slug"]
                     revised = review_generated_editorial(apply_editorial_metadata(topic, revised, cluster), topic, source_bank, products, categories, existing)
                     revised_errors = [c for c in revised["editorial_quality"]["checks"] if c["level"] == "error"]
@@ -3431,7 +3445,7 @@ def render_index(landings: list[dict], categories: dict[str, dict], base_url: st
     .nav-links a {{ text-decoration:none; color:var(--muted); }}
     .hero {{ position:relative; overflow:hidden; padding:72px 0 54px; }}
     .hero:before {{ content:""; position:absolute; inset:0; background:linear-gradient(90deg, rgba(29,29,27,.06) 1px, transparent 1px), linear-gradient(rgba(29,29,27,.06) 1px, transparent 1px); background-size:42px 42px; mask-image:linear-gradient(180deg,#000,transparent); pointer-events:none; }}
-    .hero-grid {{ position:relative; display:grid; grid-template-columns:minmax(0,1.1fr) 360px; gap:42px; align-items:end; }}
+    .hero-grid {{ position:relative; display:grid; grid-template-columns:minmax(0,1fr); }}
     .eyebrow {{ display:inline-flex; padding:8px 11px; border:1px solid var(--line); border-radius:999px; font:800 12px/1 Arial,sans-serif; text-transform:uppercase; letter-spacing:.1em; color:var(--orange); background:rgba(255,255,255,.35); }}
     h1 {{ margin:22px 0 18px; font-size:clamp(46px, 8vw, 104px); line-height:.88; letter-spacing:-.07em; max-width:920px; }}
     .lede {{ margin:0; max-width:760px; font:400 clamp(18px,2.3vw,25px)/1.35 Arial,sans-serif; color:#38352F; }}
@@ -3439,11 +3453,6 @@ def render_index(landings: list[dict], categories: dict[str, dict], base_url: st
     .btn {{ display:inline-flex; align-items:center; justify-content:center; min-height:48px; padding:0 20px; border:2px solid var(--ink); border-radius:999px; text-decoration:none; font-weight:900; }}
     .btn-primary {{ background:var(--orange); box-shadow:5px 5px 0 var(--ink); }}
     .btn-ghost {{ background:transparent; }}
-    .meter {{ background:var(--dark); color:var(--paper); border-radius:28px; padding:24px; box-shadow:10px 10px 0 rgba(235,101,23,.28); font-family:Arial,sans-serif; }}
-    .meter strong {{ display:block; font-size:58px; letter-spacing:-.08em; }}
-    .meter span {{ color:#B8B0A1; text-transform:uppercase; font-size:12px; letter-spacing:.12em; }}
-    .bars {{ display:grid; grid-template-columns:repeat(12,1fr); align-items:end; gap:5px; height:116px; margin-top:24px; }}
-    .bars i {{ display:block; background:var(--orange); border-radius:99px 99px 0 0; min-height:18px; }}
     .section {{ padding:56px 0; }}
     .section-head {{ display:flex; justify-content:space-between; gap:24px; align-items:end; margin-bottom:24px; border-top:2px solid var(--ink); padding-top:20px; }}
     .section-head h2 {{ margin:0; font-size:clamp(30px,4vw,54px); line-height:.95; letter-spacing:-.05em; }}
@@ -3478,7 +3487,6 @@ def render_index(landings: list[dict], categories: dict[str, dict], base_url: st
     <section class="hero">
       <div class="container hero-grid">
         <div><span class="eyebrow">Guias de compra {esc(brand)}</span><h1>Elegir mejor con {esc(brand)}.</h1><p class="lede">Comparativas y guias practicas para elegir los productos de {esc(brand)} segun tu uso real.</p><div class="hero-actions"><a class="btn btn-primary" href="#guias">Explorar guias</a><a class="btn btn-ghost" href="{esc(store_url)}/" target="_blank" rel="noopener">Ir a la tienda</a></div></div>
-        <aside class="meter"><span>Archivo indexable</span><strong>{len(indexable)}</strong><span>guias publicadas</span><div class="bars" aria-hidden="true"><i style="height:38%"></i><i style="height:62%"></i><i style="height:84%"></i><i style="height:46%"></i><i style="height:92%"></i><i style="height:58%"></i><i style="height:74%"></i><i style="height:42%"></i><i style="height:100%"></i><i style="height:68%"></i><i style="height:52%"></i><i style="height:88%"></i></div></aside>
       </div>
     </section>
     <section class="section" id="guias"><div class="container"><div class="section-head"><h2>Guias destacadas</h2><p>Entradas orientadas a problemas reales de compra: que conectar, que comparar y que categoria revisar antes de decidir.</p></div><div class="guide-grid">{''.join(featured_html)}</div></div></section>

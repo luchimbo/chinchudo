@@ -215,7 +215,7 @@ export async function processBusinessAnalysis(db: PrismaClient, runId: string, d
         await db.blogPublication.update({ where: { id: slot.id }, data: { attempts: { increment: 1 }, lastError: "" } });
         try { await deps.generate(db, client, profile, topic, slot.id, controller.signal, token); break; }
         catch (error) {
-          await db.blogPublication.updateMany({ where: { id: slot.id, landingId: null }, data: { status: "FAILED", lastError: error instanceof Error ? error.message.slice(0, 1000) : "No se pudo generar." } });
+          await db.blogPublication.updateMany({ where: { id: slot.id, landingId: null, analysisRun: { leaseToken: token } }, data: { status: "FAILED", lastError: error instanceof Error ? error.message.slice(0, 1000) : "No se pudo generar." } });
           if (attempt === 2) errors.push(`Artículo ${slot.scheduledDate.toISOString().slice(0, 10)}: no se pudo preparar tras tres intentos.`);
         }
       }

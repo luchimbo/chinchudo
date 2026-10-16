@@ -14,7 +14,7 @@ const generated = { h1: topic.title, seo_title: topic.title, meta_description: "
 function database() {
   const slot = { id: "s", clientId: "a", analysisRunId: "run", requiresApproval: true, landingId: null, status: "PLANNED", scheduledDate: new Date("2026-10-05T00:00:00Z") };
   const db: any = {
-    blogPublication: { findFirstOrThrow: vi.fn(async ({ where }: any) => { if (where.clientId !== slot.clientId) throw new Error("No encontrado"); return slot; }), update: vi.fn(async ({ data }: any) => Object.assign(slot, data)) },
+    blogPublication: { findFirstOrThrow: vi.fn(async ({ where }: any) => { if (where.clientId !== slot.clientId) throw new Error("No encontrado"); return slot; }), update: vi.fn(async ({ data }: any) => Object.assign(slot, data)), updateMany: vi.fn(async ({where,data}:any)=>{if(where.preparation && (slot as any).preparation?.attemptId!==where.preparation.equals)return{count:0};Object.assign(slot,data);return{count:1};}) },
     landingCategory: { findMany: vi.fn(async () => []) }, landingProduct: { findMany: vi.fn(async () => []) },
     contentCluster: { upsert: vi.fn(async ({ create }: any) => ({ id: "cluster", ...create })) },
     landing: { findFirst: vi.fn(async () => null), create: vi.fn(async ({ data }: any) => ({ id: "article", ...data })) },
@@ -31,6 +31,19 @@ beforeEach(() => {
   mocks.complete.mockImplementation(async (_db, _clientId, content) => ({ content, changes: [] }));
 });
 describe("generación privada del análisis", () => {
+  it("PC MIDI informa generación y revisión y conserva bloqueos de calidad",async()=>{
+    const{db,slot}=database();mocks.inspect.mockResolvedValue({publishable:false,checks:[{level:"error",message:"Falta una fuente"}]});
+    await generatePrivateBusinessArticle(db,{...client,slug:"pcmidi"},profile,topic,slot.id);
+    const stages=db.blogPublication.updateMany.mock.calls.map(([call]:any[])=>call.data.preparation?.phase);
+    expect(stages).toEqual(["GENERATING","REVIEWING"]);
+    expect(slot).toMatchObject({status:"FAILED",errorCode:"QUALITY_BLOCKED",requiresApproval:true,preparation:{phase:"FAILED"}});
+    expect(db.landing.create.mock.calls[0][0].data.status).toBe("DRAFT");
+  });
+  it("un resultado atrasado de PC MIDI no guarda un artículo ni pisa el intento nuevo",async()=>{
+    const{db,slot}=database();mocks.complete.mockImplementation(async(_db,_id,content)=>{(slot as any).preparation={phase:"GENERATING",attemptId:"new-owner"};return{content,changes:[]};});
+    await expect(generatePrivateBusinessArticle(db,{...client,slug:"pcmidi"},profile,topic,slot.id)).rejects.toThrow("reserva editorial cambió");
+    expect(db.landing.create).not.toHaveBeenCalled();expect(slot).toMatchObject({preparation:{attemptId:"new-owner"},status:"PLANNED"});
+  });
   it("propone temas sin enviar diagnósticos SEO y conserva el filtro de fuentes", async () => {
     mocks.completion.mockResolvedValue({ response: { ok: true, json: async () => ({ choices: [{ message: { content: JSON.stringify({ opportunities: [{ ...topic, sourceUrls: [...topic.sourceUrls, "https://invented.example"] }] }) } }] }) } });
     const page = { url: topic.sourceUrls[0], title: "Clases de piano", pageType: "service", fetchedAt: "2026-10-06", seo: { h2: ["diagnóstico extenso"], findings: [{ evidence: "detalle técnico" }] } };

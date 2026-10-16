@@ -51,37 +51,51 @@ async function catalogIsDue(clientId) {
   return hour>=6&&format.format(latest.startedAt)!==format.format(new Date());
 }
 
-async function runBlogPython(args, clientId, timeoutMs = 300_000) {
+async function runBlogPython(args, clientId, timeoutMs = 300_000, progress) {
   // Preview reads published data and needs no exclusive reservation.
   if (args[0] === "preview") return runBlogPythonProcess(args,clientId,timeoutMs);
   const result = await withBlogLease(prisma,clientId,async lease => {
     const version = await prisma.appSetting.findUnique({ where: { key: `blog_catalog_version:${clientId}` } });
     lease.assert();
-    return runBlogPythonProcess(args,clientId,timeoutMs,lease,version?.value || "");
+    return runBlogPythonProcess(args,clientId,timeoutMs,lease,version?.value || "",progress);
   });
   if (result === null) throw new Error("El blog está actualizando el catálogo. Reintentá en unos minutos.");
   return result;
 }
 
-async function runBlogPythonProcess(args, clientId, timeoutMs = 300_000, lease, catalogVersion = "") {
+async function runBlogPythonProcess(args, clientId, timeoutMs = 300_000, lease, catalogVersion = "", progress) {
   const client = await prisma.client.findUniqueOrThrow({ where: { id: clientId }, select: { slug: true } });
   const python = getPythonCommand();
   return new Promise((resolve, reject) => {
     const child = spawn(python.command, [...python.argsPrefix, join(ROOT, "landing-build", "build_landings.py"), "--client-slug", client.slug, ...args], {
       cwd: ROOT, windowsHide: true,
-      env: { ...process.env, PYTHONIOENCODING: "utf-8", LANDING_EXPECTED_CLIENT_ID: clientId, LANDING_CATALOG_VERSION: catalogVersion },
+      env: { ...process.env, PYTHONIOENCODING: "utf-8", LANDING_EXPECTED_CLIENT_ID: clientId, LANDING_CATALOG_VERSION: catalogVersion, BLOG_PREPARATION_ATTEMPT_ID: progress?.attemptId || "" },
     });
     let output = "";
-    const collect = (chunk) => { output = (output + chunk.toString()).slice(-4000); };
+    let lines = "", updates = Promise.resolve(), progressError;
+    const collect = (chunk) => {
+      const text = chunk.toString(); output = (output + text).slice(-4000);
+      if (!progress) return;
+      lines += text;
+      const completed = lines.split("\n"); lines = completed.pop().slice(-8000);
+      for (const line of completed) {
+        if (!line.startsWith("BLOG_PROGRESS:")) continue;
+        try { const event = JSON.parse(line.slice(14));
+          if (event.attemptId === progress.attemptId && ["GENERATING", "REVIEWING"].includes(event.phase)) updates = updates.then(() => { lease?.assert(); return progress.onPhase(event.phase); }).catch(error => { progressError = error; terminateChild(child); });
+        } catch { /* Ordinary logs never change task state. */ }
+      }
+    };
     child.stdout.on("data", collect);
-    child.stderr.on("data", collect);
+    child.stderr.on("data", chunk => { output = (output + chunk.toString()).slice(-4000); });
     const timeout = setTimeout(() => terminateChild(child), timeoutMs);
     const abort = () => terminateChild(child);
     lease?.signal.addEventListener("abort",abort,{once:true});
     child.on("error", (error) => { clearTimeout(timeout); reject(error); });
-    child.on("close", (code) => {
+    child.on("close", async (code) => {
       clearTimeout(timeout);
       lease?.signal.removeEventListener("abort",abort);
+      await updates;
+      if (progressError) return reject(progressError);
       if (lease?.signal.aborted) return reject(new Error("Se perdió la reserva del blog."));
       if (code === 0) resolve(output);
       else reject(new Error(`Proceso editorial finalizó con código ${code}: ${output.slice(-900)}`));
@@ -341,7 +355,7 @@ const server = http.createServer(async (req, res) => {
 
   // GET /health — sin auth
   if (method === "GET" && url === "/health") {
-    return json(res, 200, { ok: true, ts: Date.now() });
+    return json(res, 200, { ok: true, ts: Date.now(), blogAutomationVersion: 2, blogTaskVersion: 2, blogWorker: blogDaily.runtimeState() });
   }
 
   if (!authOk(req)) {

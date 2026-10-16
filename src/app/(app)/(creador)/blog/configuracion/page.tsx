@@ -7,7 +7,7 @@ import { EmailsForm } from "./emails-form";
 import { CatalogSyncPanel } from "./catalog-sync-panel";
 
 type GenerationSchedule = { enabled: boolean; intervalHours: number; limit: number; weeklyTarget: number };
-type DailyBlogSchedule = { enabled: boolean; publishTime: string };
+type DailyBlogSchedule = { enabled: boolean; publishTime: string; autoApprove: boolean };
 
 function parseSchedule(value: string | null): GenerationSchedule {
   try {
@@ -21,9 +21,9 @@ function parseSchedule(value: string | null): GenerationSchedule {
 function parseDailyBlogSchedule(value: string | null): DailyBlogSchedule {
   try {
     const raw = JSON.parse(value || "{}");
-    return { enabled: Boolean(raw.enabled), publishTime: typeof raw.publishTime === "string" ? raw.publishTime : "" };
+    return { enabled: Boolean(raw.enabled), publishTime: typeof raw.publishTime === "string" ? raw.publishTime : "12:00", autoApprove: raw.autoApprove === true };
   } catch {
-    return { enabled: false, publishTime: "" };
+    return { enabled: false, publishTime: "12:00", autoApprove: false };
   }
 }
 
@@ -66,8 +66,12 @@ export default async function LandingsConfigPage({
   } catch {
     notFound();
   }
-  const schedule = parseSchedule((await prisma.appSetting.findUnique({ where: { key: `landing_generation_schedule:${c.id}` } }))?.value ?? null);
-  const dailyBlogSchedule = parseDailyBlogSchedule((await prisma.appSetting.findUnique({ where: { key: `blog_daily_schedule:${c.id}` } }))?.value ?? null);
+  const [generationSetting, dailySetting] = await Promise.all([
+    prisma.appSetting.findUnique({ where: { key: `landing_generation_schedule:${c.id}` }, select: { value: true } }),
+    prisma.appSetting.findUnique({ where: { key: `blog_daily_schedule:${c.id}` }, select: { value: true } }),
+  ]);
+  const schedule = parseSchedule(generationSetting?.value ?? null);
+  const dailyBlogSchedule = parseDailyBlogSchedule(dailySetting?.value ?? null);
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col px-5 py-8">

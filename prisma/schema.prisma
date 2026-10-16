@@ -969,6 +969,8 @@ model BlogPublication {
   needsDeploy   Boolean               @default(false)
   revisionAttempts Int                @default(0)
   lastError     String                @default("")
+  errorCode     String                @default("")
+  preparation   Json?
   publishedAt   DateTime?
   createdAt     DateTime              @default(now())
   updatedAt     DateTime              @updatedAt
