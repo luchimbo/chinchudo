@@ -101,7 +101,10 @@ export default async function LandingsPage({
   ];
 
   const dbBlogBase = activeClient.blogBaseUrl || "";
-  const blogBase = dbBlogBase || process.env.LANDING_BASE_URL || "https://blog.pcmidicenter.com";
+  const blogBase = (dbBlogBase || process.env.LANDING_BASE_URL || "https://blog.pcmidicenter.com").replace(/\/$/, "");
+  // Las guías editoriales viven en /guias/<cluster>/<slug>/; publicPreviewUrl puede traer la ruta vieja /l/<slug>.
+  const liveUrl = (landing: { slug: string; publicPreviewUrl: string | null; contentCluster: { slug: string } | null }) =>
+    landing.contentCluster ? `${blogBase}/guias/${landing.contentCluster.slug}/${landing.slug}/` : landing.publicPreviewUrl || `${blogBase}/${landing.slug}/`;
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col px-5 py-8">
@@ -178,11 +181,11 @@ export default async function LandingsPage({
                   </div>
                   <h2 className="mt-1 font-semibold text-ink">{landing.titulo || landing.slug}</h2>
                   <p className="mt-0.5 text-xs text-slate">{landing.keyword}</p>
-                  {landing.publicPreviewUrl ? (
+                  {landing.publicPreviewUrl || landing.contentCluster ? (
                     <p className="mt-1 break-all text-[11px] text-slate">
                       Link online:{" "}
-                      <a href={landing.publicPreviewUrl} target="_blank" rel="noreferrer" className="text-sky-700 underline underline-offset-2">
-                        {landing.publicPreviewUrl}
+                      <a href={liveUrl(landing)} target="_blank" rel="noreferrer" className="text-sky-700 underline underline-offset-2">
+                        {liveUrl(landing)}
                       </a>
                     </p>
                   ) : null}
@@ -262,7 +265,7 @@ export default async function LandingsPage({
                         Seleccionar
                       </label>
                       <a
-                        href={landing.publicPreviewUrl || `${blogBase.replace(/\/$/, "")}/${landing.slug}/`}
+                        href={liveUrl(landing)}
                         target="_blank"
                         rel="noreferrer"
                         className="rounded-lg border border-sky-300 px-3 py-1.5 text-xs font-semibold text-sky-700 transition hover:border-sky-500"
@@ -287,11 +290,7 @@ export default async function LandingsPage({
                   {!landing.blogPublication && landing.status === "PUBLISHED" && (
                     <>
                       <a
-                        href={
-                          landing.contentCluster && landing.indexingState === "INDEX"
-                            ? `${blogBase.replace(/\/$/, "")}/guias/${landing.contentCluster.slug}/${landing.slug}/`
-                            : landing.publicPreviewUrl || `${blogBase.replace(/\/$/, "")}/${landing.slug}/`
-                        }
+                        href={liveUrl(landing)}
                         target="_blank"
                         rel="noreferrer"
                         className="rounded-lg border border-ink/15 px-3 py-1.5 text-xs font-semibold text-ink transition hover:border-ink/40"

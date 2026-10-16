@@ -686,6 +686,7 @@ def append_landing(landing: dict, schedule_date: str = "") -> dict:
                 cluster = get_content_cluster(client_id, str(landing.get("cluster_slug") or ""))
                 if not cluster:
                     raise RuntimeError(f"No existe el cluster editorial {landing.get('cluster_slug')!r}")
+                preview_path = f"/guias/{quote(str(cluster.get('slug') or landing.get('cluster_slug') or ''))}/{quote(str(landing.get('slug', '')).strip())}/"
                 extra.update({
                     "contentClusterId": cluster["id"],
                     "contentType": landing.get("content_type", "GUIDE"),
