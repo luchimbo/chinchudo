@@ -115,6 +115,8 @@ model Client {
   trends                 Trend[]
   videoScripts           VideoScript[]
   contentIdeas           ContentIdea[]
+  referenceAccounts      ReferenceAccount[]
+  instagramConnection    InstagramConnection?
   blogPublications       BlogPublication[]
   brandSnapshots         BrandSnapshot[]
   competitorEvidence     CompetitorEvidence[]
@@ -671,6 +673,59 @@ model YouTubeConnection {
 
   @@unique([clientId, account])
   @@index([clientId])
+}
+
+model InstagramConnection {
+  id           String    @id @default(cuid())
+  clientId     String    @unique
+  igUserId     String
+  username     String    @default("")
+  accessToken  String // cifrado con el mismo esquema que YouTubeConnection
+  expiresAt    DateTime?
+  scopes       String    @default("")
+  lastSyncAt   DateTime?
+  lastError    String    @default("")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  client       Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+}
+
+/// Cuentas que un cliente toma como referencia (ig-viral): competencia, afines o de formato.
+model ReferenceAccount {
+  id            String    @id @default(cuid())
+  clientId      String
+  platform      String // INSTAGRAM | TIKTOK | YOUTUBE
+  handle        String
+  url           String
+  kind          String    @default("COMPETENCIA") // COMPETENCIA | AFIN | FORMATO
+  active        Boolean   @default(true)
+  medianViews   Int?
+  lastScannedAt DateTime?
+  scanRequestedAt DateTime?
+  lastError     String    @default("")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  client        Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, platform, handle])
+  @@index([clientId, active])
+}
+
+/// Métricas de una pieza publicada (ig-audit), por captura.
+model PieceMetricSnapshot {
+  id            String      @id @default(cuid())
+  contentIdeaId String
+  source        String // INSTAGRAM_API | YOUTUBE_API | MANUAL
+  views         Int?
+  reach         Int?
+  likes         Int?
+  comments      Int?
+  saves         Int?
+  shares        Int?
+  capturedAt    DateTime    @default(now())
+  contentIdea   ContentIdea @relation(fields: [contentIdeaId], references: [id], onDelete: Cascade)
+
+  @@index([contentIdeaId, capturedAt])
 }
 
 model KnowledgeBase {
@@ -1404,6 +1459,7 @@ model ContentIdea {
   product         Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
   trend           Trend?            @relation(fields: [trendId], references: [id], onDelete: SetNull)
   videoScripts    VideoScript[]
+  metrics         PieceMetricSnapshot[]
 
   @@index([clientId, status])
   @@index([clientId, plannedFor])

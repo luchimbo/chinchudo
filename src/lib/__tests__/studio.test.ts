@@ -74,3 +74,18 @@ describe("studio: plan semanal sin IA", () => {
     expect(rankedFormulasFor("SALE", swipe)[0].id).toBe(3);
   });
 });
+
+describe("studio: cuentas de referencia", async () => {
+  const { parseReferenceAccount } = await import("../studio/reference-accounts");
+  it("reconoce links de las tres redes", () => {
+    expect(parseReferenceAccount("https://www.instagram.com/pcmidicenter/?hl=es")).toEqual({ platform: "INSTAGRAM", handle: "pcmidicenter", url: "https://www.instagram.com/pcmidicenter/" });
+    expect(parseReferenceAccount("tiktok.com/@Bateria.Facil")?.handle).toBe("bateria.facil");
+    expect(parseReferenceAccount("https://youtube.com/@ArturiaOfficial/shorts")).toMatchObject({ platform: "YOUTUBE", handle: "ArturiaOfficial" });
+    expect(parseReferenceAccount("https://www.youtube.com/channel/UCabc123")?.url).toBe("https://www.youtube.com/channel/UCabc123");
+  });
+  it("acepta @usuario con la red elegida y rechaza links de publicaciones", () => {
+    expect(parseReferenceAccount("@midiplus", "TIKTOK")).toMatchObject({ platform: "TIKTOK", handle: "midiplus" });
+    expect(parseReferenceAccount("https://www.instagram.com/reel/ABC123/")).toBeNull();
+    expect(parseReferenceAccount("https://example.com/algo")).toBeNull();
+  });
+});

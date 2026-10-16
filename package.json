@@ -64,6 +64,7 @@
     "agents:distribution": "python agents/orchestrator.py distribution generate",
     "agents:geo-audit": "python agents/orchestrator.py geo-audit",
     "agents:conversion": "python agents/orchestrator.py conversion",
+    "agents:reference-scan": "python agents/orchestrator.py reference-scan",
     "agents:trend-listen": "python agents/orchestrator.py trend-listen",
     "agents:trends:install": "powershell -ExecutionPolicy Bypass -File scripts/registrar-tendencias-admin.ps1",
     "db:backup": "node scripts/backup-db.mjs",

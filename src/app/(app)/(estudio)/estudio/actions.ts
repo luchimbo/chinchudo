@@ -9,6 +9,7 @@ import { dateOnly } from "@/lib/blog-calendar";
 import { generateVideoScript } from "@/lib/video-script-generator";
 import { findSelectedVideoPersona } from "@/lib/video-persona-selector";
 import { proposeWeek } from "@/lib/studio/weekly-plan-generator";
+import { REFERENCE_MAX, parseReferenceAccount } from "@/lib/studio/reference-accounts";
 import { SCRIPT_FOCUS_INTENT, buildScriptQualityReport, classifyHook, readReelCraftMeta, toRioplatense, withOnScreenCards, type DraftBeat, type HookOption, type ScriptQualityReport } from "@/lib/reel-craft";
 
 export type ActionState = { error: string | null; message?: string };
@@ -246,5 +247,69 @@ export async function discardScript(scriptId: string): Promise<ActionState> {
     return ok("Guion descartado. La idea vuelve a \"Para escribir\".");
   } catch {
     return fail("No se pudo descartar el guion.");
+  }
+}
+
+// ── Cuentas de referencia (ig-viral) ─────────────────────────────────
+
+export async function addReferenceAccountAction(_state: ActionState, formData: FormData): Promise<ActionState> {
+  try {
+    const clientId = z.string().min(1).parse(formData.get("clientId"));
+    await assertClientAccess(prisma, clientId);
+    const platform = z.enum(["INSTAGRAM", "TIKTOK", "YOUTUBE"]).parse(formData.get("platform") || "INSTAGRAM");
+    const kind = z.enum(["COMPETENCIA", "AFIN", "FORMATO"]).parse(formData.get("kind") || "COMPETENCIA");
+    const parsed = parseReferenceAccount(String(formData.get("account") || ""), platform);
+    if (!parsed) return fail("Pegá el link del perfil (no de una publicación) o escribí @usuario.");
+    const active = await prisma.referenceAccount.count({ where: { clientId, active: true } });
+    if (active >= REFERENCE_MAX) return fail(`Ya tenés ${REFERENCE_MAX} cuentas activas. Pausá alguna antes de sumar otra.`);
+    await prisma.referenceAccount.upsert({
+      where: { clientId_platform_handle: { clientId, platform: parsed.platform, handle: parsed.handle } },
+      create: { clientId, platform: parsed.platform, handle: parsed.handle, url: parsed.url, kind, scanRequestedAt: new Date() },
+      update: { active: true, kind, url: parsed.url, scanRequestedAt: new Date() },
+    });
+    revalidatePath("/estudio/inspiracion");
+    return ok(`Agregamos @${parsed.handle}. La leemos en la próxima pasada del radar.`);
+  } catch {
+    return fail("No se pudo agregar la cuenta.");
+  }
+}
+
+async function referenceWithAccess(id: string) {
+  const account = await prisma.referenceAccount.findUniqueOrThrow({ where: { id } });
+  await assertClientAccess(prisma, account.clientId);
+  return account;
+}
+
+export async function toggleReferenceAccount(id: string): Promise<ActionState> {
+  try {
+    const account = await referenceWithAccess(id);
+    await prisma.referenceAccount.update({ where: { id }, data: { active: !account.active } });
+    revalidatePath("/estudio/inspiracion");
+    return ok();
+  } catch {
+    return fail("No se pudo cambiar la cuenta.");
+  }
+}
+
+export async function removeReferenceAccount(id: string): Promise<ActionState> {
+  try {
+    await referenceWithAccess(id);
+    await prisma.referenceAccount.delete({ where: { id } });
+    revalidatePath("/estudio/inspiracion");
+    return ok();
+  } catch {
+    return fail("No se pudo quitar la cuenta.");
+  }
+}
+
+/** "Leer ahora": marca las cuentas para la próxima pasada del agente (reference-scan). */
+export async function requestReferenceScan(clientId: string): Promise<ActionState> {
+  try {
+    await assertClientAccess(prisma, clientId);
+    const { count } = await prisma.referenceAccount.updateMany({ where: { clientId, active: true }, data: { scanRequestedAt: new Date() } });
+    revalidatePath("/estudio/inspiracion");
+    return ok(count ? `Pedimos leer ${count} cuenta${count === 1 ? "" : "s"}. Los videos aparecen cuando termine la lectura.` : "No hay cuentas activas para leer.");
+  } catch {
+    return fail("No se pudo pedir la lectura.");
   }
 }

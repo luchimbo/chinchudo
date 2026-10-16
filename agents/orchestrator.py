@@ -215,10 +215,10 @@ def apply_npm_flags(args: argparse.Namespace) -> argparse.Namespace:
 
 
 def apply_positional_fallback(args: argparse.Namespace, unknown: list[str]) -> argparse.Namespace:
-    if args.command not in {"listen", "daily", "trend-listen"} or not unknown:
+    if args.command not in {"listen", "daily", "trend-listen", "reference-scan"} or not unknown:
         return args
     cleaned = [item for item in unknown if item != "--"]
-    if args.command == "trend-listen":
+    if args.command in {"trend-listen", "reference-scan"}:
         for item in cleaned:
             if str(item).isdigit():
                 args.limit = int(item)
@@ -588,6 +588,12 @@ def main() -> None:
     trend_cmd.add_argument("--limit", type=int, default=15)
     trend_cmd.add_argument("--dry-run", action="store_true")
 
+    ref_cmd = sub.add_parser("reference-scan", help="Leer las cuentas de referencia del Estudio de Reels (ig-viral)")
+    ref_cmd.add_argument("--client-slug", default="", help="Cliente; por defecto, todos")
+    ref_cmd.add_argument("--limit", type=int, default=12)
+    ref_cmd.add_argument("--all", action="store_true", help="Leer todas aunque se hayan leido hace poco")
+    ref_cmd.add_argument("--dry-run", action="store_true")
+
     ai_presence_cmd = sub.add_parser("ai-presence", help="Auditoria de presencia en IAs: consulta directa + radar de redes sociales")
     ai_presence_cmd.add_argument("--limit", type=int, default=0)
     ai_presence_cmd.add_argument("--dry-run", action="store_true")
@@ -672,6 +678,21 @@ def main() -> None:
             require_ok(run_step("import-trends", [resolve_bin("npx"), "tsx", "scripts/import-trends.mts"]), steps, "trend-listen")
         report = write_report("trend-listen", {"command": "trend-listen", "status": "ok", "dry_run": args.dry_run, "steps": steps})
         print(f"agents: trend-listen OK. Reporte: {report}")
+    elif args.command == "reference-scan":
+        REF_SCRIPT = ROOT / "agents" / "reference-accounts.py"
+        cmd = [sys.executable, str(REF_SCRIPT), "--limit", str(args.limit)]
+        if args.client_slug:
+            cmd.extend(["--client", args.client_slug])
+        if args.all:
+            cmd.append("--all")
+        if args.dry_run:
+            cmd.append("--dry-run")
+        steps: list[dict] = []
+        require_ok(run_step("reference-scan", cmd), steps, "reference-scan")
+        if not args.dry_run:
+            require_ok(run_step("import-reference-reels", [resolve_bin("npx"), "tsx", "scripts/import-reference-reels.mts"]), steps, "reference-scan")
+        report = write_report("reference-scan", {"command": "reference-scan", "status": "ok", "dry_run": args.dry_run, "steps": steps})
+        print(f"agents: reference-scan OK. Reporte: {report}")
 
 
 if __name__ == "__main__":
