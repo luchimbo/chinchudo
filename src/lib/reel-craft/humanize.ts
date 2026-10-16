@@ -76,7 +76,7 @@ function escapeRegExp(value: string) {
 
 const SLOP_PATTERNS = SLOP_LEXICON.map((entry) => ({ ...entry, regex: ure(`\\b${escapeRegExp(entry.find)}(?![\\p{L}\\p{N}])`, "giu") }));
 
-function preserveCase(original: string, replacement: string) {
+export function preserveCase(original: string, replacement: string) {
   if (!replacement) return "";
   return original[0] === original[0].toUpperCase() && original[0] !== original[0].toLowerCase() ? replacement[0].toUpperCase() + replacement.slice(1) : replacement;
 }

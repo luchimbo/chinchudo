@@ -18,6 +18,7 @@ import {
   withOnScreenCards,
   verdictLabel,
   beatLabel,
+  toRioplatense,
 } from "../reel-craft";
 import { words } from "../reel-craft/text";
 
@@ -199,5 +200,38 @@ describe("reel-craft: textos en español", () => {
 
   it("clasifica la fórmula renombrada Copiate esto", () => {
     expect(classifyHook("Copiate esta configuración de pads.")?.name).toBe("Copiate esto");
+  });
+});
+
+describe("reel-craft: español argentino", () => {
+  it("corrige tuteo real del historial", () => {
+    const result = toRioplatense("¿Te imaginas tocar la batería sin tener una batería? No necesás espacio y puedes practicar.");
+    expect(result.text).toBe("¿Te imaginás tocar la batería sin tener una batería? No necesitás espacio y podés practicar.");
+    expect(result.fixes.map((fix) => fix.to)).toEqual(expect.arrayContaining(["imaginás", "podés", "necesitás"]));
+  });
+
+  it("corrige pronombres e imperativos con pronombre, respetando mayúsculas", () => {
+    expect(toRioplatense("Imagínate esto: es para ti, y tú decidís. Escríbenos.").text).toBe("Imaginate esto: es para vos, y vos decidís. Escribinos.");
+    expect(toRioplatense("Vosotros podéis venir").text).toBe("Ustedes podéis venir");
+  });
+
+  it("no toca lo que no es tuteo", () => {
+    for (const text of ["Tu teclado vale la pena.", "Hicimos la prueba de sonido.", "Las compras en cuotas.", "Tenés ganas de tocar.", "Mirá esto."]) {
+      const result = toRioplatense(text);
+      expect(result.text).toBe(text);
+      expect(result.warnings).toEqual([]);
+    }
+  });
+
+  it("avisa lo ambiguo y el léxico de otro país sin cambiarlo", () => {
+    const result = toRioplatense("Mira esto. Conectalo al ordenador o al móvil.");
+    expect(result.text).toBe("Mira esto. Conectalo al ordenador o al móvil.");
+    expect(result.warnings.join(" ")).toContain("mirá");
+    expect(result.warnings.join(" ")).toContain("compu");
+    expect(result.warnings.join(" ")).toContain("celu");
+  });
+
+  it("no toca URLs", () => {
+    expect(toRioplatense("Fijate en https://pcmidi.com/tienes-que-ver").text).toBe("Fijate en https://pcmidi.com/tienes-que-ver");
   });
 });

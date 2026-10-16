@@ -36,7 +36,8 @@ export default function VideosClient({ activeClient, clients, trends, products, 
   // Ediciones locales (cambio de hook) sin router.refresh: el refresh remonta
   // la página por el loading.tsx del grupo y cierra el diálogo.
   const [edited, setEdited] = useState<Record<string, Script>>({});
-  const scriptList = scripts.map((script) => edited[script.id] ?? script);
+  const [created, setCreated] = useState<Script[]>([]);
+  const scriptList = [...created.filter((script) => !scripts.some((existing) => existing.id === script.id)), ...scripts].map((script) => edited[script.id] ?? script);
 
   async function generateScript() {
     if (!productId) return;
@@ -51,7 +52,7 @@ export default function VideosClient({ activeClient, clients, trends, products, 
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || "No se pudo generar el guion.");
       setSelectedScript(data.script as Script);
-      router.refresh();
+      setCreated((current) => [data.script as Script, ...current]);
     } catch (error) {
       setGenerateError(error instanceof Error ? error.message : "No se pudo generar el guion.");
     } finally {
@@ -71,7 +72,7 @@ export default function VideosClient({ activeClient, clients, trends, products, 
 
     {tab === "references" && <section className="mt-7"><p className="text-xs font-black uppercase tracking-wider text-brass">Referencias para {activeClient.name}</p><h2 className="mt-1 font-display text-2xl font-bold">Videos que sirven para este rubro</h2><div className="mt-5 grid gap-4 lg:grid-cols-2">{trends.map((trend) => <article key={trend.id} className="rounded-xl border border-ink/10 bg-white p-5 shadow-sm"><div className="flex flex-wrap items-center gap-2"><span className="rounded bg-moss/10 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-moss">{referenceType(trend.platform)}</span><span className="text-[10px] font-black uppercase tracking-wider text-brass">{PLATFORM[trend.platform] || trend.platform}</span></div><h3 className="mt-3 text-lg font-black leading-tight">{trend.title}</h3><ReferenceSignals trend={trend}/><p className="mt-3 line-clamp-3 text-sm leading-6 text-slate">{trend.description}</p>{trend.sourceUrl && <a href={trend.sourceUrl} target="_blank" rel="noreferrer" className="mt-4 inline-block rounded-md border border-ink/15 px-3 py-2 text-xs font-black">Ver video</a>}</article>)}</div>{trends.length === 0 && <Empty title="Todavía no hay referencias" body="Cuando el radar encuentre videos relevantes, se mostrarán acá."/>}</section>}
 
-    {tab === "history" && <section className="mt-7"><p className="text-xs font-black uppercase tracking-wider text-brass">Historial</p><h2 className="mt-1 font-display text-2xl font-bold">Guiones recientes</h2><div className="mt-5 grid gap-3">{scriptList.map((script) => <button key={script.id} onClick={() => setSelectedScript(script)} className="rounded-lg border border-ink/10 bg-white p-4 text-left shadow-sm transition hover:border-brass/50"><div className="flex flex-wrap items-center gap-2"><p className="text-xs font-black uppercase tracking-wider text-brass">{script.product?.name || "Producto"} · {script.persona.name}</p>{readQualityReport(script.qualityReport) && <VerdictBadge label="Gancho" verdict={readQualityReport(script.qualityReport)!.hook.verdict} score={readQualityReport(script.qualityReport)!.hook.score}/>}{script.hookFormula && <span className="text-[10px] font-black uppercase tracking-wider text-slate">{formulaLabel(readQualityReport(script.qualityReport)?.hook.formulaId, script.hookFormula)}</span>}</div><h3 className="mt-2 font-bold">{script.hook}</h3><p className="mt-2 line-clamp-2 text-sm text-slate">{script.bodyText}</p></button>)}</div>{scriptList.length === 0 && <Empty title="Todavía no hay guiones" body="Generá el primero desde un producto."/>}</section>}
+    {tab === "history" && <section className="mt-7"><p className="text-xs font-black uppercase tracking-wider text-brass">Historial</p><h2 className="mt-1 font-display text-2xl font-bold">Guiones recientes</h2><div className="mt-5 grid gap-3">{scriptList.map((script) => <button key={script.id} onClick={() => setSelectedScript(script)} className="rounded-lg border border-ink/10 bg-white p-4 text-left shadow-sm transition hover:border-brass/50"><div className="flex flex-wrap items-center gap-2"><p className="text-xs font-black uppercase tracking-wider text-brass">{script.product?.name || "Producto"} · {script.persona.name}</p><StatusBadge status={script.status}/>{readQualityReport(script.qualityReport) && <VerdictBadge label="Gancho" verdict={readQualityReport(script.qualityReport)!.hook.verdict} score={readQualityReport(script.qualityReport)!.hook.score}/>}{script.hookFormula && <span className="text-[10px] font-black uppercase tracking-wider text-slate">{formulaLabel(readQualityReport(script.qualityReport)?.hook.formulaId, script.hookFormula)}</span>}</div><h3 className="mt-2 font-bold">{script.hook}</h3><p className="mt-2 line-clamp-2 text-sm text-slate">{script.bodyText}</p></button>)}</div>{scriptList.length === 0 && <Empty title="Todavía no hay guiones" body="Generá el primero desde un producto."/>}</section>}
   </main>{selectedScript && <ScriptDialog script={selectedScript} onClose={() => setSelectedScript(null)} onUpdated={(script) => { setSelectedScript(script); setEdited((current) => ({ ...current, [script.id]: script })); }} />}</div>;
 }
 
@@ -84,11 +85,35 @@ function ScriptDialog({ script, onClose, onUpdated }: { script: Script; onClose:
       body: JSON.stringify({ action: "update_script", scriptId: script.id, hook, bodyText: script.bodyText, cta: script.cta, visualCues: script.visualCues, audioPrompt: script.audioPrompt, caption: script.caption }),
     });
     const data = await response.json();
-    if (!response.ok || !data.success) throw new Error(data.error || "No se pudo cambiar el hook.");
+    if (!response.ok || !data.success) throw new Error(data.error || "No se pudo cambiar el gancho.");
     onUpdated(data.script as Script);
   }
-  return <div className="fixed inset-0 z-50 overflow-y-auto bg-ink/70 p-4 sm:p-8"><div role="dialog" aria-modal="true" aria-label="Guion generado" className="mx-auto my-4 w-full max-w-3xl rounded-2xl bg-paper p-6 shadow-panel sm:my-10 sm:p-8"><div className="flex items-start justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-wider text-brass">Guion generado · {script.persona.name}</p><h2 className="mt-2 font-display text-2xl font-bold">{script.product?.name || "Producto"}</h2></div><button onClick={onClose} className="rounded-md border border-ink/15 px-3 py-2 text-xs font-black">Cerrar</button></div><ScriptField label={script.hookFormula ? `Gancho · ${formulaLabel(readQualityReport(script.qualityReport)?.hook.formulaId, script.hookFormula)}` : "Gancho"} text={script.hook}/><ScriptField label="Guion" text={script.bodyText}/><ScriptField label="Cierre" text={script.cta}/><ScriptField label="Indicaciones visuales" text={script.visualCues}/>{report && <ScriptCraftPanel report={report} caption={script.caption} hook={script.hook} onChooseHook={chooseHook}/>}</div></div>;
+  const [statusSaving, setStatusSaving] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState("");
+  async function setStatus(status: "NEW" | "APPROVED" | "DISCARDED") {
+    setStatusSaving(status);
+    setStatusError("");
+    try {
+      const response = await fetch("/api/videos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "update_script_status", scriptId: script.id, status }) });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || "No se pudo cambiar el estado.");
+      onUpdated(data.script as Script);
+    } catch (error) {
+      setStatusError(error instanceof Error ? error.message : "No se pudo cambiar el estado.");
+    } finally {
+      setStatusSaving(null);
+    }
+  }
+  const statusButton = (status: "NEW" | "APPROVED" | "DISCARDED", label: string, tone: string) => <button type="button" disabled={statusSaving !== null} onClick={() => setStatus(status)} className={`rounded-md px-3 py-2 text-xs font-black disabled:opacity-50 ${tone}`}>{statusSaving === status ? <span className="inline-flex items-center gap-2"><LoadingSpinner />Guardando…</span> : label}</button>;
+  return <div className="fixed inset-0 z-50 overflow-y-auto bg-ink/70 p-4 sm:p-8"><div role="dialog" aria-modal="true" aria-label="Guion generado" className="mx-auto my-4 w-full max-w-3xl rounded-2xl bg-paper p-6 shadow-panel sm:my-10 sm:p-8"><div className="flex items-start justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-wider text-brass">Guion generado · {script.persona.name}</p><h2 className="mt-2 font-display text-2xl font-bold">{script.product?.name || "Producto"}</h2></div><button onClick={onClose} className="rounded-md border border-ink/15 px-3 py-2 text-xs font-black">Cerrar</button></div>
+    <div className="mt-4 flex flex-wrap items-center gap-2"><StatusBadge status={script.status}/>{script.status !== "APPROVED" && statusButton("APPROVED", "Aprobar", "bg-ink text-paper")}{script.status !== "DISCARDED" && statusButton("DISCARDED", "Descartar", "border border-ink/15")}{script.status !== "NEW" && statusButton("NEW", "Volver a revisar", "border border-ink/15")}<span className="text-xs text-slate">Los guiones aprobados se usan como ejemplo de cómo habla esta persona.</span></div>{statusError && <p role="alert" className="mt-2 text-sm text-red-700">{statusError}</p>}<ScriptField label={script.hookFormula ? `Gancho · ${formulaLabel(readQualityReport(script.qualityReport)?.hook.formulaId, script.hookFormula)}` : "Gancho"} text={script.hook}/><ScriptField label="Guion" text={script.bodyText}/><ScriptField label="Cierre" text={script.cta}/><ScriptField label="Indicaciones visuales" text={script.visualCues}/>{report && <ScriptCraftPanel report={report} caption={script.caption} hook={script.hook} onChooseHook={chooseHook}/>}</div></div>;
 }
+const SCRIPT_STATUS: Record<string, { label: string; tone: string }> = {
+  NEW: { label: "Para revisar", tone: "bg-ink/5 text-slate" },
+  APPROVED: { label: "Aprobado", tone: "bg-moss/15 text-moss" },
+  DISCARDED: { label: "Descartado", tone: "bg-red-100 text-red-700" },
+};
+function StatusBadge({ status }: { status: string }) { const item = SCRIPT_STATUS[status] ?? { label: status, tone: "bg-ink/5 text-slate" }; return <span className={`rounded px-2 py-1 text-[10px] font-black uppercase tracking-wider ${item.tone}`}>{item.label}</span>; }
 function ScriptField({ label, text }: { label: string; text: string }) { return <section className="mt-6"><p className="text-xs font-black uppercase tracking-wider text-brass">{label}</p><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-ink">{text}</p></section>; }
 function Metric({ value, label }: { value: number; label: string }) { return <div className="rounded-lg border border-paper/15 bg-white/10 p-3"><p className="font-display text-2xl font-bold">{value}</p><p className="text-[10px] font-black uppercase tracking-wider text-paper/65">{label}</p></div>; }
 function Empty({ title, body }: { title: string; body: string }) { return <div className="rounded-xl border border-dashed border-ink/20 bg-white/60 p-12 text-center"><h3 className="font-display text-2xl font-bold">{title}</h3><p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate">{body}</p></div>; }

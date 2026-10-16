@@ -71,6 +71,7 @@ export function ScriptCraftPanel({ report, caption, hook, onChooseHook }: Props)
         <VerdictBadge label="Gancho" verdict={report.hook.verdict} score={report.hook.score} />
         <VerdictBadge label="Humano" verdict={report.human.verdict} score={report.human.score} />
         {sheet && <span className="rounded bg-ink/5 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-slate">{sheet.totalSeconds.toFixed(1)}s · {sheet.beats.length} tramos</span>}
+        {report.voice && <span title="Correcciones de tuteo a voseo aplicadas al generar" className={`rounded px-2 py-1 text-[10px] font-black uppercase tracking-wider ${report.voice.warnings.length ? "bg-brass/15 text-brass" : "bg-moss/15 text-moss"}`}>Rioplatense{report.voice.fixes ? ` · ${report.voice.fixes} corrección${report.voice.fixes === 1 ? "" : "es"}` : ""}{report.voice.warnings.length ? ` · ${report.voice.warnings.length} aviso${report.voice.warnings.length === 1 ? "" : "s"}` : ""}</span>}
       </div>
       {report.problems.length > 0 ? <ul className="mt-3 grid gap-1 text-sm text-red-700">{report.problems.map((problem) => <li key={problem}>· {problem}</li>)}</ul> : <p className="mt-3 text-sm text-moss">Listo para grabar: sin avisos en el gancho, los tramos ni la descripción.</p>}
     </section>

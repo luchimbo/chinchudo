@@ -2,7 +2,9 @@ import type { ContentIntent, Product, Trend } from "@prisma/client";
 import { prisma } from "./db";
 import { policyInstructions } from "./response-policy";
 import { fetchChatCompletion, resolveLLMConfig } from "./llm-provider";
-import { candidateFormulas, classifyHook, formulaPromptBlock, getFormula, readReelCraftMeta, referenceRank, scoreHook } from "./reel-craft";
+import { candidateFormulas, classifyHook, formulaPromptBlock, getFormula, readReelCraftMeta, referenceRank, scoreHook, toRioplatense } from "./reel-craft";
+import { ARGENTINE_SPANISH_RULES, voiceExamplesBlock } from "./script-voice";
+import { findSelectedVideoPersona } from "./video-persona-selector";
 
 export type EditorialAngle = {
   format: string;
@@ -41,7 +43,9 @@ function cleanAngle(value: any, fallback: EditorialAngle): EditorialAngle {
 }
 
 /** Puntúa el hook (ig-reel/hookscore) y nombra la fórmula en el formato. */
-function withHookCraft(angle: EditorialAngle): EditorialAngle {
+function withHookCraft(input: EditorialAngle): EditorialAngle {
+  // Todo ángulo sale en voseo rioplatense antes de puntuarse.
+  const angle = { ...input, hook: toRioplatense(input.hook).text, rationale: toRioplatense(input.rationale).text, visualDirection: toRioplatense(input.visualDirection).text };
   const formula = getFormula(angle.formulaId) ?? classifyHook(angle.hook);
   const score = scoreHook(angle.hook);
   const format = formula && !angle.format.startsWith(formula.name) ? `${formula.name} · ${angle.format}` : angle.format;
@@ -67,7 +71,10 @@ export async function generateEditorialAngles({ clientId, productId, intent }: {
     const evidence = [meta.formulaName ? `hook: #${meta.formulaId} ${meta.formulaName}` : "", meta.outlierMultiple ? `rinde ${meta.outlierMultiple}x su canal` : ""].filter(Boolean).join("; ");
     return `- id: ${trend.id}; formato: ${trend.viralFormula}; idea: ${trend.suggestedAngle}; viabilidad: ${trend.viabilityScore}${evidence ? `; ${evidence}` : ""}`;
   }).join("\n") || "No hay referencias analizadas: usar estructuras evergreen.";
-  const prompt = `Genera exactamente 3 angulos de contenido vertical para Argentina. Cliente: ${client.name}. Contexto: ${policyInstructions(client).text}. Rubro del cliente: ${client.description}. Producto: ${product.name} (${product.brand.name}). Descripcion: ${product.description}. Usos: ${product.useCases}. Intencion: ${INTENT_LABELS[intent]}.\nReferencias disponibles, ya relacionadas con este rubro:\n${trendContext}\n\nAdaptá los ejemplos, escenas y lenguaje al rubro del cliente. No inventes precio, stock, garantia ni especificaciones. Cada angulo debe ser grabable con manos, producto y un espacio comercial u hogareno simple. Cada angulo usa una formula de hook distinta de esta lista (hook de 5 a 12 palabras, con algo concreto y algo en juego, sin saludo ni "en este video"; si la formula pide un dato real que no tenes, usa {{dato}}):\n${formulaPromptBlock(candidateFormulas(intent, readReelCraftMeta(trends[0]?.metadata).formulaId ?? null))}\nDevuelve JSON: {"angles":[{"formulaId":0,"format":"","hook":"","rationale":"","visualDirection":"","viabilityScore":1-5,"trendId":"opcional"}]}`;
+  const personas = await prisma.persona.findMany({ where: { clientId } });
+  const persona = findSelectedVideoPersona(personas, product);
+  const examples = persona ? await voiceExamplesBlock(persona, { compact: true }) : "";
+  const prompt = `${ARGENTINE_SPANISH_RULES}\n${examples ? `\n${examples}\n` : ""}\nGenerá exactamente 3 ángulos de contenido vertical para Argentina. Cliente: ${client.name}. Contexto: ${policyInstructions(client).text}. Rubro del cliente: ${client.description}. Producto: ${product.name} (${product.brand.name}). Descripcion: ${product.description}. Usos: ${product.useCases}. Intencion: ${INTENT_LABELS[intent]}.\nReferencias disponibles, ya relacionadas con este rubro:\n${trendContext}\n\nAdaptá los ejemplos, escenas y lenguaje al rubro del cliente. No inventes precio, stock, garantia ni especificaciones. Cada angulo debe ser grabable con manos, producto y un espacio comercial u hogareno simple. Cada angulo usa una formula de hook distinta de esta lista (hook de 5 a 12 palabras, con algo concreto y algo en juego, sin saludo ni "en este video"; si la formula pide un dato real que no tenes, usa {{dato}}):\n${formulaPromptBlock(candidateFormulas(intent, readReelCraftMeta(trends[0]?.metadata).formulaId ?? null))}\nDevolvé JSON: {"angles":[{"formulaId":0,"format":"","hook":"","rationale":"","visualDirection":"","viabilityScore":1-5,"trendId":"opcional"}]}`;
   try {
     const { response } = await fetchChatCompletion(llm, { messages: [{ role: "system", content: "Devolves solamente JSON valido." }, { role: "user", content: prompt }], response_format: { type: "json_object" }, temperature: 0.8, max_tokens: 1400 }, "Los 5 Apostoles - Ideas para grabar", client);
     if (!response.ok) return fallback;

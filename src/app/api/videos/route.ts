@@ -10,7 +10,8 @@ import type { ContentIdeaStatus, ContentIntent, Prisma } from "@prisma/client";
 const INTENTS = new Set<ContentIntent>(["SALE", "EDUCATION", "USE_CASE", "ENTERTAINMENT"]);
 const IDEA_STATUSES = new Set<ContentIdeaStatus>(["REVIEW", "APPROVED", "SCRIPT_READY", "READY_TO_RECORD", "RECORDED", "PUBLISHED", "DISCARDED"]);
 const RADAR_PLATFORMS = ["TIKTOK", "TIKTOK_HASHTAG", "TIKTOK_CREATIVE_CENTER", "INSTAGRAM", "YOUTUBE", "VIRAL_MARKETING"];
-const SCRIPT_FOCUSES = new Set(["Vender", "Mostrar uso", "Resolver una duda", "Inspirar"]);
+const SCRIPT_STATUSES = new Set(["NEW", "APPROVED", "DISCARDED"]);
+const SCRIPT_FOCUSES =new Set(["Vender", "Mostrar uso", "Resolver una duda", "Inspirar"]);
 
 function isVideoReferenceUrl(platform: string, value: string) {
   try {
@@ -226,6 +227,21 @@ export async function POST(req: NextRequest) {
         include: { product: true, persona: true, trend: { select: { title: true } }, contentIdea: { select: { hook: true } } },
       });
 
+      return NextResponse.json({ success: true, script: updated });
+    }
+
+    if (action === "update_script_status") {
+      // Los guiones aprobados se usan como ejemplo de registro para la misma persona.
+      const { scriptId, status } = body;
+      if (!scriptId || !SCRIPT_STATUSES.has(status)) return NextResponse.json({ error: "Estado de guion inválido." }, { status: 400 });
+      const script = await prisma.videoScript.findUnique({ where: { id: scriptId } });
+      if (!script?.clientId) return NextResponse.json({ error: "Guion no encontrado" }, { status: 404 });
+      await assertClientAccess(prisma, script.clientId);
+      const updated = await prisma.videoScript.update({
+        where: { id: scriptId },
+        data: { status },
+        include: { product: true, persona: true, trend: { select: { title: true } }, contentIdea: { select: { hook: true } } },
+      });
       return NextResponse.json({ success: true, script: updated });
     }
 

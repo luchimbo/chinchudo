@@ -5,6 +5,7 @@ import { lintCaption, type CaptionReport } from "./caption";
 import { classifyHook, getFormula } from "./hook-formulas";
 import { HOOK_MIN_SCORE, scoreHook, type HookScore } from "./hook-score";
 import { humanizeText, scoreHumanness, type HumanScore } from "./humanize";
+import { toRioplatense } from "./rioplatense";
 import { HOOK_CHECK_LABEL, HOOK_VERDICT_LABEL, HUMAN_VERDICT_LABEL } from "./labels";
 
 export * from "./beat-sheet";
@@ -13,6 +14,7 @@ export * from "./hook-formulas";
 export * from "./hook-score";
 export * from "./humanize";
 export * from "./labels";
+export * from "./rioplatense";
 export * from "./outlier";
 export { timecode } from "./text";
 
@@ -27,6 +29,8 @@ export type ScriptQualityReport = {
   beatSheet: BeatSheet | null;
   caption: CaptionReport;
   human: HumanScore & { changes: number; replaced: string[]; structuralTells: string[] };
+  /** Español argentino: correcciones de tuteo aplicadas y avisos de lo dudoso. */
+  voice: { fixes: number; warnings: string[] };
   ready: boolean;
   problems: string[];
   summary: string;
@@ -57,6 +61,8 @@ export function buildScriptQualityReport(input: { hookOptions: { formulaId?: num
   const spokenText = [hook.spoken, ...input.beats.map((beat) => beat.spoken)].join("\n");
   const cleaned = humanizeText(spokenText);
   const human = { ...scoreHumanness(spokenText), changes: cleaned.changes, replaced: cleaned.replaced, structuralTells: cleaned.structuralTells };
+  const voiceCheck = toRioplatense([spokenText, hook.onScreen, ...input.beats.map((beat) => beat.onScreen ?? ""), input.caption].join("\n"));
+  const voice = { fixes: voiceCheck.fixes.length, warnings: voiceCheck.warnings };
 
   const problems: string[] = [];
   if (hook.score < HOOK_MIN_SCORE) problems.push(`El mejor gancho puntúa ${hook.score} (mínimo ${HOOK_MIN_SCORE}). Lo más flojo: ${HOOK_CHECK_LABEL[hook.weakest]}.`);
@@ -64,6 +70,8 @@ export function buildScriptQualityReport(input: { hookOptions: { formulaId?: num
   if (beatSheet && !beatSheet.clean) problems.push(...beatSheet.beats.flatMap((beat) => beat.flags.map((flag) => `Tramo ${beat.n}: ${flag}`)), ...beatSheet.notes.filter((note) => note.startsWith(NO_LOOP_NOTE)));
   if (!caption.ok) problems.push(...caption.checks.filter((check) => check.status === "FAIL").map((check) => `Descripción: ${check.detail}`));
   if (cleaned.replaced.length) problems.push(`Frases de manual: ${cleaned.replaced.join(", ")}.`);
+  if (voice.fixes) problems.push(`Español neutro: ${voiceCheck.fixes.map((fix) => `"${fix.from}" → "${fix.to}"`).join(", ")}.`);
+  for (const warning of voice.warnings) problems.push(`Español neutro: ${warning}`);
 
   const cards = beatSheet ? onScreenCards(beatSheet).length : 0;
   const summary = [
@@ -72,9 +80,10 @@ export function buildScriptQualityReport(input: { hookOptions: { formulaId?: num
     `en pantalla: ${cards} tarjetas`,
     `humanidad:  ${human.score} ${HUMAN_VERDICT_LABEL[human.verdict]}${cleaned.changes ? ` (${cleaned.changes} artefacto(s) para limpiar)` : ""}`,
     `descripción: ${caption.ok ? "bien" : "revisar"}, ${caption.hashtags.length} hashtag(s)`,
+    `rioplatense: ${voice.fixes || voice.warnings.length ? `${voice.fixes} corrección(es), ${voice.warnings.length} aviso(s)` : "bien"}`,
   ].join("\n");
 
-  return { version: 1, hook, hookOptions: ranked, beatSheet, caption, human, ready: problems.length === 0, problems, summary };
+  return { version: 1, hook, hookOptions: ranked, beatSheet, caption, human, voice, ready: problems.length === 0, problems, summary };
 }
 
 /**
