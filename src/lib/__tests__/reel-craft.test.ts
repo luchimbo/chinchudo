@@ -16,6 +16,8 @@ import {
   scoreHook,
   scoreHumanness,
   withOnScreenCards,
+  verdictLabel,
+  beatLabel,
 } from "../reel-craft";
 import { words } from "../reel-craft/text";
 
@@ -78,8 +80,8 @@ describe("reel-craft: beat sheet", () => {
       "Ahora el vecino ni se entera.",
     ].join("\n"), { target: 30 });
     expect(sheet).not.toBeNull();
-    expect(sheet!.notes.some((note) => note.startsWith("Loop"))).toBe(true);
-    expect(sheet!.beats.some((beat) => beat.flags.some((flag) => flag.includes("un solo beat")))).toBe(true);
+    expect(sheet!.notes.some((note) => note.startsWith("Cierre circular"))).toBe(true);
+    expect(sheet!.beats.some((beat) => beat.flags.some((flag) => flag.includes("un solo tramo")))).toBe(true);
     expect(sheet!.beats[0].label).toBe("HOOK");
     expect(sheet!.beats.at(-1)!.label).toBe("CTA");
   });
@@ -87,7 +89,7 @@ describe("reel-craft: beat sheet", () => {
   it("avisa cuando no hay loop y cuando la tarjeta es larga", () => {
     const sheet = buildBeatSheet([{ spoken: "Tres errores con tu primer controlador.", onScreen: "tres errores que cometés con tu primer controlador MIDI" }, { spoken: "Escribinos y te asesoramos." }]);
     expect(sheet!.clean).toBe(false);
-    expect(sheet!.notes.some((note) => note.startsWith("Sin loop"))).toBe(true);
+    expect(sheet!.notes.some((note) => note.startsWith("Sin cierre circular"))).toBe(true);
     expect(sheet!.beats[0].flags.some((flag) => flag.includes("tarjeta"))).toBe(true);
   });
 
@@ -180,5 +182,22 @@ describe("reel-craft: reporte de guion", () => {
     expect(report.hookOptions).toHaveLength(2);
     expect(report.summary).toContain("#3");
     expect(report.beatSheet?.beats[0].text).toContain("Nadie");
+  });
+});
+
+describe("reel-craft: textos en español", () => {
+  it("no muestra códigos en inglés", () => {
+    expect(verdictLabel("STRONG")).toBe("Fuerte");
+    expect(verdictLabel("FLAGGED")).toBe("Suena artificial");
+    expect(verdictLabel("WARN")).toBe("Ojo");
+    expect(beatLabel("CTA", 7)).toBe("Cierre");
+    expect(beatLabel("", 3)).toBe("3");
+    const report = buildScriptQualityReport({ hookOptions: [{ spoken: "Hola" }], beats: [{ spoken: "Escribinos." }], caption: "" });
+    const text = [...report.problems, report.summary, ...(report.beatSheet?.notes ?? [])].join(" ");
+    expect(text).not.toMatch(/\b(?:hook|beats?|loop|caption|STRONG|WEAK|FLAGGED|SPECIFICITY|LENGTH|STAKES|FRONTLOAD|ADDRESS)\b/i);
+  });
+
+  it("clasifica la fórmula renombrada Copiate esto", () => {
+    expect(classifyHook("Copiate esta configuración de pads.")?.name).toBe("Copiate esto");
   });
 });

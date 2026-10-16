@@ -55,7 +55,7 @@ const STRUCTURES: { id: string; regex: RegExp; fix: string }[] = [
   { id: "no-solo", regex: ure("\\bno (?:es )?solo\\b[^.!?\\n]{2,80}\\bsino (?:tambi[ée]n|que)\\b", "giu"), fix: "Decí la única cosa que querés decir. Borrá la mitad de preparación." },
   { id: "no-se-trata", regex: ure("\\bno se trata de\\b[^.!?\\n]{2,60}[.,]\\s*se trata de\\b", "giu"), fix: "Arrancá por lo segundo. La inversión es la huella." },
   { id: "en-resumen", regex: ure("^\\s*(?:en resumen|en conclusi[óo]n|para resumir|en definitiva)\\b", "gimu"), fix: "Un video no necesita párrafo de conclusión." },
-  { id: "no-scrollees", regex: ure("^\\s*(?:no scrollees|esper[áa],? no pases)\\b", "gimu"), fix: "El freno del scroll tiene que ser la afirmación misma." },
+  { id: "no-scrollees", regex: ure("^\\s*(?:no scrollees|esper[áa],? no pases)\\b", "gimu"), fix: "Lo que frena a quien pasa de largo tiene que ser la afirmación misma." },
   { id: "en-este-video", regex: ure("\\b(?:en (?:este|el de hoy) (?:video|reel)|hoy (?:te|les) voy a mostrar)\\b", "giu"), fix: "Borralo y arrancá por el resultado." },
   { id: "follow-bait", regex: ure("\\b(?:seguinos para m[áa]s|etiquet[áa] a alguien|dale like si|compart[íi] si)\\b", "giu"), fix: "Pedí la única acción que este video se ganó." },
   { id: "pared-hashtags", regex: /(?:#[\p{L}\p{N}_]+[ \t]*){5,}/gu, fix: "Tres hashtags alcanzan, cinco es el tope." },

@@ -27,7 +27,7 @@ export function lintCaption(caption: string, hashtags: string[] = []): CaptionRe
   const checks: CaptionCheck[] = [];
   const firstLine = body.split(/\n/)[0] ?? "";
 
-  if (!body) checks.push({ name: "LARGO", status: "FAIL", detail: "Caption vacío." });
+  if (!body) checks.push({ name: "LARGO", status: "FAIL", detail: "Descripción vacía." });
   else if (body.length > CAPTION_LIMIT) checks.push({ name: "LARGO", status: "FAIL", detail: `${body.length} caracteres, pasa el límite de ${CAPTION_LIMIT}.` });
   else checks.push({ name: "LARGO", status: "PASS", detail: `${body.length} caracteres.` });
 

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { Trend } from "@prisma/client";
 import { LoadingSpinner } from "@/components/loading-ui";
-import { classifyHook, readReelCraftMeta, referenceHook, timecode, type ScriptQualityReport } from "@/lib/reel-craft";
+import { CAPTION_STATUS_LABEL, beatLabel, classifyHook, getFormula, readReelCraftMeta, referenceHook, timecode, verdictLabel, type ScriptQualityReport } from "@/lib/reel-craft";
 
 const VERDICT_STYLE: Record<string, string> = {
   STRONG: "bg-moss/15 text-moss",
@@ -14,12 +14,18 @@ const VERDICT_STYLE: Record<string, string> = {
   FLAGGED: "bg-red-100 text-red-700",
 };
 
+/** Nombre vigente de la fórmula (los guiones viejos guardaron nombres anteriores). */
+export function formulaLabel(id: number | null | undefined, stored?: string | null): string | null {
+  const formula = getFormula(id ?? null);
+  return formula ? `#${formula.id} ${formula.name}` : stored || null;
+}
+
 export function readQualityReport(value: unknown): ScriptQualityReport | null {
   return value && typeof value === "object" && (value as ScriptQualityReport).version === 1 ? (value as ScriptQualityReport) : null;
 }
 
 export function VerdictBadge({ verdict, score, label }: { verdict: string; score: number; label?: string }) {
-  return <span className={`inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-black uppercase tracking-wider ${VERDICT_STYLE[verdict] || "bg-ink/10 text-ink"}`}>{label ? `${label} ` : ""}{Math.round(score)} · {verdict}</span>;
+  return <span className={`inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-black uppercase tracking-wider ${VERDICT_STYLE[verdict] || "bg-ink/10 text-ink"}`}>{label ? `${label} ` : ""}{Math.round(score)} · {verdictLabel(verdict)}</span>;
 }
 
 /** Métricas de ig-viral sobre una referencia: vistas, múltiplo y fórmula del hook. */
@@ -31,7 +37,8 @@ export function ReferenceSignals({ trend }: { trend: Trend }) {
   const chips: { text: string; tone: string; title?: string }[] = [];
   if (meta.outlierMultiple) chips.push({ text: `×${meta.outlierMultiple} su canal`, tone: meta.band === "signal" ? "bg-moss/15 text-moss" : "bg-ink/5 text-slate", title: `Vistas sobre la mediana de ${meta.medianSamples} videos del canal` });
   if (meta.views) chips.push({ text: `${new Intl.NumberFormat("es-AR", { notation: "compact" }).format(meta.views)} vistas`, tone: "bg-ink/5 text-slate" });
-  if (meta.formulaName) chips.push({ text: `#${meta.formulaId} ${meta.formulaName}`, tone: "bg-brass/10 text-brass" });
+  const formula = formulaLabel(meta.formulaId, meta.formulaName);
+  if (formula) chips.push({ text: formula, tone: "bg-brass/10 text-brass" });
   if (!chips.length) return null;
   return <div className="mt-3 flex flex-wrap gap-2">{chips.map((chip) => <span key={chip.text} title={chip.title} className={`rounded px-2 py-1 text-[10px] font-black uppercase tracking-wider ${chip.tone}`}>{chip.text}</span>)}</div>;
 }
@@ -49,7 +56,7 @@ export function ScriptCraftPanel({ report, caption, hook, onChooseHook }: Props)
     try {
       await onChooseHook(spoken);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo cambiar el hook.");
+      setError(err instanceof Error ? err.message : "No se pudo cambiar el gancho.");
     } finally {
       setChoosing(null);
     }
@@ -61,35 +68,35 @@ export function ScriptCraftPanel({ report, caption, hook, onChooseHook }: Props)
     <section className="rounded-xl border border-ink/10 bg-white p-4">
       <div className="flex flex-wrap items-center gap-2">
         <p className="text-xs font-black uppercase tracking-wider text-brass">Calidad del Reel</p>
-        <VerdictBadge label="Hook" verdict={report.hook.verdict} score={report.hook.score} />
+        <VerdictBadge label="Gancho" verdict={report.hook.verdict} score={report.hook.score} />
         <VerdictBadge label="Humano" verdict={report.human.verdict} score={report.human.score} />
-        {sheet && <span className="rounded bg-ink/5 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-slate">{sheet.totalSeconds.toFixed(1)}s · {sheet.beats.length} beats</span>}
+        {sheet && <span className="rounded bg-ink/5 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-slate">{sheet.totalSeconds.toFixed(1)}s · {sheet.beats.length} tramos</span>}
       </div>
-      {report.problems.length > 0 ? <ul className="mt-3 grid gap-1 text-sm text-red-700">{report.problems.map((problem) => <li key={problem}>· {problem}</li>)}</ul> : <p className="mt-3 text-sm text-moss">Listo para grabar: sin flags de hook, beats ni caption.</p>}
+      {report.problems.length > 0 ? <ul className="mt-3 grid gap-1 text-sm text-red-700">{report.problems.map((problem) => <li key={problem}>· {problem}</li>)}</ul> : <p className="mt-3 text-sm text-moss">Listo para grabar: sin avisos en el gancho, los tramos ni la descripción.</p>}
     </section>
 
     {report.hookOptions.length > 1 && <section>
-      <p className="text-xs font-black uppercase tracking-wider text-brass">Opciones de hook</p>
+      <p className="text-xs font-black uppercase tracking-wider text-brass">Opciones de gancho</p>
       <div className="mt-2 grid gap-2">{report.hookOptions.map((option) => {
         const active = option.spoken === hook;
         return <div key={option.spoken} className={`rounded-lg border p-3 ${active ? "border-brass bg-brass/10" : "border-ink/10 bg-white"}`}>
-          <div className="flex flex-wrap items-center gap-2"><VerdictBadge verdict={option.verdict} score={option.score} />{option.formulaName && <span className="text-[10px] font-black uppercase tracking-wider text-slate">#{option.formulaId} {option.formulaName}</span>}</div>
+          <div className="flex flex-wrap items-center gap-2"><VerdictBadge verdict={option.verdict} score={option.score} />{formulaLabel(option.formulaId, option.formulaName) && <span className="text-[10px] font-black uppercase tracking-wider text-slate">{formulaLabel(option.formulaId, option.formulaName)}</span>}</div>
           <p className="mt-2 text-sm font-bold">{option.spoken}</p>
           {option.onScreen && <p className="mt-1 text-xs text-slate">En pantalla: {option.onScreen}</p>}
-          {!active && <button type="button" disabled={choosing !== null} onClick={() => choose(option.spoken)} className="mt-2 rounded-md border border-ink/15 px-3 py-1 text-xs font-black disabled:opacity-50">{choosing === option.spoken ? <span className="inline-flex items-center gap-2"><LoadingSpinner />Cambiando…</span> : "Usar este hook"}</button>}
+          {!active && <button type="button" disabled={choosing !== null} onClick={() => choose(option.spoken)} className="mt-2 rounded-md border border-ink/15 px-3 py-1 text-xs font-black disabled:opacity-50">{choosing === option.spoken ? <span className="inline-flex items-center gap-2"><LoadingSpinner />Cambiando…</span> : "Usar este gancho"}</button>}
         </div>;
       })}</div>
       {error && <p role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
     </section>}
 
     {sheet && <section>
-      <p className="text-xs font-black uppercase tracking-wider text-brass">Beat sheet · {sheet.wpm} palabras por minuto</p>
+      <p className="text-xs font-black uppercase tracking-wider text-brass">Tiempos · {sheet.wpm} palabras por minuto</p>
       <div className="mt-2 overflow-x-auto rounded-lg border border-ink/10 bg-white">
         <table className="w-full min-w-[520px] text-left text-sm">
-          <thead className="text-[10px] font-black uppercase tracking-wider text-slate"><tr><th className="px-3 py-2">Tiempo</th><th className="px-3 py-2">Beat</th><th className="px-3 py-2">Dice</th><th className="px-3 py-2">En pantalla</th></tr></thead>
+          <thead className="text-[10px] font-black uppercase tracking-wider text-slate"><tr><th className="px-3 py-2">Tiempo</th><th className="px-3 py-2">Tramo</th><th className="px-3 py-2">Dice</th><th className="px-3 py-2">En pantalla</th></tr></thead>
           <tbody>{sheet.beats.map((beat) => <tr key={beat.n} className="border-t border-ink/5 align-top">
             <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">{timecode(beat.start)}<span className="block text-slate">{beat.dur.toFixed(1)}s</span></td>
-            <td className="px-3 py-2 text-[10px] font-black uppercase tracking-wider text-brass">{beat.label || beat.n}</td>
+            <td className="px-3 py-2 text-[10px] font-black uppercase tracking-wider text-brass">{beatLabel(beat.label, beat.n)}</td>
             <td className="px-3 py-2">{beat.text}{beat.flags.map((flag) => <span key={flag} className="mt-1 block text-xs font-bold text-red-700">↑ {flag}</span>)}</td>
             <td className="px-3 py-2 text-xs font-bold uppercase">{beat.onScreen || ""}</td>
           </tr>)}</tbody>
@@ -99,13 +106,13 @@ export function ScriptCraftPanel({ report, caption, hook, onChooseHook }: Props)
     </section>}
 
     {caption && <section>
-      <p className="text-xs font-black uppercase tracking-wider text-brass">Caption</p>
+      <p className="text-xs font-black uppercase tracking-wider text-brass">Descripción</p>
       <div className="mt-2 rounded-lg border border-ink/10 bg-white p-3">
         <p className="text-[10px] font-black uppercase tracking-wider text-slate">Lo que se ve en el feed</p>
         <p className="mt-1 text-sm font-bold">{visible}{truncated && <span className="font-normal text-slate"> más</span>}</p>
       </div>
       <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{caption}</p>
-      <ul className="mt-2 grid gap-1 text-xs">{report.caption.checks.map((check) => <li key={check.name} className={check.status === "FAIL" ? "text-red-700" : check.status === "WARN" ? "text-brass" : "text-moss"}>{check.status} · {check.name}: {check.detail}</li>)}</ul>
+      <ul className="mt-2 grid gap-1 text-xs">{report.caption.checks.map((check) => <li key={check.name} className={check.status === "FAIL" ? "text-red-700" : check.status === "WARN" ? "text-brass" : "text-moss"}>{CAPTION_STATUS_LABEL[check.status]} · {check.name.toLowerCase()}: {check.detail}</li>)}</ul>
     </section>}
   </div>;
 }

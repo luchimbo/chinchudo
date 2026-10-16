@@ -31,7 +31,7 @@ const STAKES = new Set([
 // completa (el original usaba startsWith y "so" pegaba con "sometimes").
 const WEAK_OPENERS = ["hola", "buenas", "bueno", "chicos", "gente", "che", "hoy", "bienvenidos", "bienvenidas", "básicamente", "basicamente", "sinceramente", "eh", "em", "o sea", "quería", "queria", "quiero", "les quiero", "les traigo", "una de", "alguna vez", "sabías", "sabias", "en este", "en el", "la cosa", "hay", "esto es", "es un", "es una", "cuando se", "como"];
 
-const IMPERATIVES = new Set(["nunca", "evitá", "dejá", "frená", "robate", "guardate", "copiá", "fijate", "ojo", "probá", "mirá", "hacé", "elegí", "usá", "comprá", "escuchá", "pará", "olvidate", "anotá", "conectá", "bajá", "subí", "cambiá", "no"]);
+const IMPERATIVES = new Set(["nunca", "evitá", "dejá", "frená", "robate", "guardate", "copiá", "copiate", "fijate", "ojo", "probá", "mirá", "hacé", "elegí", "usá", "comprá", "escuchá", "pará", "olvidate", "anotá", "conectá", "bajá", "subí", "cambiá", "no"]);
 
 const SECOND_PERSON = ure("\\b(?:vos|te|tu|tus|ti|contigo|usted|ustedes|ten[ée]s|sos|est[áa]s|pod[ée]s|quer[ée]s|sab[ée]s|necesit[áa]s|toc[áa]s|grab[áa]s|viv[íi]s|practic[áa]s|us[áa]s|tuyo|tuya)\\b");
 const FIRST_PERSON = ure("\\b(?:yo|me|mi|mis|nosotros|nosotras|nuestro|nuestra|nuestros|llevo|tengo|compr[ée]|us[ée]|grab[ée]|prob[ée])\\b");
@@ -40,11 +40,11 @@ const NOT_IMPERATIVE = new Set(["más", "está", "ahí", "acá", "allá", "así"
 const PROPER_WORD =/^\p{Lu}[\p{Ll}\p{Lu}]{2,}$/u;
 
 const DEALBREAKERS: [RegExp, string][] = [
-  [ure("^\\s*(?:no scrollees|no pases|esper[áa]|par[áa] de scrollear)"), "Arranca pidiendo atención (\"no scrollees\"). Pedirla demuestra que no la ganaste."],
+  [ure("^\\s*(?:no scrollees|no pases|esper[áa]|par[áa] de scrollear)"), "Arranca pidiendo atención (\"no pases de largo\"). Pedirla demuestra que no la ganaste."],
   [ure("\\b(?:en (?:este|el de hoy) (?:video|reel)|hoy (?:te|les) (?:voy a mostrar|traigo|muestro)|te voy a (?:mostrar|contar|enseñar) c[oó]mo)\\b"), "Preámbulo de video. Borralo y arrancá por el resultado."],
   [ure("^\\s*(?:hola|buenas|qu[ée] tal|bienvenid[oa]s|ey|hey)\\b"), "Saludo. Nadie entra al feed para que lo saluden."],
-  [new RegExp(HASHTAG_RE.source, "u"), "Hashtag en el hook. Los hashtags van al final del caption, si van."],
-  [EMOJI_RE, "Emoji en el hook. En texto grande de pantalla hay lugar para palabras o para un emoji, no para los dos."],
+  [new RegExp(HASHTAG_RE.source, "u"), "Hashtag en el gancho. Los hashtags van al final de la descripción, si van."],
+  [EMOJI_RE, "Emoji en el gancho. En texto grande de pantalla hay lugar para palabras o para un emoji, no para los dos."],
 ];
 
 function tokenIsNumber(token: string): boolean {

@@ -1,5 +1,6 @@
 // Port de ig-reel/beats.py: convierte un guion en una beat sheet con timecodes
 // estimados por cantidad de palabras y marca lo que mata un Reel en la edición.
+import { BEAT_LABEL } from "./labels";
 import { lowerWords, timecode, words } from "./text";
 
 export type BeatLabel = "" | "HOOK" | "MID" | "CTA" | "HOOK/CTA";
@@ -28,6 +29,7 @@ export type BeatSheet = {
 };
 
 export const HOOK_WINDOW = 3;
+export const NO_LOOP_NOTE = "Sin cierre circular.";
 export const MAX_BEAT = 4;
 const ABSTRACT_RUN = 3;
 
@@ -100,24 +102,24 @@ export function buildBeatSheet(input: string | BeatInput[], { wpm = 165, target 
   let blocking = 0;
   const first = beats[0];
   if (first.dur > HOOK_WINDOW) {
-    first.flags.push(`el hook dura ${first.dur.toFixed(1)}s, pasa la marca de ${HOOK_WINDOW}s`);
-    notes.push(`El beat 1 tarda ${first.dur.toFixed(1)}s. Recortalo a ${Math.trunc(HOOK_WINDOW * wps)} palabras o menos: si no, el hook llega cuando ya decidieron.`);
+    first.flags.push(`el gancho dura ${first.dur.toFixed(1)}s, pasa la marca de ${HOOK_WINDOW}s`);
+    notes.push(`El gancho tarda ${first.dur.toFixed(1)}s. Recortalo a ${Math.trunc(HOOK_WINDOW * wps)} palabras o menos: si no, llega cuando ya decidieron seguir de largo.`);
     blocking++;
   }
-  if (first.concrete === 0) notes.push("El beat 1 no tiene número ni nombre. Los hooks sin nada verificable son los que se scrollean.");
+  if (first.concrete === 0) notes.push("El gancho no tiene número ni nombre. Los ganchos sin nada verificable son los que se pasan de largo.");
 
   for (const beat of beats) {
-    if (beat.dur > MAX_BEAT) beat.flags.push(`${beat.dur.toFixed(1)}s en un solo beat`);
+    if (beat.dur > MAX_BEAT) beat.flags.push(`${beat.dur.toFixed(1)}s en un solo tramo`);
     if (beat.onScreen && words(beat.onScreen).length > 6) beat.flags.push(`tarjeta de ${words(beat.onScreen).length} palabras (máximo 6)`);
   }
   const longBeats = beats.filter((beat) => beat.dur > MAX_BEAT).map((beat) => beat.n);
   if (longBeats.length) {
-    notes.push(`Beat(s) ${longBeats.join(", ")} pasan los ${MAX_BEAT}s. Partí la línea o cambiá lo que se ve en pantalla: un plano quieto es donde se van.`);
+    notes.push(`Tramo(s) ${longBeats.join(", ")} pasan los ${MAX_BEAT}s. Partí la línea o cambiá lo que se ve en pantalla: un plano quieto es donde se van.`);
     blocking++;
   }
   const longCards = beats.filter((beat) => beat.onScreen && words(beat.onScreen).length > 6).map((beat) => beat.n);
   if (longCards.length) {
-    notes.push(`Tarjeta(s) en pantalla del beat ${longCards.join(", ")} con más de 6 palabras. Se leen a un brazo de distancia.`);
+    notes.push(`Tarjeta(s) en pantalla del tramo ${longCards.join(", ")} con más de 6 palabras. Se leen a un brazo de distancia.`);
     blocking++;
   }
 
@@ -127,7 +129,7 @@ export function buildBeatSheet(input: string | BeatInput[], { wpm = 165, target 
     if (beat.concrete === 0) {
       run++;
       runStart ??= beat.n;
-      if (run === ABSTRACT_RUN) notes.push(`Los beats ${runStart}-${beat.n} no tienen nada concreto. Poné un número, un nombre o un modelo en alguno.`);
+      if (run === ABSTRACT_RUN) notes.push(`Los tramos ${runStart}-${beat.n} no tienen nada concreto. Poné un número, un nombre o un modelo en alguno.`);
     } else {
       run = 0;
       runStart = null;
@@ -137,9 +139,9 @@ export function buildBeatSheet(input: string | BeatInput[], { wpm = 165, target 
   const firstWords = new Set(lowerWords(first.text).filter((word) => !STOPWORDS.has(word)));
   const loop = Array.from(new Set(lowerWords(last.text).filter((word) => !STOPWORDS.has(word) && firstWords.has(word)))).sort();
   if (loop.length) {
-    notes.push(`Loop: el último beat repite "${loop.slice(0, 3).join(", ")}" del hook. La segunda vista es alcance gratis.`);
+    notes.push(`Cierre circular: el último tramo repite "${loop.slice(0, 3).join(", ")}" del gancho. Si lo vuelven a ver, es alcance gratis.`);
   } else {
-    notes.push("Sin loop. El cierre no comparte ninguna palabra con el hook. Repetir una palabra del beat 1 es la segunda vista más barata.");
+    notes.push(`${NO_LOOP_NOTE} El cierre no repite ninguna palabra del gancho. Repetir una es la forma más barata de que lo vuelvan a ver.`);
     blocking++;
   }
 
@@ -167,5 +169,5 @@ export function onScreenCards(sheet: BeatSheet): string[] {
 }
 
 export function renderBeatSheet(sheet: BeatSheet): string {
-  return sheet.beats.map((beat) => `${timecode(beat.start)} (${beat.dur.toFixed(1)}s) ${beat.label ? `[${beat.label}] ` : ""}${beat.text}`).join("\n");
+  return sheet.beats.map((beat) => `${timecode(beat.start)} (${beat.dur.toFixed(1)}s) ${beat.label ? `[${BEAT_LABEL[beat.label]}] ` : ""}${beat.text}`).join("\n");
 }

@@ -126,6 +126,7 @@ ${formulaPromptBlock(formulas)}
 - Resuelve una duda o muestra un caso de uso antes de vender.
 - Caption: primera linea de menos de 125 caracteres con el pedido, sin saludo ni emoji al inicio. Maximo 5 hashtags, mejor 3, que alguien buscaria.
 - Respeta tono, frases prohibidas y claims de marca.
+- Todo el texto en español: decí "gancho", "cierre" y "descripcion", nunca "hook", "CTA" ni "caption".
 - Devuelve solamente JSON valido.
 
 ### JSON REQUERIDO
@@ -139,7 +140,7 @@ ${formulaPromptBlock(formulas)}
   "cta": "Un solo pedido final que repita una palabra del hook.",
   "caption": "Caption para Instagram.",
   "hashtags": ["hasta", "cinco"],
-  "visualCues": "Planos y acciones grabables para hook, cuerpo y cierre.",
+  "visualCues": "Planos y acciones grabables, con los rotulos Gancho:, Cuerpo: y Cierre:.",
   "audioPrompt": "Audio, ritmo o estilo de edicion sugerido para el operador.",
   "recommendedFormat": "TikTok | Reel | Short, con una razon breve si hace falta."
 }

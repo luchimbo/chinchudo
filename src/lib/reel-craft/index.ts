@@ -1,16 +1,18 @@
 // reel-craft: el método de ig-reel / ig-viral / ig-caption / ig-human
 // (jakeschincariol/instagram-agent-skill, MIT) aplicado a tendencias y guiones.
-import { buildBeatSheet, onScreenCards, type BeatSheet } from "./beat-sheet";
+import { NO_LOOP_NOTE, buildBeatSheet, onScreenCards, type BeatSheet } from "./beat-sheet";
 import { lintCaption, type CaptionReport } from "./caption";
 import { classifyHook, getFormula } from "./hook-formulas";
 import { HOOK_MIN_SCORE, scoreHook, type HookScore } from "./hook-score";
 import { humanizeText, scoreHumanness, type HumanScore } from "./humanize";
+import { HOOK_CHECK_LABEL, HOOK_VERDICT_LABEL, HUMAN_VERDICT_LABEL } from "./labels";
 
 export * from "./beat-sheet";
 export * from "./caption";
 export * from "./hook-formulas";
 export * from "./hook-score";
 export * from "./humanize";
+export * from "./labels";
 export * from "./outlier";
 export { timecode } from "./text";
 
@@ -38,7 +40,7 @@ function toOption(option: { formulaId?: number | null; spoken: string; onScreen?
   return { formulaId: formula?.id ?? null, formulaName: formula?.name ?? null, spoken: option.spoken, onScreen: option.onScreen ?? "", score: score.score, verdict: score.verdict, weakest: score.weakest, flags: score.flags };
 }
 
-/** Puntúa y ordena las opciones de hook; la primera es la que se graba. */
+/** Puntúa y ordena las opciones de gancho; la primera es la que se graba. */
 export function rankHookOptions(options: { formulaId?: number | null; spoken: string; onScreen?: string }[]): HookOption[] {
   return options.filter((option) => option.spoken?.trim()).map(toOption).sort((a, b) => b.score - a.score);
 }
@@ -57,19 +59,19 @@ export function buildScriptQualityReport(input: { hookOptions: { formulaId?: num
   const human = { ...scoreHumanness(spokenText), changes: cleaned.changes, replaced: cleaned.replaced, structuralTells: cleaned.structuralTells };
 
   const problems: string[] = [];
-  if (hook.score < HOOK_MIN_SCORE) problems.push(`El mejor hook puntúa ${hook.score} (mínimo ${HOOK_MIN_SCORE}). Débil en ${hook.weakest}.`);
+  if (hook.score < HOOK_MIN_SCORE) problems.push(`El mejor gancho puntúa ${hook.score} (mínimo ${HOOK_MIN_SCORE}). Lo más flojo: ${HOOK_CHECK_LABEL[hook.weakest]}.`);
   for (const flag of hook.flags) problems.push(flag);
-  if (beatSheet && !beatSheet.clean) problems.push(...beatSheet.beats.flatMap((beat) => beat.flags.map((flag) => `Beat ${beat.n}: ${flag}`)), ...beatSheet.notes.filter((note) => note.startsWith("Sin loop")));
-  if (!caption.ok) problems.push(...caption.checks.filter((check) => check.status === "FAIL").map((check) => `Caption: ${check.detail}`));
+  if (beatSheet && !beatSheet.clean) problems.push(...beatSheet.beats.flatMap((beat) => beat.flags.map((flag) => `Tramo ${beat.n}: ${flag}`)), ...beatSheet.notes.filter((note) => note.startsWith(NO_LOOP_NOTE)));
+  if (!caption.ok) problems.push(...caption.checks.filter((check) => check.status === "FAIL").map((check) => `Descripción: ${check.detail}`));
   if (cleaned.replaced.length) problems.push(`Frases de manual: ${cleaned.replaced.join(", ")}.`);
 
   const cards = beatSheet ? onScreenCards(beatSheet).length : 0;
   const summary = [
-    `hook:       ${hook.formulaId ? `#${hook.formulaId} ${hook.formulaName}` : "sin fórmula"}, ${hook.score} ${hook.verdict}`,
-    beatSheet ? `duración:   ${beatSheet.totalSeconds.toFixed(1)}s en ${beatSheet.beats.length} beats a ${beatSheet.wpm} ppm` : "duración:   sin guion",
+    `gancho:     ${hook.formulaId ? `#${hook.formulaId} ${hook.formulaName}` : "sin fórmula"}, ${hook.score} ${HOOK_VERDICT_LABEL[hook.verdict]}`,
+    beatSheet ? `duración:   ${beatSheet.totalSeconds.toFixed(1)}s en ${beatSheet.beats.length} tramos a ${beatSheet.wpm} ppm` : "duración:   sin guion",
     `en pantalla: ${cards} tarjetas`,
-    `humanidad:  ${human.score} ${human.verdict}${cleaned.changes ? ` (${cleaned.changes} artefacto(s) para limpiar)` : ""}`,
-    `caption:    ${caption.ok ? "OK" : "revisar"}, ${caption.hashtags.length} hashtag(s)`,
+    `humanidad:  ${human.score} ${HUMAN_VERDICT_LABEL[human.verdict]}${cleaned.changes ? ` (${cleaned.changes} artefacto(s) para limpiar)` : ""}`,
+    `descripción: ${caption.ok ? "bien" : "revisar"}, ${caption.hashtags.length} hashtag(s)`,
   ].join("\n");
 
   return { version: 1, hook, hookOptions: ranked, beatSheet, caption, human, ready: problems.length === 0, problems, summary };
