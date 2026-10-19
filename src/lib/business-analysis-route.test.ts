@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest, NextResponse } from "next/server";
-const mocks = vi.hoisted(() => ({ owned: vi.fn(), enqueue: vi.fn(), edit: vi.fn(), publicUrl: vi.fn(), db: { businessProfile: { findUnique: vi.fn() }, businessCompetitor: { findMany: vi.fn() }, businessAnalysisRun: { findMany: vi.fn(), findFirst: vi.fn() }, blogPublication: { findMany: vi.fn() } } }));
+const mocks = vi.hoisted(() => ({ owned: vi.fn(), enqueue: vi.fn(), edit: vi.fn(), publicUrl: vi.fn(), db: { clientOnboarding: { findUnique: vi.fn() }, businessProfile: { findUnique: vi.fn() }, businessCompetitor: { findMany: vi.fn() }, businessAnalysisRun: { findMany: vi.fn(), findFirst: vi.fn() }, blogPublication: { findMany: vi.fn() } } }));
 vi.mock("./db", () => ({ prisma: mocks.db }));
 vi.mock("./auth", () => ({ resolveClientForSlug: mocks.owned }));
 vi.mock("./auth-guards", () => ({ toErrorResponse: (e: Error) => NextResponse.json({ error: e.message }, { status: 403 }) }));

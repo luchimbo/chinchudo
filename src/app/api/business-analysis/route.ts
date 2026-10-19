@@ -13,16 +13,17 @@ const editSchema = z.object({ profile: profilePatchSchema.optional(), monthlyEna
 export async function GET(request: NextRequest) {
   try {
     const client = await resolveClientForSlug(prisma, request.nextUrl.searchParams.get("client"));
-    const [profile, competitors, runs] = await Promise.all([
+    const [profile, competitors, runs, onboarding] = await Promise.all([
       prisma.businessProfile.findUnique({ where: { clientId: client.id } }),
       prisma.businessCompetitor.findMany({ where: { clientId: client.id }, orderBy: [{ excluded: "asc" }, { manual: "desc" }, { createdAt: "asc" }] }),
       prisma.businessAnalysisRun.findMany({ where: { clientId: client.id }, orderBy: { updatedAt: "desc" }, take: 10 }),
+      prisma.clientOnboarding.findUnique({ where: { clientId: client.id }, select: { status: true } }),
     ]);
     const publicRuns = runs.map(({ leaseToken: _token, leaseExpiresAt: _lease, ...run }) => run);
     const activeRun = publicRuns.find(run => ["QUEUED", "RUNNING"].includes(run.status));
     const run = activeRun || publicRuns[0];
     const publications = run ? await prisma.blogPublication.findMany({ where: { clientId: client.id, analysisRunId: run.id }, orderBy: { scheduledDate: "asc" }, include: { landing: { select: { id: true, titulo: true, keyword: true, status: true } } } }) : [];
-    return NextResponse.json({ profile, competitors, runs: publicRuns, run: run || null, publications });
+    return NextResponse.json({ profile, competitors, runs: publicRuns, run: run || null, publications, onboardingCompleted: onboarding?.status === "COMPLETED" });
   } catch (error) { return toErrorResponse(error); }
 }
 export async function POST(request: NextRequest) {

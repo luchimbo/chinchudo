@@ -141,6 +141,7 @@ export async function fetchChatCompletion(
   title: string,
   client?: LegacyClientLLMConfig | null,
   init?: Pick<RequestInit, "signal">,
+  options: { allowFallback?: boolean } = {},
 ): Promise<{ response: Response; config: LLMConfig; usedFallback: boolean }> {
   const request = async (activeConfig: LLMConfig) => fetch(activeConfig.endpoint, {
     method: "POST",
@@ -152,7 +153,7 @@ export async function fetchChatCompletion(
   try {
     const activeConfig = await resolveLocalEndpoint(config);
     const response = await request(activeConfig);
-    if (response.ok || config.provider !== "local") return { response, config: activeConfig, usedFallback: false };
+    if (response.ok || config.provider !== "local" || options.allowFallback === false) return { response, config: activeConfig, usedFallback: false };
 
     const fallback = resolveOpenRouterConfig(client);
     if (!fallback.apiKey) return { response, config, usedFallback: false };
@@ -163,6 +164,7 @@ export async function fetchChatCompletion(
     // Reintentar contra OpenRouter ignora la intencion de cancelar y duplica la
     // solicitud, incluso cuando el request original ya recibio la signal.
     if (init?.signal?.aborted) throw error;
+    if (options.allowFallback === false) throw error;
     if (config.provider !== "local") throw error;
     const fallback = resolveOpenRouterConfig(client);
     if (!fallback.apiKey) throw error;

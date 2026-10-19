@@ -50,6 +50,16 @@ function database() {
   return { db, run, client, slots, landings, profile: data };
 }
 describe("cola y reservas del análisis", () => {
+  it("reutiliza el resumen inicial y sigue con las etapas restantes sin releer la web", async () => {
+    const { db, run, profile } = database();
+    run.sourceUrl = "https://shop.example/";
+    run.checkpoint = { own: true };
+    run.result = { own: { domain: "shop.example", pages: [] }, profileSnapshot: profile };
+    const analyze = vi.fn();
+    await processBusinessAnalysis(db, run.id, { analyze, discover: async () => [], topics: async () => [], generate: vi.fn() });
+    expect(analyze).not.toHaveBeenCalled();
+    expect(run.stage).toBe("done");
+  });
   it("conserva fechas ocupadas y aísla reservas de otros clientes", async () => {
     const { db, run, slots, profile } = database();
     slots.push({ id: "occupied", clientId: "a", scheduledDate: new Date("2026-10-01T00:00:00Z"), landingId: "old", status: "READY" }, { id: "other", clientId: "b", scheduledDate: new Date("2026-10-02T00:00:00Z"), landingId: "other-article" });

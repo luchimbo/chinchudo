@@ -67,6 +67,21 @@ function jsonResponse(body: unknown) {
 }
 
 describe("suggestedFields", () => {
+  it("la lectura básica no reintenta ante JSON inválido", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: "invalid" } }] })));
+    vi.stubGlobal("fetch", fetchMock);
+    expect(await suggestedFields([makePage()], [], context, { singleAttempt: true, signal: AbortSignal.timeout(1000) })).toEqual({});
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it("devuelve los campos disponibles cuando vence el presupuesto de IA", async () => {
+    const fetchMock = vi.fn(() => new Promise(() => {}));
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+    const promise = suggestedFields([makePage()], [], context, { singleAttempt: true, signal: controller.signal });
+    controller.abort(new Error("Tiempo agotado"));
+    expect(await promise).toEqual({});
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
   it("devuelve vacío sin llamar a la red cuando no hay API key configurada", async () => {
     process.env.LLM_PROVIDER = "openrouter";
     delete process.env.OPENROUTER_API_KEY;

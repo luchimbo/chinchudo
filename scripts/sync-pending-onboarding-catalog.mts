@@ -20,6 +20,8 @@ async function main() {
   let continued = 0;
   for (const onboarding of onboardings) {
     const previous = sanitizeDraft(onboarding.draft, onboarding.client.name);
+    // Deferred/optional batches are continued only by the operator's explicit action.
+    if (previous.stats.catalogStatus) continue;
     if (!previous.stats.catalogSyncPending) continue;
     const brands = await prisma.brand.findMany({
       where: { clientId: onboarding.clientId },

@@ -157,6 +157,18 @@ describe("local IA through the relay", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("http://pcmidi.local:11434/v1/chat/completions");
   });
 
+  it.each(["http", "connection"])("supports a single provider attempt after a local %s failure", async failure => {
+    process.env.LLM_PROVIDER = "local";
+    process.env.LLM_LOCAL_BASE_URL = "http://pcmidi.local:11434/v1";
+    process.env.OPENROUTER_API_KEY = "remote-key";
+    const fetchMock = failure === "http" ? vi.fn().mockResolvedValue(new Response("Unavailable", { status: 503 })) : vi.fn().mockRejectedValue(new Error("Unavailable"));
+    vi.stubGlobal("fetch", fetchMock);
+    const attempt = fetchChatCompletion(resolveLLMConfig(), { messages: [] }, "test", undefined, undefined, { allowFallback: false });
+    if (failure === "http") expect((await attempt).usedFallback).toBe(false);
+    else await expect(attempt).rejects.toThrow("Unavailable");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("falls back to OpenRouter when relay mode has no relay URL", async () => {
     process.env.LLM_PROVIDER = "local";
     process.env.LLM_LOCAL_BASE_URL = "relay";

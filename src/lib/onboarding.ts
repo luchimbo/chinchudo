@@ -7,7 +7,7 @@ import type { PrismaClient } from "@prisma/client";
 import { fetchChatCompletion, resolveLLMConfig, type LegacyClientLLMConfig, type LLMConfig } from "./llm-provider";
 import { normalizeWebsiteUrl } from "./website-url";
 import { logger } from "./logger";
-import { fetchPublicText } from "./public-web-fetch";
+import { fetchPublicText, withAbortSignal, type PublicTextResult } from "./public-web-fetch";
 import { inspectPageSeo } from "./business-seo";
 import { marketSchema, DEFAULT_MARKET, type BusinessMarket, type PageSeo } from "./business-analysis";
 import { loadClientCatalogIndex, type CatalogProduct } from "./product-identity";
@@ -80,6 +80,7 @@ export type OnboardingDraft = {
     importedServices?: number;
     catalogSyncPending?: boolean;
     catalogNextOffset?: number;
+    catalogStatus?: "deferred" | "partial" | "complete";
     durationMs: number;
   };
 };
@@ -95,6 +96,7 @@ export type WebsitePage = {
   hash: string;
   seo?: PageSeo;
   fetchedAt?: string;
+  categories?: string[];
 };
 export type WebsiteAnalysis = {
   draft: Required<OnboardingDraft>;
@@ -102,6 +104,8 @@ export type WebsiteAnalysis = {
   warning?: string;
 };
 export type WebsiteAnalysisOptions = {
+  mode?: "basic" | "catalog";
+  signal?: AbortSignal;
   maxPages?: number;
   candidateOffset?: number;
   skipSuggestions?: boolean;
@@ -325,6 +329,7 @@ export function sanitizeDraft(
       importedServices: Number((stats as any).importedServices) || 0,
       catalogSyncPending: (stats as any).catalogSyncPending === true,
       catalogNextOffset: Number((stats as any).catalogNextOffset) || 0,
+      ...(["deferred", "partial", "complete"].includes((stats as any).catalogStatus) ? { catalogStatus: (stats as any).catalogStatus } : {}),
       durationMs: Number((stats as any).durationMs) || 0,
     },
   };
@@ -367,11 +372,14 @@ async function safeFetch(
   input: URL,
   startedAt: number,
   redirects = 0,
-): Promise<{ url: URL; html: string }> {
+  options: { signal?: AbortSignal; allowPartial?: boolean } = {},
+): Promise<PublicTextResult> {
   if (Date.now() - startedAt > TOTAL_TIMEOUT)
     throw new Error("El análisis superó el tiempo máximo.");
-  const url = await assertPublicUrl(input.toString());
-  return fetchPublicText(url, AbortSignal.timeout(Math.min(PAGE_TIMEOUT, Math.max(1, TOTAL_TIMEOUT - (Date.now() - startedAt)))), redirects);
+  const timeout = AbortSignal.timeout(Math.min(PAGE_TIMEOUT, Math.max(1, TOTAL_TIMEOUT - (Date.now() - startedAt))));
+  const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
+  const url = await withAbortSignal(assertPublicUrl(input.toString()), signal);
+  return withAbortSignal(fetchPublicText(url, signal, redirects, { allowPartial: options.allowPartial }), signal);
 }
 function robotsAllows(robots: string, path: string): boolean {
   const lines = robots.split(/\r?\n/);
@@ -493,10 +501,48 @@ function toOffering(
     evidence: { url, status: "extracted", confidence: "high" },
   };
 }
-function parsePage(url: URL, html: string): WebsitePage {
+function categoryLinks($: cheerio.CheerioAPI, base: URL): Array<{ url: string; name: string }> {
+  const anchors = $("a[href]").toArray();
+  const paths = anchors.flatMap(node => { try { return [new URL($(node).attr("href") || "", base).pathname]; } catch { return []; } });
+  return anchors.flatMap(node => {
+    try {
+      const link = new URL($(node).attr("href") || "", base);
+      const name = cleanText($(node).text()).slice(0, 100);
+      const explicitCategory = /\/(?:categorias?|categories|collections)(?:\/|$)/i.test(link.pathname);
+      const menuCategory = $(node).closest("nav,[role='navigation'],header").length > 0 && link.pathname.split("/").filter(Boolean).length === 1;
+      return link.hostname === base.hostname && !link.search && !BLOCKED_PATH.test(link.pathname) &&
+        !/contact|nosotros|about|empresa|faq|preguntas|politic|termin|envio|login|oferta|sale|novedad|inicio|home|blog|cuotas?|inter[eé]s|transferencia|\d+\s*%|\$|\brenov[aá]|\bver todos/i.test(`${link.pathname} ${name}`) &&
+        !/^\/(?:productos?|products?|todos-los-productos|shop|tienda|catalogo)\/?$/i.test(link.pathname) &&
+        (explicitCategory || menuCategory) && name.length > 2 && !isGenericOfferingName(name)
+        ? [{ url: link.toString().replace(/#.*$/, ""), name }] : [];
+    } catch { return []; }
+  }).sort((a, b) => {
+    const branch = (value: string) => { const path = new URL(value).pathname.replace(/\/$/, "") + "/"; return paths.filter(p => p !== path && p.startsWith(path)).length; };
+    return branch(b.url) - branch(a.url);
+  });
+}
+
+function basicCandidateUrls(html: string, base: URL): string[] {
+  const $ = cheerio.load(html);
+  const categoryOrder = [...new Set(categoryLinks($, base).map(item => item.url))];
+  const categories = new Set(categoryOrder);
+  const score = (value: string) => {
+    const path = new URL(value).pathname;
+    if (/\/(?:nosotros|about|empresa|quienes-somos|contacto?|faq|preguntas-frecuentes)\/?$/i.test(path)) return 3;
+    if (/\/(?:servicios?|services?)\/?$/i.test(path)) return 2;
+    if (categories.has(value)) return 1;
+    return 0;
+  };
+  return candidateUrls(html, base).filter(value => {
+    const url = new URL(value);
+    return !url.search && !/\.(?:xml|pdf|jpg|png|zip)$/i.test(url.pathname) && score(value) > 0;
+  }).sort((a, b) => score(b) - score(a) || categoryOrder.indexOf(a) - categoryOrder.indexOf(b));
+}
+
+function parsePage(url: URL, html: string, basic = false): WebsitePage {
   const $ = cheerio.load(html);
   const seo = inspectPageSeo(html, url.toString());
-  const title = cleanText($("title").first().text() || $("h1").first().text()),
+  const title = cleanText((basic && $("meta[property='og:site_name']").attr("content")) || $("title").first().text() || $("h1").first().text()),
     description = cleanText(
       $("meta[name='description']").attr("content") ||
         $("meta[property='og:description']").attr("content") ||
@@ -511,7 +557,6 @@ function parsePage(url: URL, html: string): WebsitePage {
         return [];
       }
     });
-  $("script,style,noscript,svg,nav,footer,header,form,iframe").remove();
   const offerings = structured.flatMap((item, index) => {
     const types = Array.isArray(item["@type"])
       ? item["@type"]
@@ -568,8 +613,13 @@ function parsePage(url: URL, html: string): WebsitePage {
         return [];
       }
     });
+  const categories = [...new Set([
+    ...categoryLinks($, url).map(item => item.name),
+    ...offerings.map(item => item.category).filter(Boolean),
+  ])].slice(0, 12);
+  $("script,style,noscript,svg,nav,footer,header,form,iframe").remove();
   const text = cleanText(
-    `${description} ${$("main,article,body").first().text()}`,
+    `${description} ${basic ? `Categorías: ${categories.join(", ")}. ` : ""}${$("main,article,body").first().text()}`,
   );
   return {
     url: url.toString(),
@@ -577,7 +627,8 @@ function parsePage(url: URL, html: string): WebsitePage {
     description,
     text,
     pageType: kind,
-    offerings,
+    offerings: basic ? [] : offerings,
+    categories,
     socialNetworks: [...new Set(socialNetworks)],
     platform: platform(html, url),
     hash: createHash("sha256").update(text).digest("hex"),
@@ -678,13 +729,16 @@ export function summarizeForPrompt(pages: WebsitePage[]): BusinessSignals {
     if (!category) continue;
     categoryCounts.set(category, (categoryCounts.get(category) || 0) + 1);
   }
+  for (const category of pages.flatMap(page => page.categories || [])) {
+    categoryCounts.set(category, (categoryCounts.get(category) || 0) + 1);
+  }
   const categories = [...categoryCounts.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8)
     .map(([name, count]) => ({ name, count }));
-  const useCaseText = offerings
+  const useCaseText = offerings.length ? offerings
     .map((item) => `${item.scope} ${item.audience} ${item.description}`)
-    .join(" ");
+    .join(" ") : pages.map(page => `${page.description} ${page.text.slice(0, 1800)}`).join(" ");
   const words = normalizeWord(useCaseText)
     .split(/[^a-z0-9]+/)
     .filter((word) => word.length > 3 && !STOPWORDS.has(word));
@@ -776,6 +830,8 @@ async function requestSuggestedFields(
   signals: BusinessSignals,
   context: ConfirmedClientContext,
   correctivePrompt?: string,
+  signal: AbortSignal = AbortSignal.timeout(120000),
+  singleAttempt = false,
 ): Promise<{ data: any } | null> {
   const selected = selectPagesForPrompt(pages);
   const source = selected
@@ -809,7 +865,7 @@ async function requestSuggestedFields(
     .filter(Boolean)
     .join("\n");
   try {
-    const { response } = await fetchChatCompletion(
+    const { response } = await withAbortSignal(fetchChatCompletion(
       config,
       {
         messages: [
@@ -822,22 +878,23 @@ async function requestSuggestedFields(
       },
       "Cafishia - análisis de onboarding",
       context,
-      { signal: AbortSignal.timeout(120000) },
-    );
+      { signal },
+      { allowFallback: !singleAttempt },
+    ), signal);
     if (!response.ok) {
-      await logger.warn(
+      void logger.warn(
         "onboarding_llm_http_error",
         `El proveedor de IA respondió ${response.status} durante el análisis de onboarding.`,
         { status: response.status },
       );
       return null;
     }
-    const payload = await response.json();
+    const payload = await withAbortSignal(response.json(), signal);
     const raw = payload.choices?.[0]?.message?.content;
     try {
       return { data: JSON.parse(raw || "{}") };
     } catch (error) {
-      await logger.warn(
+      void logger.warn(
         "onboarding_llm_invalid_json",
         "La IA devolvió una respuesta que no es JSON válido durante el onboarding.",
         { raw, error: error instanceof Error ? error.message : String(error) },
@@ -845,7 +902,7 @@ async function requestSuggestedFields(
       return null;
     }
   } catch (error) {
-    await logger.warn(
+    void logger.warn(
       "onboarding_llm_connection_error",
       "No se pudo contactar al proveedor de IA durante el análisis de onboarding.",
       { error: error instanceof Error ? error.message : String(error) },
@@ -858,6 +915,7 @@ export async function suggestedFields(
   pages: WebsitePage[],
   offerings: OnboardingOffering[],
   context: ConfirmedClientContext,
+  options: { signal?: AbortSignal; singleAttempt?: boolean } = {},
 ): Promise<Partial<OnboardingDraft>> {
   const config = resolveLLMConfig(context);
   if (!config.apiKey) return {};
@@ -895,9 +953,10 @@ export async function suggestedFields(
   const isLowQuality = (result: Partial<OnboardingDraft>) =>
     !result.targetAudience && !result.offer && !result.description;
 
-  const first = await requestSuggestedFields(config, pages, signals, context);
+  if (options.signal?.aborted) return {};
+  const first = await requestSuggestedFields(config, pages, signals, context, undefined, options.signal, options.singleAttempt);
   let parsed = first ? parseResult(first.data) : {};
-  if (!first || isLowQuality(parsed)) {
+  if (!options.singleAttempt && (!first || isLowQuality(parsed))) {
     const retry = await requestSuggestedFields(
       config,
       pages,
@@ -996,13 +1055,18 @@ export async function analyzePublicWebsite(
       ? { name: clientContext, brands: [], description: "", domainKeywords: [] }
       : clientContext;
   const clientName = context.name;
+  const basic = options.mode === "basic";
+  const deadline = AbortSignal.timeout(basic ? 35_000 : TOTAL_TIMEOUT);
+  const analysisSignal = options.signal ? AbortSignal.any([options.signal, deadline]) : deadline;
+  const readSignal = basic ? AbortSignal.any([analysisSignal, AbortSignal.timeout(20_000)]) : analysisSignal;
+  const fetchOptions = { signal: readSignal, allowPartial: basic || options.mode === "catalog" };
   const startedAt = Date.now(),
-    initial = await assertPublicUrl(normalizeWebsiteUrl(value)),
+    initial = await withAbortSignal(assertPublicUrl(normalizeWebsiteUrl(value)), readSignal),
     warnings: string[] = [],
     pages: WebsitePage[] = [];
-  let homeResult: { url: URL; html: string };
+  let homeResult: PublicTextResult;
   try {
-    homeResult = await safeFetch(initial, startedAt);
+    homeResult = await safeFetch(initial, startedAt, 0, fetchOptions);
   } catch (error) {
     throw new Error(
       error instanceof Error ? error.message : "No pudimos leer el sitio.",
@@ -1013,6 +1077,7 @@ export async function analyzePublicWebsite(
     const robots = await safeFetch(
       new URL("/robots.txt", homeResult.url),
       startedAt,
+      0, fetchOptions,
     );
     robotsText = robots.html;
     if (!robotsAllows(robots.html, homeResult.url.pathname))
@@ -1021,20 +1086,22 @@ export async function analyzePublicWebsite(
     if (error instanceof Error && error.message.includes("no autoriza"))
       throw error;
   }
-  const home = parsePage(homeResult.url, homeResult.html);
+  if (homeResult.truncated) warnings.push("La portada es extensa. Leímos una parte para preparar el resumen; revisá los datos pendientes.");
+  const home = parsePage(homeResult.url, homeResult.html, basic);
   pages.push(home);
   let sitemap: string[] = [];
-  try {
+  if (!basic) try {
     const source = await safeFetch(
       new URL("/sitemap.xml", homeResult.url),
       startedAt,
+      0, fetchOptions,
     );
     sitemap = sitemapUrls(source.html, homeResult.url);
   } catch {
     // El sitemap es opcional; los enlaces de la portada siguen siendo suficientes.
   }
   const allCandidates = [
-    ...new Set([...candidateUrls(homeResult.html, homeResult.url), ...sitemap]),
+    ...new Set([...(basic ? basicCandidateUrls(homeResult.html, homeResult.url) : candidateUrls(homeResult.html, homeResult.url)), ...sitemap]),
   ]
     // La portada ya se agregó a `pages` arriba; si el sitemap o los enlaces la
     // repiten, filtrarla acá evita una entrada duplicada (viola el unique de OnboardingSourcePage).
@@ -1044,27 +1111,32 @@ export async function analyzePublicWebsite(
     );
   const discoveredCandidates = allCandidates.slice(0, MAX_DISCOVERED_CANDIDATES);
   const candidateOffset = Math.max(0, Math.floor(options.candidateOffset || 0));
+  const maxPages = basic ? 5 : Math.max(1, Math.min(MAX_PAGES, options.maxPages || MAX_PAGES));
   const candidates = discoveredCandidates.slice(
     candidateOffset,
-    candidateOffset + Math.max(1, Math.min(MAX_PAGES, options.maxPages || MAX_PAGES)) - 1,
+    candidateOffset + maxPages - 1,
   );
+  let candidatesRead = 0;
   for (
     let i = 0;
     i < candidates.length &&
-    pages.length < Math.max(1, Math.min(MAX_PAGES, options.maxPages || MAX_PAGES)) &&
-    Date.now() - startedAt < TOTAL_TIMEOUT;
+    pages.length < maxPages &&
+    !readSignal.aborted && Date.now() - startedAt < TOTAL_TIMEOUT;
     i += 4
   ) {
     const batch = await Promise.all(
       candidates.slice(i, i + 4).map(async (candidate) => {
         try {
-          const result = await safeFetch(new URL(candidate), startedAt);
-          return parsePage(result.url, result.html);
+          const result = await safeFetch(new URL(candidate), startedAt, 0, fetchOptions);
+          if (result.url.hostname !== homeResult.url.hostname) return null;
+          if (result.truncated) warnings.push(`Leímos parcialmente ${result.url.pathname}.`);
+          return parsePage(result.url, result.html, basic);
         } catch {
           return null;
         }
       }),
     );
+    candidatesRead += Math.min(4, candidates.length - i);
     pages.push(...batch.filter((page): page is WebsitePage => Boolean(page)));
   }
   // Dos candidatos distintos pueden redirigir a la misma URL final: dedupear
@@ -1098,13 +1170,16 @@ export async function analyzePublicWebsite(
             ? "services"
             : "mixed";
   const firstHeading = home.title.split(/[|–—-]/)[0].trim();
+  const categories = [...new Set(pages.flatMap(page => page.categories || []))].slice(0, 8);
   const matchedBrand = matchConfirmedBrand(firstHeading, context.brands);
   const deterministic: Required<OnboardingDraft> = {
     ...defaultDraft(clientName),
     name: context.name || firstHeading || clientName,
     brand: matchedBrand || firstHeading || clientName,
-    description: context.description || cleanBusinessSummary(home.description),
-    offer: fallbackOffer(offerings),
+    description: context.description || cleanBusinessSummary((basic ? home.description.split("|")[0] : home.description) || (basic ? pages.find(page => page.pageType === "about")?.text || "" : "")),
+    offer: basic ? joinList(categories.slice(0, 5)) : fallbackOffer(offerings),
+    topics: basic ? categories.slice(0, 5) : [],
+    priorities: basic ? categories : [],
     detectedBusinessType,
     detectedPlatform: home.platform,
     offerings,
@@ -1118,20 +1193,24 @@ export async function analyzePublicWebsite(
         confidence: home.title ? "high" : "low",
       },
       description: {
-        url: home.url,
+        url: home.description ? home.url : pages.find(page => page.pageType === "about")?.url || home.url,
         status: context.description ? "manual" : "extracted",
         confidence: home.description ? "medium" : "low",
       },
       offer: {
         url: offerings[0]?.url || home.url,
-        status: offerings.length ? "extracted" : "needs_confirmation",
-        confidence: offerings.length ? "medium" : "low",
+        status: offerings.length || (basic && categories.length) ? "extracted" : "needs_confirmation",
+        confidence: offerings.length || (basic && categories.length) ? "medium" : "low",
       },
       brand: {
         url: home.url,
         status: matchedBrand ? "manual" : "suggested",
         confidence: matchedBrand ? "high" : "medium",
       },
+      ...(basic && categories.length ? {
+        topics: { url: home.url, status: "extracted" as const, confidence: "medium" as const },
+        priorities: { url: home.url, status: "extracted" as const, confidence: "medium" as const },
+      } : {}),
     },
     warnings,
     stats: {
@@ -1140,14 +1219,15 @@ export async function analyzePublicWebsite(
       products,
       services,
       catalogSyncPending:
-        allCandidates.length > candidateOffset + candidates.length,
-      catalogNextOffset: candidateOffset + candidates.length,
+        !basic && discoveredCandidates.length > candidateOffset + candidatesRead,
+      catalogNextOffset: basic ? 0 : candidateOffset + candidatesRead,
+      ...(basic ? { catalogStatus: "deferred" as const } : options.mode === "catalog" ? { catalogStatus: discoveredCandidates.length > candidateOffset + candidatesRead ? "partial" as const : "complete" as const } : {}),
       durationMs: Date.now() - startedAt,
     },
   };
   const suggested = options.skipSuggestions
       ? {}
-      : await suggestedFields(pages, offerings, context),
+      : await suggestedFields(pages, offerings, context, basic ? { signal: analysisSignal, singleAttempt: true } : {}),
     merged = sanitizeDraft(
       {
         ...deterministic,
@@ -1170,12 +1250,12 @@ export async function analyzePublicWebsite(
       },
       clientName,
     );
-  if (!suggested.description && !suggested.offer && !context.description) {
+  if (!suggested.description && !suggested.offer && !context.description && !deterministic.description && !deterministic.offer) {
     warnings.push(
       "No pudimos generar un resumen comercial confiable; completá qué vende, público y objetivos manualmente.",
     );
   }
-  if (!offerings.length)
+  if (!basic && !offerings.length)
     warnings.push(
       "No detectamos un catálogo estructurado. Podés agregar una oferta principal si querés.",
     );
@@ -1183,6 +1263,8 @@ export async function analyzePublicWebsite(
     { ...merged, warnings, stats: deterministic.stats },
     home.url,
   );
+  completed.stats.durationMs = Date.now() - startedAt;
+  options.signal?.throwIfAborted();
   return {
     draft: completed,
     pages,
@@ -1341,9 +1423,10 @@ export async function syncOnboardingCatalog(
   prisma: PrismaClient,
   clientId: string,
   draftInput: Required<OnboardingDraft>,
+  preserveCommercialTerms = false,
 ) {
   const draft = sanitizeDraft(draftInput);
-  return prisma.$transaction((tx) => syncCatalogOfferings(tx, clientId, draft));
+  return prisma.$transaction((tx) => syncCatalogOfferings(tx, clientId, draft, preserveCommercialTerms));
 }
 
 /** `draftValue` es literalmente igual a `domainValue`, o es el prefijo que quedó
@@ -1386,6 +1469,8 @@ function deepEqualJson(a: unknown, b: unknown): boolean {
 }
 
 export type SyncOnboardingOptions = {
+  /** Basic research updates context only, leaving every catalog record untouched. */
+  skipCatalog?: boolean;
   /** Cuando se pasa, además de sincronizar el catálogo marca este onboarding como COMPLETED dentro de la misma transacción. */
   completeOnboardingId?: string;
   /** Observable analysis does not maintain prices, stock or commercial terms. */
@@ -1457,7 +1542,7 @@ export async function syncOnboarding(
     if (Object.keys(clientData).length > 0) {
       await tx.client.update({ where: { id: clientId }, data: clientData });
     }
-    const catalog = await syncCatalogOfferings(tx, clientId, draft, options.preserveCommercialTerms);
+    const catalog = options.skipCatalog ? { brand: null, products: 0, services: 0 } : await syncCatalogOfferings(tx, clientId, draft, options.preserveCommercialTerms);
     if (catalog.brand) {
       const brand = catalog.brand;
       // Sólo crea las voces que falten; nunca uniforma el tono de personas ya confirmadas.

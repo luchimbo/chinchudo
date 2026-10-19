@@ -138,7 +138,7 @@ export async function processBusinessAnalysis(db: PrismaClient, runId: string, d
     let profile = readBusinessProfile(row.data, client.name);
     if (!checkpoint.own) {
       const previous = profile;
-      const analysis = run.sourceUrl ? await deps.analyze(run.sourceUrl, { name: client.name, brands: [], description: "", domainKeywords: [], openrouterApiKey: client.openrouterApiKey, openrouterModel: client.openrouterModel }, { maxPages: 40 }) : null;
+      const analysis = run.sourceUrl ? await deps.analyze(run.sourceUrl, { name: client.name, brands: [], description: "", domainKeywords: [], openrouterApiKey: client.openrouterApiKey, openrouterModel: client.openrouterModel }, { mode: "basic", signal: controller.signal }) : null;
       if (analysis) {
         result.own = analyzedSite(analysis, run.sourceUrl);
         profile = await saveAnalyzedProfile(db, client, sanitizeDraft({ ...analysis.draft, market: profile.market }, client.name), runId);

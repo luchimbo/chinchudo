@@ -270,6 +270,7 @@ export function OnboardingWizard({
     setUrl(normalizedUrl);
     analysisRequest.current?.abort();
     const controller = new AbortController();
+    const requestSignal = AbortSignal.any([controller.signal, AbortSignal.timeout(45_000)]);
     analysisRequest.current = controller;
     setIsAnalyzing(true);
     setNotice(null);
@@ -280,19 +281,19 @@ export function OnboardingWizard({
         : { action: "analyze", url: normalizedUrl, market: draft.market };
       const response = await fetch(endpoint, {
         method: "POST",
-        signal: controller.signal,
+        signal: requestSignal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       let data = await response.json();
       if (!response.ok)
         throw new Error(data.error || "No se pudo analizar el sitio.");
-      if (data.run) {
+      if (data.run && !data.draft) {
         let profileReady = false;
         while (!profileReady) {
           await new Promise(resolve => window.setTimeout(resolve, 2000));
-          controller.signal.throwIfAborted();
-          const progressResponse = await fetch(apiUrl("/api/business-analysis"), { signal: controller.signal });
+          requestSignal.throwIfAborted();
+          const progressResponse = await fetch(apiUrl("/api/business-analysis"), { signal: requestSignal });
           const progress = await progressResponse.json();
           if (!progressResponse.ok) throw new Error(progress.error || "No se pudo consultar el análisis.");
           if (progress.profile?.data?.draft?.analysisRunId === data.run.id) {
@@ -310,7 +311,9 @@ export function OnboardingWizard({
       setNotice({
         level: "error",
         message:
-          error instanceof Error
+          requestSignal.aborted
+            ? "La lectura está demorando más de lo esperado. Podés reintentar o completar los datos a mano."
+            : error instanceof Error
             ? error.message
             : "No se pudo analizar el sitio.",
       });
@@ -787,6 +790,11 @@ export function OnboardingWizard({
                   />
                 </Field>
               </div>
+              <details className="rounded-2xl border border-ink/10 bg-white p-5">
+                <summary className="cursor-pointer text-sm font-semibold text-ink">
+                  Productos y servicios · {draft.stats.catalogStatus === "deferred" ? "Pendiente de analizar" : "Opcional"}
+                </summary>
+                <p className="my-3 text-sm text-slate/65">Podés avanzar con el resumen del negocio. Después de activar, elegí “Analizar productos” para profundizar el catálogo.</p>
               {draft.offerings.length ? (
                 <div className="rounded-2xl border border-moss/20 bg-moss/[.06] p-5">
                   <p className="text-xs font-bold uppercase tracking-[.14em] text-moss">
@@ -858,12 +866,10 @@ export function OnboardingWizard({
               ) : (
                 <div className="rounded-2xl border border-dashed border-ink/20 bg-white p-5">
                   <p className="text-xs font-bold uppercase tracking-[.14em] text-slate/60">
-                    Sin catálogo detectado
+                    {draft.stats.catalogStatus === "deferred" ? "Pendiente de analizar" : "Sin catálogo detectado"}
                   </p>
                   <p className="mt-1 text-sm leading-relaxed text-slate/65">
-                    No encontramos productos ni servicios estructurados. Si te
-                    sirve, podés agregar una oferta principal ahora o continuar
-                    sin catálogo.
+                    Podés agregar una oferta principal ahora o continuar sin catálogo.
                   </p>
                   <div className="mt-4 grid gap-3 sm:grid-cols-[150px_minmax(0,1fr)_auto]">
                     <select
@@ -899,6 +905,7 @@ export function OnboardingWizard({
                   </div>
                 </div>
               )}
+              </details>
               <div className="grid gap-4 rounded-2xl border border-ink/10 bg-white p-5">
                 <p className="text-xs font-bold uppercase tracking-[.14em] text-slate/60">
                   Conocimiento y comunicación

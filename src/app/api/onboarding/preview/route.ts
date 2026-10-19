@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { analyzePublicWebsite } from "@/lib/onboarding";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 45;
 
 export async function POST(request: NextRequest) {
   // Defensa en profundidad: el middleware ya exige NODE_ENV no productivo +
@@ -13,7 +14,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const analysis = await analyzePublicWebsite(
       String(body.url || ""),
-      "Tu negocio",
+      "",
+      { mode: "basic", signal: request.signal },
     );
     return NextResponse.json({
       draft: analysis.draft,

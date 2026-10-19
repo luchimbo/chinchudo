@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { ClientResolutionError, resolveClientForSlug } from "@/lib/auth";
 import {
-  assertPublicUrl,
+  analyzePublicWebsite,
   defaultDraft,
   mergeManualFields,
   OnboardingNameConflictError,
@@ -14,9 +14,11 @@ import { confirmedDraftFor } from "@/lib/onboarding-rehydrate";
 import { normalizeWebsiteUrl } from "@/lib/website-url";
 import { logger } from "@/lib/logger";
 import type { Client } from "@prisma/client";
-import { enqueueBusinessAnalysis, readBusinessProfile, syncBusinessDraft } from "@/lib/business-analysis-service";
+import { analyzeRequestedCatalog, enqueueBusinessAnalysis, readBusinessProfile, saveBasicAnalysis, syncBusinessDraft } from "@/lib/business-analysis-service";
+import { marketSchema } from "@/lib/business-analysis";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 45;
 const onboardingDb = prisma as any;
 
 async function clientForRequest(request: NextRequest) {
@@ -129,10 +131,14 @@ export async function POST(request: NextRequest) {
           { error: "Ingresá una dirección web válida." },
           { status: 400 },
         );
-      await assertPublicUrl(url);
-      const run = await enqueueBusinessAnalysis(prisma, client, url, body.market);
-      return NextResponse.json({ run: { id: run.id, status: run.status, stage: run.stage } }, { status: 202 });
+      const market = body.market ? marketSchema.parse(body.market) : undefined;
+      const analysis = await analyzePublicWebsite(url, { name: client.name, brands: [], description: "", domainKeywords: [], openrouterApiKey: client.openrouterApiKey, openrouterModel: client.openrouterModel }, { mode: "basic", signal: request.signal });
+      request.signal.throwIfAborted();
+      const { draft, run } = await saveBasicAnalysis(prisma, client, analysis, url, market);
+      return NextResponse.json({ draft, warning: analysis.warning, run: { id: run.id, status: run.status, stage: run.stage } });
     }
+
+    if (body.action === "analyzeCatalog") return NextResponse.json(await analyzeRequestedCatalog(prisma, client, request.signal));
 
     const onboarding = await onboardingDb.clientOnboarding.findUniqueOrThrow({
       where: { clientId: client.id },
@@ -185,8 +191,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 409 });
     }
     return NextResponse.json(
-      { error: "No se pudo completar la acción. Intentá de nuevo." },
+      { error: bodyActionError(error) },
       { status: 400 },
     );
   }
+}
+
+function bodyActionError(error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  if (/^(?:Ingresá una dirección|La URL|La página|La lectura|El sitio|El dominio|El análisis|El catálogo|No se permiten direcciones|No pudimos resolver|No pudimos leer|Activá el negocio|Agregá una web|Ya hay una lectura|Hay un análisis de otra web|Demasiadas redirecciones)/.test(message)) return message;
+  return "No se pudo completar la acción. Revisá tu conexión e intentá de nuevo; también podés completar los datos a mano.";
 }

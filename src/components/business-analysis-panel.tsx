@@ -6,6 +6,7 @@ import { DEFAULT_MARKET, type AnalysisResult, type BusinessMarket, type Business
 
 type Tab = "business" | "competitors" | "seo";
 type View = {
+  onboardingCompleted: boolean;
   profile: { data: BusinessProfileData; sourceUrl: string; monthlyEnabled: boolean; lastSuccessfulAt: string | null; nextAnalysisAt: string | null } | null;
   competitors: Array<{ id: string; domain: string; excluded: boolean; reason: string; sourceUrl: string }>;
   run: { id: string; status: string; stage: string; errors: string[]; result: AnalysisResult } | null;
@@ -24,6 +25,7 @@ export function BusinessAnalysisPanel({ clientSlug, initialTab = "business", emb
   const [priorities, setPriorities] = useState<string[]>([]), [exclusions, setExclusions] = useState(""), [differentiators, setDifferentiators] = useState("");
   const [market, setMarket] = useState<BusinessMarket>({ ...DEFAULT_MARKET });
   const [dirty, setDirty] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
+  const [catalogBusy, setCatalogBusy] = useState(false);
   const dirtyFields = useRef(new Set<string>());
   const [urlDirty, setUrlDirty] = useState(false);
   const markDirty = (field: string) => { dirtyFields.current.add(field); setDirty(true); };
@@ -68,6 +70,19 @@ export function BusinessAnalysisPanel({ clientSlug, initialTab = "business", emb
     if (dirty && !(await mutate("PATCH", changes()))) return;
     if (await mutate("POST", { sourceUrl: url, market })) { setDirty(false); setNotice("Análisis en cola. Podés seguir usando el panel mientras se prepara."); }
   }
+  async function analyzeCatalog() {
+    setCatalogBusy(true); setError(""); setNotice("");
+    try {
+      const response = await fetch(`/api/onboarding?client=${encodeURIComponent(clientSlug)}`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "analyzeCatalog" }), signal: AbortSignal.timeout(45_000),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "No se pudo analizar el catálogo. Volvé a intentarlo.");
+      await refresh();
+      setNotice(result.warning || (result.draft.stats.catalogStatus === "partial" ? "Lote analizado. Elegí Analizar más para continuar." : "Lectura del catálogo finalizada."));
+    } catch (e) { setError(e instanceof Error && e.name === "TimeoutError" ? "La lectura del catálogo demoró demasiado. Volvé a intentarlo; el resumen del negocio sigue disponible." : e instanceof Error ? e.message : "No se pudo analizar el catálogo."); }
+    finally { setCatalogBusy(false); }
+  }
   const active = !!view?.run && ["QUEUED", "RUNNING"].includes(view.run.status);
   const sites = [view?.run?.result.own, ...(view?.run?.result.competitors || []).filter(site => !view?.competitors.find(c => c.domain === site.domain)?.excluded)].filter((site): site is NonNullable<typeof site> => !!site);
   const date = (value: string) => new Date(value).toLocaleDateString("es-AR", { timeZone: "UTC" });
@@ -100,7 +115,7 @@ export function BusinessAnalysisPanel({ clientSlug, initialTab = "business", emb
         <p className="text-xs text-slate">El análisis se aplica automáticamente. Tus correcciones tienen prioridad en futuras lecturas.</p>
       </div>
       <div className="space-y-5"><div className="rounded-2xl border border-moss/20 bg-moss/5 p-5"><h2 className="font-display text-xl text-ink">Prioridades comerciales</h2><p className="mt-1 text-xs text-slate">Ordená lo que querés destacar. Este orden no representa ventas medidas.</p><div className="mt-4 space-y-2">{priorities.map((name, index) => <div className="flex items-center gap-2" key={index}><input aria-label={`Prioridad ${index + 1}`} className={input} value={name} onChange={e => { setPriorities(priorities.map((v, i) => i === index ? e.target.value : v)); markDirty("priorities"); }} /><button aria-label={`Subir ${name}`} disabled={!index} type="button" onClick={() => { const next = [...priorities]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; setPriorities(next); markDirty("priorities"); }} className="px-2 text-ink disabled:opacity-30">↑</button><button aria-label={`Quitar ${name}`} type="button" onClick={() => { setPriorities(priorities.filter((_, i) => i !== index)); markDirty("priorities"); }} className="px-2 text-signal">×</button></div>)}</div><button type="button" onClick={() => { setPriorities([...priorities, "Nueva prioridad"]); markDirty("priorities"); }} className="mt-3 text-sm font-semibold text-moss">+ Agregar prioridad</button></div>
-      <div className="rounded-2xl border border-ink/10 bg-paper p-5"><h2 className="font-display text-xl text-ink">Catálogo detectado</h2><p className="mt-1 text-xs text-slate">Muestra de las páginas examinadas, no inventario completo.</p><div className="mt-3 space-y-2">{view?.profile?.data.draft.offerings.filter(o => o.selected).slice(0, 12).map(o => <div className="border-b border-ink/5 pb-2 text-sm" key={o.id}><span className="font-semibold text-ink">{o.name}</span><p className="text-xs text-slate">{o.kind === "service" ? "Servicio" : "Producto"} · {o.category || "Sin categoría"} · {o.evidence.status === "manual" ? "Manual" : o.evidence.status === "needs_confirmation" ? "No observado en esta lectura · revisar" : "Extraído"}</p>{/^https?:\/\//.test(o.url) ? <a className="text-xs text-moss underline" href={o.url} target="_blank" rel="noreferrer">Ver fuente</a> : null}</div>)}</div><Link className="mt-3 inline-block text-sm font-semibold text-moss underline" href={`/onboarding?client=${encodeURIComponent(clientSlug)}&step=1`}>Editar productos y servicios</Link></div>
+      <details className="rounded-2xl border border-ink/10 bg-paper p-5"><summary className="cursor-pointer font-display text-xl text-ink">Productos y servicios · {view?.profile?.data.draft.stats.catalogStatus === "deferred" ? "Pendiente de analizar" : "Catálogo"}</summary><p className="mt-2 text-xs text-slate">El resumen ya está disponible. Analizá el catálogo solo cuando lo necesites.</p>{view?.onboardingCompleted ? <button type="button" disabled={catalogBusy || busy || !view.profile?.sourceUrl} onClick={() => void analyzeCatalog()} className={`${button} mt-3`}>{catalogBusy ? "Analizando productos…" : view.profile?.data.draft.stats.catalogStatus === "partial" ? "Analizar más" : "Analizar productos"}</button> : <p className="mt-3 text-xs text-slate">Activá el negocio para analizar productos.</p>}<div className="mt-3 space-y-2">{view?.profile?.data.draft.offerings.filter(o => o.selected).slice(0, 12).map(o => <div className="border-b border-ink/5 pb-2 text-sm" key={o.id}><span className="font-semibold text-ink">{o.name}</span><p className="text-xs text-slate">{o.kind === "service" ? "Servicio" : "Producto"} · {o.category || "Sin categoría"} · {o.evidence.status === "manual" ? "Manual" : o.evidence.status === "needs_confirmation" ? "No observado en esta lectura · revisar" : "Extraído"}</p>{/^https?:\/\//.test(o.url) ? <a className="text-xs text-moss underline" href={o.url} target="_blank" rel="noreferrer">Ver fuente</a> : null}</div>)}</div><Link className="mt-3 inline-block text-sm font-semibold text-moss underline" href={`/onboarding?client=${encodeURIComponent(clientSlug)}&step=1`}>Editar productos y servicios</Link></details>
       <div className="rounded-2xl border border-ink/10 bg-paper p-5"><label className="flex gap-2 text-sm text-ink"><input type="checkbox" checked={view?.profile?.monthlyEnabled ?? true} disabled={busy || !view?.profile} onChange={e => void mutate("PATCH", { monthlyEnabled: e.target.checked })} />Actualizar mensualmente</label>{view?.profile?.nextAnalysisAt ? <p className="mt-2 text-xs text-slate">Próxima lectura: {date(view.profile.nextAnalysisAt)}</p> : null}</div></div>
     </div> : null}
     {tab === "competitors" ? <div className="space-y-4">
