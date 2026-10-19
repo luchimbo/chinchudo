@@ -1,15 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ access: vi.fn(), client: vi.fn(), create: vi.fn(), slot: vi.fn(), revalidate: vi.fn() }));
-vi.mock("@/lib/db", () => ({ prisma: { client: { findUniqueOrThrow: mocks.client }, blogPublication: { createMany: mocks.create, findUniqueOrThrow: mocks.slot } } }));
+const mocks = vi.hoisted(() => ({ access: vi.fn(), client: vi.fn(), create: vi.fn(), slot: vi.fn(), reserved: vi.fn(), update: vi.fn(), revalidate: vi.fn() }));
+vi.mock("@/lib/db", () => ({ prisma: { client: { findUniqueOrThrow: mocks.client }, blogPublication: { createMany: mocks.create, findUniqueOrThrow: mocks.slot, findUnique: mocks.reserved, updateMany: mocks.update } } }));
 vi.mock("@/lib/auth", () => ({ assertClientAccess: mocks.access }));
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidate }));
 import { generateBlogDate } from "@/app/(app)/(creador)/blog/calendario/actions";
 
-function request(day: string, language?: string) {
+function request(day: string, language?: string, brief?: string) {
   const data = new FormData();
   data.set("clientId", "pcmidi-id"); data.set("scheduledDate", day);
   if (language) data.set("language", language);
+  if (brief !== undefined) data.set("brief", brief);
   return generateBlogDate({ error: null, queued: false }, data);
 }
 
@@ -78,5 +79,32 @@ describe("generar un artículo para un día vacío", () => {
   it("permite reintentar errores de reserva sin informar éxito", async () => {
     mocks.create.mockRejectedValue(new Error("DB offline"));
     expect(await request("2026-10-22")).toMatchObject({ queued: false, error: expect.any(String) });
+  });
+  it("guarda la consigna normalizada y sin comparativa automática", async () => {
+    mocks.client.mockResolvedValue({ slug: "another-brand", responsePolicy: { blog: { calendar: true, comparisons: true } } });
+    expect(await request("2026-10-21", "es", "  Cómo elegir\n auriculares   para mezclar ")).toMatchObject({ queued: true });
+    expect(mocks.create.mock.calls[0][0].data[0].preparation).toEqual({ language: "es", comparison: false, brief: "Cómo elegir auriculares para mezclar" });
+  });
+  it("rechaza consignas demasiado largas sin reservar", async () => {
+    expect(await request("2026-10-21", "es", "a".repeat(501))).toMatchObject({ queued: false, error: expect.stringContaining("500") });
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+  it("completa un día reservado automáticamente que todavía no empezó", async () => {
+    const updatedAt = new Date("2026-10-13T12:00:00Z");
+    mocks.create.mockResolvedValue({ count: 0 });
+    mocks.reserved.mockResolvedValue({ id: "reserved-day", status: "PLANNED", landingId: null, analysisRunId: null, preparation: null, updatedAt });
+    mocks.update.mockResolvedValue({ count: 1 });
+    expect(await request("2026-10-22", "es", "Latencia para principiantes")).toEqual({ error: null, queued: true, id: "reserved-day", client: "pcmidi" });
+    expect(mocks.update).toHaveBeenCalledWith({ where: { id: "reserved-day", status: "PLANNED", landingId: null, updatedAt }, data: { preparation: { language: "es", comparison: false, brief: "Latencia para principiantes", phase: "WAITING" } } });
+  });
+  it.each([
+    ["en preparación", { status: "PLANNED", landingId: null, preparation: { phase: "GENERATING", attemptId: "a1" } }],
+    ["con artículo", { status: "READY", landingId: "landing-1", preparation: null }],
+    ["del análisis comercial", { status: "PLANNED", landingId: null, analysisRunId: "run-1", preparation: null }],
+  ])("no toca un día %s", async (_label, slot) => {
+    mocks.create.mockResolvedValue({ count: 0 });
+    mocks.reserved.mockResolvedValue({ id: "taken", analysisRunId: null, updatedAt: new Date(), ...slot });
+    expect(await request("2026-10-22", "es", "Tema")).toMatchObject({ queued: false, error: expect.any(String) });
+    expect(mocks.update).not.toHaveBeenCalled();
   });
 });

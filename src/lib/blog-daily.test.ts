@@ -313,6 +313,18 @@ describe("rutina diaria del blog", () => {
     await daily.runDailyBlogCalendar();
     expect(runBlogPython.mock.calls[0][0]).toEqual(expect.arrayContaining(["--comparison", "--schedule-date", "2026-10-21"]));
   });
+  it("pasa la consigna del equipo, sin comparativa, y la conserva en la preparación", async () => {
+    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: false });
+    rows.push({ id: "brief", clientId: "c1", landingId: null, scheduledDate: new Date("2026-10-21T00:00:00Z"), status: "PLANNED", attempts: 0, updatedAt: clock, preparation: { language: "es", comparison: true, brief: "Cómo elegir auriculares para mezclar" } });
+    let preparationDuringRun: Row | undefined;
+    const runBlogPython = vi.fn(async (args: string[]) => { if (args[0] === "generate") { preparationDuringRun = row("2026-10-21").preparation; addReady("2026-10-21"); } });
+    const { daily } = build({ runBlogPython, targetClientSlug: "any-brand" });
+    await daily.runDailyBlogCalendar();
+    const args = runBlogPython.mock.calls[0][0];
+    expect(args[args.indexOf("--brief") + 1]).toBe("Cómo elegir auriculares para mezclar");
+    expect(args).not.toContain("--comparison");
+    expect(preparationDuringRun).toMatchObject({ brief: "Cómo elegir auriculares para mezclar", comparison: false });
+  });
   it("no pide comparativa en días educativos", async () => {
     settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: false });
     rows.push({ id: "educational", clientId: "c1", landingId: null, scheduledDate: new Date("2026-10-20T00:00:00Z"), status: "PLANNED", attempts: 0, updatedAt: clock, preparation: { language: "es", comparison: true } });

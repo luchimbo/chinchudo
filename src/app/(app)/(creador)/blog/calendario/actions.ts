@@ -31,12 +31,25 @@ export async function generateBlogDate(_state: GenerateDateState, formData: Form
     if (scheduledDate.toISOString().slice(0, 10) <= localDay(new Date(), businessTimezone(client.responsePolicy))) {
       return { error: "Elegí un día posterior a hoy.", queued: false };
     }
+    const brief = parseBrief(formData.get("brief"));
+    if (brief === null) return { error: `La consigna admite hasta ${BRIEF_MAX} caracteres.`, queued: false };
     // La restricción única evita sobrescribir artículos incluso con pedidos simultáneos.
     // Las comparativas son artículos para elegir: solo en días de esa intención.
-    const comparison = editorialIntentForDate(scheduledDate.toISOString().slice(0, 10)) === "decision"
+    // Con consigna manda el tema pedido, sin comparativa automática.
+    const comparison = !brief && editorialIntentForDate(scheduledDate.toISOString().slice(0, 10)) === "decision"
       && (formData.has("comparisonOffered") ? formData.get("comparison") === "on" : blogPreferences(client.responsePolicy).comparisons);
-    const created = await prisma.blogPublication.createMany({ data: [{ clientId, scheduledDate, preparation: { language, comparison } }], skipDuplicates: true });
-    if (!created.count) return { error: "Este día ya tiene una publicación programada. Revisá el calendario.", queued: false };
+    const preparation = { language, comparison, ...(brief ? { brief } : {}) };
+    const created = await prisma.blogPublication.createMany({ data: [{ clientId, scheduledDate, preparation }], skipDuplicates: true });
+    if (!created.count) {
+      // Con la publicación automática, los próximos días ya están reservados
+      // vacíos. Mientras el agente no empezó a escribirlos se pueden completar.
+      const reserved = await prisma.blogPublication.findUnique({ where: { clientId_scheduledDate: { clientId, scheduledDate } } });
+      const phase = reserved?.preparation && typeof reserved.preparation === "object" && !Array.isArray(reserved.preparation) ? (reserved.preparation as Record<string, unknown>).phase : undefined;
+      const waiting = reserved && reserved.status === "PLANNED" && !reserved.landingId && !reserved.analysisRunId && (phase === undefined || phase === "WAITING");
+      if (!waiting) return { error: "Este día ya tiene un artículo o se está preparando. Elegí otra fecha o usá «Generar otro artículo» desde el día.", queued: false };
+      const updated = await prisma.blogPublication.updateMany({ where: { id: reserved.id, status: "PLANNED", landingId: null, updatedAt: reserved.updatedAt }, data: { preparation: { ...preparation, phase: "WAITING" } } });
+      if (!updated.count) return { error: "El agente empezó a preparar este día. Elegí otra fecha o usá «Generar otro artículo».", queued: false };
+    }
     const slot = await prisma.blogPublication.findUniqueOrThrow({ where: { clientId_scheduledDate: { clientId, scheduledDate } }, select: { id: true } });
     revalidatePath("/blog/calendario");
     revalidatePath("/blog/articulos");
@@ -45,11 +58,18 @@ export async function generateBlogDate(_state: GenerateDateState, formData: Form
     return { error: "No se pudo solicitar el artículo. Verificá tu acceso y reintentá.", queued: false };
   }
 }
+const BRIEF_MAX = 500;
+/** Consigna opcional del operador: "" sin consigna, null si es demasiado larga. */
+function parseBrief(value: FormDataEntryValue | null): string | null {
+  const brief = typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+  return brief.length > BRIEF_MAX ? null : brief;
+}
 class CalendarValidationError extends Error {}
 class CalendarDateConflictError extends Error {}
-function waitingPreparation(value: Prisma.JsonValue | null): Prisma.InputJsonValue {
+function waitingPreparation(value: Prisma.JsonValue | null, brief?: string): Prisma.InputJsonValue {
   const metadata = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  return { phase: "WAITING", ...(["es", "en", "de"].includes(String(metadata.language)) ? { language: String(metadata.language) } : {}), ...(typeof metadata.comparison === "boolean" ? { comparison: metadata.comparison } : {}) };
+  const nextBrief = brief ?? (typeof metadata.brief === "string" ? metadata.brief : "");
+  return { phase: "WAITING", ...(["es", "en", "de"].includes(String(metadata.language)) ? { language: String(metadata.language) } : {}), ...(nextBrief ? { brief: nextBrief, comparison: false } : typeof metadata.comparison === "boolean" ? { comparison: metadata.comparison } : {}) };
 }
 
 export async function publishCalendarArticle(id: string): Promise<{ ok: true } | { ok: false; error: string; code?: string }> {
@@ -191,10 +211,12 @@ export async function rescheduleBlogArticle(_state: RescheduleFormState, formDat
 
 export async function replaceBlogArticle(formData: FormData) {
   const id = z.string().min(1).parse(formData.get("id"));
+  const brief = formData.has("brief") ? parseBrief(formData.get("brief")) : undefined;
+  if (brief === null) throw new CalendarValidationError(`La consigna admite hasta ${BRIEF_MAX} caracteres.`);
   const slot = await editableSlot(id);
   await prisma.$transaction(async (tx) => {
     if (slot.analysisRunId) await requeueAnalysis(tx, slot.analysisRunId, slot.clientId, slot.client.slug === "pcmidi");
-    const changed = await tx.blogPublication.updateMany({ where: { id, status: slot.status, updatedAt: slot.updatedAt, landingId: slot.landingId }, data: { ...(slot.analysisRunId ? { requiresApproval: true, approvedAt: null } : {}), landingId: null, status: "PLANNED", attempts: 0, lastError: "", errorCode: "", preparation: waitingPreparation(slot.preparation) } });
+    const changed = await tx.blogPublication.updateMany({ where: { id, status: slot.status, updatedAt: slot.updatedAt, landingId: slot.landingId }, data: { ...(slot.analysisRunId ? { requiresApproval: true, approvedAt: null } : {}), landingId: null, status: "PLANNED", attempts: 0, lastError: "", errorCode: "", preparation: waitingPreparation(slot.preparation, brief) } });
     if (!changed.count) throw new CalendarValidationError("La fecha cambió. Recargá el calendario.");
     if (slot.landingId) await tx.landing.update({ where: { id: slot.landingId }, data: { status: "ARCHIVED" } });
   });
@@ -244,13 +266,14 @@ async function requeueAnalysis(tx: Prisma.TransactionClient, runId: string, clie
 }
 
 /** Las acciones del panel devuelven errores seguros, también en producción. */
-export async function requestBlogPreparation(kind: "replace" | "restore" | "retry", id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function requestBlogPreparation(kind: "replace" | "restore" | "retry", id: string, brief?: string): Promise<{ ok: true } | { ok: false; error: string }> {
   const input = z.object({ kind: z.enum(["replace", "restore", "retry"]), id: z.string().min(1) }).safeParse({kind,id});
   if (!input.success) return { ok: false, error: "Elegí una acción válida para el artículo." };
   try {
     const slot = await editableSlot(id);
     if (!editorialCalendarEnabled(slot.client)) return { ok: false, error: "Configurá el calendario editorial del cliente." };
     const data = new FormData(); data.set("id",id);
+    if (kind === "replace" && typeof brief === "string") data.set("brief", brief);
     await ({ replace: replaceBlogArticle, restore: restoreBlogDate, retry: retryBlogPreparation }[kind])(data);
     return { ok: true };
   } catch (error) {

@@ -41,6 +41,7 @@ SEED_TOPICS_PATH = DATA_DIR / "temas_semilla.csv"
 _CLIENT_CONFIG: dict = {}
 _GENERATION_LANGUAGE = ""
 _GENERATION_COMPARISON = False
+OPERATOR_BRIEF_MAX = 500
 _RENDER_LANGUAGE = "es"
 
 
@@ -1262,11 +1263,18 @@ Usa español rioplatense claro y humano."""
             editorial_fields += '\n  "decision_support": null,'
         system = system.replace("No menciones precios, stock, disponibilidad, distribuidor oficial, soporte tecnico oficial, exclusividad, reparaciones, alquileres, clases formales, grabacion, mezcla ni mastering.", "Las afirmaciones técnicas y comerciales solo pueden usar evidencia explícita del brief. No afirmes que PC MIDI presta servicios que no estén documentados.")
         editorial_rules = editorial_rules.replace("ejemplos de uso reales", "ejemplos ilustrativos identificados como tales")
+    operator_brief = str(topic.get("operator_brief") or "").strip()
+    operator_rules = (
+        f"\nCONSIGNA DEL EQUIPO (manda sobre el tema semilla): {operator_brief}\n"
+        "Escribí el artículo sobre esta consigna: respetá el tema, el enfoque y el público que pide. "
+        "Elegí una búsqueda objetivo concreta que la represente. Las reglas de no inventar precios, stock, garantía, "
+        "datos técnicos ni productos siguen mandando: si la consigna pide algo sin evidencia, tratalo de forma general.\n"
+    ) if operator_brief else ""
     user = f"""Tema semilla:
 - keyword: {topic.get('keyword', '')}
 - intencion: {topic.get('intencion', '')}
 - categorias sugeridas: {topic.get('categorias_sugeridas', '')}
-
+{operator_rules}
 Catalogo cerrado permitido:
 {json.dumps(catalog, ensure_ascii=False)}
 {editorial_brief}
@@ -1439,6 +1447,8 @@ def apply_editorial_metadata(topic: dict, landing: dict, cluster: dict | None) -
     landing["published_at"] = now
     landing["updated_at"] = now
     landing.setdefault("source_refs", [])
+    if topic.get("operator_brief"):
+        landing["operator_brief"] = str(topic["operator_brief"])
     comparison = topic.get("comparison")
     if comparison:
         landing["comparison"] = dict(comparison)
@@ -1481,6 +1491,17 @@ def topic_overlap(candidate: str, reference: str) -> float:
     if not candidate_terms or not reference_terms:
         return 0.0
     return len(candidate_terms & reference_terms) / len(candidate_terms | reference_terms)
+
+
+def add_operator_overlap_warning(landing: dict, existing: list[dict]) -> None:
+    """Avisa (sin bloquear) cuando el tema pedido se parece a un artículo existente."""
+    reason = editorial_overlap_reason(str(landing.get("keyword") or ""), existing) or editorial_overlap_reason(str(landing.get("h1") or ""), existing)
+    if not reason:
+        return
+    quality = landing.setdefault("editorial_quality", {"version": 1, "checkedAt": datetime.now(timezone.utc).isoformat(), "checks": [], "publishable": True})
+    checks = quality.setdefault("checks", [])
+    if not any(check.get("id") == "operator-overlap" for check in checks):
+        checks.append({"id": "operator-overlap", "group": "SEO", "level": "warning", "message": f"El tema pedido se parece a un artículo existente ({reason}). Revisá que aporte algo distinto."})
 
 
 def editorial_overlap_reason(candidate: str, existing: list[dict]) -> str:
@@ -1712,7 +1733,8 @@ def validate_editorial_candidate(
         if any(str(item.get(field) or "").strip().lower() == value for item in existing):
             errors.append(f"{label}: {field} duplicado con otra publicación")
     reason = editorial_overlap_reason(str(landing.get("keyword") or ""), existing) or editorial_overlap_reason(str(landing.get("h1") or ""), existing)
-    if reason:
+    # Un tema pedido por el equipo se genera igual; el parecido queda como aviso.
+    if reason and not landing.get("operator_brief"):
         errors.append(f"{label}: contenido duplicado o canibalizante ({reason})")
     cluster_slugs = {str(cluster.get("slug")) for cluster in clusters}
     cluster_slug = str(landing.get("cluster_slug") or "")
@@ -2403,7 +2425,21 @@ def preparation_progress(phase: str) -> None:
         print("BLOG_PROGRESS:" + json.dumps({"attemptId": attempt, "phase": phase}), flush=True)
 
 
-def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds: int = 0, research_first: bool = False, schedule_date: str = "") -> dict:
+def operator_topic(brief: str, intent: str, clusters: list[dict], pillar_slugs: set[str]) -> dict | None:
+    """Tema pedido por el equipo. Va a su cluster natural o, si no tiene pilar
+    todavía, al primero que lo tenga (igual que las comparativas)."""
+    brief = re.sub(r"\s+", " ", brief).strip()[:OPERATOR_BRIEF_MAX]
+    if not brief:
+        return None
+    keyword = brief if len(brief) <= 90 else brief[:90].rsplit(" ", 1)[0]
+    topic = {"keyword": keyword, "busqueda_objetivo": brief, "intencion": intent, "source": "operator", "operator_brief": brief}
+    cluster = editorial_cluster_for(topic, clusters)
+    if not cluster or cluster["slug"] not in pillar_slugs:
+        cluster = next((item for item in clusters if item["slug"] in pillar_slugs), None)
+    return {**topic, "cluster_slug": cluster["slug"]} if cluster else None
+
+
+def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds: int = 0, research_first: bool = False, schedule_date: str = "", brief: str = "") -> dict:
     if client_slug_active() == "pcmidi" and _CLIENT_CONFIG.get("id") and os.environ.get("DATABASE_URL") and not schedule_date and not dry_run:
         raise RuntimeError("Para PC MIDI, prepará artículos privados desde el calendario con --schedule-date.")
     if schedule_date and limit != 1:
@@ -2448,7 +2484,13 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
     # se agregan, pero no pueden desplazarla ni repetir una sola categoría.
     pillar_topics = editorial_pillar_topics(clusters, existing) if editorial_mode else []
     seeds = load_seed_topics()
-    if schedule_date:
+    if schedule_date and brief.strip():
+        # Con consigna se escribe ese tema o nada: nunca un tema al azar.
+        requested = operator_topic(brief, scheduled_intent, clusters, pillar_slugs)
+        if not requested:
+            raise RuntimeError("No hay una sección del blog con artículo pilar donde ubicar la consigna.")
+        topics = [requested]
+    elif schedule_date:
         curated = [t for t in seeds if t.get("intencion") in ("educational", "decision") and t.get("intencion") == scheduled_intent]
         topics = curated + pillar_topics + balance_topics_by_source([t for t in seeds if t.get("intencion") not in ("educational", "decision")])
         if _GENERATION_COMPARISON and scheduled_intent == "decision" and editorial_mode:
@@ -2480,7 +2522,8 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
             break
         processed += 1
         topic_label = str(topic.get("keyword") or topic.get("busqueda_objetivo") or "")
-        if any(term in topic_label.lower() for term in excluded_terms):
+        requested_by_team = topic.get("source") == "operator"
+        if not requested_by_team and any(term in topic_label.lower() for term in excluded_terms):
             skipped = {"keyword": topic_label, "reason": "excluded_by_operator"}
             skipped_items.append(skipped)
             append_generation_event(run_id, {"command": "generate", "event": "skipped", "dry_run": dry_run, **skipped})
@@ -2516,13 +2559,13 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
                 intent = scheduled_intent or inferred
                 topic = {**topic, "editorial_intent": intent}
         print("@@landing-progress " + json.dumps({"event": "processing", "keyword": topic.get("keyword") or topic.get("busqueda_objetivo") or "Tema sin nombre"}, ensure_ascii=False), flush=True)
-        if topic_key_from_record(topic) in existing_keywords:
+        if not requested_by_team and topic_key_from_record(topic) in existing_keywords:
             skipped = {"keyword": topic.get("keyword") or topic.get("busqueda_objetivo"), "reason": "already_exists"}
             skipped_items.append(skipped)
             append_generation_event(run_id, {"command": "generate", "event": "skipped", "dry_run": dry_run, **skipped})
             continue
         overlap_reason = editorial_overlap_reason(topic_label, existing) if editorial_mode else ("near_duplicate" if is_near_duplicate_topic(topic_label, existing) else "")
-        if overlap_reason:
+        if overlap_reason and not requested_by_team:
             skipped = {"keyword": topic_label, "reason": "near_duplicate", "detail": overlap_reason}
             skipped_items.append(skipped)
             append_generation_event(run_id, {"command": "generate", "event": "skipped", "dry_run": dry_run, **skipped})
@@ -2582,6 +2625,8 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
             # únicos) también se corrigen antes de bloquear: el borrador que
             # llega al calendario tiene que poder publicarse.
             landing = repair_structural_issues(landing, topic, cluster, system, user, model, existing, clusters, pillar_slugs, categories, products, source_bank, use_quality, run_id, dry_run, max_seconds and max_seconds - (time.monotonic() - started_at))
+        if requested_by_team:
+            add_operator_overlap_warning(landing, existing)
         if schedule_date:
             landing.pop("published_at", None)
         if landing["slug"] in existing_slugs:
@@ -4298,6 +4343,7 @@ def main() -> None:
     generate_parser = sub.add_parser("generate")
     generate_parser.add_argument("--language", choices=["es", "en", "de"], default="")
     generate_parser.add_argument("--comparison", action="store_true")
+    generate_parser.add_argument("--brief", default="", help="Consigna del equipo para el artículo de --schedule-date")
     generate_parser.add_argument("--limit", type=int, default=50, help="Cantidad maxima de landings nuevas")
     generate_parser.add_argument("--model", default=os.environ.get("OPENROUTER_MODEL", DEFAULT_MODEL), help="Modelo OpenRouter")
     generate_parser.add_argument("--dry-run", action="store_true", help="Genera y valida sin guardar")
@@ -4374,7 +4420,7 @@ def main() -> None:
     elif args.command == "discover":
         discover_opportunities(limit=args.limit, use_reddit=not args.no_reddit, use_youtube=not args.no_youtube)
     elif args.command == "generate":
-        generate_landings(limit=args.limit, model=args.model, dry_run=args.dry_run, max_seconds=args.max_seconds, research_first=args.research_first, schedule_date=args.schedule_date)
+        generate_landings(limit=args.limit, model=args.model, dry_run=args.dry_run, max_seconds=args.max_seconds, research_first=args.research_first, schedule_date=args.schedule_date, brief=args.brief)
     elif args.command == "run":
         run_pipeline(limit=args.limit, model=args.model, base_url=args.base_url, dry_run=args.dry_run, max_seconds=args.max_seconds)
     elif args.command == "deploy":

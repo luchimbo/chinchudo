@@ -6,6 +6,8 @@ import { draftFromContent, mergeDraft, type ArticleDraft } from "@/lib/article-e
 import { editableArticleContent, loadBlogEvidence } from "@/lib/blog-evidence";
 
 export const runtime = "nodejs";
+// Cada relay tiene 25 s; si el primero no responde todavía queda tiempo para el segundo.
+export const maxDuration = 60;
 
 // Tanto la versión guardada como el borrador usan la plantilla real del blog.
 async function previewArticle(request: Request, articleId: string, withDraft: boolean) {
@@ -54,6 +56,7 @@ async function previewArticle(request: Request, articleId: string, withDraft: bo
     return new NextResponse(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Error desconocido";
+    console.error("[blog-preview] No se pudo generar la vista previa", articleId, error);
     return new NextResponse(`No se pudo generar la vista previa.\n${message}`, { status: 500 });
   }
 }

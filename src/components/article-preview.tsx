@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { LoadingMessage } from "./loading-ui";
 import type { ArticleDraft } from "@/lib/article-edit";
 
-type PreviewProps = { articleId: string; draft?: ArticleDraft; onClose: () => void };
+type PreviewProps = { articleId: string; draft?: ArticleDraft; liveUrl?: string; onClose: () => void };
 
 function focusTargets(root: HTMLElement | Document): HTMLElement[] {
   return Array.from(root.querySelectorAll<HTMLElement>("a[href], button, input, select, textarea, summary, [tabindex], iframe"))
@@ -18,7 +18,7 @@ function focusTargets(root: HTMLElement | Document): HTMLElement[] {
     });
 }
 
-export function PreviewDialog({ articleId, draft, onClose }: PreviewProps) {
+export function PreviewDialog({ articleId, draft, liveUrl, onClose }: PreviewProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const iframeCleanup = useRef<(() => void) | null>(null);
@@ -130,8 +130,18 @@ export function PreviewDialog({ articleId, draft, onClose }: PreviewProps) {
       <div aria-busy={!error && (!html || !frameReady)} className="relative flex min-h-0 flex-1 justify-center overflow-auto bg-ink/[0.04] p-3">
         {error ? (
           <div className="flex min-h-[60dvh] max-w-full flex-col items-center justify-center gap-4 p-4">
-            <p role="alert" className="max-w-full whitespace-pre-wrap break-words text-sm text-rose-700">{error}</p>
-            <button type="button" onClick={() => { closeButtonRef.current?.focus(); setAttempt((value) => value + 1); }} className="rounded-lg border border-ink/20 px-4 py-2 text-sm font-semibold hover:bg-ink/5">Reintentar</button>
+            {(() => {
+              // La primera línea es el mensaje para el operador; el resto es detalle técnico.
+              const [summary, ...detail] = error.split("\n");
+              return <div role="alert" className="max-w-xl text-center text-sm text-rose-700">
+                <p className="whitespace-pre-wrap break-words font-semibold">{summary}</p>
+                {detail.join("").trim() ? <details className="mt-2 text-left text-xs text-slate"><summary className="cursor-pointer text-center">Detalle técnico</summary><p className="mt-1 whitespace-pre-wrap break-words">{detail.join("\n")}</p></details> : null}
+              </div>;
+            })()}
+            <div className="flex flex-wrap justify-center gap-2">
+              <button type="button" onClick={() => { closeButtonRef.current?.focus(); setAttempt((value) => value + 1); }} className="rounded-lg border border-ink/20 px-4 py-2 text-sm font-semibold hover:bg-ink/5">Reintentar</button>
+              {liveUrl ? <a href={liveUrl} target="_blank" rel="noreferrer" className="rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-paper">Ver en el blog ↗</a> : null}
+            </div>
           </div>
         ) : html ? (
           <>
@@ -145,12 +155,12 @@ export function PreviewDialog({ articleId, draft, onClose }: PreviewProps) {
   );
 }
 
-export function ArticlePreviewButton({ articleId, className }: { articleId: string; className?: string }) {
+export function ArticlePreviewButton({ articleId, className, liveUrl }: { articleId: string; className?: string; liveUrl?: string }) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <button type="button" aria-haspopup="dialog" onClick={() => setOpen(true)} className={className || "rounded-lg border border-ink/20 px-3 py-1.5 text-xs font-semibold text-ink hover:bg-ink/5"}>Vista previa</button>
-      {open ? <PreviewDialog key={articleId} articleId={articleId} onClose={() => setOpen(false)} /> : null}
+      {open ? <PreviewDialog key={articleId} articleId={articleId} liveUrl={liveUrl} onClose={() => setOpen(false)} /> : null}
     </>
   );
 }

@@ -304,12 +304,14 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
       generationClients.add(targetClientSlug);
       const language = empty.preparation?.language || client.responsePolicy?.blog?.language || "es";
       const day = empty.scheduledDate.toISOString().slice(0, 10);
-      const comparison = editorialIntentForDate(day) === "decision" && (typeof empty.preparation?.comparison === "boolean" ? empty.preparation.comparison : client.responsePolicy?.blog?.comparisons === true);
-      const metadata = { ...newPreparation(now(), 240_000), language, comparison };
+      // La consigna del operador define el tema; reemplaza la comparativa automática.
+      const brief = typeof empty.preparation?.brief === "string" ? empty.preparation.brief.trim().slice(0, 500) : "";
+      const comparison = !brief && editorialIntentForDate(day) === "decision" && (typeof empty.preparation?.comparison === "boolean" ? empty.preparation.comparison : client.responsePolicy?.blog?.comparisons === true);
+      const metadata = { ...newPreparation(now(), 240_000), language, comparison, ...(brief ? { brief } : {}) };
       const generationClaim = await prisma.blogPublication.updateMany({ where: { id: empty.id, updatedAt: empty.updatedAt, landingId: null, attempts: empty.attempts, status: { in: ["PLANNED", "FAILED"] } }, data: { attempts: { increment: 1 }, status: "PLANNED", lastError: "", errorCode: "", preparation: metadata } });
       if (!generationClaim.count) { generationClients.delete(targetClientSlug); return; }
       try {
-        await runBlogPython(["generate", "--limit", "1", "--schedule-date", day, "--max-seconds", "180", "--language", language, ...(comparison ? ["--comparison"] : [])], client.id, 240_000, {
+        await runBlogPython(["generate", "--limit", "1", "--schedule-date", day, "--max-seconds", "180", "--language", language, ...(comparison ? ["--comparison"] : []), ...(brief ? ["--brief", brief] : [])], client.id, 240_000, {
           attemptId: metadata.attemptId,
           onPhase: phase => setPreparationPhase(prisma, empty.id, client.id, metadata, phase, now()),
         });

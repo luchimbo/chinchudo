@@ -259,6 +259,41 @@ def test_editorial_candidate_validation(monkeypatch):
     assert any("no tiene artículo pilar" in error for error in bl.validate_editorial_candidate(no_pillar, existing, clusters, {"controladores-midi"}))
 
 
+def test_operator_brief_routes_to_a_cluster_with_pillar(monkeypatch):
+    monkeypatch.setattr(bl, "_CLIENT_CONFIG", {"slug": "pcmidi"})
+    clusters = [dict(item) for item in bl.EDITORIAL_CLUSTERS]
+    brief = "Cómo elegir   una interfaz para grabar voz en casa, para alguien que recién empieza"
+    topic = bl.operator_topic(brief, "educational", clusters, {"grabacion-en-casa", "controladores-midi"})
+    assert topic["source"] == "operator" and topic["operator_brief"] == re.sub(r"\s+", " ", brief)
+    assert topic["cluster_slug"] == "grabacion-en-casa" and topic["intencion"] == "educational"
+    # Sin pilar en su cluster natural, va al primero que lo tenga en vez de descartarse.
+    assert bl.operator_topic(brief, "educational", clusters, {"controladores-midi"})["cluster_slug"] == "controladores-midi"
+    assert bl.operator_topic(brief, "educational", clusters, set()) is None
+    assert bl.operator_topic("   ", "educational", clusters, {"controladores-midi"}) is None
+    assert len(bl.operator_topic("palabra " * 200, "decision", clusters, {"controladores-midi"})["operator_brief"]) <= bl.OPERATOR_BRIEF_MAX
+
+
+def test_operator_brief_overlap_warns_without_blocking(monkeypatch):
+    monkeypatch.setattr(bl, "_CLIENT_CONFIG", {"slug": "pcmidi"})
+    clusters = [{"slug": "controladores-midi", "name": "Controladores"}]
+    existing = [article("controlador-midi-para-ableton", "controladores-midi")]
+    requested = article("otra", "controladores-midi", keyword="controlador midi para ableton live", operator_brief="controlador midi para ableton live")
+    assert not any("canibaliza" in error for error in bl.validate_editorial_candidate(requested, existing, clusters, {"controladores-midi"}))
+    bl.add_operator_overlap_warning(requested, existing)
+    bl.add_operator_overlap_warning(requested, existing)
+    warnings = [check for check in requested["editorial_quality"]["checks"] if check["id"] == "operator-overlap"]
+    assert len(warnings) == 1 and warnings[0]["level"] == "warning"
+
+
+def test_operator_brief_reaches_the_prompt(monkeypatch):
+    monkeypatch.setattr(bl, "_CLIENT_CONFIG", {"slug": "pcmidi", "name": "PC MIDI Center"})
+    topic = {"keyword": "tema", "intencion": "educational", "operator_brief": "Explicá qué es la latencia para principiantes"}
+    _, user = bl.generation_prompt(topic, CATEGORIES, PRODUCTS)
+    assert "CONSIGNA DEL EQUIPO" in user and "latencia para principiantes" in user
+    _, plain = bl.generation_prompt({"keyword": "tema", "intencion": "educational"}, CATEGORIES, PRODUCTS)
+    assert "CONSIGNA" not in plain
+
+
 def test_weekly_quota_counts_only_this_week(monkeypatch):
     monkeypatch.setattr(bl, "_CLIENT_CONFIG", {"slug": "pcmidi"})
     monkeypatch.delenv("DATABASE_URL", raising=False)

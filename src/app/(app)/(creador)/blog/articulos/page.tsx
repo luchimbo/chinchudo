@@ -213,7 +213,7 @@ export default async function LandingsPage({
                 </div>
 
                 <div className="flex flex-wrap gap-2 items-center">
-                  <ArticlePreviewButton articleId={landing.id} />
+                  <ArticlePreviewButton articleId={landing.id} liveUrl={landing.status === "PUBLISHED" && (landing.publicPreviewUrl || landing.contentCluster) ? liveUrl(landing) : undefined} />
                   {activeClient.slug === "pcmidi" && ["GUIDE", "PILLAR"].includes(landing.contentType) ? <Link href={`/blog/articulos/${landing.id}?client=pcmidi`} className="rounded-lg border border-moss/30 px-3 py-1.5 text-xs font-semibold text-moss">Editar artículo</Link> : null}
                   {landing.blogPublication ? <Link href="/blog/calendario?client=pcmidi" className="rounded-lg border border-ink/15 px-3 py-1.5 text-xs">Administrar fecha en el calendario</Link> : null}
                   {!landing.blogPublication && landing.status === "DRAFT" && (
