@@ -1,3 +1,4 @@
+import { detectKressmerLanguage, kressmerTextReason } from "./kressmer-radar";
 import type { Brand, PrismaClient, Service } from "@prisma/client";
 import { logger } from "./logger";
 import { validateClassifiedEntities } from "./brand-identity";
@@ -14,7 +15,7 @@ import {
 export type ClassificationResult = {
   isSpanish: boolean;
   isSupportedLanguage: boolean;
-  language: "es" | "en" | "pt" | "other";
+  language: "es" | "en" | "de" | "pt" | "other";
   isSpamOrFluff: boolean;
   isRelevant: boolean;
   actionableReason: string;
@@ -132,8 +133,11 @@ ${servicesList || "- Ningún servicio en catálogo"}
 ### Conocimiento básico:
 ${kbSummary || "- Ningún conocimiento cargado"}
 
+${client.slug === "kressmer" ? `## Política obligatoria Kressmer
+Solo comentarios con necesidades concretas sobre pianos digitales y teclados musicales. Aceptá español, inglés y alemán (de); portugués y otros idiomas no están soportados para Kressmer. El catálogo vacío NO implica falta de relevancia: orientá por categoría sin inventar modelos ni especificaciones. Descartá promociones y elogios sin consulta; no uses contextual_presence para completar volumen.
+` : ""}
 ## Reglas de Evaluación e Idioma
-1. **Idioma**: Detectá el idioma del post/comentario. Soportamos los siguientes idiomas: ESPAÑOL ("es"), INGLÉS ("en") y PORTUGUÉS ("pt"). Si el comentario está en cualquiera de estos tres idiomas, consideralo soportado ("isSupportedLanguage": true). Si el comentario está en cualquier otro idioma, indicalo como "other" ("isSupportedLanguage": false). Si el idioma es español, marcá "isSpanish": true (de lo contrario false).
+1. **Idioma**: ${client.slug === "kressmer" ? 'Aplicá la política Kressmer anterior: solo es/en/de; "isSupportedLanguage" depende de esa política.' : ""} Detectá el idioma del post/comentario. Soportamos los siguientes idiomas: ${client.slug === "kressmer" ? 'ESPAÑOL ("es"), INGLÉS ("en") y ALEMÁN ("de")' : 'ESPAÑOL ("es"), INGLÉS ("en") y PORTUGUÉS ("pt")'}. Si el comentario está en cualquiera de estos tres idiomas, consideralo soportado ("isSupportedLanguage": true). Si el comentario está en cualquier otro idioma, indicalo como "other" ("isSupportedLanguage": false). Si el idioma es español, marcá "isSpanish": true (de lo contrario false).
 2. **Spam o Ruido**: Comentarios de un solo emoji, etiquetas a amigos (ej. "@juan look"), o expresiones vacías y de alabanza sin contenido ("qué lindo", "me gusta", "buena foto") deben marcarse como "isSpamOrFluff": true.
 3. **Relevancia comercial**: Para ser relevante ("isRelevant": true), el texto debe mencionar, consultar o discutir temas de las marcas, productos o del nicho de mercado del cliente (ej: si el cliente vende controladores midi, preguntar sobre latencia, pianos, drivers, o grabaciones de home studio es relevante. Si el cliente vende medias, preguntar sobre abrigo, calzado, medias térmicas, es relevante. Si preguntan sobre comida, viajes o temas ajenos, marca "isRelevant": false).
    - Para **PC MIDI**, una mención de Millenium junto con batería electrónica, drums o un modelo MPS es un competidor relevante. Clasificala como COMPETITOR_MENTION, COMPARISON, COMPLAINT o la intención directa que corresponda; no la descartes por no pertenecer al catálogo propio.
@@ -172,7 +176,7 @@ ${kbSummary || "- Ningún conocimiento cargado"}
 ## Formato de Salida Requerido (JSON estricto, sin tags markdown)
 Devuelve únicamente un objeto JSON con las siguientes propiedades. No agregues explicaciones fuera del JSON.
 {
-  "language": "es" | "en" | "pt" | "other",
+  "language": "es" | "en" | "de" | "pt" | "other",
   "isSupportedLanguage": true/false,
   "isSpanish": true/false,
   "isSpamOrFluff": true/false,
@@ -262,10 +266,10 @@ Devuelve únicamente un objeto JSON con las siguientes propiedades. No agregues 
       && (assessment.opportunityType === "direct_response" || contextualValid);
     return {
       isSpanish: !!parsed.isSpanish,
-      isSupportedLanguage: !!parsed.isSupportedLanguage,
-      language: parsed.language || "es",
+      isSupportedLanguage: client.slug === "kressmer" ? detectKressmerLanguage(candidate.sourceText) !== "other" : !!parsed.isSupportedLanguage,
+      language: client.slug === "kressmer" ? detectKressmerLanguage(candidate.sourceText) : parsed.language || "es",
       isSpamOrFluff: !!parsed.isSpamOrFluff,
-      isRelevant,
+      isRelevant: client.slug === "kressmer" ? isRelevant && assessment.opportunityType === "direct_response" && !kressmerTextReason(candidate.sourceText, candidate.sourceTitle || candidate.videoTitle) : isRelevant,
       actionableReason: parsed.actionableReason || "",
       detectedIntent,
       priority: priorityFromOpportunityScore(opportunityScore, detectedIntent),
@@ -276,6 +280,7 @@ Devuelve únicamente un objeto JSON con las siguientes propiedades. No agregues 
     };
   } catch (error) {
     logClassifierError(`Error al clasificar oportunidad de canal ${candidate.channel}`, error);
+    if (client.slug === "kressmer") throw error;
     // Fallback básico ante falla del modelo
     const directFallback = hasDirectFallbackSignal(`${candidate.sourceTitle || ""} ${candidate.videoTitle || ""} ${candidate.sourceText}`);
     const fallbackIntent = directFallback ? "GENERAL_DISCUSSION" : "GENERAL_DISCUSSION";

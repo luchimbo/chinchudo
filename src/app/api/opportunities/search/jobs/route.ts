@@ -32,6 +32,10 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Cliente no autorizado." }, { status: 403 });
   }
+  const client = await prisma.client.findUniqueOrThrow({ where: { id: result.data.clientId }, select: { slug: true } });
+  if (client.slug === "kressmer" && (result.data.channels.some(channel => channel !== "youtube") || result.data.language === "pt")) {
+    return NextResponse.json({ error: "Kressmer: solo YouTube e idiomas español, inglés o alemán." }, { status: 400 });
+  }
   const job = createOpportunitySearchJob(result.data);
   return NextResponse.json({ jobId: job.id, job });
 }

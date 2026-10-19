@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 const CHANNELS = ["youtube", "reddit", "facebook", "instagram", "x", "tiktok", "linkedin"] as const;
-const LANGUAGES = ["es", "en", "pt", "any"] as const;
+const LANGUAGES = ["es", "en", "de", "pt", "any"] as const;
 const SEARCH_CHANNEL_TIMEOUT_MS = 90_000;
 
 const searchSchema = z.object({
@@ -203,6 +203,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Cliente no autorizado." }, { status: 403 });
   }
 
+  const client = await prisma.client.findUniqueOrThrow({ where: { id: parsed.clientId }, select: { slug: true } });
+  if (client.slug === "kressmer" && (parsed.channels.some(channel => channel !== "youtube") || parsed.language === "pt")) {
+    return NextResponse.json({ error: "Kressmer: solo YouTube e idiomas español, inglés o alemán." }, { status: 400 });
+  }
   const { query, suggestions } = await buildQuery(parsed.clientId, parsed.query);
 
   if (await shouldUseRelay()) {

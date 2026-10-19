@@ -24,6 +24,7 @@ import { loadRelevantCompetitorEvidence } from "../src/lib/competitor-evidence";
 import { getAcceptedExamples, getClientMemories } from "../src/lib/client-memory";
 import { findSimilarDraft } from "../src/lib/draft-uniqueness";
 import { operationalOpportunityWhere } from "../src/lib/opportunity-channels";
+import { argentinaDayStart } from "../src/lib/kressmer-radar";
 import { mentionedBrandId } from "../src/lib/brand-identity";
 
 loadEnv();
@@ -76,6 +77,10 @@ async function main() {
       },
     ],
   };
+  if (args.clientSlug === "kressmer") {
+    whereClause.createdAt = { gte: argentinaDayStart() };
+    whereClause.OR.push({ client: { slug: "kressmer" }, signalType: "actionable_question" });
+  }
   if (args.opportunityId) whereClause.id = args.opportunityId;
   if (!args.replacePending) whereClause.responses = { none: {} };
 
@@ -167,7 +172,7 @@ async function main() {
         });
         if (claimed.count === 0) continue;
       }
-      await recordObservedProfileEvent(prisma, {
+      if (!args.dryRun) await recordObservedProfileEvent(prisma, {
         opportunityId: opportunity.id,
         clientId: resolution.client.id,
         platform: opportunity.channel.name,
@@ -235,7 +240,7 @@ async function main() {
     }
 
     const suggestions = (await suggestAllPersonasForClient(prisma, opportunity, resolution.client.id, observedProfile))
-      .slice(0, args.allPersonas ? undefined : 1);
+      .slice(0, resolution.client.slug !== "kressmer" && args.allPersonas ? undefined : 1);
 
     const allRows: {
       id: string;
@@ -345,7 +350,7 @@ async function main() {
           }
           for (const variant of variants) knownDrafts.add(variant.draftText);
           source = "ai-unique";
-        } else if (args.copilot) {
+        } else if (args.copilot || resolution.client.slug === "kressmer") {
           const automaticGuidance = /\b(reclamo|queja|garant[ií]a|no funciona|problema|estafa|tragedia|violencia)\b/i.test(opportunity.sourceText) || opportunity.detectedIntent === "WARRANTY_QUESTION"
             ? "Estilo: con cuidado. Es un tema sensible o un reclamo: priorizá empatía y claridad. No uses humor ni referencias de actualidad."
             : /(?:\bjaja(?:ja)?\b|\bmeme\b|😂|🤣|😅|🔥)/i.test(opportunity.sourceText)
@@ -354,6 +359,7 @@ async function main() {
                 ? "Objetivo: orientar la compra de forma breve, específica y sin presión."
                 : "Estilo: natural y directo. Respondé primero a lo que plantea el comentario.";
             const aiProposal = allowAi ? await generateAICopilotDraft({ ...ctx, editorialGuidance: automaticGuidance }) : null;
+            if (!aiProposal && resolution.client.slug === "kressmer") throw new Error("Kressmer: IA o idioma no válido; pendiente para reintentar, sin fallback local.");
             const proposal = aiProposal
             ?? { ...(generateLocalDrafts(ctx).find((draft) => draft.variantType === "SHORT") ?? generateLocalDrafts(ctx)[0]), draftText: shortenCopilotText((generateLocalDrafts(ctx).find((draft) => draft.variantType === "SHORT") ?? generateLocalDrafts(ctx)[0]).draftText) };
           variants = [{ ...proposal, variantType: "SHORT" as const }];
@@ -435,8 +441,8 @@ async function main() {
       channelEnabled: channelSetting?.value === "true",
     });
     const contextualPresence = opportunity.signalType === "contextual_presence";
-    const autoApprove = !args.copilot && !args.draftOnly && !args.replacePending && !contextualPresence && resolution.client.autoApprove && !opportunityHadError && resolution.confidence === "high" && legalPublish.allowed;
-    const autoPublish = !args.copilot && !args.draftOnly && !args.replacePending && !contextualPresence && resolution.client.autoPublish && !opportunityHadError && resolution.confidence === "high" && legalPublish.allowed;
+    const autoApprove = resolution.client.slug !== "kressmer" && !args.copilot && !args.draftOnly && !args.replacePending && !contextualPresence && resolution.client.autoApprove && !opportunityHadError && resolution.confidence === "high" && legalPublish.allowed;
+    const autoPublish = resolution.client.slug !== "kressmer" && !args.copilot && !args.draftOnly && !args.replacePending && !contextualPresence && resolution.client.autoPublish && !opportunityHadError && resolution.confidence === "high" && legalPublish.allowed;
 
     if (autoApprove || autoPublish) {
       const bestPersonaName = suggestions[0]?.personaName;

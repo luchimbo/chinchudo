@@ -230,9 +230,9 @@ def start_nstbrowser_profile(config: dict) -> dict:
         # un perfil que ya está corriendo. Reutilizar la sesión existente evita
         # cortar el CDP que usan otros agentes.
         running_response = nstbrowser_request(f"{base}/browsers", method="GET")
-        running_items = running_response.get("data", []) if isinstance(running_response, dict) else []
+        running_items = (running_response.get("data") or []) if isinstance(running_response, dict) else []
         running = next(
-            (item for item in running_items if item.get("profileId") == profile_id and item.get("running")),
+            (item for item in running_items if isinstance(item, dict) and item.get("profileId") == profile_id and item.get("running")),
             None,
         )
         if running and running.get("remoteDebuggingPort"):
@@ -262,7 +262,9 @@ def start_nstbrowser_profile(config: dict) -> dict:
     if not isinstance(response, dict) or response.get("err"):
         raise RuntimeError(f"Nstbrowser API error para {config['id']}: {response}")
 
-    data = response.get("data", {})
+    data = response.get("data") or {}
+    if not isinstance(data, dict):
+        raise RuntimeError(f"NSTBrowser devolvió datos inválidos para {config['id']}")
     port = data.get("port")
     ws_endpoint = data.get("webSocketDebuggerUrl", "")
 

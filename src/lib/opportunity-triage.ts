@@ -1,10 +1,12 @@
 import type { OpportunityIntent, OpportunityPriority } from "@prisma/client";
+import { kressmerTextReason } from "./kressmer-radar";
 import { classifyJurispediaSafety } from "./jurispedia-policy";
 // @ts-ignore -- operational radar rules are shared with the draft worker.
 import { isPrestigeRadarCandidate, isPrestigeUnsafeContent } from "./prestige-radar.mjs";
 
 type TriageInput = {
   sourceText: string;
+  sourceTitle?: string;
   sourceAuthor?: string | null;
   detectedIntent?: OpportunityIntent | string | null;
   priority?: OpportunityPriority | string | null;
@@ -82,6 +84,10 @@ function hasAny(haystack: string, terms: string[]) {
 }
 
 export function triageOpportunity(input: TriageInput): TriageDecision {
+  if (input.clientSlug === "kressmer") {
+    const reason = kressmerTextReason(input.sourceText, input.sourceTitle);
+    return { action: reason ? "discard" : "keep", reason: reason || "Consulta sobre piano o teclado musical", score: reason ? -10 : 8 };
+  }
   if (input.clientSlug === "jurispedia") {
     const decision = classifyJurispediaSafety(input.sourceText);
     return { action: decision.allowed ? "keep" : "discard", score: decision.allowed ? 8 : -10, reason: decision.reason };

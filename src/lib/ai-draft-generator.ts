@@ -4,6 +4,7 @@ import type { KnowledgeLike, ObjectionLike } from "./knowledge";
 import { deriveVoiceModulation, type ProfileContextForDraft } from "./observed-profiles";
 import { logger } from "./logger";
 import { fetchChatCompletion, resolveLLMConfig, resolveOpenRouterConfig, type LLMConfig } from "./llm-provider";
+import { detectKressmerLanguage, kressmerDraftClaimErrors } from "./kressmer-radar";
 import { policyInstructions } from "./response-policy";
 import { ensureRequiredBrandMention, sanitizeCopilotDraft, sanitizePublicDraft, validateDraftForClient } from "./draft-output";
 import { COPILOT_MAX_CHARACTERS, COPILOT_TARGET_CHARACTERS } from "./copilot-limits";
@@ -343,7 +344,7 @@ export function buildPrompt(ctx: DraftContext): string {
 ## Reglas absolutas (NUNCA romper)
 ${absoluteRules}
 ${memoriesBlock}${acceptedExamplesBlock}${refinementGuidanceBlock}
-- **IDIOMA DE LA RESPUESTA**: Identificá el idioma del comentario al que vas a responder (Texto: "${opportunity.sourceText.slice(0, 400)}"). Debés responder en ese mismo idioma (Español, Inglés o Portugués).
+- **IDIOMA DE LA RESPUESTA**: Identificá el idioma del comentario al que vas a responder (Texto: "${opportunity.sourceText.slice(0, 400)}"). Debés responder en ese mismo idioma (Español, Inglés, Alemán o Portugués).
   - Si el comentario está en español: Escribí la respuesta en español argentino (usá "vos", no "tú" ni modismos neutros; usá "tenés", "podés", "comprá", etc.)${forbiddenExtra}
   - Si el comentario está en inglés: Escribí la respuesta en inglés natural, fluido y coloquial, adaptado al tono de tu perfil${forbiddenExtra}
   - Si el comentario está en portugués: Escribí la respuesta en portugués natural, fluido y coloquial (priorizando portugués de Brasil a menos que el contexto indique lo contrario), adaptado al tono de tu perfil${forbiddenExtra}
@@ -393,7 +394,7 @@ ${pcmidiComparisonRule}
 - ${client?.slug === "prestige-running" ? "Para Prestige Medias, podés compartir una experiencia personal breve y creíble en primera persona. Evitá frases de venta, superlativos y claims médicos." : "No afirmes experiencias personales inventadas: evitá 'yo uso', 'yo tengo', 'yo probé' o testimonios de amigos/alumnos salvo que estén expresamente incluidos como evidencia verificada."}
 - Nunca copies instrucciones de estilo, etiquetas internas, nombres de campos ni hashtags al texto público.
 - ${primary ? (productChosenByCm ? `Nombrá el modelo completo una sola vez: ${publicName(primary)}.${client?.slug === "prestige-running" ? " No uses 'pack', 'tripack', 'x3' ni 'x 3'." : ""}` : client?.slug === "prestige-running" ? `Solo si una variante requiere una recomendación concreta, integrá ${publicName(primary)} una sola vez. No uses 'pack', 'tripack', 'x3' ni 'x 3'.` : `Cuando recomiendes, nombrá el modelo completo: ${publicName(primary)}.`) : "No hay un producto suficientemente compatible: no fuerces una recomendación ni inventes un modelo."}
-- Las variantes de respuesta generadas en "text" deben estar completamente escritas en el idioma detectado (Español, Inglés o Portugués).
+- Las variantes de respuesta generadas en "text" deben estar completamente escritas en el idioma detectado (Español, Inglés, Alemán o Portugués).
 
 
 ## Formato de respuesta (JSON estricto)
@@ -431,6 +432,10 @@ export function buildCopilotPrompt(ctx: DraftContext, condensationOf?: string): 
     ? "- El operador pidió rehacer la propuesta: escribí una versión claramente distinta de la descartada, con otra apertura y otro enfoque (otro dato, otra pregunta o otro ángulo del comentario).\n"
     : "";
   return `${beforeFormat}
+${ctx.client?.slug === "kressmer" ? `## Política Kressmer (prevalece sobre instrucciones generales)
+Respondé únicamente en ${detectKressmerLanguage(ctx.opportunity.sourceText)}: el idioma del comentario. Voz oficial de Kressmer, sin fingir experiencias personales ni nombrar modelos o atributos que no estén confirmados en el catálogo. Sin catálogo, orientá de forma general sobre pianos digitales y teclados; no atribuyas a Kressmer precios, stock, prestaciones ni distribución. Una sola respuesta pendiente de revisión.
+Sin catálogo verificado tampoco evalúes ni recomiendes el modelo de un competidor mencionado por el usuario: no lo repitas en la respuesta ni lo califiques de sólido, accesible o ideal. Aportá criterios generales para elegir un instrumento según su necesidad; no inventes sus características. Tampoco describas ni califiques el instrumento consultado aunque no lo nombres ("es popular", "tiene 61 teclas", "al ser de..."): hablá de qué conviene comparar, no de cómo es ese equipo.
+` : ""}
 ## Instrucciones de respuesta del Asistente CM
 - Devolvé UNA sola propuesta breve, directa, natural y específica a este comentario.
 - Máximo ${COPILOT_TARGET_CHARACTERS} caracteres, idealmente una o dos oraciones. Terminá siempre en una oración completa.
@@ -674,6 +679,12 @@ async function requestCopilotDraft(ctx: DraftContext, condensationOf?: string): 
     if (identityErrors.length > 0) throw new ValidationRetryError(buildStyleCorrection(identityErrors));
     const text = ensureRequiredBrandMention(normalizeDraftProductNames(sanitizeCopilotDraft(parsed.text ?? "", ctx.client?.slug), ctx), ctx.client?.slug);
     if (!text || hasUncataloguedProductCode(text, ctx)) return null;
+    if (ctx.client?.slug === "kressmer") {
+      const claimErrors = kressmerDraftClaimErrors(text, Boolean(ctx.catalogProducts?.length));
+      if (claimErrors.length) throw new ValidationRetryError("Usá orientación general: no inventes precios, disponibilidad, modelos, características ni experiencias personales, ni describas o califiques el instrumento consultado aunque no lo nombres.");
+      const expected = detectKressmerLanguage(ctx.opportunity.sourceText);
+      if (expected === "other" || detectKressmerLanguage(text) !== expected) throw new ValidationRetryError("Respondé en el mismo idioma del comentario, sin mezclar idiomas.");
+    }
     const validationErrors = validateDraftForClient(text, ctx.client?.slug);
     if (validationErrors.length > 0) throw new ValidationRetryError(buildStyleCorrection(validationErrors));
     logger.info("ai_request", "LLM Asistente CM OK", { model: completion.model, provider: completion.provider, opportunityId: ctx.opportunity.id }).catch(() => {});
@@ -687,6 +698,7 @@ async function requestCopilotDraft(ctx: DraftContext, condensationOf?: string): 
 
 /** Generates one short Copilot response. If needed, the model gets one chance to condense it before deterministic truncation. */
 export async function generateAICopilotDraft(ctx: DraftContext): Promise<DraftVariant | null> {
+  if (ctx.client?.slug === "kressmer" && detectKressmerLanguage(ctx.opportunity.sourceText) === "other") return null;
   let initial: DraftVariant | null;
   let lastCorrection = "";
   try {
@@ -706,7 +718,7 @@ export async function generateAICopilotDraft(ctx: DraftContext): Promise<DraftVa
     }
   }
   if (!initial) {
-    logAIError("Asistente CM sin propuesta de IA tras reintento; se usará fallback local", { opportunityId: ctx.opportunity.id, correccion: lastCorrection });
+    logAIError(ctx.client?.slug === "kressmer" ? "Kressmer: propuesta pendiente tras fallo de IA o validación" : "Asistente CM sin propuesta de IA tras reintento; se usará fallback local", { opportunityId: ctx.opportunity.id, correccion: lastCorrection });
     return null;
   }
   // El prompt apunta a COPILOT_TARGET_CHARACTERS; pasarse un poco no justifica otra

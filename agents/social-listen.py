@@ -3,6 +3,7 @@ import importlib.util
 import json
 import re
 import sys
+from contextlib import ExitStack
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -14,6 +15,7 @@ if hasattr(sys.stdout, "reconfigure"):
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _log import get_logger  # noqa: E402
+from _account_lock import AccountBusy, account_lock  # noqa: E402
 
 log = get_logger("social-listen")
 DATA_DIR = ROOT / "data"
@@ -293,6 +295,9 @@ def detect_language(text: str) -> str:
     if not text:
         return "other"
     lower = text.lower()
+    german = set("der die das ein eine welches welche wie für kaufen brauche möchte habe kann mit dieser dieses tasten lernen empfehlen preis danke ist sind ich und oder klavier anfänger".split())
+    if sum(t in german for t in re.findall(r"[^\W\d_]+", lower)) >= 2:
+        return "de"
     if any(ch in _PORTUGUESE_CHARS for ch in lower):
         return "pt"
     if any(ch in _SPANISH_CHARS for ch in lower):
@@ -507,7 +512,7 @@ def load_own_usernames() -> set[str]:
     return own
 
 
-def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str | None, source_id: str | None = None, client_id: str | None = None, language: str = "es", public_discovery: bool = True, indexed_only: bool = False) -> dict:
+def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str | None, source_id: str | None = None, client_id: str | None = None, language: str = "es", public_discovery: bool = True, indexed_only: bool = False, youtube_video_offset: int = 0, youtube_videos: int = 2, youtube_search_mode: str = "any", youtube_comment_pages: int = 1) -> dict:
     started_at = datetime.now(timezone.utc).isoformat()
     log.info("listen_start", channel=channel, account=account or "default", query=query[:60], limit=limit, dry_run=dry_run, language=language)
     
@@ -515,10 +520,30 @@ def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str
     keywords, exclusions = load_client_rules(source_id=source_id, client_id=client_id, query=query)
     log.info("listen_rules_loaded", keywords_count=len(keywords), exclusions_count=len(exclusions))
     own_usernames = load_own_usernames()
+    kressmer = False
+    try:
+        from db_pg import connect
+        with connect() as conn:
+            policy_client = conn.execute('SELECT slug FROM "Client" WHERE id = %s', (client_id,)).fetchone() if client_id else None
+            if not policy_client and source_id:
+                policy_client = conn.execute('SELECT c.slug FROM "Client" c JOIN "MonitoredSource" s ON s."clientId"=c.id WHERE s.id=%s', (source_id,)).fetchone()
+            kressmer = bool(policy_client and policy_client["slug"] == "kressmer")
+    except Exception as exc:
+        log.warning("listen_client_policy_failed", error=str(exc))
+    if kressmer and channel != "youtube":
+        raise ValueError("Kressmer: solo YouTube")
 
     browser_error = ""
     ws_url = ""
-    if not indexed_only:
+    # Held until extraction ends: another pipeline may run, but not on this profile.
+    profile_lock = ExitStack()
+    if not indexed_only and account:
+        try:
+            profile_lock.enter_context(account_lock(account))
+        except AccountBusy as exc:
+            log.warning("listen_account_busy", channel=channel, account=account, error=str(exc))
+            browser_error = str(exc)
+    if not indexed_only and not browser_error:
         try:
             ws_url = browser_cdp.get_page_ws_url(account)
         except Exception as exc:
@@ -536,7 +561,7 @@ def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str
                 client.send("Page.enable")
                 client.send("Runtime.enable")
                 if channel == "youtube":
-                    items = browser_cdp.extract_youtube_comment_items(client, query, limit)
+                    items = browser_cdp.extract_youtube_comment_items(client, query, limit, videos_limit=youtube_videos, video_offset=youtube_video_offset, search_mode=youtube_search_mode, comment_pages=youtube_comment_pages)
                 elif channel == "reddit":
                     items = browser_cdp.extract_reddit_comment_items(client, query, limit)
                 elif channel == "facebook":
@@ -559,7 +584,7 @@ def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str
                     log.info("listen_indexed_fallback", channel=channel, query=query[:60])
                 else:
                     log.info("listen_indexed_supplement", channel=channel, query=query[:60])
-                indexed = browser_cdp.extract_indexed_social_items(client, channel, query, limit)
+                indexed = [] if kressmer else browser_cdp.extract_indexed_social_items(client, channel, query, limit)
                 if indexed:
                     seen_urls = {item.get("url") for item in items}
                     items.extend(item for item in indexed if item.get("url") not in seen_urls)
@@ -576,9 +601,11 @@ def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str
             "items_read": 0, "intake_rows": 0, "discarded_count": 0,
             "discard_reasons": {}, "discarded_sample": [], "intake_path": str(INTAKE_PATH), "sample": [],
         }
+    finally:
+        profile_lock.close()
 
     provider_health: list[dict] = []
-    if public_discovery:
+    if public_discovery and not kressmer:
         recovery = listening_connectors.recover_local_services()
         public_items, provider_health = listening_connectors.discover_public(channel, query, limit)
         seen_urls = {str(item.get("url", "")) for item in items}
@@ -606,7 +633,7 @@ def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str
             continue
         lang_text = (item.get("context") or item.get("title") or item.get("videoTitle") or "")
         allowed_language, detected_language = language_allowed(lang_text, language)
-        if not allowed_language:
+        if not allowed_language and not kressmer:
             discarded.append({"reason": f"idioma_no_{language}", "language": detected_language, "text": lang_text[:60]})
             continue
         published = item.get("publishedTime", "")
@@ -621,13 +648,15 @@ def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str
         source_type = row.get("sourceType", "")
         contextual_source = source_type.endswith("_post") or source_type.endswith("_search_result") or source_type in {"youtube_video", "tiktok_video", "instagram_reel"}
         contextual_text = " ".join([row["sourceText"], str(row.get("sourceTitle", "")), str(item.get("videoTitle", ""))]).strip()
-        if contextual_source and len(contextual_text.split()) >= 5:
+        if kressmer or (contextual_source and len(contextual_text.split()) >= 5):
             ok, reason = True, ""
         else:
             ok, reason = is_actionable(row["sourceText"], source_type)
         if not ok:
             discarded.append({"reason": reason, "text": row["sourceText"][:60]})
             continue
+        row["clientId"] = client_id or ""
+        row["requestedLanguage"] = language
         rows.append(row)
 
     if rows and not dry_run:
@@ -668,8 +697,8 @@ def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str
         "direct_items": direct_items,
         "indexed_items": indexed_items,
         "providers": provider_health,
-        "provider_recovery": recovery if public_discovery else None,
-        "error": "; ".join(provider_errors) if not items and provider_errors else "",
+        "provider_recovery": recovery if public_discovery and not kressmer else None,
+        "error": browser_error if kressmer and not items else "; ".join(provider_errors) if not items and provider_errors else "",
         "items_read": len(items),
         "intake_rows": len(rows),
         "discarded_count": len(discarded),
@@ -693,8 +722,12 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--source-id", default="")
     parser.add_argument("--client-id", default="")
-    parser.add_argument("--language", default="es", choices=["es", "en", "pt", "any"])
+    parser.add_argument("--language", default="es", choices=["es", "en", "de", "pt", "any"])
     parser.add_argument("--no-public-discovery", action="store_true", help="No consultar SearXNG/RSSHub autoalojados")
+    parser.add_argument("--youtube-video-offset", type=int, default=0, choices=range(0, 19), help="Rotar los videos de YouTube sin repetir siempre los primeros resultados")
+    parser.add_argument("--youtube-videos", type=int, default=2, choices=range(1, 11), help="Videos de YouTube a leer por búsqueda")
+    parser.add_argument("--youtube-search-mode", default="any", choices=["popular", "any", "recent_month"], help="Filtro de búsqueda de YouTube: videos más vistos, por relevancia, o subidos este mes")
+    parser.add_argument("--youtube-comment-pages", type=int, default=1, choices=range(1, 6), help="Páginas de comentarios (más recientes) por video")
     parser.add_argument("--indexed-only", action="store_true", help="Omitir el conector directo y usar solo descubrimiento público indexado")
     parser.add_argument("--health", action="store_true", help="Verificar conectores de escucha y salir")
     parser.add_argument("--output-json", action="store_true", help="Devolver TODOS los rows en JSON por stdout (modo machine-readable)")
@@ -708,7 +741,7 @@ def main() -> None:
     summary = run_listen(
         args.channel, args.query, args.limit, args.dry_run, args.account or None,
         source_id=args.source_id or None, client_id=args.client_id or None,
-        language=args.language, public_discovery=not args.no_public_discovery, indexed_only=args.indexed_only
+        language=args.language, public_discovery=not args.no_public_discovery, indexed_only=args.indexed_only, youtube_video_offset=args.youtube_video_offset, youtube_videos=args.youtube_videos, youtube_search_mode=args.youtube_search_mode, youtube_comment_pages=args.youtube_comment_pages
     )
     if args.record_source_status and args.source_id and not args.dry_run:
         import shutil

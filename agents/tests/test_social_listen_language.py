@@ -36,3 +36,15 @@ def test_language_filter_any_accepts_detected_language():
     ok, detected = social_listen.language_allowed("How much does this audio interface cost?", "any")
     assert ok is True
     assert detected == "en"
+
+
+def test_language_filter_accepts_german():
+    ok, detected = social_listen.language_allowed("Welches Digitalpiano kann ich für Anfänger kaufen?", "de")
+    assert ok is True
+    assert detected == "de"
+
+
+def test_german_is_not_accepted_as_spanish():
+    ok, detected = social_listen.language_allowed("Ich suche ein Digitalpiano mit Kopfhörer", "es")
+    assert ok is False
+    assert detected == "de"

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { prisma } from "@/lib/db";
 import { requirePageClient } from "@/lib/auth";
 import { createSource, updateSource, deleteSource } from "./actions";
+import { kressmerDailyProgress } from "@/lib/kressmer-radar";
 import { operationalOpportunityWhere } from "@/lib/opportunity-channels";
 
 const inputCls = "min-w-0 w-full rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm text-ink";
@@ -47,6 +48,8 @@ export default async function MonitoringPage({ searchParams }: { searchParams: {
     prisma.opportunity.count({ where: { clientId: activeClient.id, ...operationalOpportunityWhere(), createdAt: { gte: todayArgentina }, status: { not: "DISCARDED" } } }),
   ]);
 
+  const kressmerProgress = activeClient.slug === "kressmer" ? await kressmerDailyProgress(prisma, activeClient.id, todayArgentina) : null;
+
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col px-4 py-6 sm:px-5 sm:py-8">
       <header className="mb-8">
@@ -59,7 +62,12 @@ export default async function MonitoringPage({ searchParams }: { searchParams: {
 
       {activeClient ? <section className="mb-8 rounded-xl border border-ink/10 bg-white/70 p-4 shadow-panel">
         <p className="text-xs font-bold uppercase tracking-wide text-slate">Cuota diaria · Argentina</p>
-        <p className="mt-1 font-display text-3xl text-ink">{todayCount}/{activeClient.dailyOpportunityTarget} nuevas</p>
+        <p className="mt-1 font-display text-3xl text-ink">{kressmerProgress?.opportunities ?? todayCount}/{activeClient.dailyOpportunityTarget} nuevas</p>
+        {kressmerProgress ? <div className="mt-2 text-sm text-slate">
+          <p>{kressmerProgress.ready}/{activeClient.dailyDraftTarget} con respuesta lista para revisar.</p>
+          <p>Faltan {Math.max(0, activeClient.dailyOpportunityTarget - kressmerProgress.opportunities)} oportunidades y {Math.max(0, activeClient.dailyDraftTarget - kressmerProgress.ready)} respuestas para completar la meta de hoy.</p>
+          <p>YouTube · Español, inglés y alemán · Comentarios de hasta un año. Los faltantes se reintentan en la próxima corrida; los errores se muestran en cada fuente.</p>
+        </div> : null}
         <p className="mt-1 text-sm text-slate">El radar rota fuentes hasta completar oportunidades calificadas. No publica respuestas automáticamente.</p>
       </section> : null}
 

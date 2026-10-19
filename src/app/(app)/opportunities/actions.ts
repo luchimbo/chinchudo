@@ -697,13 +697,14 @@ export async function generateResponseDrafts(formData: FormData) {
     productChosenByCm: productChosenByCm && Boolean(selectedProduct),
   };
   const voiceVariant = selectVoiceVariant(persona.name, observedProfile);
-  const isCopilotRequest = Boolean(copilot.goal && copilot.style);
+  const isCopilotRequest = resolution.client.slug === "kressmer" || Boolean(copilot.goal && copilot.style);
   const localDrafts = generateLocalDrafts(ctx);
   const localShort = localDrafts.find((draft) => draft.variantType === "SHORT") ?? localDrafts[0];
   if (!localShort) throw new Error("No se pudo preparar una propuesta local segura.");
   // El Copiloto es una herramienta de acción: presenta una propuesta principal
   // editable, no obliga al CM a comparar variantes antes de responder.
   const copilotDraft = isCopilotRequest ? await generateAICopilotDraft(ctx) : null;
+  if (resolution.client.slug === "kressmer" && !copilotDraft) throw new Error("No se pudo generar una respuesta válida en el idioma del comentario. Queda pendiente para reintentar.");
   const aiDrafts = isCopilotRequest ? null : await generateAIDrafts(ctx);
   const drafts = isCopilotRequest
     ? [{ ...(copilotDraft ?? localShort), draftText: shortenCopilotText(sanitizeCopilotDraft((copilotDraft ?? localShort).draftText, resolution.client.slug)) }]

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { prisma } from "../src/lib/db";
+import { kressmerDailyProgress } from "../src/lib/kressmer-radar";
 import { operationalOpportunityWhere } from "../src/lib/opportunity-channels";
 // @ts-ignore -- shared ESM helper used by operational scripts.
 import { loadEnv } from "./agent-utils.mjs";
@@ -20,12 +21,13 @@ function argentinaDayStart(now = new Date()) {
 function option(name: string) {
   const index = process.argv.indexOf(name);
   if (index >= 0) return process.argv[index + 1] || "";
-  return process.argv.find((arg) => arg.startsWith(`${name}=`))?.slice(name.length + 1) || "";
+  return process.argv.find((arg) => arg.startsWith(`${name}=`))?.slice(name.length + 1) || process.env[`npm_config_${name.slice(2).replace(/-/g, "_")}`] || "";
 }
 
-function runDraft(client: string, limit: number, dryRun: boolean) {
+function runDraft(client: string, limit: number, dryRun: boolean, opportunityId?: string) {
   return new Promise<{ code: number | null; output: string }>((resolve) => {
     const args = [join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs"), "scripts/draft-worker.mts", "--client", client, "--limit", String(limit), "--copilot"];
+    if (opportunityId) args.push("--opportunity-id", opportunityId);
     if (dryRun) args.push("--dry-run");
     const child = spawn(process.execPath, args, { cwd: process.cwd(), env: process.env, shell: false, windowsHide: true });
     let output = "";
@@ -41,9 +43,19 @@ async function main() {
   const target = Math.max(1, Number(option("--target")) || DEFAULT_DAILY_TARGET);
   const dryRun = process.argv.includes("--dry-run") || process.env.npm_config_dry_run === "true";
   const since = argentinaDayStart();
-  const clients = await prisma.client.findMany({ where: { active: true }, select: { id: true, slug: true, name: true, dailyDraftTarget: true } });
+  const clients = await prisma.client.findMany({ where: { active: true, ...(option("--client") ? { slug: option("--client") } : {}) }, select: { id: true, slug: true, name: true, dailyDraftTarget: true } });
   const results = await Promise.all(clients.map(async (client) => {
     const clientTarget = Math.max(1, Number(option("--target")) || client.dailyDraftTarget || target);
+    if (client.slug === "kressmer") {
+      const before = await kressmerDailyProgress(prisma, client.id, since);
+      const remaining = Math.max(0, clientTarget - before.ready);
+      const outputs = [];
+      for (const id of before.pendingIds.slice(0, remaining)) outputs.push(await runDraft(client.slug, 1, dryRun, id));
+      const after = dryRun ? before : await kressmerDailyProgress(prisma, client.id, since);
+      return { client: client.slug, target: clientTarget, opportunities_drafted_today: after.ready, requested: remaining,
+        status: outputs.some(result => result.code !== 0) ? "failed" : after.ready >= clientTarget ? "quota_reached" : "incomplete",
+        output: outputs.map(result => result.output.slice(-1000)).join("\n") };
+    }
     const draftedToday = await prisma.response.findMany({
       where: { createdAt: { gte: since }, opportunity: { clientId: client.id, ...operationalOpportunityWhere() } },
       distinct: ["opportunityId"],

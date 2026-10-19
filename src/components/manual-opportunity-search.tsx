@@ -10,6 +10,7 @@ const LANGUAGES = [
   { value: "es", label: "Espanol" },
   { value: "en", label: "Ingles" },
   { value: "pt", label: "Portugues" },
+  { value: "de", label: "Alemán" },
   { value: "any", label: "Cualquiera" },
 ] as const;
 

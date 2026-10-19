@@ -378,7 +378,8 @@ def run_monitor(args: argparse.Namespace) -> None:
 
 def _run_monitor_locked(args: argparse.Namespace) -> None:
     steps: list[dict] = []
-    sources = list_active_sources()
+    # Kressmer is quota-managed (languages, comment age and response cohort).
+    sources = [source for source in list_active_sources() if source.get("clientSlug") != "kressmer"]
     if not sources:
         print("agents: no hay fuentes monitoreadas activas. Cargá alguna en /monitoring.")
         return
@@ -467,7 +468,8 @@ def run_healthcheck() -> None:
 
     # 2. Prisma / base de datos
     try:
-        sources = list_active_sources()
+        # Kressmer is quota-managed (languages, comment age and response cohort).
+    sources = [source for source in list_active_sources() if source.get("clientSlug") != "kressmer"]
         print(f"  [OK] Prisma/DB: {len(sources)} fuentes monitoreadas activas")
     except SystemExit as exc:
         print(f"  [FAIL] Prisma/DB: {exc}")
@@ -525,7 +527,7 @@ def main() -> None:
     listen.add_argument("--channel", default="youtube")
     listen.add_argument("--query", default="MidiPlus controlador MIDI home studio")
     listen.add_argument("--limit", type=int, default=5)
-    listen.add_argument("--language", default="es", choices=["es", "en", "pt", "any"])
+    listen.add_argument("--language", default="es", choices=["es", "en", "de", "pt", "any"])
     listen.add_argument("--dry-run", action="store_true")
 
     draft = sub.add_parser("draft")
@@ -540,7 +542,7 @@ def main() -> None:
     daily.add_argument("--channel", default="youtube")
     daily.add_argument("--query", default="MidiPlus controlador MIDI home studio")
     daily.add_argument("--limit", type=int, default=5)
-    daily.add_argument("--language", default="es", choices=["es", "en", "pt", "any"])
+    daily.add_argument("--language", default="es", choices=["es", "en", "de", "pt", "any"])
     daily.add_argument("--dry-run", action="store_true")
 
     monitor = sub.add_parser("monitor")

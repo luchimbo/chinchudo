@@ -64,6 +64,7 @@ landing-build/sites/
 landing-build/reports/
 data/*.lock
 data/*.lock.*
+data/locks/
 backups/*.json
 
 # Estado, registros y memoria de los agentes (se generan al correr; no se versionan)

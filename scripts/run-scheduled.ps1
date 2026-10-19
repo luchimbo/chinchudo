@@ -44,6 +44,14 @@ Log "NSTBrowser API OK"
 
 Set-Location $ROOT
 
+Log "Verificando cuota Kressmer (YouTube, oportunidades y respuestas de hoy)..."
+$kressmerQuotaOut = Join-Path $LOG_DIR "kressmer-quota-$STAMP.log"
+# En segundo plano: Kressmer busca hasta 20 (hasta ~25 min por disparo) con su propio
+# lock, sin demorar al monitor general. Si la corrida anterior sigue viva, esta se omite.
+# Se llama al script con node directo: npm convierte algunos flags en npm_config_*.
+Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "cd /d `"$ROOT`" && node node_modules/tsx/dist/cli.mjs scripts/daily-opportunity-quota.mts --client kressmer >> `"$kressmerQuotaOut`" 2>&1" -WindowStyle Hidden
+Log "Kressmer lanzado en segundo plano. Ver $kressmerQuotaOut"
+
 # La cuota de oportunidades hace una pasada completa por cada cliente activo.
 # Se ejecuta una sola vez por día local: así PC MIDI Center y Prestige Running
 # reciben exactamente el mismo ciclo diario sin duplicar una búsqueda pesada en
@@ -53,7 +61,7 @@ $lastDailyQuotaRun = if (Test-Path $DAILY_QUOTA_MARKER) { (Get-Content -Path $DA
 if ($lastDailyQuotaRun -ne $today) {
     Log "Corriendo cuota diaria de oportunidades para todos los clientes activos..."
     $opportunityQuotaOut = Join-Path $LOG_DIR "opportunity-quota-$STAMP.log"
-    cmd /c "cd /d `"$ROOT`" && npm run agents:daily-quota >> `"$opportunityQuotaOut`" 2>&1"
+    cmd /c "cd /d `"$ROOT`" && npm run agents:daily-quota -- --exclude-client kressmer >> `"$opportunityQuotaOut`" 2>&1"
     if ($LASTEXITCODE -ne 0) {
         Log "WARN: cuota diaria de oportunidades fallo (exit $LASTEXITCODE). Se reintentara en la proxima ejecucion. Ver $opportunityQuotaOut"
     } else {

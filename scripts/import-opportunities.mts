@@ -10,6 +10,7 @@ import {
   parseClientList,
   resolveOpportunityClient
 } from "../src/lib/client-context";
+import { kressmerCommentReason, commentPublishedAt, detectKressmerLanguage, youtubeCommentIdentity } from "../src/lib/kressmer-radar";
 import { classifyOpportunity } from "../src/lib/ai-opportunity-classifier";
 import { recordObservedProfileEvent } from "../src/lib/observed-profiles";
 import { checkYouTubeAvailability, fetchYouTubeTitle, resolveSourceAuthor, storedAuthor, youtubeVideoId } from "../src/lib/source-author";
@@ -115,7 +116,31 @@ function normalizeAuthorName(author: string): string {
   return author.trim().toLowerCase().replace(/^(@|u\/|r\/)/, "");
 }
 
-function normalizeSourceUrlForDedupe(channel: string, rawUrl: string): string {
+type OpportunityLookup = Pick<PrismaClient, "opportunity">;
+
+/** Same URL identity used by dedupe: YouTube comment id, post key or exact URL. */
+export async function findExistingOpportunity(db: OpportunityLookup, channel: string, sourceUrl: string) {
+  const comment = youtubeCommentIdentity(sourceUrl)?.key.split(":")[1];
+  const postKey = extractPostKey(channel, sourceUrl);
+  const dedupeKey = normalizeSourceUrlForDedupe(channel, sourceUrl);
+  const candidates = await db.opportunity.findMany({
+    where: comment
+      ? { OR: [{ sourceUrl: { contains: `lc=${comment}` } }, { sourceUrl: { contains: `#comment-${comment}` } }] }
+      : postKey
+      ? { sourceUrl: { contains: postKey } }
+      : { OR: [{ sourceUrl }, { sourceUrl: { contains: sourceUrl.replace(/\/+$/, "") } }] },
+    select: { id: true, sourceUrl: true },
+    take: 25,
+  });
+  // Posts keep the original rule (any URL with the same post key is a duplicate); a
+  // YouTube comment only matches its own comment id, not other comments on the video.
+  return candidates.find((candidate) => normalizeSourceUrlForDedupe(channel, candidate.sourceUrl) === dedupeKey)
+    ?? (comment ? null : candidates[0] ?? null);
+}
+
+export function normalizeSourceUrlForDedupe(channel: string, rawUrl: string): string {
+  const comment = channel.toLowerCase() === "youtube" ? youtubeCommentIdentity(rawUrl) : null;
+  if (comment) return `youtube-comment:${comment.key}`;
   try {
     const url = new URL(rawUrl);
     url.hash = "";
@@ -158,6 +183,7 @@ async function main() {
   let created = 0;
   let duplicates = 0;
   let skipped = 0;
+  const policyDiscards: Record<string, number> = {};
   let discardedAtImport = 0;
   const errors: { sourceUrl: string; error: string }[] = [];
   const sourceCounts = new Map<string, number>();
@@ -202,7 +228,8 @@ async function main() {
   ownUsernames.add("kressmer_audio");
 
   for (const row of rows) {
-    const sourceUrl = String(row.sourceUrl || "").trim();
+    const rawSourceUrl = String(row.sourceUrl || "").trim();
+    const sourceUrl = youtubeCommentIdentity(rawSourceUrl)?.url || rawSourceUrl;
     const sourceText = String(row.sourceText || "").trim();
     if (!sourceUrl || sourceText.length < 10) {
       skipped += 1;
@@ -234,19 +261,8 @@ async function main() {
       continue;
     }
 
-    const postKey = extractPostKey(row.channel, sourceUrl);
     const dedupeKey = normalizeSourceUrlForDedupe(row.channel, sourceUrl);
-    const existingCandidates = await prisma.opportunity.findMany({
-      where: postKey
-        ? { sourceUrl: { contains: postKey } }
-        : { OR: [{ sourceUrl }, { sourceUrl: { contains: sourceUrl.replace(/\/+$/, "") } }] },
-      select: { id: true, sourceUrl: true },
-      take: 25,
-    });
-    const existing = existingCandidates.find((candidate) => (
-      normalizeSourceUrlForDedupe(row.channel, candidate.sourceUrl) === dedupeKey
-    )) ?? existingCandidates[0];
-    if (existing) {
+    if (await findExistingOpportunity(prisma, row.channel, sourceUrl)) {
       duplicates += 1;
       continue;
     }
@@ -257,7 +273,7 @@ async function main() {
       orderBy: { createdAt: "desc" },
       take: 300,
     });
-    if (isNearDuplicate(sourceText, author, textCandidates)) {
+    if (!youtubeCommentIdentity(sourceUrl) && isNearDuplicate(sourceText, author, textCandidates)) {
       duplicates += 1;
       continue;
     }
@@ -267,12 +283,27 @@ async function main() {
     const monitoredSource = monitoredSourceId
       ? await prisma.monitoredSource.findUnique({ where: { id: monitoredSourceId }, include: { client: true } })
       : null;
-    const resolution = await resolveOpportunityClient(prisma, {
+    const explicitClient = row.clientId ? await prisma.client.findUniqueOrThrow({ where: { id: String(row.clientId) } }) : null;
+    if (explicitClient && monitoredSource && explicitClient.id !== monitoredSource.clientId) {
+      errors.push({ sourceUrl, error: "Cliente de intake no coincide con la fuente" });
+      continue;
+    }
+    const resolution = explicitClient ? { client: explicitClient, confidence: "high" as const, reason: "intake.clientId" } : await resolveOpportunityClient(prisma, {
       sourceText: relevanceText,
       detectedBrandId: null,
       monitoredSourceId,
       monitoredSource,
     });
+
+    if (resolution.client.slug === "kressmer") {
+      // Any of ES/EN/DE counts, whatever language the search was in.
+      const reason = kressmerCommentReason({ ...row, sourceUrl, sourceText });
+      if (reason) {
+        skipped += 1;
+        policyDiscards[reason] = (policyDiscards[reason] || 0) + 1;
+        continue;
+      }
+    }
 
     if (resolution.client.slug === "prestige-running" && !isPrestigeRadarCandidate(sourceText, `${row.sourceTitle || ""} ${row.videoTitle || ""}`)) {
       skipped += 1;
@@ -311,6 +342,7 @@ async function main() {
       }
     } catch (err) {
       errors.push({ sourceUrl, error: `Clasificador IA falló: ${(err as Error).message}` });
+      if (resolution.client.slug === "kressmer") continue;
       // Fallback a clasificación local si falla la IA
       const intent = row.detectedIntent || detectIntent(sourceText);
       const fallbackAssessment = resolution.client.slug === "prestige-running"
@@ -371,7 +403,12 @@ async function main() {
       if (detectedProductId && !await prisma.product.findUnique({ where: { id: detectedProductId }, select: { id: true } })) detectedProductId = null;
 
       const sourceTitle = await resolveSourceTitle(String(row.sourceTitle || row.videoTitle || ""), sourceUrl, sourceText);
-      const createdOpportunity = await prisma.opportunity.create({
+      // The monitor and the Kressmer quota import concurrently: re-check under a
+      // per-URL advisory lock so the same comment is never created twice.
+      const createdOpportunity = await prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${dedupeKey}))`;
+        if (await findExistingOpportunity(tx, row.channel, sourceUrl)) return null;
+        return tx.opportunity.create({
         data: {
           channelId: channel.id,
           sourceUrl,
@@ -385,12 +422,21 @@ async function main() {
           detectedIntent: aiResult.detectedIntent,
           priority: finalPriority,
           opportunityScore,
-          contextAssessment: assessment,
+          contextAssessment: resolution.client.slug === "kressmer" ? { ...assessment, kressmerRadar: {
+            version: 1, language: detectKressmerLanguage(sourceText),
+            publishedAt: commentPublishedAt(row.publishedTime, row.captured_at_utc)?.toISOString(),
+            capturedAt: row.captured_at_utc, commentKey: youtubeCommentIdentity(sourceUrl)?.key,
+          } } : assessment,
           status: finalStatus,
           notes,
           monitoredSourceId,
         },
+        });
       });
+      if (!createdOpportunity) {
+        duplicates += 1;
+        continue;
+      }
       await recordObservedProfileEvent(prisma, {
         opportunityId: createdOpportunity.id,
         clientId: resolution.client.id,
@@ -441,6 +487,7 @@ async function main() {
     duplicates,
     skipped,
     discarded_at_import: discardedAtImport,
+    policy_discards: policyDiscards,
     routing,
     errors,
   });

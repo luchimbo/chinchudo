@@ -1,6 +1,8 @@
 import { appendFile, mkdir, open, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { KRESSMER_QUERIES, KRESSMER_VIDEOS_PER_QUERY, kressmerSearchMode, kressmerVideoOffset, youtubeCommentIdentity, kressmerDailyProgress, kressmerCommentReason, detectKressmerLanguage } from "../src/lib/kressmer-radar";
 import { prisma } from "../src/lib/db";
 // @ts-ignore -- shared operational environment loader.
 import { loadEnv } from "./agent-utils.mjs";
@@ -9,15 +11,33 @@ import { runtimeDir } from "./agent-utils.mjs";
 
 loadEnv();
 
+const DRY_RUN = process.argv.includes("--dry-run") || process.env.npm_config_dry_run === "true";
 const REQUIRED_CHANNELS = ["facebook", "instagram", "linkedin", "reddit", "tiktok", "x", "youtube"] as const;
 const LISTEN_TIMEOUT_MS = Number(process.env.DAILY_QUOTA_LISTEN_TIMEOUT_MS || 60_000);
+// Kressmer must reach its target: each run keeps searching (no 3-round cap) until
+// 20 or until its time budget, so the next 30-minute trigger resumes from the cursor.
+const KRESSMER_MAX_ROUNDS = Math.max(1, Number(process.env.KRESSMER_QUOTA_MAX_ROUNDS || 60));
+const KRESSMER_RUN_BUDGET_MS = Math.max(60_000, Number(process.env.KRESSMER_QUOTA_BUDGET_MINUTES || 25) * 60_000);
+const KRESSMER_ROUND_PAUSE_MS = Math.max(0, Number(process.env.KRESSMER_QUOTA_PAUSE_MS || 8_000));
+// Six videos and three comment pages per search take far longer than a plain read.
+const KRESSMER_LISTEN_TIMEOUT_MS = Number(process.env.KRESSMER_QUOTA_LISTEN_TIMEOUT_MS || 300_000);
+// Consecutive rounds that read nothing mean a broken browser/profile, not a lack of comments.
+const KRESSMER_MAX_EMPTY_ROUNDS = 3;
 const IMPORT_TIMEOUT_MS = Number(process.env.DAILY_QUOTA_IMPORT_TIMEOUT_MS || 90_000);
 const CLASSIFIER_TIMEOUT_MS = Number(process.env.OPPORTUNITY_CLASSIFIER_TIMEOUT_MS || 120_000);
 // Cada ejecución está acotada: evita que un objetivo de volumen mantenga
 // navegadores y conexiones Prisma ocupados sin fin.
 const DEFAULT_MAX_ROUNDS = Math.max(1, Number(process.env.DAILY_QUOTA_MAX_ROUNDS || 3));
 const MAX_CONCURRENCY = Math.max(1, Math.min(3, Number(process.env.DAILY_QUOTA_CONCURRENCY || 3)));
-const PIPELINE_LOCK_PATH = join(process.cwd(), "data", "opportunity-pipeline.lock");
+// Kressmer runs alone on its own lock: the general monitor excludes it and
+// imports use isolated intake files, so it no longer waits for other clients.
+// Browser profiles shared between both are serialized per account by
+// agents/_account_lock.py, and duplicate comments by an advisory lock on import.
+export function pipelineLockPath(clientSlug: string, cwd = process.cwd()) {
+  return join(cwd, "data", clientSlug === "kressmer" ? "opportunity-pipeline-kressmer.lock" : "opportunity-pipeline.lock");
+}
+// cliOption also reads npm_config_client: `npm run ... -- --client kressmer` may arrive that way.
+const PIPELINE_LOCK_PATH = pipelineLockPath(cliOption("--client"));
 // Matches agents/orchestrator.py's MONITOR_LOCK_MAX_AGE_SECONDS: a lock left
 // behind by a crashed/killed run (e.g. Task Scheduler's execution time limit)
 // must not block the daily search until the next calendar day.
@@ -177,6 +197,8 @@ function queryPlan(source: Source, client: Client) {
 }
 
 function canonicalUrl(raw: string) {
+  const comment = youtubeCommentIdentity(raw);
+  if (comment) return comment.key;
   try {
     const url = new URL(raw);
     url.hash = "";
@@ -191,6 +213,8 @@ function parseListenOutput(output: string): ListenSummary | null {
 }
 
 async function newCount(clientId: string, since: Date) {
+  const client = await prisma.client.findUnique({ where: { id: clientId }, select: { slug: true } });
+  if (client?.slug === "kressmer") return (await kressmerDailyProgress(prisma, clientId, since)).opportunities;
   return withTimeout(prisma.opportunity.count({ where: { clientId, createdAt: { gte: since }, status: { not: "DISCARDED" } } }), "Conteo de oportunidades");
 }
 
@@ -229,11 +253,14 @@ async function writeProgressReport(runId: string, client: Client, target: number
   }, null, 2));
 }
 
-async function runClient(client: Client, since: Date, maxRounds: number, runId: string, concurrency: number) {
+export async function runClient(client: Client, since: Date, maxRounds: number, runId: string, concurrency: number, execute = run, dryRun = DRY_RUN, roundPauseMs = 0) {
+  const startedAt = Date.now();
+  let emptyRounds = 0;
+  let stopReason = "";
   const target = Math.max(1, Number(cliOption("--target")) || client.dailyOpportunityTarget || 15);
-  const sources = await withTimeout(prisma.monitoredSource.findMany({ where: { clientId: client.id, active: true, lifecycle: { in: ["active", "proposed"] } }, orderBy: [{ priority: "desc" }, { lastRunAt: "asc" }, { label: "asc" }] }), `Lectura de fuentes de ${client.slug}`) as Source[];
+  const sources = await withTimeout(prisma.monitoredSource.findMany({ where: { clientId: client.id, ...(client.slug === "kressmer" ? { channel: "youtube" } : {}), active: true, lifecycle: { in: ["active", "proposed"] } }, orderBy: [{ priority: "desc" }, { lastRunAt: "asc" }, { label: "asc" }] }), `Lectura de fuentes de ${client.slug}`) as Source[];
   const configuredChannels = [...new Set(sources.map((source) => source.channel))].sort();
-  const attempts: Record<string, unknown>[] = [];
+  const attempts: import("@prisma/client").Prisma.InputJsonObject[] = [];
   const seenUrls = new Set<string>();
   const stagedRows: any[] = [];
   const discards: Record<string, number> = {};
@@ -244,40 +271,47 @@ async function runClient(client: Client, since: Date, maxRounds: number, runId: 
 
   // Always execute the first round for coverage, even when prior runs already
   // reached the numeric quota. Later rounds are only needed to fill the quota.
-  for (let round = 0; round < maxRounds && (round === 0 || count < target); round += 1) {
+  for (let round = 0; round < maxRounds && ((client.slug !== "kressmer" && round === 0) || count < target); round += 1) {
+    if (client.slug === "kressmer" && round > 0) {
+      if (Date.now() - startedAt >= KRESSMER_RUN_BUDGET_MS) { stopReason = "time_budget"; break; }
+      if (emptyRounds >= KRESSMER_MAX_EMPTY_ROUNDS) { stopReason = "youtube_unreadable"; break; }
+      if (roundPauseMs) await new Promise((resolve) => setTimeout(resolve, roundPauseMs));
+    }
     // One rotating source per network is enough for full coverage in a round.
     // This keeps a client with many saved searches from spawning an unbounded
     // number of CDP sessions while still rotating every account/query later.
     const jobs = [...sourcesByChannel.entries()].map(([channel, channelSources], index) => {
-      const source = channelSources[(cursor + round) % channelSources.length];
+      const focused = client.slug === "kressmer" ? KRESSMER_QUERIES[cursor % KRESSMER_QUERIES.length] : null;
+      const source = channelSources.find(source => source.query === focused?.query) || channelSources[(cursor + round) % channelSources.length];
       const queries = queryPlan(source, client);
-      return { source, query: queries[(cursor + round + index) % queries.length], round };
+      return { source, query: focused?.query || queries[(cursor + round + index) % queries.length], language: focused?.language || "es", round };
     });
-    const outcomes = await mapConcurrent(jobs, async ({ source, query, round: jobRound }) => {
+    const outcomes = await mapConcurrent(jobs, async ({ source, query, language, round: jobRound }) => {
       const electronicDrumSearch = /\b(bater[ií]a(?:s)?\s+electr[oó]nica(?:s)?|electronic\s+drums?|e[- ]?drums?)\b/i.test(query);
-      const effectiveLimit = electronicDrumSearch ? Math.max(source.limit, 100) : Math.max(source.limit, 12);
+      const effectiveLimit = client.slug === "kressmer" ? 120 : electronicDrumSearch ? Math.max(source.limit, 100) : Math.max(source.limit, 12);
       const args = ["agents/social-listen.py", "--channel", source.channel, "--query", query, "--limit", String(effectiveLimit)];
+      if (client.slug === "kressmer") args.push("--youtube-video-offset", String(kressmerVideoOffset(cursor)), "--youtube-videos", String(KRESSMER_VIDEOS_PER_QUERY), "--youtube-search-mode", kressmerSearchMode(cursor), "--youtube-comment-pages", "3");
       if (source.account?.trim()) args.push("--account", source.account);
-      args.push("--source-id", source.id, "--client-id", client.id, "--language", "es", "--dry-run", "--output-json");
-      const listened = await run("python", args, electronicDrumSearch ? undefined : LISTEN_TIMEOUT_MS);
+      args.push("--source-id", source.id, "--client-id", client.id, "--language", language, "--dry-run", "--output-json");
+      const listened = await execute("python", args, electronicDrumSearch ? undefined : client.slug === "kressmer" ? KRESSMER_LISTEN_TIMEOUT_MS : LISTEN_TIMEOUT_MS);
       // social-listen emits its machine-readable payload on stdout and structured
       // diagnostics on stderr. Parsing their combined output turns a valid
       // result into a silent zero-candidate attempt.
-      return { source, query, round: jobRound, listened, payload: listened.code === 0 ? parseListenOutput(listened.stdout) : null, args, electronicDrumSearch };
+      return { source, query, language, round: jobRound, listened, payload: listened.code === 0 ? parseListenOutput(listened.stdout) : null, args, electronicDrumSearch };
     }, concurrency);
 
     // Public indexers aggressively throttle bursts. Direct connectors can run
     // concurrently, but retry empty channels through the indexed monitor one
     // at a time, using the source's focused query instead of a broad rotation.
     for (const outcome of outcomes) {
-      if (Number(outcome.payload?.summary?.items_read || 0) > 0) continue;
+      if (client.slug === "kressmer" || Number(outcome.payload?.summary?.items_read || 0) > 0) continue;
       const indexedArgs = [...outcome.args];
       const accountAt = indexedArgs.indexOf("--account");
       if (accountAt >= 0) indexedArgs.splice(accountAt, 2);
       const queryAt = indexedArgs.indexOf("--query");
-      if (queryAt >= 0) indexedArgs[queryAt + 1] = outcome.source.query;
+      if (queryAt >= 0) indexedArgs[queryAt + 1] = client.slug === "kressmer" ? outcome.query : outcome.source.query;
       indexedArgs.push("--indexed-only");
-      const indexed = await run("python", indexedArgs, outcome.electronicDrumSearch ? undefined : LISTEN_TIMEOUT_MS);
+      const indexed = await execute("python", indexedArgs, outcome.electronicDrumSearch ? undefined : LISTEN_TIMEOUT_MS);
       const indexedPayload = indexed.code === 0 ? parseListenOutput(indexed.stdout) : null;
       if (indexedPayload) {
         outcome.listened = indexed;
@@ -289,7 +323,13 @@ async function runClient(client: Client, since: Date, maxRounds: number, runId: 
       const summary = outcome.payload?.summary;
       const rows = outcome.payload?.rows || [];
       let accepted = 0;
+      let policyDiscarded = 0;
       for (const row of rows) {
+        if (client.slug === "kressmer") {
+          // Any of ES/EN/DE counts, whatever language the search was in (kressmerCommentReason rejects the rest).
+          const reason = kressmerCommentReason(row);
+          if (reason) { discards[reason] = (discards[reason] || 0) + 1; policyDiscarded += 1; continue; }
+        }
         const url = canonicalUrl(String(row.sourceUrl || ""));
         if (!url || seenUrls.has(url)) continue;
         seenUrls.add(url);
@@ -299,8 +339,8 @@ async function runClient(client: Client, since: Date, maxRounds: number, runId: 
       for (const [reason, value] of Object.entries(summary?.discard_reasons || {})) discards[reason] = (discards[reason] || 0) + value;
       const listenError = summary?.error || (outcome.listened.code === 0 ? "" : outcome.listened.output.slice(-500));
       const itemsRead = Number(summary?.items_read || 0);
-      const discardedCount = Number(summary?.discarded_count || 0);
-      await withTimeout(prisma.monitoredSource.update({
+      const discardedCount = Number(summary?.discarded_count || 0) + policyDiscarded;
+      if (!dryRun) await withTimeout(prisma.monitoredSource.update({
         where: { id: outcome.source.id },
         data: {
           lastRunAt: new Date(),
@@ -316,17 +356,21 @@ async function runClient(client: Client, since: Date, maxRounds: number, runId: 
           blockedReason: listenError
             ? "Error en la última corrida"
             : itemsRead === 0
-              ? "La fuente respondió sin elementos; se ejecutó fallback indexado"
+              ? (client.slug === "kressmer" ? "No se pudieron leer comentarios de YouTube; se reintentará" : "La fuente respondió sin elementos; se ejecutó fallback indexado")
               : accepted === 0
                 ? "Lectura correcta, sin candidatos relevantes"
                 : "",
         },
       }), `Telemetría de ${outcome.source.label}`);
-      attempts.push({ source: outcome.source.label, channel: outcome.source.channel, query: outcome.query, round: outcome.round + 1, listenCode: outcome.listened.code, listenTimedOut: outcome.listened.timedOut, itemsRead, potableCandidates: accepted, discarded: discardedCount, discoveryMode: summary?.discovery_mode || "", directItems: summary?.direct_items || 0, indexedItems: summary?.indexed_items || 0, error: listenError });
+      attempts.push({ source: outcome.source.label, channel: outcome.source.channel, query: outcome.query, language: outcome.language, videoOffset: client.slug === "kressmer" ? kressmerVideoOffset(cursor) : 0, searchMode: client.slug === "kressmer" ? kressmerSearchMode(cursor) : "", round: outcome.round + 1, listenCode: outcome.listened.code, listenTimedOut: outcome.listened.timedOut, itemsRead, potableCandidates: accepted, discarded: discardedCount, discoveryMode: summary?.discovery_mode || "", directItems: summary?.direct_items || 0, indexedItems: summary?.indexed_items || 0, error: listenError });
     }
 
     // Import only the isolated rows collected in this wave. Import remains
     // serial because Prisma dedupe and client routing are the source of truth.
+    if (dryRun && stagedRows.length) {
+      attempts.push({ source: "dry-run", channel: "internal", round: round + 1, stagedRows: stagedRows.length, message: "Vista previa; no se importa ni clasifica ni genera respuestas" });
+      stagedRows.length = 0;
+    }
     if (stagedRows.length) {
       const intakeRelative = join("runtime", "intake", `daily-quota-${runId}-${client.slug}-${round}.jsonl`);
       const intakePath = join(process.cwd(), intakeRelative);
@@ -336,26 +380,41 @@ async function runClient(client: Client, since: Date, maxRounds: number, runId: 
       // import allowance with the isolated batch so a healthy intake is not
       // killed midway through and reported as a false technical failure.
       const importTimeoutMs = Math.max(IMPORT_TIMEOUT_MS, 30_000 + stagedRows.length * (CLASSIFIER_TIMEOUT_MS + 5_000));
-      const imported = await run("npx", ["tsx", "scripts/import-opportunities.mts", "--input", intakeRelative], importTimeoutMs);
+      const imported = await execute("npx", ["tsx", "scripts/import-opportunities.mts", "--input", intakeRelative, ...(dryRun ? ["--dry-run"] : [])], importTimeoutMs);
       attempts.push({ source: "import", channel: "internal", query: "", round: round + 1, importCode: imported.code, importTimedOut: imported.timedOut, stagedRows: stagedRows.length, error: imported.code === 0 ? "" : imported.output.slice(-500) });
       stagedRows.length = 0;
       count = await newCount(client.id, since);
     }
+    if (client.slug === "kressmer") emptyRounds = outcomes.some((outcome) => Number(outcome.payload?.summary?.items_read || 0) > 0) ? 0 : emptyRounds + 1;
     cursor += 1;
     // Checkpoint every round: if the process is interrupted, the next run
     // resumes from a different source/query instead of starting over.
-    await withTimeout(prisma.client.update({ where: { id: client.id }, data: { opportunitySearchState: { cursor, lastRunAt: new Date().toISOString(), lastTarget: target, lastCount: count, maxRounds, attempts } } }), `Checkpoint de ${client.slug}`);
+    if (!dryRun) await withTimeout(prisma.client.update({ where: { id: client.id }, data: { opportunitySearchState: { cursor, lastRunAt: new Date().toISOString(), lastTarget: target, lastCount: count, maxRounds, attempts } } }), `Checkpoint de ${client.slug}`);
     await writeProgressReport(runId, client, target, count, maxRounds, attempts);
   }
 
   const attemptedChannels = [...new Set(attempts.filter((attempt) => attempt.channel !== "internal").map((attempt) => String(attempt.channel)))].sort();
-  const missingConfiguredChannels = REQUIRED_CHANNELS.filter((channel) => !configuredChannels.includes(channel));
+  const missingConfiguredChannels = (client.slug === "kressmer" ? ["youtube"] : REQUIRED_CHANNELS).filter((channel) => !configuredChannels.includes(channel));
   const unattemptedConfiguredChannels = configuredChannels.filter((channel) => !attemptedChannels.includes(channel));
   const blockedChannels = [...new Set(attempts.filter((attempt) => Boolean(attempt.listenTimedOut) || Boolean(attempt.error)).map((attempt) => String(attempt.channel)).filter((channel) => channel !== "internal"))].sort();
   const exhaustedChannels = configuredChannels.filter((channel) => attempts.filter((attempt) => attempt.channel === channel).length >= maxRounds);
-  const coverageComplete = missingConfiguredChannels.length === 0 && unattemptedConfiguredChannels.length === 0;
-  await withTimeout(prisma.client.update({ where: { id: client.id }, data: { opportunitySearchState: { cursor, lastRunAt: new Date().toISOString(), lastTarget: target, lastCount: count, maxRounds, attempts } } }), `Actualizacion de estado de ${client.slug}`);
-  return { client: client.slug, target, newOpportunities: count, quotaComplete: count >= target, coverageComplete, complete: count >= target && coverageComplete, configuredChannels, attemptedChannels, missingConfiguredChannels, unattemptedConfiguredChannels, exhaustedChannels, blockedChannels, deduplicatedUrls: seenUrls.size, discardReasons: discards, attempts };
+  const coverageComplete = missingConfiguredChannels.length === 0 && ((client.slug === "kressmer" && count >= target) || unattemptedConfiguredChannels.length === 0);
+  if (!dryRun) await withTimeout(prisma.client.update({ where: { id: client.id }, data: { opportunitySearchState: { cursor, lastRunAt: new Date().toISOString(), lastTarget: target, lastCount: count, maxRounds, attempts } } }), `Actualizacion de estado de ${client.slug}`);
+  let readyResponses: number | undefined;
+  if (client.slug === "kressmer" && !dryRun) {
+    const progress = await kressmerDailyProgress(prisma, client.id, since);
+    if (progress.pendingIds.length) {
+      const drafted = await execute("npx", ["tsx", "scripts/daily-draft-quota.mts", "--client", "kressmer"], 20 * 60_000);
+      attempts.push({ source: "draft", channel: "internal", code: drafted.code, timedOut: drafted.timedOut, error: drafted.code ? drafted.output.slice(-1000) : "" });
+    }
+    readyResponses = (await kressmerDailyProgress(prisma, client.id, since)).ready;
+  }
+  const responseComplete = readyResponses === undefined || readyResponses >= target;
+  if (!dryRun) await withTimeout(prisma.client.update({ where: { id: client.id }, data: { opportunitySearchState: {
+    cursor, lastRunAt: new Date().toISOString(), lastTarget: target, lastCount: count, readyResponses: readyResponses ?? null,
+    missingOpportunities: Math.max(0, target - count), missingResponses: readyResponses === undefined ? null : Math.max(0, target - readyResponses), maxRounds, attempts,
+  } } }), `Estado final de ${client.slug}`);
+  return { client: client.slug, target, stopReason: stopReason || (count >= target ? "target_reached" : "max_rounds"), roundsRun: attempts.filter((attempt) => attempt.channel !== "internal").length, readyResponses, missingResponses: readyResponses === undefined ? undefined : Math.max(0, target - readyResponses), missingOpportunities: Math.max(0, target - count), newOpportunities: count, quotaComplete: count >= target, coverageComplete, complete: count >= target && coverageComplete && responseComplete, configuredChannels, attemptedChannels, missingConfiguredChannels, unattemptedConfiguredChannels, exhaustedChannels, blockedChannels, deduplicatedUrls: seenUrls.size, discardReasons: discards, attempts };
 }
 
 async function main() {
@@ -363,20 +422,22 @@ async function main() {
   const maxRoundsOption = cliOption("--max-rounds");
   const maxRounds = maxRoundsOption === "" ? DEFAULT_MAX_ROUNDS : Math.max(1, Number(maxRoundsOption));
   const clientSlug = cliOption("--client");
-  const clients = await withTimeout(prisma.client.findMany({ where: { active: true, ...(clientSlug ? { slug: clientSlug } : {}) }, select: { id: true, slug: true, name: true, dailyOpportunityTarget: true, opportunitySearchState: true, domainKeywords: true } }), "Lectura de clientes activos") as Client[];
+  const excludeSlug = cliOption("--exclude-client");
+  const clients = await withTimeout(prisma.client.findMany({ where: { active: true, ...(clientSlug ? { slug: clientSlug } : excludeSlug ? { slug: { not: excludeSlug } } : {}) }, select: { id: true, slug: true, name: true, dailyOpportunityTarget: true, opportunitySearchState: true, domainKeywords: true } }), "Lectura de clientes activos") as Client[];
   const runId = new Date().toISOString().replace(/[:.]/g, "-");
   // Divide the global browser cap across active clients. Each account keeps
   // progressing even if another account has a temporarily empty network.
   const perClientConcurrency = Math.min(2, Math.max(1, Math.floor(MAX_CONCURRENCY / Math.max(clients.length, 1))));
-  const report = await Promise.all(clients.map((client) => runClient(client, since, maxRounds, runId, perClientConcurrency)));
+  const report = await Promise.all(clients.map((client) => runClient(client, since, client.slug === "kressmer" ? (maxRoundsOption === "" ? KRESSMER_MAX_ROUNDS : maxRounds) : maxRounds, runId, perClientConcurrency, run, DRY_RUN, client.slug === "kressmer" ? KRESSMER_ROUND_PAUSE_MS : 0)));
   // Videos que pasaron a privados o se eliminaron después de importarse ya no
   // se pueden responder: se descartan para que no queden en el Copiloto.
-  const unavailableSweep = await run("npx", ["tsx", "scripts/discard-unavailable-youtube.mts", ...(clientSlug ? ["--client", clientSlug] : [])], 10 * 60_000);
-  const payload = { command: "daily-opportunity-quota", since: since.toISOString(), maxRounds, concurrency: MAX_CONCURRENCY, clients: report, unavailableYouTubeSweep: { code: unavailableSweep.code, timedOut: unavailableSweep.timedOut, output: unavailableSweep.output.slice(-500) } };
+  const unavailableSweep = DRY_RUN ? { code: 0, timedOut: false, output: "dry-run: sweep omitido" } : await run("npx", ["tsx", "scripts/discard-unavailable-youtube.mts", ...(clientSlug ? ["--client", clientSlug] : [])], 10 * 60_000);
+  const payload = { command: "daily-opportunity-quota", dry_run: DRY_RUN, since: since.toISOString(), maxRounds, concurrency: MAX_CONCURRENCY, clients: report, unavailableYouTubeSweep: { code: unavailableSweep.code, timedOut: unavailableSweep.timedOut, output: unavailableSweep.output.slice(-500) } };
   await mkdir(join(process.cwd(), "reports"), { recursive: true });
   const reportPath = join(process.cwd(), "reports", `${new Date().toISOString().replace(/[:.]/g, "-")}-daily-opportunity-quota.json`);
   await writeFile(reportPath, JSON.stringify(payload, null, 2));
   console.log(JSON.stringify({ ...payload, reportPath }, null, 2));
+  if (!DRY_RUN && report.some(client => !client.complete)) process.exitCode = 2;
   await withTimeout(prisma.$disconnect(), "Cierre de Prisma", 5_000);
 }
 
@@ -386,8 +447,16 @@ async function acquirePipelineLock(): Promise<Awaited<ReturnType<typeof open>>> 
   } catch (error: any) {
     if (error?.code !== "EEXIST") throw error;
     const age = Date.now() - (await stat(PIPELINE_LOCK_PATH)).mtimeMs;
-    if (age <= PIPELINE_LOCK_MAX_AGE_MS) {
-      const holder = await readFile(PIPELINE_LOCK_PATH, "utf8").catch(() => "");
+    const holder = await readFile(PIPELINE_LOCK_PATH, "utf8").catch(() => "");
+    let ownerAlive = false;
+    let ownerKnown = false;
+    try {
+      const pid = Number(JSON.parse(holder).pid);
+      if (Number.isInteger(pid) && pid > 0) { ownerKnown = true; process.kill(pid, 0); ownerAlive = true; }
+    } catch (error: any) { ownerAlive = error?.code === "EPERM"; }
+    // A recorded owner that died (killed run) frees the lock at once; only a lock
+    // without a readable PID falls back to the age rule.
+    if (ownerAlive || (!ownerKnown && age <= PIPELINE_LOCK_MAX_AGE_MS)) {
       throw Object.assign(new Error(`Otra corrida del pipeline de oportunidades está activa (${holder.trim() || "lock sin detalle"}).`), { code: "LOCK_BUSY" });
     }
     // Lock outlived a crashed/killed run (e.g. Task Scheduler's execution time
@@ -404,7 +473,11 @@ async function runWithPipelineLock() {
     lock = await acquirePipelineLock();
   } catch (error: any) {
     if (error?.code === "LOCK_BUSY") {
-      console.log(JSON.stringify({ command: "daily-opportunity-quota", status: "skipped", reason: error.message }));
+      const skipped = { command: "daily-opportunity-quota", status: "skipped", dry_run: DRY_RUN, reason: error.message };
+      await mkdir(join(process.cwd(), "reports"), { recursive: true });
+      const reportPath = join(process.cwd(), "reports", `${new Date().toISOString().replace(/[:.]/g, "-")}-daily-opportunity-quota.json`);
+      await writeFile(reportPath, JSON.stringify(skipped, null, 2));
+      console.log(JSON.stringify({ ...skipped, reportPath }));
       process.exitCode = 1;
       return;
     }
@@ -415,11 +488,13 @@ async function runWithPipelineLock() {
     await main();
   } finally {
     await lock.close();
-    await unlink(PIPELINE_LOCK_PATH).catch(() => {});
+    const holder = await readFile(PIPELINE_LOCK_PATH, "utf8").catch(() => "{}");
+    if (JSON.parse(holder).pid === process.pid) await unlink(PIPELINE_LOCK_PATH).catch(() => {});
   }
 }
 
-runWithPipelineLock().catch(async (error) => {
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isMain) runWithPipelineLock().catch(async (error) => {
   try { console.error(`daily-opportunity-quota failed. Reporte: ${await writeFailureReport(error)}`); } catch { /* best effort */ }
   console.error(error);
   try { await withTimeout(prisma.$disconnect(), "Cierre de Prisma", 5_000); } catch { /* exit */ }

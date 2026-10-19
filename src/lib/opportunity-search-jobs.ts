@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { prisma } from "@/lib/db";
 
 export const SEARCH_CHANNELS = ["youtube"] as const;
-export const SEARCH_LANGUAGES = ["es", "en", "pt", "any"] as const;
+export const SEARCH_LANGUAGES = ["es", "en", "de", "pt", "any"] as const;
 export const SEARCH_CHANNEL_TIMEOUT_MS = 20_000;
 
 const ELECTRONIC_DRUM_QUERY_PATTERN = /\b(bater[ií]a(?:s)?\s+electr[oó]nica(?:s)?|electronic\s+drums?|e[- ]?drums?)\b/i;
