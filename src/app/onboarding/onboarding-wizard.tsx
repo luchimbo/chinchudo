@@ -513,6 +513,16 @@ export function OnboardingWizard({
                 );
               })}
             </ol>
+            {!preview ? (
+              <form action="/api/auth/logout" method="POST" className="mt-4 lg:mt-8">
+                <button
+                  type="submit"
+                  className="min-h-11 text-xs font-bold text-[#eff3e8]/60 underline transition hover:text-paper"
+                >
+                  Cerrar sesión
+                </button>
+              </form>
+            ) : null}
           </div>
         </aside>
         <section className="min-w-0 px-5 py-7 sm:px-9 sm:py-10">
