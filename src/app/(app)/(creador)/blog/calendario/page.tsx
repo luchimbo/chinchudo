@@ -1,3 +1,4 @@
+import { FirstUseHint } from "@/components/first-use-hint";
 import { BLOG_LANGUAGES, blogPreferences, editorialCalendarEnabled } from "@/lib/blog-language";
 import { PendingSubmitButton } from "@/components/pending-submit-button";
 import { Suspense } from "react";
@@ -124,6 +125,7 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
 
   return (
     <main className="mx-auto w-full max-w-7xl px-3 py-6 sm:px-6">
+      {searchParams.firstUse === "content" ? <FirstUseHint goal="content" clientSlug={activeClient.slug} /> : null}
       <header className="mb-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="font-display text-2xl text-ink">Calendario del blog</h1>

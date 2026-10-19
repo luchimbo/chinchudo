@@ -44,7 +44,7 @@ describe("onboarding", () => {
   it("deja pendiente sólo lo que no tiene contexto suficiente", () => {
     const draft = fillOnboardingDraftGaps({ name: "Marca", brand: "Marca" });
     expect(getOnboardingCompletionIssues(draft).map((issue) => issue.key)).toContain("offer");
-    expect(getOnboardingCompletionIssues(draft).map((issue) => issue.key)).toContain("knowledge-0");
+    expect(getOnboardingCompletionIssues(draft).map((issue) => issue.key)).not.toContain("knowledge-0");
   });
 
   it("no agrega claims sensibles al completar los huecos", () => {
@@ -195,7 +195,7 @@ describe("onboarding", () => {
       offer: "Accesorios variados",
     });
     expect(draft.targetAudience).toBe("");
-    expect(getOnboardingCompletionIssues(draft).map((issue) => issue.key)).toContain("targetAudience");
+    expect(getOnboardingCompletionIssues(draft).map((issue) => issue.key)).not.toContain("targetAudience");
   });
 
   it("deriva público objetivo desde las categorías detectadas, no desde nombres de producto", () => {

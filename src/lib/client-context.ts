@@ -10,6 +10,7 @@ import type {
 import { mentionsBrand } from "./brand-identity";
 
 type OpportunityLike = Pick<Opportunity, "sourceText" | "detectedBrandId" | "monitoredSourceId"> & {
+  clientId?: string | null;
   detectedBrand?: (Brand & { client?: Client | null }) | null;
   monitoredSource?: (MonitoredSource & { client?: Client | null }) | null;
 };
@@ -60,6 +61,10 @@ export async function resolveOpportunityClient(
   prisma: PrismaClient,
   opportunity: OpportunityLike,
 ): Promise<ClientResolution> {
+  if (opportunity.clientId) {
+    const storedClient = await prisma.client.findUnique({ where: { id: opportunity.clientId } });
+    if (storedClient) return { client: storedClient, confidence: "high", reason: "opportunity.clientId" };
+  }
   const sourceClient = opportunity.monitoredSource?.client ??
     (opportunity.monitoredSourceId
       ? (await prisma.monitoredSource.findUnique({

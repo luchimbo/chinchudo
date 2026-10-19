@@ -43,6 +43,9 @@ export type OnboardingOffering = {
   evidence: OnboardingEvidence;
 };
 export type OnboardingDraft = {
+  firstUseGoal?: "opportunities" | "content" | "responses" | "";
+  /** Missing legacy values are treated as completed; only new activation opts in. */
+  welcomeCompleted?: boolean;
   market?: BusinessMarket;
   priorities?: string[];
   exclusions?: string[];
@@ -159,6 +162,7 @@ const SOCIAL_HOSTS: Record<string, string> = {
 
 export function defaultDraft(clientName = ""): Required<OnboardingDraft> {
   return {
+    firstUseGoal: "", welcomeCompleted: true,
     market: { ...DEFAULT_MARKET },
     priorities: [], exclusions: [], differentiators: [], analysisRunId: "",
     name: clientName,
@@ -281,6 +285,8 @@ export function sanitizeDraft(
   return {
     ...base,
     ...raw,
+    firstUseGoal: raw.firstUseGoal === "opportunities" || raw.firstUseGoal === "content" || raw.firstUseGoal === "responses" ? raw.firstUseGoal : "",
+    welcomeCompleted: raw.welcomeCompleted !== false,
     name: clipped(raw.name, 160) || base.name,
     description: clipped(raw.description, 2000),
     brand: clipped(raw.brand, 160) || base.brand,
@@ -1276,7 +1282,7 @@ export function mergeManualFields(
   fresh: Required<OnboardingDraft>,
   previous: Required<OnboardingDraft>,
 ): Required<OnboardingDraft> {
-  const merged: Required<OnboardingDraft> = { ...fresh };
+  const merged: Required<OnboardingDraft> = { ...fresh, firstUseGoal: previous.firstUseGoal, welcomeCompleted: previous.welcomeCompleted };
   for (const field of previous.manualFields) {
     if (field.startsWith("offering:")) continue;
     const key = field as keyof OnboardingDraft;

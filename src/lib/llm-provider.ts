@@ -127,6 +127,7 @@ async function resolveLocalEndpoint(config: LLMConfig): Promise<LLMConfig> {
 
 export function llmHeaders(config: LLMConfig, title: string): Record<string, string> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (config.provider === "local") headers["X-PCMidi-Project"] = "pcmidi-suite";
   if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
   if (config.provider === "openrouter") {
     headers["HTTP-Referer"] = "https://los5apostoles.local";

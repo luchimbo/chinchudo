@@ -1,3 +1,5 @@
+import { redirect } from "next/navigation";
+import { needsWelcome } from "@/lib/onboarding-welcome";
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { requirePageClient } from "@/lib/auth";
@@ -37,6 +39,8 @@ function Metric({
 
 export default async function HomePage({ searchParams }: PageProps) {
   const client = await requirePageClient(prisma, searchParams.client);
+  const welcomeOnboarding = await prisma.clientOnboarding.findUnique({ where: { clientId: client.id } });
+  if (needsWelcome(welcomeOnboarding?.status, sanitizeDraft(welcomeOnboarding?.draft))) redirect(`/bienvenida?client=${encodeURIComponent(client.slug)}`);
   const clientWhere = { clientId: client.id };
   const opportunityWhere = { ...clientWhere, ...operationalOpportunityWhere() };
   const workStatuses = ["NEW", "NEEDS_REVIEW", "DRAFTED", "APPROVED", "FOLLOW_UP"] as const;
@@ -47,12 +51,7 @@ export default async function HomePage({ searchParams }: PageProps) {
     prisma.opportunity.count({ where: { ...opportunityWhere, status: "CONVERTED" } }),
     prisma.landing.count({ where: clientWhere }),
     prisma.lead.count({ where: clientWhere }),
-    client
-      ? (prisma as any).clientOnboarding.findUnique({
-          where: { clientId: client.id },
-          select: { status: true, currentStep: true, sourceUrl: true, draft: true },
-        })
-      : Promise.resolve(null),
+    Promise.resolve(welcomeOnboarding),
   ]);
 
   const withClient = (href: string) => client ? `${href}?client=${encodeURIComponent(client.slug)}` : href;

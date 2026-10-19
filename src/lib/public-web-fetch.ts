@@ -2,18 +2,11 @@ import { lookup } from "node:dns/promises";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { privateStoreAddress } from "./tiendanube-public";
+import { withAbortSignal } from "./abortable";
+export { withAbortSignal } from "./abortable";
 
 /** Validate every redirect and pin the DNS answer to the socket (no rebinding). */
 export type PublicTextResult = { url: URL; html: string; truncated?: boolean };
-/** Bound operations such as DNS and response.json that do not accept a signal. */
-export function withAbortSignal<T>(task: Promise<T>, signal: AbortSignal): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const abort = () => reject(signal.reason || new Error("Se agotó el tiempo de lectura."));
-    task.then(value => { signal.removeEventListener("abort", abort); resolve(value); }, error => { signal.removeEventListener("abort", abort); reject(error); });
-    if (signal.aborted) abort();
-    else signal.addEventListener("abort", abort, { once: true });
-  });
-}
 export async function fetchPublicText(input: URL, signal: AbortSignal, redirects = 0, options: { allowPartial?: boolean } = {}): Promise<PublicTextResult> {
   if (!/^https?:$/.test(input.protocol) || input.username || input.password || input.port && !["80", "443"].includes(input.port) || input.hostname === "localhost" || input.hostname.endsWith(".local")) throw new Error("La URL no es pública.");
   const addresses = await withAbortSignal(lookup(input.hostname.replace(/^\[|\]$/g, ""), { all: true }), signal);

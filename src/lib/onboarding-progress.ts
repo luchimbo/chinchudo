@@ -55,15 +55,15 @@ export function getOnboardingProgress(input: {
   const steps: OnboardingProgressStep[] = [
     {
       key: "analyze",
-      label: "Analizar tu sitio",
-      description: "Pegá la web de tu negocio para arrancar con una propuesta.",
+      label: "Agregar tu web",
+      description: "Pegá tu web o completá los datos a mano.",
       state: stateFor(analyzeDone, firstPending === "analyze"),
       href: base("&step=0"),
     },
     {
       key: "review",
       label: "Revisar la configuración",
-      description: "Completá lo que falte: identidad, catálogo y conocimiento.",
+      description: "Confirmá el nombre del negocio y qué ofrece.",
       state: stateFor(reviewDone, firstPending === "review"),
       href: base("&step=1"),
       missing: issues.map((issue) => issue.label),
@@ -71,7 +71,7 @@ export function getOnboardingProgress(input: {
     {
       key: "activate",
       label: "Activar tu espacio",
-      description: "Confirmá y elegí en qué redes empezar a escuchar.",
+      description: "Guardá lo básico y elegí cómo empezar.",
       state: stateFor(activateDone, firstPending === "activate"),
       href: base("&step=2"),
     },

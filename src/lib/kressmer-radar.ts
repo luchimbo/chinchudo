@@ -66,19 +66,93 @@ const IMPLICIT_ATTRIBUTION = [
 ];
 const THIRD_PARTY_BRANDS = /\b(?:yamaha|casio|roland|korg|kawai|alesis|donner|kurzweil|nord|medeli|artesia|williams|thomann|startone|behringer|arturia|novation|m-audio|akai|nektar|ketron|bontempi|midiplus|kurtzman|orla|ringway)\b/;
 
-export function kressmerDraftClaimErrors(text: string, hasCatalog: boolean): string[] {
-  const normalized = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[\u2019`\u00b4]/g, "'");
+export type KressmerCatalogEntry = { name: string; description?: string | null; technicalSpecs?: string | null };
+
+function normalizeClaimText(text: string) {
+  return text.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "").replace(/[’`´]/g, "'");
+}
+
+/** "Kressmer K-180 Piano Digital…" -> "k180"; "Piano Digital Modular Kressmer 3008…" -> "3008". */
+export function kressmerModelCode(name: string): string | null {
+  const match = normalizeClaimText(name).match(/kressmer\s+([a-z]{0,3}-?\d{2,4})\b/);
+  return match ? match[1].replace(/[^a-z0-9]/g, "") : null;
+}
+
+function modelCodePattern(code: string, flags = "") {
+  const [, letters, digits] = code.match(/^([a-z]*)(\d+)$/) || [];
+  return new RegExp(`\\b${letters}${letters ? "[- ]?" : ""}${digits}\\b`, flags);
+}
+
+/** What a reply may rely on: the description and confirmed spec lines. The sheets'
+ * "Precisiones", "Reglas de respuesta" and "Opcionales" lines list what must NOT be
+ * claimed (e.g. "No declarar acción martillo"), so they are never evidence. */
+function catalogEvidence(entry: KressmerCatalogEntry) {
+  const specs = (entry.technicalSpecs || "").split("\n")
+    .filter(line => !/^\s*(?:precisiones|reglas de respuesta|opcionales)\b/.test(normalizeClaimText(line))).join(" ");
+  return normalizeClaimText(`${entry.description || ""} ${specs}`);
+}
+
+// [claim in the reply (es/en/de), evidence required in the sheet (sheets are in Spanish)]
+const FEATURE_CLAIMS: [RegExp, RegExp][] = [
+  [/\b(?:martillo|hammer\w*)\b/, /martillo|hammer/],
+  [/\b(?:contrapesad\w*|pesad[oa]s?|weighted|gewichtet\w*)\b/, /contrapes|pesad|weighted|gewichtet|martillo|hammer/],
+  [/\bbluetooth\b/, /bluetooth/],
+  [/\b(?:mueble|cabinet|gehause|mobel\w*)\b/, /mueble|cabinet|gehause|mobel/],
+  [/\busb\b/, /\busb\b/],
+  [/\b(?:baterias?|battery|batteries|akku\w*)\b/, /bateria|battery|akku/],
+  [/\b(?:polifonia|polyphon\w*)\b/, /polifonia|polyphon/],
+  [/\b(?:parlantes?|altavoces|altavoz|speakers?|lautsprecher)\b/, /parlante|altavo|speaker|lautsprecher/],
+  [/\b(?:auriculares?|headphones?|kopfhorer\w*)\b/, /auricular|headphone|kopfhorer/],
+  [/\bmidi\b/, /\bmidi\b/],
+  [/\b(?:grabacion|grabar|record\w*|aufnahme\w*)\b/, /grabacion|grabar|record|aufnahme/],
+  [/\b(?:metronomo|metronome|metronom)\b/, /metronom/],
+  [/\b(?:apps?|aplicacion\w*)\b/, /\bapps?\b|aplicacion/],
+  [/\b(?:modular|portable|portatil|tragbar\w*|transportable)\b/, /modular|portable|portatil|tragbar|traslado|transport/],
+  [/\b(?:pedales|pedals|pedale|pedal triple|triple pedal)\b/, /pedales|pedal triple|triple pedal|sistema de pedales/],
+  [/\b(?:microfono|microphone|mikrofon)\b/, /microfono|microphone|mikrofon/],
+  [/\b(?:sensibles?|sensitiv\w*|velocity|anschlagdynam\w*)\b/, /sensib|sensitiv|velocidad|velocity/],
+];
+
+/** A sentence about Kressmer may only state features and numbers its sheet confirms. Without
+ * a named model, a brand-level statement must hold for every catalogued model. */
+function kressmerSpecErrors(sentence: string, catalog: { code: string | null; evidence: string }[]) {
+  const named = catalog.filter(entry => entry.code && modelCodePattern(entry.code).test(sentence));
+  const evidences = (named.length ? named : catalog).map(entry => entry.evidence);
+  const confirmed = (pattern: RegExp) => named.length ? evidences.some(evidence => pattern.test(evidence)) : evidences.every(evidence => pattern.test(evidence));
+  const errors: string[] = [];
+  if (FEATURE_CLAIMS.some(([claim, evidence]) => claim.test(sentence) && !confirmed(evidence))) errors.push("unverified_kressmer_spec");
+  let withoutCodes = sentence;
+  for (const entry of named) withoutCodes = withoutCodes.replace(modelCodePattern(entry.code!, "g"), " ");
+  const numbers = withoutCodes.match(/\b\d+(?:[.,]\d+)?\b/g) || [];
+  if (numbers.some(number => !confirmed(new RegExp(`\\b${number.replace(/[.,]/, "[.,]")}\\b`)))) errors.push("unverified_kressmer_spec");
+  return errors;
+}
+
+/**
+ * Every reply has to recommend Kressmer: that is the point of the radar. Claims about a
+ * Kressmer model must come from its catalogue sheet; anything said about another brand
+ * or about the instrument the user asked about is never verified, so it blocks.
+ */
+export function kressmerDraftClaimErrors(text: string, catalogEntries: KressmerCatalogEntry[]): string[] {
+  const normalized = normalizeClaimText(text);
+  const catalog = catalogEntries.map(entry => ({ code: kressmerModelCode(entry.name), evidence: catalogEvidence(entry) }));
+  const codes = catalog.flatMap(entry => entry.code ? [entry.code] : []);
   const errors: string[] = [];
   const sentences = normalized.split(/[.!?;:\n]+/).map(sentence => sentence.trim()).filter(Boolean);
-  // A competitor's specs are never covered by the Kressmer catalog, so naming one blocks regardless of catalog.
+  const aboutKressmer = (sentence: string) => /\bkressmer\b/.test(sentence) || codes.some(code => modelCodePattern(code).test(sentence));
+  if (!/\bkressmer\b/.test(normalized)) errors.push("missing_kressmer_recommendation");
+  // A competitor's specs are never covered by the Kressmer catalog, so naming one always blocks.
   if (sentences.some(sentence => THIRD_PARTY_BRANDS.test(sentence))) errors.push("unverified_third_party_product");
-  if (!hasCatalog && sentences.some(sentence => IMPLICIT_ATTRIBUTION.some(pattern => pattern.test(sentence)))) errors.push("unverified_implicit_attribute");
+  // Sentences that are not about Kressmer can only be general guidance, never a description of the consulted instrument.
+  if (sentences.some(sentence => !aboutKressmer(sentence) && IMPLICIT_ATTRIBUTION.some(pattern => pattern.test(sentence)))) errors.push("unverified_implicit_attribute");
   if (/\b(?:stock disponible|entrega inmediata|in stock|available now|sofort lieferbar|auf lager|garantia de|warranty of|jahre garantie)\b/.test(normalized)
     || /[$€£]|\b\d+[.,]?\d*\s*(usd|eur|ars)\b/.test(normalized)) errors.push("unverified_commercial_claim");
-  if (!hasCatalog && /\bkressmer\b[^.!?]*(?:\d|\b(?:tiene|trae|ofrece|has|offers|features|hat|bietet|verfugt)\b)/.test(normalized)) errors.push("unverified_kressmer_attribute");
-  if (!hasCatalog && /\b[a-z]{1,6}-?[a-z]?\d{2,4}[a-z]?\b/.test(normalized)) errors.push("uncatalogued_model_recommendation");
+  if (!catalog.length && /\bkressmer\b[^.!?]*(?:\d|\b(?:tiene|trae|ofrece|has|offers|features|hat|bietet|verfugt)\b)/.test(normalized)) errors.push("unverified_kressmer_attribute");
+  const modelCodes = normalized.match(/\b[a-z]{1,6}-?[a-z]?\d{2,4}[a-z]?\b/g) || [];
+  if (modelCodes.some(token => !codes.includes(token.replace(/[^a-z0-9]/g, "")))) errors.push("uncatalogued_model_recommendation");
+  if (catalog.length) errors.push(...sentences.filter(aboutKressmer).flatMap(sentence => kressmerSpecErrors(sentence, catalog)));
   if (/\b(?:yo (?:uso|probe)|i (?:use|tested|own)|ich (?:benutze|besitze|habe getestet))\b/.test(normalized)) errors.push("unverified_personal_experience");
-  return errors;
+  return [...new Set(errors)];
 }
 
 export function youtubeCommentIdentity(raw: string): { url: string; key: string; video: string } | null {
@@ -158,4 +232,85 @@ export async function kressmerDailyProgress(db: Pick<import("@prisma/client").Pr
     return row.responses.some(response => detectKressmerLanguage(response.editedText || response.draftText) === language);
   });
   return { opportunities: valid.length, ready: ready.length, pendingIds: valid.filter(row => !ready.includes(row)).map(row => row.id) };
+}
+
+const CORRECTIONS: Record<string, string> = {
+  missing_kressmer_recommendation: "Recomendá un piano digital Kressmer concreto del catálogo, nombrándolo «Kressmer <modelo>».",
+  unverified_kressmer_spec: "Del modelo Kressmer usá solo datos de su ficha; quitá cualquier característica o número que la ficha no confirme.",
+  uncatalogued_model_recommendation: "Nombrá solo modelos Kressmer del catálogo, con su código exacto.",
+  unverified_third_party_product: "No nombres otras marcas ni modelos, tampoco el que mencionó el usuario.",
+  unverified_implicit_attribute: "No describas ni califiques el instrumento que consultó el usuario; dale criterios y presentá el Kressmer.",
+  unverified_commercial_claim: "Quitá precio, stock, garantía y disponibilidad.",
+  unverified_kressmer_attribute: "No le atribuyas características a Kressmer sin ficha.",
+  unverified_personal_experience: "Sin experiencias personales: hablás como la cuenta oficial de Kressmer.",
+};
+
+/** Retry instruction that names exactly what the rejected draft got wrong. */
+export function kressmerCorrection(errors: string[]) {
+  return errors.map(error => CORRECTIONS[error] || error).join(" ");
+}
+
+const REPLY_LANGUAGE: Record<string, string> = {
+  es: "español neutro (el comentario puede venir de cualquier país)",
+  en: "English",
+  de: "Deutsch",
+};
+
+function sheetLines(entry: KressmerCatalogEntry) {
+  const lines = (entry.technicalSpecs || "").split("\n").map(line => line.trim()).filter(Boolean);
+  const isCaveat = (line: string) => /^(?:precisiones|reglas de respuesta|opcionales)\b/.test(normalizeClaimText(line));
+  return { confirmed: lines.filter(line => !isCaveat(line)), caveats: lines.filter(isCaveat) };
+}
+
+/** "Kressmer K-180 Piano Digital…" -> "Kressmer K-180": the short name a reply must use. */
+export function kressmerPublicName(name: string) {
+  const match = name.match(/Kressmer\s+([A-Za-z]{0,3}-?\d{2,4})\b/i);
+  return match ? `Kressmer ${match[1].toUpperCase()}` : name;
+}
+
+/**
+ * Kressmer replies speak as the official account and always recommend one catalogued
+ * model. They do not reuse the generic prompt, which is written for independent-user
+ * voices and tells the model not to name the brand.
+ */
+export function buildKressmerReplyPrompt(input: {
+  sourceText: string; sourceTitle?: string | null; catalog: KressmerCatalogEntry[]; maxCharacters: number;
+  styleCorrection?: string; avoidDrafts?: string[]; condensationOf?: string;
+}) {
+  const language = detectKressmerLanguage(input.sourceText);
+  const models = input.catalog.length
+    ? input.catalog.map(entry => {
+      const { confirmed, caveats } = sheetLines(entry);
+      return [`### «${kressmerPublicName(entry.name)}»`, `- Descripción: ${(entry.description || "").replace(/\s+/g, " ").trim()}`,
+        ...confirmed.map(line => `- Confirmado: ${line.replace(/^[-•]\s*/, "")}`),
+        ...caveats.map(line => `- No declarar como incluido: ${line}`)].join("\n");
+    }).join("\n\n")
+    : "(no hay modelos cargados)";
+  const recommend = input.catalog.length
+    ? "2) Recomendá UN modelo de la lista, el que mejor encaje, nombrándolo exactamente como figura entre «» (por ejemplo «Kressmer K-180»), y en la misma oración 1 o 2 datos \"Confirmado\" de su ficha que respondan al comentario."
+    : "2) Nombrá Kressmer como opción a considerar en kressmer.com, sin atribuirle características.";
+  const avoid = (input.avoidDrafts || []).filter(Boolean).slice(-10);
+  return `Sos la cuenta oficial de Kressmer en YouTube y respondés el comentario de abajo. Kressmer hace pianos digitales: el objetivo es ayudar de verdad y recomendar el modelo Kressmer que mejor encaje.
+
+## Comentario
+Video: ${input.sourceTitle || "sin título"}
+Texto: "${input.sourceText}"
+
+## Modelos Kressmer (única fuente de datos sobre Kressmer)
+${models}
+
+## Cómo responder
+- Idioma: ${REPLY_LANGUAGE[language] || language}. Toda la respuesta en ese idioma.
+- 1) Respondé la duda con un criterio concreto. ${recommend}
+- Solo datos "Confirmado". Lo marcado "No declarar como incluido" nunca se afirma.
+- Nunca precio, stock, garantía, envíos, disponibilidad por país ni links.
+- No nombres, evalúes ni compares otras marcas o modelos, tampoco el que mencionó el usuario. Si preguntó por otro, no lo describas: dale el criterio y presentá el Kressmer como opción a considerar.
+- Sin experiencias personales ni superlativos ("el mejor", "perfecto").
+- Máximo ${input.maxCharacters} caracteres, una o dos oraciones. Podés cerrar con una pregunta breve sólo si ayuda.
+${input.styleCorrection ? `\n## Corrección obligatoria\nEl intento anterior se descartó: ${input.styleCorrection}\n` : ""}${avoid.length ? `\n## Propuestas ya descartadas (escribí otra distinta)\n${avoid.map((text, index) => `${index + 1}. "${text.slice(0, 300)}"`).join("\n")}\n` : ""}${input.condensationOf ? `\n## Texto a condensar\n"${input.condensationOf}"\nConservá la recomendación Kressmer y lo útil; no agregues información nueva.\n` : ""}
+## Formato de respuesta (JSON estricto)
+{
+  "text": "una única respuesta publicable de hasta ${input.maxCharacters} caracteres",
+  "riskNotes": "nota interna breve sobre qué verificar antes de publicar"
+}`;
 }

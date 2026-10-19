@@ -46,6 +46,18 @@ let tunnel = null;
 let shuttingDown = false;
 let retryTimer = null;
 let retryDelayMs = 5_000;
+let tunnelUrl = null;
+let tunnelStartedAt = 0;
+let healthFailures = 0;
+let watchdog = null;
+
+// Watchdog: un quick tunnel puede morir del lado de Cloudflare (el dominio
+// deja de resolver) sin que cloudflared termine. Chequeamos /health a través
+// de la URL pública y, si falla varias veces seguidas con el relay local
+// sano, matamos cloudflared para que el handler de exit cree un túnel nuevo.
+const WATCHDOG_INTERVAL_MS = 60_000;
+const WATCHDOG_MAX_FAILURES = 3;
+const TUNNEL_URL_TIMEOUT_MS = 120_000;
 
 // 1) Arrancar el relay en background
 console.log(`[start-relay] Arrancando relay en puerto ${PORT}...`);
@@ -67,6 +79,7 @@ relay.on("exit", (code, signal) => {
   shuttingDown = true;
   console.error(`[start-relay] El relay terminó (code=${code ?? "n/a"}, signal=${signal ?? "n/a"}). Cerrando el túnel para reiniciar todo.`);
   if (retryTimer) clearTimeout(retryTimer);
+  clearInterval(watchdog);
   tunnel?.kill();
   process.exit(1);
 });
@@ -88,6 +101,9 @@ function startTunnel() {
     { cwd: ROOT, env: process.env }
   );
   tunnel = child;
+  tunnelUrl = null;
+  tunnelStartedAt = Date.now();
+  healthFailures = 0;
 
   child.stdout.on("data", (data) => process.stdout.write(data));
 
@@ -99,6 +115,8 @@ function startTunnel() {
     const match = text.match(/https:\/\/(?!api\.)[a-z0-9\-]+\.trycloudflare\.com/);
     if (match) {
       retryDelayMs = 5_000;
+      tunnelUrl = match[0];
+      healthFailures = 0;
       try {
         await updateRelayUrl(match[0]);
       } catch (err) {
@@ -129,11 +147,61 @@ function startTunnel() {
 
 startTunnel();
 
+async function isHealthy(baseUrl) {
+  try {
+    const res = await fetch(`${baseUrl.replace(/\/+$/, "")}/health`, {
+      signal: AbortSignal.timeout(15_000),
+      cache: "no-store",
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function checkTunnel() {
+  if (shuttingDown || !tunnel) return;
+
+  if (!tunnelUrl) {
+    if (Date.now() - tunnelStartedAt > TUNNEL_URL_TIMEOUT_MS) {
+      console.error("[start-relay] cloudflared no publicó una URL a tiempo. Recreando el túnel...");
+      tunnel.kill();
+    }
+    return;
+  }
+
+  // Si el relay local no responde, el problema no es el túnel.
+  if (!(await isHealthy(`http://127.0.0.1:${PORT}`))) return;
+
+  if (await isHealthy(tunnelUrl)) {
+    if (healthFailures > 0) console.log(`[start-relay] El túnel volvió a responder (${tunnelUrl}).`);
+    healthFailures = 0;
+    return;
+  }
+
+  healthFailures += 1;
+  console.error(`[start-relay] /health falló a través del túnel (${healthFailures}/${WATCHDOG_MAX_FAILURES}): ${tunnelUrl}`);
+  if (healthFailures >= WATCHDOG_MAX_FAILURES && tunnel) {
+    console.error("[start-relay] Túnel caído. Recreándolo...");
+    retryDelayMs = 5_000;
+    tunnel.kill();
+  }
+}
+
+let watchdogRunning = false;
+watchdog = setInterval(async () => {
+  if (watchdogRunning) return;
+  watchdogRunning = true;
+  try { await checkTunnel(); }
+  finally { watchdogRunning = false; }
+}, WATCHDOG_INTERVAL_MS);
+
 // Apagar todo junto al salir
 process.on("SIGINT", () => {
   console.log("\n[start-relay] Cerrando relay y tunnel...");
   shuttingDown = true;
   if (retryTimer) clearTimeout(retryTimer);
+  clearInterval(watchdog);
   relay.kill();
   tunnel?.kill();
   process.exit(0);
@@ -142,6 +210,7 @@ process.on("SIGINT", () => {
 process.on("SIGTERM", () => {
   shuttingDown = true;
   if (retryTimer) clearTimeout(retryTimer);
+  clearInterval(watchdog);
   relay.kill();
   tunnel?.kill();
   process.exit(0);

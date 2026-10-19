@@ -1,4 +1,4 @@
-import { getRelayUrl } from "@/lib/settings";
+import { getRelayUrl, getSetting } from "@/lib/settings";
 
 export function getRelayHeaders() {
   const token = process.env.AGENT_RELAY_TOKEN;
@@ -10,7 +10,7 @@ export function getRelayHeaders() {
 }
 
 export async function relayFetch(path: string, init: RequestInit = {}) {
-  const url = await getRelayUrl();
+  const url = (path === "/blog/publish" ? await getSetting("blog_runtime_relay_url") : null) || await getRelayUrl();
   if (!url) throw new Error("AGENT_RELAY_URL no configurado (ni en AppSetting ni en env).");
   const base = url.replace(/\/$/, "");
   const headers = getRelayHeaders();

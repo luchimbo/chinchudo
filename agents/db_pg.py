@@ -61,7 +61,7 @@ def get_client_config(client_slug: str) -> dict:
                       "landingTemplate", "landingPrimaryColor", "landingSecondaryColor",
                       "fromName", "fromEmail", "smtpHost", "smtpPort", "smtpUser", "smtpPass",
                       "unsubscribeBaseUrl", "trackBaseUrl", "geoBrandPatterns",
-                      "openrouterApiKey", "openrouterModel", "autoPublish", "autoApprove"
+                      "openrouterApiKey", "openrouterModel", "autoPublish", "autoApprove", "responsePolicy"
                FROM "Client" WHERE slug = %s""",
             (client_slug,),
         ).fetchone()

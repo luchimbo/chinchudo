@@ -12,7 +12,7 @@ const profileTransactionOptions = { timeout: 120000, maxWait: 10000 };
 
 // Reuse onboarding's transaction without opening a nested transaction. All
 // profile/context writers take the same tenant lock before reading corrections.
-function transactionDatabase(tx: Prisma.TransactionClient): PrismaClient {
+export function transactionDatabase(tx: Prisma.TransactionClient): PrismaClient {
   return new Proxy(tx, { get(target, key) {
     if (key === "$transaction") return (callback: (inner: Prisma.TransactionClient) => unknown) => callback(tx);
     const value = Reflect.get(target, key);
@@ -22,7 +22,7 @@ function transactionDatabase(tx: Prisma.TransactionClient): PrismaClient {
 
 export function mergeUserBusinessDraft(draft: Required<import("./onboarding").OnboardingDraft>, previous: BusinessProfileData, changedFields: string[]) {
   const protectedDraft = { ...previous.draft, manualFields: previous.draft.manualFields.filter(field => !changedFields.includes(field)), offerings: changedFields.includes("offerings") ? [] : previous.draft.offerings };
-  return mergeManualFields(draft, protectedDraft);
+  return { ...mergeManualFields(draft, protectedDraft), firstUseGoal: draft.firstUseGoal, welcomeCompleted: draft.welcomeCompleted };
 }
 export function readBusinessProfile(value: unknown, name: string): BusinessProfileData {
   const raw = value && typeof value === "object" ? value as Partial<BusinessProfileData> : {};
@@ -187,7 +187,7 @@ export async function analyzeRequestedCatalog(db: PrismaClient, client: Client, 
     return { draft, warning: analysis.warning };
   }, profileTransactionOptions);
 }
-export async function syncBusinessDraft(db: PrismaClient, client: Client, draft: Required<import("./onboarding").OnboardingDraft>, changedFields: string[] = [], resetManualCorrections = false) {
+export async function syncBusinessDraft(db: PrismaClient, client: Client, draft: Required<import("./onboarding").OnboardingDraft>, changedFields: string[] = [], resetManualCorrections = false, options: { applyContext?: boolean } = {}) {
   await ensureBusinessProfile(db, client);
   return db.$transaction(async tx => {
     await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${client.id} FOR UPDATE`;
@@ -199,7 +199,7 @@ export async function syncBusinessDraft(db: PrismaClient, client: Client, draft:
     }
     const merged = mergeUserBusinessDraft(draft, previous, changedFields);
     const data: BusinessProfileData = { ...previous, draft: merged, market: merged.market, priorities: merged.priorities, exclusions: merged.exclusions, differentiators: merged.differentiators, manualFields: [...new Set([...previous.manualFields, ...merged.manualFields])] };
-    data.draft = await applyBusinessProfile(transactionDatabase(tx), client, data);
+    if (options.applyContext !== false) data.draft = await applyBusinessProfile(transactionDatabase(tx), client, data);
     await tx.businessProfile.update({ where: { id: row.id }, data: { data: jsonData(data) } });
     await tx.clientOnboarding.updateMany({ where: { clientId: client.id }, data: { draft: jsonData(data.draft) } });
     return data.draft;

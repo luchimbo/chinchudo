@@ -25,7 +25,7 @@ export default async function LoginPage({ searchParams }: Props) {
       <div className="z-10 w-full max-w-sm">
         <div className="mb-8 text-center">
           <h1 className="mt-3 font-display text-4xl font-extrabold tracking-tight text-ink">Ingresar</h1>
-          <p className="mt-2 text-sm text-slate">Sistema interno &middot; Acceso restringido</p>
+          <p className="mt-2 text-sm text-slate">Ingresá a tu cuenta de Cafishia</p>
         </div>
 
         <div className="rounded-2xl border border-ink/10 bg-white/90 p-8 shadow-xl backdrop-blur-md">
@@ -90,7 +90,7 @@ export default async function LoginPage({ searchParams }: Props) {
           <div className="mt-6 text-center text-xs text-slate">
             &iquest;Nuevo aqu&iacute;?{" "}
             <Link href="/registro" className="font-semibold text-ink hover:underline">
-              Crear espacio (Onboarding)
+              Crear cuenta
             </Link>
           </div>
         </div>

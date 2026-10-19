@@ -22,9 +22,9 @@ export function initialStepFor(input: {
 export type StepLabel = readonly [string, string, string];
 
 const SETUP_STEPS: readonly StepLabel[] = [
-  ["01", "Analizar", "Pegá la página de tu negocio."],
-  ["02", "Revisar", "Corregí sólo lo que haga falta."],
-  ["03", "Activar", "Confirmá y abrí tu espacio."],
+  ["01", "Tu web", "Pegá tu página o seguí sin web."],
+  ["02", "Tu negocio", "Confirmá el nombre y qué ofrece."],
+  ["03", "Empezar", "Guardá y elegí cómo usar Cafishia."],
 ];
 const EDIT_STEPS: readonly StepLabel[] = [
   ["01", "Sitio", "Volvé a leerlo si cambió."],

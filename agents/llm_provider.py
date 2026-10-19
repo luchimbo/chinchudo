@@ -105,6 +105,8 @@ def chat(system: str, user: str, requested_model: str = "", temperature: float =
         "Authorization": f"Bearer {settings['api_key']}",
         "Content-Type": "application/json",
     }
+    if settings["provider"] == "local":
+        headers["X-PCMidi-Project"] = "pcmidi-suite-agents"
     if settings["provider"] == "openrouter":
         headers["HTTP-Referer"] = "https://los5apostoles.local/"
         headers["X-Title"] = "Los 5 Apostoles"

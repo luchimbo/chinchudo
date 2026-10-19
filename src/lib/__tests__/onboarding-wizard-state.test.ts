@@ -29,8 +29,8 @@ describe("initialStepFor", () => {
 });
 
 describe("stepLabelsFor", () => {
-  it("setup usa Analizar/Revisar/Activar", () => {
-    expect(stepLabelsFor("setup").map((s) => s[1])).toEqual(["Analizar", "Revisar", "Activar"]);
+  it("setup usa Tu web/Tu negocio/Empezar", () => {
+    expect(stepLabelsFor("setup").map((s) => s[1])).toEqual(["Tu web", "Tu negocio", "Empezar"]);
   });
   it("edit usa Sitio/Revisar/Guardar", () => {
     expect(stepLabelsFor("edit").map((s) => s[1])).toEqual(["Sitio", "Revisar", "Guardar"]);
@@ -41,7 +41,7 @@ describe("reanalysisImpact", () => {
   it("lista las labels humanas de los campos protegidos por manualFields", () => {
     const draft = sanitizeDraft({ name: "Cliente", manualFields: ["tone", "offer"] });
     const impact = reanalysisImpact(draft);
-    expect(impact.keepLabels).toEqual(["Oferta principal", "Tono"]);
+    expect(impact.keepLabels).toEqual(["Qué vendés o qué servicio ofrecés", "Tono"]);
   });
 
   it("ignora entradas offering: en la lista de labels", () => {

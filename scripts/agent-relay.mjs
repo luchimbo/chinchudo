@@ -196,13 +196,14 @@ async function proxyLocalLlm(req, res) {
   try { body = await readBody(req); }
   catch { return json(res, 400, { error: "invalid_json" }); }
 
-  const origin = (process.env.LLM_LOCAL_BASE_URL || process.env.LLM_BASE_URL || "http://127.0.0.1:11434/v1").replace(/\/+$/, "");
+  const origin = (process.env.LLM_LOCAL_BASE_URL || process.env.LLM_BASE_URL || "http://127.0.0.1:11435/v1").replace(/\/+$/, "");
   const upstreamKey = process.env.LLM_LOCAL_UPSTREAM_API_KEY || process.env.LLM_API_KEY || "ollama";
   try {
     const upstream = await fetch(`${origin}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "X-PCMidi-Project": "pcmidi-suite-relay",
         Authorization: `Bearer ${upstreamKey}`,
       },
       body: JSON.stringify(body),
@@ -212,6 +213,7 @@ async function proxyLocalLlm(req, res) {
     res.writeHead(upstream.status, {
       "Content-Type": upstream.headers.get("content-type") || "application/json",
       "Cache-Control": "no-store",
+      ...(upstream.headers.has("retry-after") ? { "Retry-After": upstream.headers.get("retry-after") } : {}),
     });
     res.end(payload);
   } catch (error) {

@@ -4,7 +4,7 @@ import type { KnowledgeLike, ObjectionLike } from "./knowledge";
 import { deriveVoiceModulation, type ProfileContextForDraft } from "./observed-profiles";
 import { logger } from "./logger";
 import { fetchChatCompletion, resolveLLMConfig, resolveOpenRouterConfig, type LLMConfig } from "./llm-provider";
-import { detectKressmerLanguage, kressmerDraftClaimErrors } from "./kressmer-radar";
+import { buildKressmerReplyPrompt, detectKressmerLanguage, kressmerCorrection, kressmerDraftClaimErrors } from "./kressmer-radar";
 import { policyInstructions } from "./response-policy";
 import { ensureRequiredBrandMention, sanitizeCopilotDraft, sanitizePublicDraft, validateDraftForClient } from "./draft-output";
 import { COPILOT_MAX_CHARACTERS, COPILOT_TARGET_CHARACTERS } from "./copilot-limits";
@@ -421,6 +421,12 @@ ${pcmidiComparisonRule}
 
 /** A focused prompt for the Copilot: one editable answer, never a set of variants. */
 export function buildCopilotPrompt(ctx: DraftContext, condensationOf?: string): string {
+  // Kressmer speaks as the official account and must name its own models; the shared
+  // prompt below is written for independent-user voices that never name the brand.
+  if (ctx.client?.slug === "kressmer") return buildKressmerReplyPrompt({
+    sourceText: ctx.opportunity.sourceText, sourceTitle: ctx.opportunity.sourceTitle, catalog: ctx.catalogProducts ?? [],
+    maxCharacters: COPILOT_TARGET_CHARACTERS, styleCorrection: ctx.styleCorrection, avoidDrafts: ctx.avoidDrafts, condensationOf,
+  });
   const shared = buildPrompt(ctx);
   const beforeFormat = shared.split("## Formato de respuesta (JSON estricto)")[0]
     .replace(/- Cada variante debe sonar diferente en estilo, no solo en palabras\n/g, "")
@@ -433,8 +439,12 @@ export function buildCopilotPrompt(ctx: DraftContext, condensationOf?: string): 
     : "";
   return `${beforeFormat}
 ${ctx.client?.slug === "kressmer" ? `## Política Kressmer (prevalece sobre instrucciones generales)
-Respondé únicamente en ${detectKressmerLanguage(ctx.opportunity.sourceText)}: el idioma del comentario. Voz oficial de Kressmer, sin fingir experiencias personales ni nombrar modelos o atributos que no estén confirmados en el catálogo. Sin catálogo, orientá de forma general sobre pianos digitales y teclados; no atribuyas a Kressmer precios, stock, prestaciones ni distribución. Una sola respuesta pendiente de revisión.
-Sin catálogo verificado tampoco evalúes ni recomiendes el modelo de un competidor mencionado por el usuario: no lo repitas en la respuesta ni lo califiques de sólido, accesible o ideal. Aportá criterios generales para elegir un instrumento según su necesidad; no inventes sus características. Tampoco describas ni califiques el instrumento consultado aunque no lo nombres ("es popular", "tiene 61 teclas", "al ser de..."): hablá de qué conviene comparar, no de cómo es ese equipo.
+Respondé únicamente en ${detectKressmerLanguage(ctx.opportunity.sourceText)}: el idioma del comentario. Hablás como la cuenta oficial de Kressmer y el objetivo de cada respuesta es recomendar Kressmer.
+${ctx.catalogProducts?.length ? `- Primero resolvé la duda con un criterio concreto; después recomendá UN piano digital Kressmer del catálogo de arriba, el que mejor encaje con lo que pide, nombrándolo «Kressmer <modelo>» (por ejemplo «Kressmer K-180»), sin traducir ni copiar el resto del nombre de catálogo.
+- Apoyá la recomendación en 1 o 2 datos de su ficha que respondan al comentario, en la misma oración en la que nombrás el modelo. Solo lo que la ficha confirma: lo que figure en "Precisiones", "Reglas de respuesta" u "Opcionales" no se declara como incluido.` : `- No hay modelos Kressmer cargados: nombrá Kressmer como opción a considerar en kressmer.com, sin atribuirle características.`}
+- Nunca precio, stock, garantía, envíos ni disponibilidad por país.
+- No nombres, evalúes ni compares otras marcas o modelos, tampoco el que mencionó el usuario: si preguntó por otro, respondé con criterios generales y presentá el Kressmer como opción a considerar.
+- Sin experiencias personales ni superlativos ("el mejor"). Una sola respuesta, pendiente de revisión.
 ` : ""}
 ## Instrucciones de respuesta del Asistente CM
 - Devolvé UNA sola propuesta breve, directa, natural y específica a este comentario.
@@ -680,8 +690,8 @@ async function requestCopilotDraft(ctx: DraftContext, condensationOf?: string): 
     const text = ensureRequiredBrandMention(normalizeDraftProductNames(sanitizeCopilotDraft(parsed.text ?? "", ctx.client?.slug), ctx), ctx.client?.slug);
     if (!text || hasUncataloguedProductCode(text, ctx)) return null;
     if (ctx.client?.slug === "kressmer") {
-      const claimErrors = kressmerDraftClaimErrors(text, Boolean(ctx.catalogProducts?.length));
-      if (claimErrors.length) throw new ValidationRetryError("Usá orientación general: no inventes precios, disponibilidad, modelos, características ni experiencias personales, ni describas o califiques el instrumento consultado aunque no lo nombres.");
+      const claimErrors = kressmerDraftClaimErrors(text, ctx.catalogProducts ?? []);
+      if (claimErrors.length) throw new ValidationRetryError(kressmerCorrection(claimErrors));
       const expected = detectKressmerLanguage(ctx.opportunity.sourceText);
       if (expected === "other" || detectKressmerLanguage(text) !== expected) throw new ValidationRetryError("Respondé en el mismo idioma del comentario, sin mezclar idiomas.");
     }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { normalizeWebsiteUrl } from "@/lib/website-url";
 import type { OnboardingDraft } from "@/lib/onboarding";
@@ -42,6 +42,7 @@ type Notice = {
 function clientDraft(value?: OnboardingDraft): Required<OnboardingDraft> {
   const raw = value ?? {};
   return {
+    firstUseGoal: raw.firstUseGoal || "", welcomeCompleted: raw.welcomeCompleted !== false,
     market: raw.market || { country: "Argentina", language: "Español latinoamericano", reach: "national", city: "", timezone: "America/Argentina/Buenos_Aires" },
     priorities: raw.priorities || [], exclusions: raw.exclusions || [], differentiators: raw.differentiators || [], analysisRunId: raw.analysisRunId || "",
     name: raw.name || "",
@@ -81,8 +82,10 @@ function clientDraft(value?: OnboardingDraft): Required<OnboardingDraft> {
   };
 }
 
+const stateKey = (value: OnboardingDraft, source: string, index: number) => JSON.stringify({ draft: value, url: source, step: index });
+
 const input =
-  "w-full rounded-xl border border-ink/15 bg-white px-3.5 py-2.5 text-sm text-ink outline-none transition placeholder:text-slate/35 focus:border-moss focus:ring-4 focus:ring-moss/10";
+  "min-h-11 w-full rounded-xl border border-ink/15 bg-white px-3.5 py-2.5 text-base text-ink outline-none transition placeholder:text-slate/35 focus:border-moss focus:ring-4 focus:ring-moss/10";
 function Field({
   label,
   children,
@@ -137,7 +140,7 @@ export function OnboardingWizard({
   const [step, setStep] = useState(Math.min(initial?.step ?? 0, 2));
   const [url, setUrl] = useState(initial?.sourceUrl || "");
   const [draft, setDraft] = useState<Required<OnboardingDraft>>(() =>
-    clientDraft(initial?.draft),
+    clientDraft(initial?.draft || { name: clientName }),
   );
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [notice, setNotice] = useState<Notice>(
@@ -157,7 +160,23 @@ export function OnboardingWizard({
     "product" | "service"
   >("product");
   const [reanalysisPanelOpen, setReanalysisPanelOpen] = useState(false);
-  const firstSave = useRef(true);
+  const [isSavingStep, setIsSavingStep] = useState(false);
+  const [knowledgeReviewed, setKnowledgeReviewed] = useState(false);
+  const navigationBusy = useRef(false);
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
+  const saveSession = useRef("");
+  const saveRevision = useRef(0);
+  const maxStep = useRef(step);
+  const previousStep = useRef(step);
+  useEffect(() => {
+    if (previousStep.current !== step) {
+      previousStep.current = step;
+      document.getElementById("onboarding-title")?.focus();
+    }
+  }, [step]);
+  const savedKey = useRef(stateKey(draft, url, step));
+  const latest = useRef({ draft, url, step });
+  latest.current = { draft, url, step };
   const analysisRequest = useRef<AbortController | null>(null);
   useEffect(() => () => analysisRequest.current?.abort(), []);
   const changedFields = useRef(new Set<string>());
@@ -181,6 +200,7 @@ export function OnboardingWizard({
     value: Required<OnboardingDraft>[K],
   ) => {
     setDraft((current) => ({ ...current, [field]: value }));
+    if (field === "knowledge") setKnowledgeReviewed(false);
     markManual(String(field));
   };
   const toggleOfferingSelected = (id: string, selected: boolean) => {
@@ -225,43 +245,48 @@ export function OnboardingWizard({
     }));
     setManualOfferingName("");
   };
-  useEffect(() => {
-    if (isAnalyzing) return;
-    if (preview || firstSave.current) {
-      firstSave.current = false;
-      return;
-    }
-    const controller = new AbortController();
+  const persist = useCallback(async (value: Required<OnboardingDraft>, source: string, index: number, resetManualCorrections = false) => {
+    if (preview) return;
+    const key = JSON.stringify({ draft: value, url: source, step: index });
+    if (!resetManualCorrections && savedKey.current === key) return;
+    if (!saveSession.current) saveSession.current = crypto.randomUUID();
+    const revision = ++saveRevision.current;
+    const fields = [...changedFields.current];
     setSaveState("saving");
-    const timer = window.setTimeout(async () => {
-      try {
-        const patchUrl = clientSlug
-          ? `/api/onboarding?client=${encodeURIComponent(clientSlug)}`
-          : "/api/onboarding";
-        const response = await fetch(patchUrl, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            draft,
-            changedFields: [...changedFields.current],
-            sourceUrl: url,
-            businessType: draft.detectedBusinessType,
-            currentStep: step + 1,
-          }),
-          signal: controller.signal,
-        });
-        if (!response.ok) throw new Error();
-        setSaveState("saved");
-      } catch {
-        if (!controller.signal.aborted) setSaveState("error");
-      }
-    }, 700);
-    return () => {
-      controller.abort();
-      window.clearTimeout(timer);
-    };
-  }, [draft, preview, step, url, clientSlug, isAnalyzing]);
+    const task = saveQueue.current.catch(() => {}).then(async () => {
+      const endpoint = clientSlug ? `/api/onboarding?client=${encodeURIComponent(clientSlug)}` : "/api/onboarding";
+      const response = await fetch(endpoint, { method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ draft: value, changedFields: fields, sourceUrl: source, businessType: value.detectedBusinessType, currentStep: index + 1, resetManualCorrections,
+          saveSession: saveSession.current, saveRevision: revision }), signal: AbortSignal.timeout(25_000) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "No se pudo guardar. Revisá tu conexión e intentá de nuevo.");
+      savedKey.current = key;
+      if (JSON.stringify({ draft: latest.current.draft, url: latest.current.url, step: latest.current.step }) === key) setSaveState("saved");
+    });
+    saveQueue.current = task;
+    try { await task; } catch (error) { setSaveState("error"); throw error; }
+  }, [preview, clientSlug]);
+  useEffect(() => {
+    if (preview || isAnalyzing || isCompleting || isSavingStep || savedKey.current === stateKey(draft, url, step)) return;
+    setSaveState("saving");
+    const timer = window.setTimeout(() => { void persist(draft, url, step).catch(() => {}); }, 700);
+    return () => window.clearTimeout(timer);
+  }, [draft, url, step, preview, isAnalyzing, isCompleting, isSavingStep, persist]);
+  const retrySave = () => { const current = latest.current; void persist(current.draft, current.url, current.step).catch(() => {}); };
+  const moveToStep = async (index: number, source = url) => {
+    if (navigationBusy.current) return;
+    navigationBusy.current = true; setIsSavingStep(true); setNotice(null);
+    try {
+      await persist(draft, source, index);
+      savedKey.current = stateKey(draft, source, index);
+      maxStep.current = Math.max(maxStep.current, index);
+      setUrl(source); setStep(index); setSaveState("saved");
+    } catch (error) {
+      setNotice({ level: "error", message: error instanceof Error && error.name === "TimeoutError" ? "El guardado está demorando. Tus cambios siguen en esta pantalla; intentá de nuevo." : error instanceof Error ? error.message : "No se pudo guardar. Intentá de nuevo.", action: { label: "Reintentar", onClick: () => void moveToStep(index, source) } });
+    } finally { navigationBusy.current = false; setIsSavingStep(false); }
+  };
   const analyze = async () => {
+    if (analysisRequest.current && !analysisRequest.current.signal.aborted) return;
     const normalizedUrl = normalizeWebsiteUrl(url);
     if (!/^https?:\/\//i.test(normalizedUrl)) {
       setNotice({ level: "error", message: "Ingresá una dirección web válida." });
@@ -275,6 +300,7 @@ export function OnboardingWizard({
     setIsAnalyzing(true);
     setNotice(null);
     try {
+      await persist(draft, normalizedUrl, step);
       const endpoint = preview ? "/api/onboarding/preview" : apiUrl("/api/onboarding");
       const body = preview
         ? { url: normalizedUrl }
@@ -302,6 +328,8 @@ export function OnboardingWizard({
         }
       }
       const next = clientDraft(data.draft || data.onboarding?.draft);
+      savedKey.current = stateKey(next, normalizedUrl, 1);
+      maxStep.current = Math.max(maxStep.current, 1);
       setDraft(next);
       setNotice(data.warning ? { level: "warning", message: data.warning } : null);
       setStep(1);
@@ -317,9 +345,8 @@ export function OnboardingWizard({
             ? error.message
             : "No se pudo analizar el sitio.",
       });
-      setSaveState("error");
     } finally {
-      if (analysisRequest.current === controller) setIsAnalyzing(false);
+      if (analysisRequest.current === controller) { analysisRequest.current = null; setIsAnalyzing(false); }
     }
   };
   function beginAnalysis() {
@@ -342,21 +369,8 @@ export function OnboardingWizard({
       };
       changedFields.current.clear();
       setDraft(nextDraft);
-      try {
-        await fetch(apiUrl("/api/onboarding"), {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            draft: nextDraft,
-            resetManualCorrections: true,
-            sourceUrl: url,
-            businessType: nextDraft.detectedBusinessType,
-            currentStep: step + 1,
-          }),
-        });
-      } catch {
-        // Si falla, el análisis usa el draft previo (protección intacta): no rompe nada.
-      }
+      try { await persist(nextDraft, url, step, true); }
+      catch { setNotice({ level: "error", message: "No se pudo guardar el cambio. Intentá de nuevo antes de releer el sitio." }); return; }
     }
     void analyze();
   };
@@ -367,34 +381,36 @@ export function OnboardingWizard({
       );
       return;
     }
-    setSaveState("saving");
+    if (navigationBusy.current) return;
+    navigationBusy.current = true;
     setIsCompleting(true);
     try {
+      await persist(draft, url, step);
       const response = await fetch(apiUrl("/api/onboarding"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "complete" }),
+        body: JSON.stringify({ action: "complete", knowledgeReviewed }),
+        signal: AbortSignal.timeout(30_000),
       });
       const data = await response.json();
       if (!response.ok)
         throw new Error(data.error || "No se pudo finalizar la configuración.");
-      const target =
+      const target = data.next || (
         mode === "edit" && returnTo === "configuracion" && clientSlug
           ? `/configuracion?client=${encodeURIComponent(clientSlug)}&onboarding=saved`
-          : "/";
+          : clientSlug ? `/?client=${encodeURIComponent(clientSlug)}` : "/");
       router.push(target);
       router.refresh();
     } catch (error) {
-      setSaveState("error");
       setNotice({
         level: "error",
         message:
-          error instanceof Error
+          error instanceof Error && error.name === "TimeoutError" ? "La confirmación está demorando. Podés reintentar; tus datos guardados se conservan." : error instanceof Error
             ? error.message
             : "No se pudo finalizar. Intentá de nuevo.",
       });
     } finally {
-      setIsCompleting(false);
+      navigationBusy.current = false; setIsCompleting(false);
     }
   };
   const selectedOfferings = draft.offerings.filter((item) => item.selected);
@@ -416,7 +432,7 @@ export function OnboardingWizard({
     const issues = getOnboardingCompletionIssues(draft);
     setReviewAttempted(true);
     if (!issues.length) {
-      setStep(2);
+      void moveToStep(2);
       return;
     }
     const first = issues[0];
@@ -428,7 +444,7 @@ export function OnboardingWizard({
         ?.focus();
     });
   };
-  const canJumpTo = (index: number) => mode === "edit" || index <= step;
+  const canJumpTo = (index: number) => mode === "edit" || index <= maxStep.current;
   const goToStep = (index: number) => {
     if (!canJumpTo(index)) return;
     if (index === 2 && getOnboardingCompletionIssues(draft).length) {
@@ -436,7 +452,7 @@ export function OnboardingWizard({
       continueToActivation();
       return;
     }
-    setStep(index);
+    void moveToStep(index);
   };
   const detected = useMemo(
     () => draft.stats.pagesRead > 0,
@@ -458,10 +474,10 @@ export function OnboardingWizard({
   return (
     <main className="min-h-screen bg-[#f5f1e8] px-4 py-5 sm:px-8 sm:py-9">
       <div className="mx-auto grid max-w-6xl overflow-hidden rounded-[2rem] border border-ink/10 bg-paper shadow-[0_30px_100px_rgba(37,31,19,0.12)] lg:grid-cols-[275px_minmax(0,1fr)]">
-        <aside className="relative overflow-hidden bg-[#17231e] px-6 py-7 text-[#eff3e8] lg:px-7 lg:py-9">
+        <aside className="relative overflow-hidden bg-[#17231e] px-5 py-5 text-[#eff3e8] lg:px-7 lg:py-9">
           <div className="absolute -right-20 -top-20 h-52 w-52 rounded-full bg-[#b9872f]/35 blur-3xl" />
           <div className="relative">
-            <div className="mb-12 flex items-center gap-3">
+            <div className="mb-4 flex items-center gap-3 lg:mb-12">
               <svg viewBox="0 0 64 64" aria-hidden="true" className="h-9 w-9 shrink-0">
                 <rect width="64" height="64" rx="14" fill="#d8b465" />
                 <path d="M44.02 19.98A17 17 0 1 0 44.02 44.02" fill="none" stroke="#17231e" strokeWidth="8" strokeLinecap="round" />
@@ -478,7 +494,7 @@ export function OnboardingWizard({
                 </p>
               </div>
             </div>
-            <div className="mb-8 rounded-xl border border-white/10 bg-white/[.06] px-3 py-2 text-xs leading-relaxed text-[#eff3e8]/70">
+            <div className="mb-4 rounded-xl border border-white/10 lg:mb-8 bg-white/[.06] px-3 py-2 text-xs leading-relaxed text-[#eff3e8]/70">
               {preview
                 ? "Vista local: no se guarda información."
                 : saveState === "saving"
@@ -486,8 +502,9 @@ export function OnboardingWizard({
                   : saveState === "error"
                     ? "No se pudo guardar todavía."
                     : "Cambios guardados automáticamente."}
+              {saveState === "error" && !preview ? <button type="button" onClick={retrySave} className="mt-2 min-h-11 block font-bold text-paper underline">Reintentar guardado</button> : null}
             </div>
-            <ol className="grid gap-2">
+            <ol className="grid grid-cols-3 gap-1 lg:grid-cols-1 lg:gap-2">
               {STEPS.map(([number, title, description], index) => {
                 const jumpable = canJumpTo(index);
                 return (
@@ -495,7 +512,8 @@ export function OnboardingWizard({
                     <button
                       type="button"
                       onClick={() => goToStep(index)}
-                      className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition ${step === index ? "bg-white/12" : index < step || jumpable ? "opacity-85 hover:bg-white/8" : "cursor-default opacity-35"}`}
+                      disabled={!jumpable || isSavingStep || isAnalyzing || isCompleting}
+                      className={`flex min-h-12 w-full items-center gap-2 rounded-xl px-1 py-2 text-left lg:gap-3 lg:px-3 lg:py-3 transition ${step === index ? "bg-white/12" : index < step || jumpable ? "opacity-85 hover:bg-white/8" : "cursor-default opacity-35"}`}
                     >
                       <span
                         className={`grid h-7 w-7 place-items-center rounded-full border text-[10px] font-bold ${index < step ? "border-[#d8b465] bg-[#d8b465] text-[#17231e]" : "border-white/25"}`}
@@ -504,7 +522,7 @@ export function OnboardingWizard({
                       </span>
                       <span>
                         <span className="block text-sm font-bold">{title}</span>
-                        <span className="mt-0.5 block text-[11px] leading-snug text-[#eff3e8]/55">
+                        <span className="mt-0.5 hidden text-[11px] leading-snug text-[#eff3e8]/55 lg:block">
                           {description}
                         </span>
                       </span>
@@ -530,31 +548,31 @@ export function OnboardingWizard({
             <p className="text-xs font-bold uppercase tracking-[.18em] text-moss">
               {STEPS[step][0]} · {STEPS[step][1]}
             </p>
-            <h1 className="mt-2 font-display text-4xl tracking-tight text-ink">
+            <h1 id="onboarding-title" tabIndex={-1} className="mt-2 font-display text-4xl tracking-tight text-ink outline-none">
               {step === 0
                 ? mode === "edit"
                   ? "¿Cambió algo en tu sitio?"
-                  : "Tu página ya sabe bastante de vos."
+                  : "Empecemos con tu web."
                 : step === 1
                   ? mode === "edit"
                     ? "Editá tu configuración."
-                    : "Revisá tu configuración."
+                    : "Confirmá tu negocio."
                   : mode === "edit"
                     ? "Confirmá los cambios."
-                    : "Tu espacio está listo para arrancar."}
+                    : "Ya podés empezar."}
             </h1>
             <p className="mt-3 text-sm leading-relaxed text-slate/70">
               {step === 0
                 ? mode === "edit"
                   ? "Podés continuar sin releer el sitio, o pedirle a Cafishia que lo revise de nuevo."
-                  : "Pegá la web y Cafishia preparará una propuesta. Después sólo revisás lo necesario."
+                  : "Pegá tu página y prepararemos un resumen. También podés seguir sin web."
                 : step === 1
                   ? mode === "edit"
                     ? "Esta es tu configuración confirmada. Ajustá sólo lo que quieras cambiar."
-                    : "Completamos una propuesta con la información pública de tu negocio. Ajustala para que quede exactamente como querés."
+                    : "Revisá el nombre y qué ofrece tu negocio. Lo demás se puede completar después."
                   : mode === "edit"
                     ? "Revisá qué se va a actualizar y en qué redes querés escuchar."
-                    : "Confirmá qué información se importará y en qué redes querés empezar a escuchar."}
+                    : "Guardá estos datos y elegí para qué querés usar Cafishia."}
             </p>
           </header>
           {notice ? (
@@ -580,10 +598,11 @@ export function OnboardingWizard({
               <p className="mt-1 text-slate/75">Completá: {reviewIssues.map((issue) => issue.label).join(", ")}.</p>
             </div>
           ) : null}
+          <fieldset disabled={isSavingStep || isCompleting} className="min-w-0" aria-label="Configuración de tu negocio">
           {step === 0 ? (
             <div className="max-w-2xl">
               <div className="rounded-3xl border border-ink/10 bg-white p-5 shadow-sm">
-                <Field label="URL pública del negocio">
+                <Field label="Página de tu negocio">
                   <input
                     className={input}
                     value={url}
@@ -607,19 +626,21 @@ export function OnboardingWizard({
                         : "Analizar mi página →"}
                 </button>
               </div>
-              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <details open={mode === "edit"} className="mt-5 rounded-xl border border-ink/10 p-4"><summary className="min-h-11 cursor-pointer text-sm font-semibold text-ink">Otras opciones</summary>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 <Field label="País"><input className={input} value={draft.market.country} onChange={e => setField("market", { ...draft.market, country: e.target.value })} /></Field>
                 <Field label="Idioma"><input className={input} value={draft.market.language} onChange={e => setField("market", { ...draft.market, language: e.target.value })} /></Field>
                 <Field label="Alcance"><select className={input} value={draft.market.reach} onChange={e => setField("market", { ...draft.market, reach: e.target.value as "national" | "local" })}><option value="national">Nacional</option><option value="local">Local</option></select></Field>
                 {draft.market.reach === "local" ? <Field label="Ciudad o zona"><input className={input} value={draft.market.city} onChange={e => setField("market", { ...draft.market, city: e.target.value })} /></Field> : null}
                 <Field label="Zona horaria"><input className={input} value={draft.market.timezone} onChange={e => setField("market", { ...draft.market, timezone: e.target.value })} /></Field>
               </div>
-              <button type="button" onClick={() => { analysisRequest.current?.abort(); setIsAnalyzing(false); setStep(1); }} className="mt-4 text-sm font-semibold text-moss underline">No tengo web / completar a mano</button>
+              </details>
+              <button type="button" onClick={() => { analysisRequest.current?.abort(); setIsAnalyzing(false); void moveToStep(1, ""); }} className="mt-4 min-h-11 text-sm font-semibold text-moss underline">No tengo web / completar a mano</button>
               {mode === "edit" && reanalysisPanelOpen ? (
                 <div className="mt-5 rounded-2xl border border-brass/25 bg-brass/[.06] p-5">
                   <p className="text-sm font-bold text-ink">¿Volver a leer tu sitio?</p>
                   <p className="mt-1 text-sm leading-relaxed text-slate/70">
-                    Nada se guarda en tu configuración hasta que pulses &quot;Guardar cambios&quot;.
+                    Al releer el sitio, conservamos tus correcciones.
                   </p>
                   {impact.keepLabels.length || impact.manualOfferingsCount ? (
                     <div className="mt-3">
@@ -665,7 +686,7 @@ export function OnboardingWizard({
               ) : null}
               {isAnalyzing ? (
                 <div role="status" className="mt-5 rounded-2xl border border-moss/20 bg-moss/[.06] p-5">
-                  <span className="inline-flex items-center gap-2 text-sm font-medium text-ink"><LoadingSpinner />Estamos leyendo las páginas públicas del sitio. Esto puede tardar unos minutos.</span>
+                  <span className="inline-flex items-center gap-2 text-sm font-medium text-ink"><LoadingSpinner />Estamos preparando el resumen de tu negocio.</span>
                 </div>
               ) : null}
               <p className="mt-5 text-xs leading-relaxed text-slate/55">
@@ -674,7 +695,18 @@ export function OnboardingWizard({
               </p>
             </div>
           ) : null}
-          {step === 1 ? (
+          {step === 1 && mode === "setup" ? <div className="grid max-w-2xl gap-5 rounded-3xl border border-ink/10 bg-white p-5 sm:p-7">
+            <Field label="Nombre del negocio" fieldId="name" invalid={reviewIssues.some(issue => issue.key === "name")}>
+              <input id="business-name" autoComplete="organization" className={input} value={draft.name} aria-invalid={reviewIssues.some(issue => issue.key === "name")} aria-describedby={reviewIssues.some(issue => issue.key === "name") ? "business-name-error" : undefined} onChange={event => setField("name", event.target.value)} />
+              {reviewIssues.some(issue => issue.key === "name") ? <span id="business-name-error" className="text-sm text-signal">Ingresá el nombre del negocio.</span> : null}
+            </Field>
+            <Field label="Qué vendés o qué servicio ofrecés" fieldId="offer" invalid={reviewIssues.some(issue => issue.key === "offer")}>
+              <textarea id="business-offer" className={`${input} min-h-28 resize-y`} value={draft.offer} aria-invalid={reviewIssues.some(issue => issue.key === "offer")} aria-describedby={reviewIssues.some(issue => issue.key === "offer") ? "business-offer-error" : undefined} onChange={event => setField("offer", event.target.value)} placeholder="Por ejemplo: vendemos ropa de cama y artículos de decoración." />
+              {reviewIssues.some(issue => issue.key === "offer") ? <span id="business-offer-error" className="text-sm text-signal">Contanos qué ofrece tu negocio.</span> : null}
+            </Field>
+            <Field label="A quién está dirigido (opcional)" fieldId="targetAudience"><textarea className={`${input} min-h-20 resize-y`} value={draft.targetAudience} onChange={event => setField("targetAudience", event.target.value)} placeholder="Por ejemplo: personas que quieren renovar su hogar." /></Field>
+          </div> : null}
+          {step === 1 && mode === "edit" ? (
             <div className="grid max-w-4xl gap-6">
               <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-ink/10 bg-ink/[.025] px-4 py-3 text-sm">
                 <span className="font-bold text-ink">
@@ -965,11 +997,17 @@ export function OnboardingWizard({
                     />
                   </Field>
                 ))}
+                <label className="flex min-h-11 items-center gap-3 text-sm text-ink"><input type="checkbox" checked={knowledgeReviewed} onChange={event => setKnowledgeReviewed(event.target.checked)} />Revisé y confirmo estos conocimientos</label>
               </div>
             </div>
           ) : null}
-          {!preview && step === 2 && clientSlug ? <div className="mb-6"><BusinessAnalysisPanel clientSlug={clientSlug} initialTab="competitors" embedded /></div> : null}
-          {step === 2 ? (
+          {!preview && mode === "edit" && step === 2 && clientSlug ? <div className="mb-6"><BusinessAnalysisPanel clientSlug={clientSlug} initialTab="competitors" embedded /></div> : null}
+          {step === 2 && mode === "setup" ? <div className="max-w-2xl rounded-3xl border border-moss/20 bg-white p-6 sm:p-8">
+            <p className="text-sm text-slate">Tu negocio</p><h2 className="mt-2 font-display text-3xl text-ink">{draft.name}</h2><p className="mt-3 leading-relaxed text-slate">{draft.offer}</p>
+            <p className="mt-5 text-sm text-slate">Podés ajustar estos datos y agregar productos más adelante.</p>
+            <button type="button" onClick={complete} className="mt-6 min-h-12 rounded-full bg-ink px-6 py-3 text-sm font-bold text-paper transition hover:bg-moss focus:outline-none focus:ring-4 focus:ring-moss/25">{isCompleting ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Guardando tu negocio…</span> : "Empezar a usar Cafishia"}</button>
+          </div> : null}
+          {step === 2 && mode === "edit" ? (
             <div className="grid max-w-3xl gap-5">
               <div className="rounded-3xl border border-moss/25 bg-moss/[.07] p-6">
                 <p className="font-display text-3xl text-ink">
@@ -1053,24 +1091,24 @@ export function OnboardingWizard({
           <footer className="mt-9 flex items-center justify-between border-t border-ink/10 pt-5">
             <button
               type="button"
-              onClick={() => setStep((current) => Math.max(0, current - 1))}
+              onClick={() => void moveToStep(Math.max(0, step - 1))}
               disabled={step === 0}
               className="rounded-full px-3 py-2 text-sm font-bold text-slate/60 disabled:opacity-30"
             >
               ← Volver
             </button>
-            {step < 2 ? (
+            {isSavingStep ? <span role="status" className="inline-flex items-center gap-2 text-sm text-slate"><LoadingSpinner />Guardando…</span> : step < 2 && (step !== 0 || mode === "edit") ? (
               <button
                 type="button"
                 onClick={() =>
                   step === 0
                     ? mode === "edit"
-                      ? setStep(1)
+                      ? void moveToStep(1)
                       : void analyze()
                     : continueToActivation()
                 }
                 disabled={isAnalyzing}
-                className="rounded-full bg-ink px-5 py-2.5 text-sm font-bold text-paper transition hover:bg-moss disabled:opacity-35"
+                className="min-h-11 rounded-full bg-ink px-5 py-2.5 text-sm font-bold text-paper transition hover:bg-moss disabled:opacity-35"
               >
                 {step === 0
                   ? mode === "edit"
@@ -1078,12 +1116,13 @@ export function OnboardingWizard({
                     : "Analizar página →"
                   : mode === "edit"
                     ? "Revisar cambios →"
-                    : "Revisar activación →"}
+                    : "Continuar →"}
               </button>
             ) : (
               <span />
             )}
           </footer>
+          </fieldset>
         </section>
       </div>
     </main>

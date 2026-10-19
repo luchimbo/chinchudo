@@ -1,3 +1,4 @@
+import { FirstUseHint } from "@/components/first-use-hint";
 import { OpportunityStatus, Prisma } from "@prisma/client";
 import { requirePageClient } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -27,7 +28,7 @@ function parseChatHistory(value: Prisma.JsonValue): ChatMessage[] {
   });
 }
 type PageProps = {
-  searchParams: { client?: string; brand?: string; channel?: string; response?: string; sort?: string };
+  searchParams: { firstUse?: string; client?: string; brand?: string; channel?: string; response?: string; sort?: string };
 };
 
 export default async function CopilotoPage({ searchParams }: PageProps) {
@@ -90,6 +91,8 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
       : Promise.resolve([]),
   ]);
   return (
+    <>
+    {searchParams.firstUse === "opportunities" || searchParams.firstUse === "responses" ? <FirstUseHint goal={searchParams.firstUse} clientSlug={activeClient.slug} clientId={activeClient.id} /> : null}
     <CopilotWorkspace
       activeClient={activeClient ? { slug: activeClient.slug, name: activeClient.name } : null}
       coverage={coverage.counts}
@@ -128,5 +131,6 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
         })),
       }))}
     />
+    </>
   );
 }
