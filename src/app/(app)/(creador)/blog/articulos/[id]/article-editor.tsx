@@ -178,6 +178,7 @@ export function ArticleEditor({ articleId, initialDraft, updatedAt: initialUpdat
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <Link href={backHref} onClick={(event) => { if (dirty && !window.confirm("Tenés cambios sin guardar. ¿Salir igual?")) event.preventDefault(); }} className="text-xs font-semibold text-moss underline underline-offset-2">{backHref.startsWith("/blog/calendario") ? "← Volver al calendario" : "← Volver a artículos"}</Link>
         {published && publicUrl ? <a href={publicUrl} target="_blank" rel="noreferrer" className="text-xs font-semibold text-sky-700 underline underline-offset-2">Ver publicado ↗</a> : null}
+        <span className="text-xs text-slate">Idioma: {content.language === "en" ? "Inglés" : content.language === "de" ? "Alemán" : "Español"}</span>
       </div>
 
       {recoverable ? (

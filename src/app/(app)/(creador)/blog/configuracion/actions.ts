@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { assertClientAccess } from "@/lib/auth";
 import { getSetting, setSetting } from "@/lib/settings";
 import { argentinaDate, shiftDate } from "@/lib/blog-calendar";
+import { editorialCalendarEnabled } from "@/lib/blog-language";
 
 function str(fd: FormData, key: string) {
   return String(fd.get(key) ?? "").trim();
@@ -17,15 +18,19 @@ export async function updateLandingsConfig(formData: FormData) {
   const blogBaseUrl = str(formData, "blogBaseUrl");
   const storeUrl = str(formData, "storeUrl");
 
-  const client = await prisma.client.findUniqueOrThrow({ where: { id }, select: { slug: true } });
+  const client = await prisma.client.findUniqueOrThrow({ where: { id }, select: { slug: true, responsePolicy: true } });
+  const language = formData.has("blogLanguage") ? z.enum(["es", "en", "de"]).parse(str(formData, "blogLanguage")) : undefined;
+  const policy = client.responsePolicy && typeof client.responsePolicy === "object" && !Array.isArray(client.responsePolicy) ? client.responsePolicy : {};
+  const blog = policy.blog && typeof policy.blog === "object" && !Array.isArray(policy.blog) ? policy.blog : {};
+  const usesCalendar = editorialCalendarEnabled(client);
   const publishTime = str(formData, "blogPublishTime");
-  const dailyEnabled = client.slug === "pcmidi" && formData.get("blogDailyEnabled") === "on";
+  const dailyEnabled = usesCalendar && formData.get("blogDailyEnabled") === "on";
   if (dailyEnabled && !/^https?:\/\/[^\s/]+/.test(blogBaseUrl)) throw new Error("Configurá una URL pública válida para el blog antes de activar la publicación.");
   if (dailyEnabled && !/^([01]\d|2[0-3]):[0-5]\d$/.test(publishTime)) {
     throw new Error("Indicá una hora válida para publicar cada día.");
   }
   let dailyConfig: Record<string, any> = {};
-  if (client.slug === "pcmidi") {
+  if (usesCalendar) {
     try { dailyConfig = JSON.parse(await getSetting(`blog_daily_schedule:${id}`) || "{}"); } catch { /* Inicialmente apagado. */ }
     // La publicación arranca al día siguiente de activarla.
     if (dailyEnabled && !dailyConfig.enabled) dailyConfig.firstPublishDate = shiftDate(argentinaDate(), 1);
@@ -36,17 +41,18 @@ export async function updateLandingsConfig(formData: FormData) {
       logoUrl: str(formData, "logoUrl"),
       storeUrl,
       blogBaseUrl,
-      ...(client.slug === "pcmidi" ? {} : { autoApprove: formData.get("autoApprove") === "on", autoPublish: formData.get("autoPublish") === "on" }),
+      ...(language ? { responsePolicy: { ...policy, blog: { ...blog, language, comparisons: formData.get("blogComparisons") === "on" } } } : {}),
+      ...(usesCalendar ? {} : { autoApprove: formData.get("autoApprove") === "on", autoPublish: formData.get("autoPublish") === "on" }),
     },
   });
 
   const intervalHours = z.coerce.number().int().min(1).max(168).parse(formData.get("generationIntervalHours"));
   const limit = z.coerce.number().int().min(1).max(5).parse(formData.get("generationLimit"));
   const weeklyTarget = z.coerce.number().int().min(2).max(10).parse(formData.get("weeklyTarget"));
-  const enabled = client.slug !== "pcmidi" && formData.get("generationEnabled") === "on";
+  const enabled = !usesCalendar && formData.get("generationEnabled") === "on";
   await setSetting(`landing_generation_schedule:${id}`, JSON.stringify({ enabled, intervalHours, limit, weeklyTarget, lastRunAt: new Date().toISOString() }));
 
-  if (client.slug === "pcmidi") {
+  if (usesCalendar) {
     await setSetting(`blog_daily_schedule:${id}`, JSON.stringify({ ...dailyConfig, enabled: dailyEnabled, autoApprove: formData.get("blogAutoApprove") === "on", publishTime, timezone: "America/Argentina/Buenos_Aires", horizonDays: 14 }));
   }
 

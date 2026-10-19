@@ -1,3 +1,4 @@
+import { BLOG_LANGUAGES, blogPreferences, editorialCalendarEnabled } from "@/lib/blog-language";
 import { PendingSubmitButton } from "@/components/pending-submit-button";
 import { Suspense } from "react";
 import { LoadingSpinner, LoadingMessage } from "@/components/loading-ui";
@@ -12,6 +13,7 @@ import { RescheduleForm } from "./reschedule-form";
 import { editorialIntentForDate } from "@/lib/blog-quality.mjs";
 import { blogReferral } from "@/lib/blog-referrals";
 import { PublishArticleButton } from "./publish-article-button";
+import { DeleteLandingButton } from "../delete-landing-button";
 import { CalendarDetail } from "./calendar-detail";
 import { GenerateDateForm, PreparationStatus } from "./generate-date-form";
 import { calendarHref, validCalendarDay } from "@/lib/blog-navigation";
@@ -30,8 +32,9 @@ const STATUS: Record<string, { label: string; style: string }> = {
   SKIPPED: { label: "Omitido", style: "border-ink/10 bg-ink/5 text-slate" },
 };
 
-export default async function BlogCalendarPage({ searchParams }: { searchParams: { client?: string; month?: string; day?: string; rescheduled?: string; requestedDate?: string } }) {
+export default async function BlogCalendarPage({ searchParams }: { searchParams: { firstUse?: string; client?: string; month?: string; day?: string; rescheduled?: string; requestedDate?: string } }) {
   const activeClient = await requirePageClient(prisma, searchParams.client);
+  const calendarEnabled = editorialCalendarEnabled(activeClient);
 
   const today = localDay(new Date(), businessTimezone(activeClient.responsePolicy));
   const month = /^\d{4}-(0[1-9]|1[0-2])$/.test(searchParams.month || "") ? searchParams.month! : today.slice(0, 7);
@@ -39,7 +42,7 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
   const [slots, setting, lastSlot] = await Promise.all([
     prisma.blogPublication.findMany({
       where: { clientId: activeClient.id, scheduledDate: { gte: start, lt: end } },
-      include: { landing: { select: { id: true, titulo: true, slug: true, indexingState: true, contentCluster: { select: { slug: true } } } } },
+      include: { landing: { select: { id: true, titulo: true, slug: true, indexingState: true, publicPreviewUrl: true, contentCluster: { select: { slug: true } } } } },
       orderBy: { scheduledDate: "asc" },
     }),
     prisma.appSetting.findUnique({ where: { key: `blog_daily_schedule:${activeClient.id}` }, select: { value: true } }),
@@ -104,21 +107,30 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
   const selectedState = selected ? stateFor(selected) : null;
   const selectedIssue = selected ? blogTaskError(selected.errorCode, selected.lastError, !!selected.landingId) : null;
   const selectedStats = selected?.landingId ? metrics.get(selected.landingId) : null;
-  const selectedLiveUrl = selected?.landing?.contentCluster && blogBase ? `${blogBase}/guias/${selected.landing.contentCluster.slug}/${selected.landing.slug}/` : "";
+  const selectedLiveUrl = selected?.landing?.publicPreviewUrl?.startsWith(`${blogBase}/`) ? selected.landing.publicPreviewUrl : selected?.landing?.contentCluster && blogBase ? `${blogBase}/guias/${selected.landing.contentCluster.slug}/${selected.landing.slug}/` : "";
 
   return (
     <main className="mx-auto w-full max-w-7xl px-3 py-6 sm:px-6">
       <header className="mb-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="font-display text-2xl text-ink">Calendario del blog</h1>
-          {activeClient.slug === "pcmidi" ? <details className="relative">
-            <summary className="cursor-pointer list-none rounded-lg border border-ink/15 px-3 py-2 text-xs font-semibold text-ink hover:bg-ink/5">Agregar días +</summary>
-            <div className="absolute right-0 top-full z-20 mt-2 w-72 max-w-[85vw] rounded-xl border border-ink/10 bg-paper p-4 shadow-lg">
-              <p className="text-xs text-slate">{lastPlanned ? `Planificado hasta el ${formatDay(lastPlanned)}. ` : ""}Los nuevos días se agregan al final y se preparan de a uno.</p>
-              <form action={addBlogDays} className="mt-3 flex flex-wrap gap-2">
+          {calendarEnabled ? <details className="relative">
+            <summary className="cursor-pointer list-none rounded-lg border border-ink/15 px-3 py-2 text-xs font-semibold text-ink hover:bg-ink/5">Generar varios días +</summary>
+            <div className="absolute right-0 top-full z-20 mt-2 w-80 max-w-[85vw] rounded-xl border border-ink/10 bg-paper p-4 shadow-lg">
+              <p className="text-xs text-slate">{lastPlanned ? `Planificado hasta el ${formatDay(lastPlanned)}. ` : ""}Se prepara un artículo por día, de a uno. Los días que ya tienen artículo no se tocan.</p>
+              <form action={addBlogDays} className="mt-3 grid gap-3 text-sm">
                 <input type="hidden" name="clientId" value={activeClient.id} />
-                <select name="days" defaultValue="7" aria-label="Cantidad de días" className="rounded-lg border border-ink/15 bg-paper px-3 py-2 text-sm">{[1, 3, 7, 14, 30].map(n => <option key={n} value={n}>{n} {n === 1 ? "día" : "días"}</option>)}</select>
-                <PendingSubmitButton loadingText="Agregando…" className="rounded-lg bg-ink px-3 py-2 text-sm font-semibold text-paper">Agregar</PendingSubmitButton>
+                <label className="block font-medium text-ink">Desde
+                  <input type="date" name="startDate" min={shiftDate(today, 1)} defaultValue={lastPlanned && lastPlanned >= today ? shiftDate(lastPlanned, 1) : shiftDate(today, 1)} className="mt-1 block w-full rounded-lg border border-ink/15 bg-paper px-3 py-2" />
+                </label>
+                <label className="block font-medium text-ink">Cantidad de días
+                  <select name="days" defaultValue="7" className="mt-1 block w-full rounded-lg border border-ink/15 bg-paper px-3 py-2">{[1, 2, 3, 5, 7, 10, 14, 21, 30].map(n => <option key={n} value={n}>{n} {n === 1 ? "día" : "días seguidos"}</option>)}</select>
+                </label>
+                <label className="block font-medium text-ink">Idioma de los artículos
+                  <select name="language" defaultValue={blogPreferences(activeClient.responsePolicy).language} className="mt-1 block w-full rounded-lg border border-ink/15 bg-paper px-3 py-2">{BLOG_LANGUAGES.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+                </label>
+                <label className="flex items-start gap-2 text-ink"><input type="hidden" name="comparisonOffered" value="1" /><input type="checkbox" name="comparison" defaultChecked={blogPreferences(activeClient.responsePolicy).comparisons} className="mt-1" /><span>Comparativas en los días de decisión</span></label>
+                <PendingSubmitButton loadingText="Agregando…" className="rounded-lg bg-ink px-3 py-2 text-sm font-semibold text-paper">Generar días</PendingSubmitButton>
               </form>
             </div>
           </details> : <Link prefetch={false} href={`/geo?client=${encodeURIComponent(activeClient.slug)}&tab=seo`} className="text-xs font-semibold text-moss underline">Preparar artículos</Link>}
@@ -156,12 +168,13 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
         {selected ? <>
           {selectedState ? <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${selectedState.style}`}>{selected.status === "PUBLISHING" ? <LoadingSpinner className="mr-1" /> : null}{selectedState.label}</span> : null}
           <h3 className="font-display text-2xl leading-tight text-ink">{selected.landing?.titulo || (selected.status === "SKIPPED" ? "Sin publicación" : "Preparando artículo")}</h3>
-          {selected.status === "PLANNED" && !selected.landingId ? <PreparationStatus preparation={selected.preparation} backgroundTracking={activeClient.slug === "pcmidi"} /> : null}
+          {selected.status === "PLANNED" && !selected.landingId ? <PreparationStatus preparation={selected.preparation} backgroundTracking={calendarEnabled} /> : null}
           <p className="text-sm text-slate">{editorialIntentForDate(selectedDay) === "educational" ? "Artículo educativo" : "Artículo para ayudar a elegir"}{selected.requiresApproval ? " · Pendiente de aprobación" : ""}</p>
           {selectedIssue ? <div role="alert" className="space-y-2 rounded-lg border border-signal/20 bg-signal/5 p-3 text-sm text-signal"><p className="font-semibold">{selectedIssue.message}</p><details><summary className="cursor-pointer">{selectedIssue.action === "detail" ? "Ver detalle" : "Detalle del error"}</summary><p className="mt-1 whitespace-pre-wrap break-words">{selected.lastError}</p></details>{selectedIssue.action === "edit" && selected.landingId ? <Link prefetch={false} href={`/blog/articulos/${selected.landingId}?${new URLSearchParams({ client: activeClient.slug, calendarMonth: month, calendarDay: selectedDay })}`} className="block font-semibold underline">Corregir artículo</Link> : selectedIssue.action === "connection" ? <Link prefetch={false} href={`/blog/configuracion?client=${encodeURIComponent(activeClient.slug)}`} className="block font-semibold underline">Revisar conexión</Link> : selectedIssue.action === "reschedule" ? <a href="#reprogramar" className="block font-semibold underline">Reprogramar</a> : null}</div> : null}
           {selected.landingId ? <div className="flex flex-wrap items-center gap-3">
             <ArticlePreviewButton articleId={selected.landingId} className="rounded-lg border border-ink/15 px-3 py-2 text-sm font-semibold text-ink" />
             <Link prefetch={false} href={`/blog/articulos/${selected.landingId}?${new URLSearchParams({ client: activeClient.slug, calendarMonth: month, calendarDay: selectedDay })}`} className="rounded-lg bg-ink px-3 py-2 text-sm font-semibold text-paper">Editar artículo</Link>
+            {selected.status !== "PUBLISHING" ? <DeleteLandingButton id={selected.landingId} className="rounded-lg border border-signal/50 px-3 py-2 text-sm font-semibold text-signal transition hover:bg-signal/10 disabled:cursor-wait disabled:opacity-60" /> : null}
           </div> : null}
           {selected.status === "PUBLISHED" && selectedLiveUrl ? <a href={selectedLiveUrl} target="_blank" rel="noreferrer" className="block text-sm font-semibold text-moss underline">Ver artículo publicado ↗</a> : null}
           {selected.requiresApproval && selected.landingId ? <form action={approveAnalysisArticle}><input type="hidden" name="id" value={selected.id} /><PendingSubmitButton loadingText="Aprobando…" className="rounded-lg bg-moss px-3 py-2 text-sm font-semibold text-paper">Aprobar borrador</PendingSubmitButton></form> : null}
@@ -178,7 +191,7 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
           {(selectedDay > today || selected.analysisRunId) && selected.status === "FAILED" && !selected.landingId ? <GenerationActionButton id={selected.id} day={selectedDay} client={activeClient.slug} label="Reintentar preparación" action={retryBlogPreparation} kind="retry" /> : null}
           {selectedDay > today && selected.status === "SKIPPED" && !selected.landingId ? <GenerationActionButton id={selected.id} day={selectedDay} client={activeClient.slug} label="Volver a planificar" action={restoreBlogDate} kind="restore" /> : null}
           {selectedDay > today && !["SKIPPED", "PUBLISHING", "PUBLISHED"].includes(selected.status) ? <form action={skipBlogDate} className="border-t border-ink/10 pt-4"><input type="hidden" name="id" value={selected.id} /><PendingSubmitButton loadingText="Omitiendo…" className="text-sm text-slate underline">Omitir fecha</PendingSubmitButton></form> : null}
-        </> : <><h3 className="font-display text-xl">Sin artículo programado</h3>{selectedDay > today && activeClient.slug === "pcmidi" ? <GenerateDateForm clientId={activeClient.id} day={selectedDay} /> : <p className="text-sm text-slate">No hay una publicación preparada para este día.</p>}</>}
+        </> : <><h3 className="font-display text-xl">Sin artículo programado</h3>{selectedDay > today && calendarEnabled ? <GenerateDateForm clientId={activeClient.id} day={selectedDay} language={blogPreferences(activeClient.responsePolicy).language} comparison={editorialIntentForDate(selectedDay) === "decision" ? blogPreferences(activeClient.responsePolicy).comparisons : undefined} /> : <p className="text-sm text-slate">No hay una publicación preparada para este día.</p>}</>}
       </CalendarDetail> : null}
     </main>
   );

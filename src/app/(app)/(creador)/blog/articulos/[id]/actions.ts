@@ -9,6 +9,8 @@ import { loadArticleCatalog } from "@/lib/article-catalog";
 import { editableArticleContent, inspectBlogArticle, loadBlogEvidence } from "@/lib/blog-evidence";
 import type { EditorialQuality } from "@/lib/blog-quality.mjs";
 import { parseMarkers } from "@/lib/article-markers";
+import { articleLanguageInfo, blogTranslationQueueKey, findTranslations, parseTranslationQueue } from "@/lib/blog-translations";
+import { BLOG_LANGUAGES, type BlogLanguage } from "@/lib/blog-language";
 
 export type SaveArticleResult = { ok: true; updatedAt: string; redeploy: boolean; quality: EditorialQuality; draft: ArticleDraft } | { ok: false; error: string };
 
@@ -72,4 +74,34 @@ export async function saveBlogArticle(input: { id: string; expectedUpdatedAt: st
   revalidatePath("/blog/calendario");
   revalidatePath("/blog/articulos");
   return { ok: true, updatedAt: updated.updatedAt.toISOString(), redeploy, quality, draft: result.draft };
+}
+
+export type TranslationRequestResult = { ok: true } | { ok: false; error: string };
+
+/** Encola traducciones del artículo original; el agente local las escribe de a una. */
+export async function requestArticleTranslations(landingId: string, languages: string[]): Promise<TranslationRequestResult> {
+  try {
+    const landing = await prisma.landing.findUnique({ where: { id: landingId }, select: { id: true, clientId: true, htmlContent: true } });
+    if (!landing) return { ok: false, error: "El artículo ya no existe. Recargá la página." };
+    await assertClientAccess(prisma, landing.clientId);
+    const info = articleLanguageInfo(landing.htmlContent);
+    if (info.translationOf) return { ok: false, error: "Pedí las traducciones desde el artículo original." };
+    const existing = new Set((await findTranslations(prisma, landing.clientId, landing.id)).map(item => item.language));
+    const key = blogTranslationQueueKey(landing.clientId);
+    const queue = parseTranslationQueue((await prisma.appSetting.findUnique({ where: { key } }))?.value);
+    const wanted = [...new Set(languages)].filter((value): value is BlogLanguage => BLOG_LANGUAGES.some(item => item.value === value))
+      .filter(language => language !== info.language && !existing.has(language));
+    if (!wanted.length) return { ok: false, error: "Elegí al menos un idioma que todavía no tenga traducción." };
+    const requestedAt = new Date().toISOString();
+    // Un pedido fallido se reemplaza por uno nuevo; uno pendiente no se duplica.
+    const kept = queue.filter(item => !(item.landingId === landing.id && wanted.includes(item.language) && item.error));
+    const added = wanted.filter(language => !kept.some(item => item.landingId === landing.id && item.language === language)).map(language => ({ landingId: landing.id, language, requestedAt, attempts: 0 }));
+    const value = JSON.stringify([...kept, ...added]);
+    await prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+    revalidatePath(`/blog/articulos/${landing.id}`);
+    return { ok: true };
+  } catch (error) {
+    if (error instanceof Error && ["No autenticado.", "No tenés acceso a este cliente."].includes(error.message)) return { ok: false, error: error.message };
+    return { ok: false, error: "No se pudo pedir la traducción. Reintentá." };
+  }
 }

@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT.parent / "agents"))
 
 import build_landings as bl  # noqa: E402
+from blog_languages import localize_html  # noqa: E402
 from site_audit import audit_site  # noqa: E402
 
 BASE = "https://blog.example.com"
@@ -419,6 +420,62 @@ def test_editorial_validation_requires_body_markers_and_solution(monkeypatch):
     assert any("secciones" in error for error in errors) and any("brand_solution" in error for error in errors)
     unknown = {**BODY, "sections": [{"h2": f"S{index}", "body": "[[p:no-existe]] y [[c:tampoco]]"} for index in range(3)]}
     assert any("cita menos" in error for error in validate(article("marcadores-falsos", "controladores-midi", **unknown)))
+
+
+@pytest.mark.parametrize("language,closing", [("es", "podés comparar"), ("en", "you can compare"), ("de", "kannst du")])
+def test_catalog_requirements_are_repaired_before_validation(monkeypatch, language, closing):
+    monkeypatch.setattr(bl, "_CLIENT_CONFIG", {"slug": "kressmer", "name": "Kressmer"})
+    monkeypatch.setattr(bl, "_GENERATION_LANGUAGE", language)
+    clusters = [{"slug": "controladores-midi", "name": "Controladores"}]
+    plain = {"sections": [{"h2": f"S{index}", "body": "Texto útil sin enlaces al catálogo."} for index in range(3)]}
+    landing = article("sin-marcadores", "controladores-midi", **plain)
+    landing["product_ids"] = ["minilab-3"]
+    assert any("cita menos" in error for error in bl.validate_editorial_candidate(landing, [], clusters, {"controladores-midi"}, CATEGORIES, PRODUCTS))
+    repaired = bl.ensure_catalog_requirements(landing, CATEGORIES, PRODUCTS)
+    assert bl.validate_editorial_candidate(repaired, [], clusters, {"controladores-midi"}, CATEGORIES, PRODUCTS) == []
+    assert "[[p:minilab-3|Arturia MiniLab 3]]" in repaired["brand_solution"]["body"] and closing in repaired["brand_solution"]["body"]
+    assert bl.ensure_catalog_requirements(repaired, CATEGORIES, PRODUCTS)["brand_solution"] == repaired["brand_solution"]
+
+
+def test_comparison_picks_other_brand_and_rejects_own(monkeypatch):
+    monkeypatch.setattr(bl, "_CLIENT_CONFIG", {"slug": "kressmer", "name": "Kressmer"})
+    monkeypatch.setattr(bl, "_GENERATION_LANGUAGE", "es")
+    answers = iter([{"product_id": "minilab-3", "competitor": "Arturia KeyLab", "competitor_brand": "Arturia"}, {"product_id": "minilab-3", "competitor": "Novation Launchkey 25", "competitor_brand": "Novation"}])
+    monkeypatch.setattr(bl, "chat_json", lambda *args, **kwargs: next(answers))
+    assert bl.choose_comparison(CATEGORIES, PRODUCTS, [], "m") is None
+    choice = bl.choose_comparison(CATEGORIES, PRODUCTS, [], "m")
+    assert choice == {"product_id": "minilab-3", "competitor": "Novation Launchkey 25", "competitor_brand": "Novation"}
+    clusters = [{"slug": "controladores-midi", "name": "Controladores MIDI", "description": ""}]
+    topic = bl.comparison_topic(choice, CATEGORIES, PRODUCTS, clusters, {"controladores-midi"})
+    assert topic["keyword"] == "Arturia MiniLab 3 vs Novation Launchkey 25: cuál te conviene" and topic["cluster_slug"] == "controladores-midi"
+    landing = bl.apply_editorial_metadata(topic, {"product_ids": ["otro"]}, clusters[0])
+    assert landing["comparison"]["competitor"] == "Novation Launchkey 25" and landing["product_ids"][0] == "minilab-3"
+    system, _ = bl.generation_prompt({**topic, "editorial_content_type": "GUIDE", "cluster_name": "Controladores MIDI"}, CATEGORIES, PRODUCTS)
+    assert "COMPARATIVA" in system and "qué conviene verificar" in system
+
+
+def test_competitor_figures_are_removed_but_own_verified_data_stays():
+    landing = {
+        "comparison": {"product_id": "minilab-3", "competitor": "Novation Launchkey 25", "competitor_brand": "Novation"},
+        "sections": [{"h2": "Criterios", "body": "El [[p:minilab-3]] es un MiniLab 3 compacto. Novation trae 16 pads y cuesta menos. En Novation Launchkey 25 revisá el tipo de teclas.\n\nNovation tiene 99 sonidos."}],
+        "faqs": [{"q": "¿Cuál?", "a": "La Novation pesa 2 kg."}],
+        "direct_answer": "Si buscás algo compacto, el MiniLab 3 conviene; en Novation Launchkey 25 confirmá la conectividad.",
+        "brand_solution": {"title": "t", "body": "Kressmer ofrece el MiniLab 3."},
+    }
+    landing["sections"].append({"h2": "Fama", "body": "Novation suele ofrecer Bluetooth. En esta comparación no tenemos datos de Novation. Revisá en Novation Launchkey 25 si trae pedal. Algunos modelos de esta gama no traen pedal."})
+    cleaned = bl.scrub_competitor_claims(landing, PRODUCTS)
+    assert cleaned["sections"][1]["body"] == "Revisá en Novation Launchkey 25 si trae pedal."
+    body = cleaned["sections"][0]["body"]
+    assert "16 pads" not in body and "99" not in body and "revisá el tipo de teclas" in body and "MiniLab 3 compacto" in body
+    assert cleaned["faqs"] == [] and "Launchkey 25" in cleaned["direct_answer"]
+
+
+def test_catalog_requirements_fit_a_single_reference_catalog(monkeypatch):
+    monkeypatch.setattr(bl, "_CLIENT_CONFIG", {"slug": "kressmer", "name": "Kressmer"})
+    monkeypatch.setattr(bl, "_GENERATION_LANGUAGE", "es")
+    categories = {"home": CATEGORIES["home"], "pianos": {"id": "pianos", "nombre": "Pianos digitales", "url": f"{STORE}/pianos/", "descripcion": ""}}
+    landing = bl.ensure_catalog_requirements(article("un-solo", "pianos", sections=[{"h2": "A", "body": "x"}]), categories, {})
+    assert bl.catalog_marker_count(landing, categories, {}) == 1
 
 
 def test_catalogue_fallback_passes_editorial_validation(monkeypatch):

@@ -11,6 +11,7 @@ import { inspectBlogArticle } from "@/lib/blog-evidence";
 import { editorialIntentForDate } from "@/lib/blog-quality.mjs";
 import { relayFetch } from "@/lib/relay-client";
 import type { Prisma } from "@prisma/client";
+import { blogLanguage, blogPreferences, editorialCalendarEnabled } from "@/lib/blog-language";
 
 export type RescheduleFormState = { error: string | null };
 export type GenerateDateState = { error: string | null; queued: boolean; id?: string; client?: string };
@@ -21,7 +22,9 @@ export async function generateBlogDate(_state: GenerateDateState, formData: Form
     const clientId = z.string().min(1).parse(formData.get("clientId"));
     await assertClientAccess(prisma, clientId);
     const client = await prisma.client.findUniqueOrThrow({ where: { id: clientId }, select: { slug: true, responsePolicy: true } });
-    if (client.slug !== "pcmidi") return { error: "La generación por fecha está disponible para PC MIDI.", queued: false };
+    if (!editorialCalendarEnabled(client)) return { error: "Configurá el calendario editorial del cliente antes de generar.", queued: false };
+    if (formData.has("language") && !["es", "en", "de"].includes(String(formData.get("language")))) return { error: "Elegí español, inglés o alemán.", queued: false };
+    const language = blogLanguage(formData.get("language"), blogPreferences(client.responsePolicy).language);
     let scheduledDate: Date;
     try { scheduledDate = dateOnly(String(formData.get("scheduledDate") || "")); }
     catch { return { error: "Elegí una fecha válida.", queued: false }; }
@@ -29,7 +32,10 @@ export async function generateBlogDate(_state: GenerateDateState, formData: Form
       return { error: "Elegí un día posterior a hoy.", queued: false };
     }
     // La restricción única evita sobrescribir artículos incluso con pedidos simultáneos.
-    const created = await prisma.blogPublication.createMany({ data: [{ clientId, scheduledDate }], skipDuplicates: true });
+    // Las comparativas son artículos para elegir: solo en días de esa intención.
+    const comparison = editorialIntentForDate(scheduledDate.toISOString().slice(0, 10)) === "decision"
+      && (formData.has("comparisonOffered") ? formData.get("comparison") === "on" : blogPreferences(client.responsePolicy).comparisons);
+    const created = await prisma.blogPublication.createMany({ data: [{ clientId, scheduledDate, preparation: { language, comparison } }], skipDuplicates: true });
     if (!created.count) return { error: "Este día ya tiene una publicación programada. Revisá el calendario.", queued: false };
     const slot = await prisma.blogPublication.findUniqueOrThrow({ where: { clientId_scheduledDate: { clientId, scheduledDate } }, select: { id: true } });
     revalidatePath("/blog/calendario");
@@ -41,6 +47,10 @@ export async function generateBlogDate(_state: GenerateDateState, formData: Form
 }
 class CalendarValidationError extends Error {}
 class CalendarDateConflictError extends Error {}
+function waitingPreparation(value: Prisma.JsonValue | null): Prisma.InputJsonValue {
+  const metadata = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return { phase: "WAITING", ...(["es", "en", "de"].includes(String(metadata.language)) ? { language: String(metadata.language) } : {}), ...(typeof metadata.comparison === "boolean" ? { comparison: metadata.comparison } : {}) };
+}
 
 export async function publishCalendarArticle(id: string): Promise<{ ok: true } | { ok: false; error: string; code?: string }> {
   try {
@@ -97,11 +107,11 @@ export async function approveAnalysisArticle(formData: FormData) {
   revalidatePath("/blog"); revalidatePath("/blog/articulos"); revalidatePath("/blog/calendario"); revalidatePath(`/blog/articulos/${slot.landing.id}`);
 }
 
-async function pcMidiClient(formData: FormData) {
+async function editorialClient(formData: FormData) {
   const id = z.string().min(1).parse(formData.get("clientId"));
   await assertClientAccess(prisma, id);
-  const client = await prisma.client.findUniqueOrThrow({ where: { id }, select: { slug: true } });
-  if (client.slug !== "pcmidi") throw new Error("Cliente inválido.");
+  const client = await prisma.client.findUniqueOrThrow({ where: { id }, select: { slug: true, responsePolicy: true } });
+  if (!editorialCalendarEnabled(client)) throw new Error("Cliente inválido.");
   return id;
 }
 
@@ -184,7 +194,7 @@ export async function replaceBlogArticle(formData: FormData) {
   const slot = await editableSlot(id);
   await prisma.$transaction(async (tx) => {
     if (slot.analysisRunId) await requeueAnalysis(tx, slot.analysisRunId, slot.clientId, slot.client.slug === "pcmidi");
-    const changed = await tx.blogPublication.updateMany({ where: { id, status: slot.status, updatedAt: slot.updatedAt, landingId: slot.landingId }, data: { ...(slot.analysisRunId ? { requiresApproval: true, approvedAt: null } : {}), landingId: null, status: "PLANNED", attempts: 0, lastError: "", errorCode: "", preparation: { phase: "WAITING" } } });
+    const changed = await tx.blogPublication.updateMany({ where: { id, status: slot.status, updatedAt: slot.updatedAt, landingId: slot.landingId }, data: { ...(slot.analysisRunId ? { requiresApproval: true, approvedAt: null } : {}), landingId: null, status: "PLANNED", attempts: 0, lastError: "", errorCode: "", preparation: waitingPreparation(slot.preparation) } });
     if (!changed.count) throw new CalendarValidationError("La fecha cambió. Recargá el calendario.");
     if (slot.landingId) await tx.landing.update({ where: { id: slot.landingId }, data: { status: "ARCHIVED" } });
   });
@@ -208,7 +218,7 @@ export async function restoreBlogDate(formData: FormData) {
   if (slot.status !== "SKIPPED" || slot.landingId) throw new CalendarValidationError("Solo se puede reactivar una fecha omitida sin artículo.");
   await prisma.$transaction(async tx => {
     if (slot.analysisRunId) await requeueAnalysis(tx, slot.analysisRunId, slot.clientId, slot.client.slug === "pcmidi");
-    const changed = await tx.blogPublication.updateMany({ where: { id, status: "SKIPPED", landingId: null, updatedAt: slot.updatedAt }, data: { ...(slot.analysisRunId ? { requiresApproval: true, approvedAt: null } : {}), status: "PLANNED", attempts: 0, lastError: "", errorCode: "", preparation: { phase: "WAITING" } } });
+    const changed = await tx.blogPublication.updateMany({ where: { id, status: "SKIPPED", landingId: null, updatedAt: slot.updatedAt }, data: { ...(slot.analysisRunId ? { requiresApproval: true, approvedAt: null } : {}), status: "PLANNED", attempts: 0, lastError: "", errorCode: "", preparation: waitingPreparation(slot.preparation) } });
     if (!changed.count) throw new CalendarValidationError("La fecha cambió. Recargá el calendario.");
   });
   revalidatePath("/blog/calendario");
@@ -220,7 +230,7 @@ export async function retryBlogPreparation(formData: FormData) {
   if (slot.status !== "FAILED" || slot.landingId) throw new CalendarValidationError("El artículo existente debe corregirse desde el editor.");
   await prisma.$transaction(async tx => {
     if (slot.analysisRunId) await requeueAnalysis(tx, slot.analysisRunId, slot.clientId, slot.client.slug === "pcmidi");
-    const changed = await tx.blogPublication.updateMany({ where: { id, status: "FAILED", landingId: null, updatedAt: slot.updatedAt }, data: { ...(slot.analysisRunId ? { requiresApproval: true, approvedAt: null } : {}), status: "PLANNED", attempts: 0, lastError: "", errorCode: "", preparation: { phase: "WAITING" } } });
+    const changed = await tx.blogPublication.updateMany({ where: { id, status: "FAILED", landingId: null, updatedAt: slot.updatedAt }, data: { ...(slot.analysisRunId ? { requiresApproval: true, approvedAt: null } : {}), status: "PLANNED", attempts: 0, lastError: "", errorCode: "", preparation: waitingPreparation(slot.preparation) } });
     if (!changed.count) throw new CalendarValidationError("La fecha cambió. Recargá el calendario.");
   });
   revalidatePath("/blog/calendario");
@@ -239,7 +249,7 @@ export async function requestBlogPreparation(kind: "replace" | "restore" | "retr
   if (!input.success) return { ok: false, error: "Elegí una acción válida para el artículo." };
   try {
     const slot = await editableSlot(id);
-    if (slot.client.slug !== "pcmidi") return { ok: false, error: "La preparación por fecha está disponible para PC MIDI." };
+    if (!editorialCalendarEnabled(slot.client)) return { ok: false, error: "Configurá el calendario editorial del cliente." };
     const data = new FormData(); data.set("id",id);
     await ({ replace: replaceBlogArticle, restore: restoreBlogDate, retry: retryBlogPreparation }[kind])(data);
     return { ok: true };
@@ -249,19 +259,34 @@ export async function requestBlogPreparation(kind: "replace" | "restore" | "retr
   }
 }
 
-/** Reserva más fechas después del último día planificado; el relay escribe un artículo por fecha. */
+/**
+ * Reserva varios días seguidos; el relay escribe un artículo por fecha, de a uno.
+ * Sin fecha de inicio se continúa después del último día planificado.
+ * Los días que ya tienen publicación se respetan tal como están.
+ */
 export async function addBlogDays(formData: FormData) {
-  const clientId = await pcMidiClient(formData);
+  const clientId = await editorialClient(formData);
   const days = z.coerce.number().int().min(1).max(30).parse(formData.get("days"));
+  const client = await prisma.client.findUniqueOrThrow({ where: { id: clientId }, select: { responsePolicy: true } });
+  const preferences = blogPreferences(client.responsePolicy);
   const tomorrow = shiftDate(argentinaDate(), 1);
-  const last = await prisma.blogPublication.findFirst({ where: { clientId }, orderBy: { scheduledDate: "desc" }, select: { scheduledDate: true } });
-  const lastDay = last?.scheduledDate.toISOString().slice(0, 10);
-  const start = lastDay && lastDay >= tomorrow ? shiftDate(lastDay, 1) : tomorrow;
-  await prisma.$transaction(async (tx) => {
-    for (let offset = 0; offset < days; offset++) {
-      const scheduledDate = dateOnly(shiftDate(start, offset));
-      await tx.blogPublication.upsert({ where: { clientId_scheduledDate: { clientId, scheduledDate } }, create: { clientId, scheduledDate }, update: {} });
-    }
-  }, { timeout: 30000 });
+  const requested = String(formData.get("startDate") || "");
+  let start: string;
+  if (requested) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(requested)) throw new Error("Elegí una fecha de inicio válida.");
+    start = requested < tomorrow ? tomorrow : requested;
+  } else {
+    const last = await prisma.blogPublication.findFirst({ where: { clientId }, orderBy: { scheduledDate: "desc" }, select: { scheduledDate: true } });
+    const lastDay = last?.scheduledDate.toISOString().slice(0, 10);
+    start = lastDay && lastDay >= tomorrow ? shiftDate(lastDay, 1) : tomorrow;
+  }
+  const language = formData.has("language") ? blogLanguage(formData.get("language"), preferences.language) : null;
+  const comparisons = formData.has("comparisonOffered") ? formData.get("comparison") === "on" : preferences.comparisons;
+  const data = Array.from({ length: days }, (_, offset) => {
+    const day = shiftDate(start, offset);
+    const preparation = language ? { language, comparison: editorialIntentForDate(day) === "decision" && comparisons } : undefined;
+    return { clientId, scheduledDate: dateOnly(day), ...(preparation ? { preparation } : {}) };
+  });
+  await prisma.blogPublication.createMany({ data, skipDuplicates: true });
   revalidatePath("/blog/calendario");
 }

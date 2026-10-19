@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
-import { getRelayUrl } from "@/lib/settings";
+import { getRelayUrl, getSetting } from "@/lib/settings";
 
 const execFileAsync = promisify(execFile);
 
@@ -37,7 +37,7 @@ async function renderOnRelay(clientSlug: string, landingId: string, client: Land
   // Los túneles trycloudflare cambian cada vez que se reinicia el relay. La
   // URL vigente se persiste en AppSetting por el script de arranque; el env
   // queda únicamente como respaldo para instalaciones sin base compartida.
-  const relayUrl = await getRelayUrl();
+  const relayUrl = await getSetting("blog_runtime_relay_url") || await getRelayUrl();
   const relayToken = process.env.AGENT_RELAY_TOKEN?.trim();
 
   if (!relayUrl || !relayToken) {

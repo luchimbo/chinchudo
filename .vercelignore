@@ -25,6 +25,8 @@ runtime/
 node_modules
 .next
 out
+output/
+landing-build/sites/
 dist
 coverage
 *.log

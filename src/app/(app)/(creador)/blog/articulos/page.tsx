@@ -3,7 +3,7 @@ import { ArticlePreviewButton } from "@/components/article-preview";
 import { PendingNavigationLink as Link } from "@/components/pending-navigation-link";
 import { prisma } from "@/lib/db";
 import { requirePageClient } from "@/lib/auth";
-import { deleteLanding, publishAllOnlineLandings, publishLandingPreview, publishSelectedLandings, updateLandingStatus } from "../actions";
+import { publishAllOnlineLandings, publishLandingPreview, publishSelectedLandings, updateLandingStatus } from "../actions";
 import { DeleteLandingButton } from "../delete-landing-button";
 import { GenerationProgressCard } from "../generation-progress-card";
 import { InternalLinksEditor, type EditorialLink, type LinkCandidate } from "../internal-links-editor";
@@ -104,7 +104,7 @@ export default async function LandingsPage({
   const blogBase = (dbBlogBase || process.env.LANDING_BASE_URL || "https://blog.pcmidicenter.com").replace(/\/$/, "");
   // Las guías editoriales viven en /guias/<cluster>/<slug>/; publicPreviewUrl puede traer la ruta vieja /l/<slug>.
   const liveUrl = (landing: { slug: string; publicPreviewUrl: string | null; contentCluster: { slug: string } | null }) =>
-    landing.contentCluster ? `${blogBase}/guias/${landing.contentCluster.slug}/${landing.slug}/` : landing.publicPreviewUrl || `${blogBase}/${landing.slug}/`;
+    landing.publicPreviewUrl?.startsWith(`${blogBase}/en/guias/`) || landing.publicPreviewUrl?.startsWith(`${blogBase}/de/guias/`) ? landing.publicPreviewUrl : landing.contentCluster ? `${blogBase}/guias/${landing.contentCluster.slug}/${landing.slug}/` : landing.publicPreviewUrl || `${blogBase}/${landing.slug}/`;
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col px-5 py-8">
@@ -317,7 +317,7 @@ export default async function LandingsPage({
                       </form>
                     </>
                   )}
-                  {!landing.blogPublication ? <DeleteLandingButton id={landing.id} action={deleteLanding} /> : null}
+                  <DeleteLandingButton id={landing.id} />
                 </div>
               </div>
             </div>

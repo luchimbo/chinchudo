@@ -15,7 +15,7 @@ export async function GET(request: Request) {
     const terminalStatuses: BlogPublicationStatus[] = ["PUBLISHED", "FAILED"];
     const rows = await prisma.blogPublication.findMany({
       where: { clientId: client.id, OR: [{ status: "PUBLISHING" }, ...(ids.length ? [{ id: { in: ids }, status: { in: terminalStatuses } }] : [])] },
-      select: { id: true, status: true, lastError: true, needsDeploy: true, updatedAt: true, landing: { select: { titulo: true, slug: true, contentCluster: { select: { slug: true } } } } },
+      select: { id: true, status: true, lastError: true, needsDeploy: true, updatedAt: true, landing: { select: { titulo: true, slug: true, publicPreviewUrl: true, contentCluster: { select: { slug: true } } } } },
       orderBy: { updatedAt: "desc" }, take: 20,
     });
     return NextResponse.json({ jobs: rows.map(row => publicationJob(row, client.blogBaseUrl)) }, { headers: { "Cache-Control": "private, no-store" } });

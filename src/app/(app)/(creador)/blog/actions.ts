@@ -5,6 +5,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { assertClientAccess } from "@/lib/auth";
 import { resolvePublicLandingUrl } from "@/lib/landing-html";
+import { findTranslations, requestBlogRedeploy } from "@/lib/blog-translations";
 
 export async function updateLandingStatus(formData: FormData) {
   const id = formData.get("id") as string;
@@ -155,24 +156,39 @@ export async function resetInternalLink(formData: FormData) {
   revalidatePath("/blog"); revalidatePath("/blog/articulos");
 }
 
-export async function deleteLanding(formData: FormData) {
-  const id = z.string().min(1).parse(formData.get("id"));
-  const landing = await prisma.landing.findUnique({
-    where: { id },
-    select: {
-      clientId: true,
-      blogPublication: { select: { id: true } },
-      _count: { select: { leads: true, trackingEvents: true, distribution: true } },
-    },
-  });
-  if (!landing) return;
+export type DeleteArticleResult = { ok: true } | { ok: false; error: string };
 
-  await assertClientAccess(prisma, landing.clientId);
-  if (landing.blogPublication) throw new Error("Reemplazá u omití este artículo desde el calendario editorial.");
-  if (landing._count.leads || landing._count.trackingEvents || landing._count.distribution) {
-    throw new Error("El artículo tiene historial asociado. Archivala para conservarlo.");
+/**
+ * Borra el artículo y sus traducciones. Leads, eventos y piezas de distribución
+ * se conservan sin el vínculo; la fecha del calendario queda omitida y, si algo
+ * estaba publicado, el relay vuelve a desplegar el blog sin esas páginas.
+ */
+export async function deleteBlogArticle(id: string): Promise<DeleteArticleResult> {
+  try {
+    z.string().min(1).parse(id);
+    const landing = await prisma.landing.findUnique({ where: { id }, select: { id: true, clientId: true, status: true } });
+    if (!landing) return { ok: false, error: "El artículo ya no existe. Recargá la página." };
+    await assertClientAccess(prisma, landing.clientId);
+    const translations = await findTranslations(prisma, landing.clientId, landing.id);
+    const ids = [landing.id, ...translations.map(item => item.id)];
+    await prisma.$transaction(async (tx) => {
+      const slots = await tx.blogPublication.findMany({ where: { landingId: { in: ids } }, select: { id: true, status: true } });
+      if (slots.some(slot => slot.status === "PUBLISHING")) throw new DeleteBlockedError("El artículo se está publicando. Esperá a que termine y reintentá.");
+      for (const slot of slots) {
+        await tx.blogPublication.update({ where: { id: slot.id }, data: { landingId: null, status: "SKIPPED", needsDeploy: false, lastError: "Artículo eliminado por el operador.", errorCode: "" } });
+      }
+      await tx.lead.updateMany({ where: { landingId: { in: ids } }, data: { landingId: null } });
+      await tx.trackingEvent.updateMany({ where: { landingId: { in: ids } }, data: { landingId: null } });
+      await tx.distributionPiece.updateMany({ where: { landingId: { in: ids } }, data: { landingId: null } });
+      const published = await tx.landing.count({ where: { id: { in: ids }, status: { in: ["PUBLISHED", "APPROVED", "PREVIEW_ONLINE"] } } });
+      await tx.landing.deleteMany({ where: { id: { in: ids } } });
+      if (published) await requestBlogRedeploy(tx, landing.clientId);
+    }, { timeout: 30000 });
+    revalidatePath("/blog"); revalidatePath("/blog/articulos"); revalidatePath("/blog/calendario");
+    return { ok: true };
+  } catch (error) {
+    if (error instanceof DeleteBlockedError || error instanceof Error && ["No autenticado.", "No tenés acceso a este cliente."].includes(error.message)) return { ok: false, error: error.message };
+    return { ok: false, error: "No se pudo eliminar el artículo. Reintentá." };
   }
-
-  await prisma.landing.delete({ where: { id } });
-  revalidatePath("/blog"); revalidatePath("/blog/articulos");
 }
+class DeleteBlockedError extends Error {}

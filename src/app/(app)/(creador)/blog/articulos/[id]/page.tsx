@@ -7,6 +7,9 @@ import { ArticleEditor } from "./article-editor";
 import { saveBlogArticle } from "./actions";
 import { editableArticleContent, loadBlogEvidence } from "@/lib/blog-evidence";
 import { articleBackHref } from "@/lib/blog-navigation";
+import { blogLanguage } from "@/lib/blog-language";
+import { blogTranslationQueueKey, findTranslations, parseTranslationQueue } from "@/lib/blog-translations";
+import { TranslationsPanel } from "./translations-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -40,8 +43,17 @@ export default async function BlogArticleEditorPage({ params, searchParams }: { 
   catalog.sources = evidence.sources.map((s) => ({ ref: s.id, name: s.title, detail: s.type }));
   if (Array.isArray(content.editorial_brief?.allowedProductIds)) catalog.products = catalog.products.filter((p) => content.editorial_brief.allowedProductIds.includes(p.ref));
   const blogBase = (landing.client.blogBaseUrl || (landing.client.slug === "pcmidi" ? "https://blog.pcmidicenter.com" : "")).replace(/\/$/, "");
-  const publicUrl = !blogBase ? "" : landing.contentCluster ? `${blogBase}/guias/${landing.contentCluster.slug}/${landing.slug}/` : `${blogBase}/${landing.slug}/`;
+  const locale = ["en", "de"].includes(content.language) ? `/${content.language}` : "";
+  const publicUrl = !blogBase ? "" : landing.contentCluster ? `${blogBase}${locale}/guias/${landing.contentCluster.slug}/${landing.slug}/` : `${blogBase}${locale}/${landing.slug}/`;
   const state = STATUS[slot.status] ?? STATUS.READY;
+  const translationOf = typeof content.translation_of === "string" ? content.translation_of : null;
+  const [translations, queueSetting, originalLanding] = await Promise.all([
+    translationOf ? Promise.resolve([]) : findTranslations(prisma, landing.clientId, landing.id),
+    translationOf ? Promise.resolve(null) : prisma.appSetting.findUnique({ where: { key: blogTranslationQueueKey(landing.clientId) } }),
+    translationOf ? prisma.landing.findFirst({ where: { id: translationOf, clientId: landing.clientId }, select: { id: true, titulo: true } }) : Promise.resolve(null),
+  ]);
+  const pendingTranslations = parseTranslationQueue(queueSetting?.value).filter(item => item.landingId === landing.id).map(item => ({ language: item.language, ...(item.error ? { error: item.error } : {}) }));
+  const backHref = articleBackHref(landing.client.slug, landing.blogPublication ? scheduled : undefined, searchParams.calendarMonth, searchParams.calendarDay);
   const dateLabel = new Intl.DateTimeFormat("es-AR", { weekday: "long", day: "numeric", month: "long", timeZone: "UTC" }).format(slot.scheduledDate);
   const note = slot.needsDeploy
     ? "Hay cambios guardados pendientes de actualizarse en el blog."
@@ -63,10 +75,19 @@ export default async function BlogArticleEditorPage({ params, searchParams }: { 
         content={content}
         published={slot.status === "PUBLISHED"}
         publicUrl={publicUrl}
-        backHref={articleBackHref(landing.client.slug, landing.blogPublication ? scheduled : undefined, searchParams.calendarMonth, searchParams.calendarDay)}
+        backHref={backHref}
         clusterName={landing.contentCluster?.name || "Blog"}
         status={{ label: state.label, tone: state.tone, date: dateLabel, note }}
         save={saveBlogArticle}
+      />
+      <TranslationsPanel
+        articleId={landing.id}
+        language={blogLanguage(content.language)}
+        original={translationOf ? (originalLanding ?? { id: translationOf, titulo: "" }) : null}
+        translations={translations.map(({ id, titulo, language, status }) => ({ id, titulo, language, status }))}
+        pending={pendingTranslations}
+        client={landing.client.slug}
+        deleteRedirect={backHref}
       />
     </main>
   );

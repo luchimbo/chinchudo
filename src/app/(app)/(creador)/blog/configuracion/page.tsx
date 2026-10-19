@@ -5,6 +5,7 @@ import { updateLandingsConfig, updateEmailConfig } from "./actions";
 import { LandingsForm } from "./landings-form";
 import { EmailsForm } from "./emails-form";
 import { CatalogSyncPanel } from "./catalog-sync-panel";
+import { blogPreferences, editorialCalendarEnabled } from "@/lib/blog-language";
 
 type GenerationSchedule = { enabled: boolean; intervalHours: number; limit: number; weeklyTarget: number };
 type DailyBlogSchedule = { enabled: boolean; publishTime: string; autoApprove: boolean };
@@ -43,6 +44,7 @@ export default async function LandingsConfigPage({
     select: {
       id: true,
       slug: true,
+      responsePolicy: true,
       logoUrl: true,
       storeUrl: true,
       blogBaseUrl: true,
@@ -91,6 +93,9 @@ export default async function LandingsConfigPage({
             config={{
               id: c.id,
               clientSlug: slug,
+              blogLanguage: blogPreferences(c.responsePolicy).language,
+              blogComparisons: blogPreferences(c.responsePolicy).comparisons,
+              editorialCalendar: editorialCalendarEnabled(c),
               logoUrl: c.logoUrl ?? "",
               storeUrl: c.storeUrl ?? "",
               blogBaseUrl: c.blogBaseUrl ?? "",

@@ -1,25 +1,36 @@
 "use client";
 
-import { PendingSubmitButton } from "@/components/pending-submit-button";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { LoadingMessage } from "@/components/loading-ui";
+import { deleteBlogArticle } from "./actions";
 
-export function DeleteLandingButton({
-  id,
-  action,
-}: {
-  id: string;
-  action: (formData: FormData) => Promise<void>;
-}) {
+/** Borrado definitivo: el artículo, sus traducciones y su página pública. */
+export function DeleteLandingButton({ id, redirectTo, translations = 0, className }: { id: string; redirectTo?: string; translations?: number; className?: string }) {
+  const [pending, setPending] = useState(false), [error, setError] = useState("");
+  const router = useRouter();
   return (
-    <form
-      action={action}
-      onSubmit={(event) => {
-        if (!window.confirm("¿Eliminar este artículo? Esta acción no se puede deshacer.")) event.preventDefault();
-      }}
-    >
-      <input type="hidden" name="id" value={id} />
-      <PendingSubmitButton loadingText="Eliminando…" className="rounded-lg border border-signal/60 px-3 py-1.5 text-xs font-semibold text-signal transition hover:bg-signal/10">
-        Eliminar landing
-      </PendingSubmitButton>
-    </form>
+    <div className="space-y-1">
+      <button
+        type="button"
+        disabled={pending}
+        aria-busy={pending}
+        className={className || "rounded-lg border border-signal/60 px-3 py-1.5 text-xs font-semibold text-signal transition hover:bg-signal/10 disabled:cursor-wait disabled:opacity-60"}
+        onClick={async () => {
+          const extra = translations ? ` También se borrarán sus ${translations} ${translations === 1 ? "traducción" : "traducciones"}.` : "";
+          if (!window.confirm(`¿Eliminar este artículo definitivamente?${extra} Si está publicado, se quitará del blog. Los leads se conservan. Esta acción no se puede deshacer.`)) return;
+          setPending(true); setError("");
+          try {
+            const result = await deleteBlogArticle(id);
+            if (!result.ok) { setError(result.error); return; }
+            if (redirectTo) router.push(redirectTo); else router.refresh();
+          } catch { setError("No se pudo eliminar el artículo. Reintentá."); }
+          finally { setPending(false); }
+        }}
+      >
+        {pending ? <LoadingMessage>Eliminando…</LoadingMessage> : "Eliminar artículo"}
+      </button>
+      {error ? <p role="alert" className="text-xs text-signal">{error}</p> : null}
+    </div>
   );
 }

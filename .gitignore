@@ -55,6 +55,7 @@ tmp/
 
 # Blog estático generado por landing-build (se despliega ya construido)
 landing-build/site/
+landing-build/sites/
 
 # Local npm cache
 .npm-cache/

@@ -89,7 +89,8 @@ export function completeArticle({ content, catalog, sources = [] }) {
     const guide = related[0].guide;
     const ranked = sections.map((s, index) => ({ index, score: overlap(terms(`${s.h2} ${s.body}`), terms(guide.name)) })).sort((a, b) => b.score - a.score);
     const destination = ranked.find(s => sections[s.index].body.length + guide.name.length + guide.ref.length + 55 <= 8000);
-    if (destination) { sections[destination.index].body += `\n\nPara ampliar este tema, leé [[g:${guide.ref}|${label(guide.name)}]].`; changes.push("guide-link"); }
+    const intro = result.language === "en" ? "Read more about this topic:" : result.language === "de" ? "Mehr zu diesem Thema:" : "Para ampliar este tema, leé";
+    if (destination) { sections[destination.index].body += `\n\n${intro} [[g:${guide.ref}|${label(guide.name)}]].`; changes.push("guide-link"); }
   }
   for (const [field, max] of [["seo_title", 70], ["meta_description", 180], ["hero_lede", 500]]) {
     if (typeof result[field] === "string") {

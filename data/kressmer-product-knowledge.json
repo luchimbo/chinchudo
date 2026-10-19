@@ -1,0 +1,60 @@
+{
+  "source": "Fichas de producto proporcionadas por el operador de PC MIDI Center el 2026-10-19",
+  "responseRules": "No inferir acción martillo a partir de sensibilidad a la velocidad. No inventar precio, stock, garantía, medidas, potencia, polifonía ni compatibilidad con apps específicas. Dual Bluetooth no confirma por sí solo protocolos o versiones. Los nombres Smart Follow-up, Follow-up, programa móvil Bluetooth Mini y función de extensión se conservan como denominaciones de la ficha: su funcionamiento concreto requiere confirmación. No trasladar características ni accesorios entre modelos. La lista de caja es lo declarado; una ausencia en la lista no prueba incompatibilidad.",
+  "products": [
+    {
+      "model": "K-180",
+      "description": "Piano digital Kressmer K-180 de 88 teclas standard sensibles a la velocidad, color blanco. Orientado a estudiantes, músicos en formación y práctica en casa, con acompañamientos y conectividad.",
+      "features": ["88 teclas standard sensibles a la velocidad", "Panel de operación multifunción", "128 tonos", "128 ritmos", "80 canciones de demostración", "Dual Bluetooth", "Soporte para APPs inteligentes", "Smart Follow-up", "Conexión para auriculares", "USB / interfaz MIDI", "Entrada y salida de audio", "Color blanco"],
+      "included": ["Piano digital Kressmer K-180", "Atril para partituras", "Pedalera", "Manual de usuario", "Fuente de alimentación"],
+      "optional": [],
+      "useCases": "Aprendizaje, estudio, interpretación expresiva y práctica en casa con acompañamientos o auriculares.",
+      "notes": "La ficha declara teclas standard sensitivas; no declara acción martillo. No especifica cantidad ni funciones de los pedales."
+    },
+    {
+      "model": "K-88",
+      "description": "Piano digital Kressmer K-88 de 88 teclas con acción tipo martillo (88-key step-hammer action), color rojo y formato tipo piano de escenario. Orientado a estudio, clases e interpretación.",
+      "features": ["88 teclas con acción tipo martillo (step-hammer action)", "Sonido de piano puro", "Panel de tono simple", "Chip de sonido francés 5704, según ficha suministrada", "Color rojo", "Formato tipo piano de escenario"],
+      "included": ["Piano digital Kressmer K-88", "Atril para partituras", "Pedalera", "Manual de usuario", "Fuente de alimentación"],
+      "optional": [],
+      "useCases": "Práctica, estudio, clases, hogar, estudio musical y presentaciones.",
+      "notes": "La ficha no detalla conectividad, número de voces, polifonía, cantidad ni funciones de los pedales. No atribuir Bluetooth, USB o salida de auriculares a este modelo sin confirmación."
+    },
+    {
+      "model": "LM-103",
+      "description": "Piano digital Kressmer LM-103 de 88 teclas standard sensibles a la velocidad, color marrón y estética cálida y clásica. Orientado a estudiantes, principiantes y práctica en casa.",
+      "features": ["88 teclas standard sensibles a la velocidad", "Sonido de piano puro", "Dual Bluetooth", "Soporte para APPs inteligentes", "Función Follow-up", "Conexión para auriculares (Headphone Jack)", "USB / interfaz MIDI", "Entrada y salida de audio", "Programa móvil Bluetooth Mini", "Función de extensión", "Color marrón"],
+      "included": ["Piano digital Kressmer LM-103", "Atril para partituras", "Patas metálicas", "Pedalera", "Manual de usuario", "Fuente de alimentación"],
+      "optional": [],
+      "useCases": "Aprendizaje, práctica y estudio en casa, uso con auriculares y conexión con software o apps compatibles.",
+      "notes": "Teclas standard sensitivas: no declarar acción martillo. No especifica cantidad ni funciones de los pedales."
+    },
+    {
+      "model": "3008",
+      "description": "Piano digital modular Kressmer 3008 de 88 teclas sensibles a la velocidad, color negro. Se divide en dos secciones con conexión magnética para facilitar armado, guardado y traslado.",
+      "features": ["88 teclas sensibles a la velocidad", "Dos secciones con conexión magnética", "Ancho de tecla de 22 mm", "3 pantallas LED digitales", "600 timbres", "600 ritmos", "128 canciones de demostración", "Metrónomo incorporado", "Entrada y salida de audio", "Salida para auriculares", "Entrada para micrófono", "Puerto MIDI", "Color negro"],
+      "included": ["Piano digital modular Kressmer 3008", "Atril para partituras", "Pedal de sustain", "Manual de usuario"],
+      "optional": ["Pedal triple opcional", "Bluetooth Dual opcional, según disponibilidad de versión"],
+      "useCases": "Estudio y práctica en casa, clases y ensayos; traslado y guardado gracias al formato modular; conexión MIDI y uso de micrófono.",
+      "notes": "No declarar Bluetooth Dual ni pedal triple como incluidos de serie. No declarar acción martillo, batería recargable, USB ni fuente de alimentación incluida: no constan en esta ficha."
+    },
+    {
+      "model": "LM-200",
+      "description": "Piano digital Kressmer LM-200 de 88 teclas standard sensibles a la velocidad, color negro y diseño compacto. Orientado a estudiantes, principiantes y práctica en casa.",
+      "features": ["88 teclas standard sensibles a la velocidad", "Sonido de piano puro", "Dual Bluetooth", "Soporte para APPs inteligentes", "Función Follow-up", "Conexión para auriculares (Headphone Jack)", "USB / interfaz MIDI", "Entrada y salida de audio", "Compatible con soporte de piano tipo X", "Color negro"],
+      "included": ["Piano digital Kressmer LM-200", "Atril para partituras", "Manual de usuario", "Fuente de alimentación"],
+      "optional": [],
+      "useCases": "Aprendizaje, estudio y práctica doméstica, uso con auriculares, apps o software musical compatible.",
+      "notes": "Teclas standard sensitivas: no declarar acción martillo. Compatible con soporte X no significa soporte incluido. La lista de caja no declara pedal ni pedalera; confirmar antes de ofrecerlos como incluidos."
+    },
+    {
+      "model": "LM-281",
+      "description": "Piano digital Kressmer LM-281 de 88 teclas con acción martillo, mueble integrado y sistema de pedales. Orientado al hogar, salas de estudio, academias y práctica musical.",
+      "features": ["88 teclas con acción de martillo", "Mueble / estructura de soporte integrada", "Sistema de tres pedales operacionales integrado, según FAQ suministrada", "Sonido principal de piano puro", "Bluetooth dual", "Compatibilidad con APP inteligente", "Puerto USB e interfaz MIDI", "Salida para auriculares (jack estéreo)", "Entrada y salida de audio"],
+      "included": ["Piano digital Kressmer LM-281", "Mueble / estructura de soporte", "Pedalera", "Fuente de alimentación", "Manual de usuario"],
+      "optional": [],
+      "useCases": "Estudio de técnica, dinámica y expresión con acción martillo; práctica privada con auriculares; hogar, academias, clases online y conexión con software musical.",
+      "notes": "FAQ aportada: incluye tres pedales operacionales; menciona sostenuto y damper. No especifica medio pedal ni función individual de todos los pedales. El enfoque sonoro es piano puro; no declara cantidad de voces. Puede utilizarse en estudio avanzado según la ficha, sin afirmar equivalencia con un piano acústico ni certificación académica. No se informó color."
+    }
+  ]
+}

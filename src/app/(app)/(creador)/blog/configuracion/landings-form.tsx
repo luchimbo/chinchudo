@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { LogoUpload } from "@/app/(app)/configuracion/logo-upload";
 import { LoadingSpinner } from "@/components/loading-ui";
+import { BLOG_LANGUAGES, type BlogLanguage } from "@/lib/blog-language";
 
 const inputCls = "rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm text-ink w-full";
 const labelCls = "grid gap-1 text-xs font-semibold text-slate";
@@ -13,6 +14,9 @@ const subHead = "mb-3 mt-6 text-[10px] font-bold uppercase tracking-widest text-
 type Config = {
   id: string;
   clientSlug: string;
+  blogLanguage?: BlogLanguage;
+  blogComparisons?: boolean;
+  editorialCalendar?: boolean;
   logoUrl: string;
   storeUrl: string;
   blogBaseUrl: string;
@@ -34,6 +38,7 @@ export function LandingsForm({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+  const usesCalendar = config.editorialCalendar ?? config.clientSlug === "pcmidi";
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -57,6 +62,16 @@ export function LandingsForm({
   return (
     <form onSubmit={handleSubmit} className="grid gap-4">
       <input type="hidden" name="id" value={config.id} />
+      <label className={labelCls}>Idioma predeterminado de los artículos
+        <select name="blogLanguage" defaultValue={config.blogLanguage || "es"} className={inputCls}>{BLOG_LANGUAGES.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+        <span className={hintCls}>Podés elegir otro idioma al generar cada artículo.</span>
+      </label>
+      <label className="flex items-start gap-2 text-sm text-ink">
+        <input type="checkbox" name="blogComparisons" defaultChecked={config.blogComparisons} className="mt-1" />
+        <span>Comparativas automáticas con otras marcas
+          <span className={hintCls + " block"}>En los días para ayudar a elegir, se compara un producto propio con uno de otra marca. Las ventajas salen de las fichas verificadas; de la otra marca solo se indica qué revisar.</span>
+        </span>
+      </label>
 
       <p className={subHead} style={{ marginTop: 0 }}>Logo</p>
       <p className="text-xs text-slate/60 -mt-2">
@@ -82,7 +97,7 @@ export function LandingsForm({
         </label>
       </div>
 
-      {config.clientSlug !== "pcmidi" ? <>
+      {!usesCalendar ? <>
       <p className={subHead}>Comportamiento</p>
       <div className="flex flex-col gap-3">
         <label className="flex items-start gap-3 text-sm text-slate">
@@ -102,7 +117,7 @@ export function LandingsForm({
       </div>
       </> : null}
 
-      {config.clientSlug === "pcmidi" ? (
+      {usesCalendar ? (
         <>
           <input type="hidden" name="generationIntervalHours" value={config.generationSchedule.intervalHours} />
           <input type="hidden" name="generationLimit" value={config.generationSchedule.limit} />
@@ -121,7 +136,7 @@ export function LandingsForm({
               <input name="blogPublishTime" type="time" defaultValue={config.dailyBlogSchedule.publishTime} className={inputCls} />
               <span className={hintCls}>Indicá una hora antes de activar el calendario.</span>
             </label>
-            <a href="/blog/calendario?client=pcmidi" className="mt-4 inline-block text-xs font-semibold text-moss underline underline-offset-2">Ver calendario editorial</a>
+            <a href={`/blog/calendario?client=${encodeURIComponent(config.clientSlug)}`} className="mt-4 inline-block text-xs font-semibold text-moss underline underline-offset-2">Ver calendario editorial</a>
           </div>
         </>
       ) : (
