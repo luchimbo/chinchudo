@@ -8,3 +8,4 @@ export function withIntent(preparation: unknown, intent: unknown): Record<string
 export function assignIntent(day: string, neighbors: IntentNeighbor[]): EditorialIntent;
 export function balanceWarnings(slots: IntentNeighbor[]): string[];
 export function loadIntentNeighbors(db: any, clientId: string, from: string, to: string): Promise<{ slots: Map<string, IntentNeighbor & { explicit: boolean; status: string; landingId: string | null }>; neighbors: IntentNeighbor[] }>;
+export function warningsIntroducedBy(neighbors: IntentNeighbor[], day: string, intent: EditorialIntent): string[];

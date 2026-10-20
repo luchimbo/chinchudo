@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assignIntent, balanceWarnings, carryIntent, explicitIntent, intentForSlot, intentModeOf, withIntent } from "../blog-intent.mjs";
+import { assignIntent, balanceWarnings, carryIntent, explicitIntent, intentForSlot, intentModeOf, warningsIntroducedBy, withIntent } from "../blog-intent.mjs";
 import { editorialIntentForDate } from "../blog-quality.mjs";
 
 describe("intención editorial del slot", () => {
@@ -87,5 +87,24 @@ describe("avisos de equilibrio", () => {
 
   it("no avisa por tandas incompletas con pocos artículos", () => {
     expect(balanceWarnings([{ day: "2026-11-01", intent: "decision" }, { day: "2026-11-03", intent: "decision" }])).toEqual([]);
+  });
+});
+
+describe("avisos que introduce una elección", () => {
+  const run = [{ day: "2026-11-01", intent: "decision" as const }, { day: "2026-11-02", intent: "decision" as const }];
+
+  it("avisa solo del problema nuevo, no de los que ya existían", () => {
+    expect(warningsIntroducedBy(run, "2026-11-03", "decision")).toEqual([expect.stringContaining("3 días seguidos")]);
+    expect(warningsIntroducedBy(run, "2026-11-03", "educational")).toEqual([]);
+  });
+
+  it("no repite avisos previos cuando el calendario ya estaba desbalanceado", () => {
+    const already = [...run, { day: "2026-11-03", intent: "decision" as const }];
+    expect(balanceWarnings(already)).not.toEqual([]);
+    expect(warningsIntroducedBy(already, "2026-11-10", "educational")).toEqual([]);
+  });
+
+  it("reemplazar el tipo de un día ya ocupado lo evalúa sin duplicarlo", () => {
+    expect(warningsIntroducedBy([...run, { day: "2026-11-03", intent: "educational" as const }], "2026-11-03", "decision")).toEqual([expect.stringContaining("3 días seguidos")]);
   });
 });

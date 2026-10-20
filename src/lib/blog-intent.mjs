@@ -87,3 +87,10 @@ export async function loadIntentNeighbors(db, clientId, from, to) {
   for (const row of rows) slots.set(dayOf(row.scheduledDate), { day: dayOf(row.scheduledDate), intent: intentForSlot(row), explicit: explicitIntent(row.preparation) !== null, status: row.status, landingId: row.landingId });
   return { slots, neighbors: [...slots.values()].filter((item) => item.status !== "SKIPPED").map(({ day, intent }) => ({ day, intent })) };
 }
+
+/** Avisos de equilibrio que aparecen por poner `intent` en `day` y que antes no estaban. */
+export function warningsIntroducedBy(neighbors, day, intent) {
+  const others = neighbors.filter((item) => item.day !== day);
+  const before = new Set(balanceWarnings(others));
+  return balanceWarnings([...others, { day, intent }]).filter((warning) => !before.has(warning));
+}

@@ -1,6 +1,6 @@
 # Diseño: intención editorial por cuota (reemplaza la paridad del día)
 
-Estado: decisiones tomadas el 2026-10-20. PR 1 y PR 2 implementados (PR 2 detrás del flag, apagado); PR 3 pendiente.
+Estado: decisiones tomadas el 2026-10-20. PR 1, PR 2 y PR 3 implementados (PR 2 y PR 3 detrás del flag `intentMode`, apagado por defecto).
 
 **Decisiones:** la intención se guarda en `preparation.editorialIntent` (JSON, sin migración ni backfill; `null` = paridad de la fecha);
 equilibrio de 5 a 9 por tanda de 14 días y máximo 2 seguidos del mismo tipo; el operador puede elegir el tipo a mano siempre, con aviso;
@@ -141,4 +141,14 @@ Con el flag encendido:
 - Reprogramar va al día libre pedido (sin saltos de paridad) y deja fija la intención del artículo.
 - Publicar antes de fecha intercambia fechas con el artículo de hoy (usa una fecha temporal `9999-12-31` dentro de la transacción,
   porque `(cliente, fecha)` es único) y deja la intención explícita en ambos.
-- `balanceWarnings` está listo pero todavía no se muestra: lo conecta el PR 3 junto con el selector de tipo por día.
+- `balanceWarnings` se muestra con el PR 3.
+
+## Estado del PR 3
+
+Solo con `intentMode = "balanced"`; en `parity` la interfaz queda como antes.
+- "Nuevo artículo": selector "Tipo de artículo" con la sugerencia por cuota preseleccionada (se puede cambiar) y avisos de equilibrio
+  que aparecen solo si la elección introduce un problema nuevo. Los campos de rival y comparativa siguen el tipo elegido, no la fecha.
+- "Planificar semana": un selector de tipo por día (la sugerencia se calcula día a día) y avisos en el pie del diálogo.
+- Calendario: bloque "Equilibrio editorial" con las rachas y tandas fuera de 5 a 9 de los próximos meses.
+- Panel del día: el tipo sale del slot (`intentForSlot`).
+Pendiente a futuro: retirar `nextFreeEditorialDay` y `intent_for_date` cuando todos los clientes pasen a `balanced`.

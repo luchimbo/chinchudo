@@ -6,7 +6,8 @@ import { LoadingMessage } from "@/components/loading-ui";
 import { generateBlogDate, type GenerateDateState } from "./actions";
 import { notifyGenerationStarted, preparationLabel } from "@/lib/blog-tasks";
 import { BLOG_LANGUAGES, type BlogLanguage } from "@/lib/blog-language";
-import { editorialIntentForDate } from "@/lib/blog-quality.mjs";
+import { editorialIntentForDate, type EditorialIntent } from "@/lib/blog-quality.mjs";
+import { assignIntent, warningsIntroducedBy, type IntentNeighbor } from "@/lib/blog-intent.mjs";
 import { calendarHref } from "@/lib/blog-navigation";
 import { BriefField } from "./brief-field";
 import { DayPlanFields, EMPTY_DAY, type DayDraft } from "./day-plan-fields";
@@ -28,7 +29,7 @@ const intentLabel = (day: string) => editorialIntentForDate(day) === "decision" 
  * Pide un artículo para una fecha. En el panel del día la fecha es fija; desde
  * «Nuevo artículo» (`minDate`) se elige y, al terminar, se abre ese día.
  */
-export function GenerateDateForm({ clientId, day, language = "es", comparison, minDate, clientSlug, products = [], globalExcluded = [] }: { clientId: string; day: string; language?: BlogLanguage; comparison?: boolean; minDate?: string; clientSlug?: string; products?: BlogCatalogProduct[]; globalExcluded?: string[] }) {
+export function GenerateDateForm({ clientId, day, language = "es", comparison, minDate, clientSlug, products = [], globalExcluded = [], balanced = false, neighbors = [], initialIntent }: { clientId: string; day: string; language?: BlogLanguage; comparison?: boolean; minDate?: string; clientSlug?: string; products?: BlogCatalogProduct[]; globalExcluded?: string[]; balanced?: boolean; neighbors?: IntentNeighbor[]; initialIntent?: EditorialIntent }) {
   const router = useRouter();
   const [state, setState] = useState<GenerateDateState>({ error: null, queued: false });
   const [pending, setPending] = useState(false);
@@ -37,7 +38,12 @@ export function GenerateDateForm({ clientId, day, language = "es", comparison, m
   const brief = draft.brief;
   const setBrief = (value: string) => setDraft(current => ({ ...current, brief: value }));
   const editableDate = minDate !== undefined;
-  const decisionDay = /^\d{4}-\d{2}-\d{2}$/.test(date) && editorialIntentForDate(date) === "decision";
+  const validDate = /^\d{4}-\d{2}-\d{2}$/.test(date);
+  // En modo balanced el tipo se sugiere por cuota y se puede cambiar; si no, lo define la fecha.
+  const [chosen, setChosen] = useState<EditorialIntent | null>(initialIntent ?? null);
+  const intent: EditorialIntent | null = balanced && validDate ? chosen ?? assignIntent(date, neighbors) : null;
+  const decisionDay = balanced ? intent === "decision" : validDate && editorialIntentForDate(date) === "decision";
+  const warnings = intent ? warningsIntroducedBy(neighbors, date, intent) : [];
   if (state.queued && !editableDate) return <PreparationStatus backgroundTracking />;
   return <form onSubmit={async event => {
     event.preventDefault(); if (pending) return;
@@ -54,15 +60,24 @@ export function GenerateDateForm({ clientId, day, language = "es", comparison, m
   }} className="space-y-3">
     <input type="hidden" name="clientId" value={clientId} />
     {editableDate ? <label className="block text-sm font-medium text-ink">Fecha de publicación
-      <input type="date" name="scheduledDate" required min={minDate} value={date} onChange={event => { setDate(event.target.value); setState({ error: null, queued: false }); }} className="mt-1 block w-full rounded-lg border border-ink/20 bg-paper px-3 py-2" />
-      {/^\d{4}-\d{2}-\d{2}$/.test(date) ? <span className="mt-1 block text-xs font-normal text-slate">{intentLabel(date)}</span> : null}
+      <input type="date" name="scheduledDate" required min={minDate} value={date} onChange={event => { setDate(event.target.value); setChosen(null); setState({ error: null, queued: false }); }} className="mt-1 block w-full rounded-lg border border-ink/20 bg-paper px-3 py-2" />
+      {!balanced && validDate ? <span className="mt-1 block text-xs font-normal text-slate">{intentLabel(date)}</span> : null}
     </label> : <input type="hidden" name="scheduledDate" value={day} />}
+    {balanced && intent ? <div>
+      <label className="block text-sm font-medium text-ink">Tipo de artículo
+        <select name="editorialIntent" value={intent} onChange={event => setChosen(event.target.value as EditorialIntent)} className="mt-1 block w-full rounded-lg border border-ink/20 bg-paper px-3 py-2">
+          <option value="educational">Educativo</option><option value="decision">Para ayudar a elegir</option>
+        </select>
+      </label>
+      <p className="mt-1 text-xs text-slate">{chosen ? "Elegido por vos." : "Sugerido para mantener la mezcla pareja."}</p>
+      {warnings.map(warning => <p key={warning} role="status" className="mt-1 text-xs text-brass">Aviso: {warning}</p>)}
+    </div> : null}
     <BriefField value={brief} onChange={setBrief} />
-    <DayPlanFields products={products} globalExcluded={globalExcluded} decisionDay={editableDate ? decisionDay : editorialIntentForDate(day) === "decision"} draft={draft} onChange={next => { setDraft(next); setState({ error: null, queued: false }); }} />
+    <DayPlanFields products={products} globalExcluded={globalExcluded} decisionDay={decisionDay} draft={draft} onChange={next => { setDraft(next); setState({ error: null, queued: false }); }} />
     <label className="block text-sm font-medium text-ink">Idioma del artículo
       <select name="language" defaultValue={language} className="mt-1 block w-full rounded-lg border border-ink/20 bg-paper px-3 py-2">{BLOG_LANGUAGES.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
     </label>
-    {comparison !== undefined && (editableDate ? decisionDay : true) && !brief.trim() && !draft.competitor.trim() ? <label className="flex items-start gap-2 text-sm text-ink"><input type="hidden" name="comparisonOffered" value="1" /><input type="checkbox" name="comparison" defaultChecked={comparison} className="mt-1" /><span>Comparar con un producto de otra marca<span className="block text-xs text-slate">Se elige automáticamente; las ventajas propias salen de las fichas verificadas.</span></span></label> : null}
+    {comparison !== undefined && decisionDay && !brief.trim() && !draft.competitor.trim() ? <label className="flex items-start gap-2 text-sm text-ink"><input type="hidden" name="comparisonOffered" value="1" /><input type="checkbox" name="comparison" defaultChecked={comparison} className="mt-1" /><span>Comparar con un producto de otra marca<span className="block text-xs text-slate">Se elige automáticamente; las ventajas propias salen de las fichas verificadas.</span></span></label> : null}
     <p className="text-sm text-slate">{draft.competitor.trim() ? `Se preparará una comparativa con ${draft.competitor.trim()}; queda pendiente de tu aprobación.` : brief.trim() ? "Se escribirá sobre tu consigna, con los controles de calidad habituales." : draft.productId ? "Se preparará un artículo centrado en el producto elegido." : "Se preparará un artículo para este día, con los controles de calidad habituales."}</p>
     <button type="submit" disabled={pending} aria-busy={pending} className="rounded-lg bg-moss px-3 py-2 text-sm font-semibold text-paper disabled:cursor-wait disabled:opacity-60">{pending ? <LoadingMessage>Solicitando…</LoadingMessage> : "Generar artículo"}</button>
     {state.error ? <p role="alert" className="text-sm text-signal">{state.error}</p> : null}

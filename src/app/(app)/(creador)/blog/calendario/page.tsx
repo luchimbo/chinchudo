@@ -12,7 +12,7 @@ import { businessTimezone, localDay } from "@/lib/business-analysis";
 import { addBlogDays, replaceBlogArticle, restoreBlogDate, skipBlogDate, retryBlogPreparation, approveAnalysisArticle } from "./actions";
 import { RescheduleForm } from "./reschedule-form";
 import { editorialIntentForDate } from "@/lib/blog-quality.mjs";
-import { intentForSlot } from "@/lib/blog-intent.mjs";
+import { balanceWarnings, intentForSlot, intentModeOf, loadIntentNeighbors } from "@/lib/blog-intent.mjs";
 import { blogReferral } from "@/lib/blog-referrals";
 import { PublishArticleButton } from "./publish-article-button";
 import { DeleteLandingButton } from "../delete-landing-button";
@@ -144,6 +144,10 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
   const tomorrow = shiftDate(today, 1);
   const futureSlots = calendarEnabled ? await prisma.blogPublication.findMany({ where: { clientId: activeClient.id, scheduledDate: { gte: dateOnly(tomorrow), lt: dateOnly(shiftDate(tomorrow, 120)) } }, select: { scheduledDate: true, status: true, landingId: true, preparation: true } }) : [];
   const takenDays = new Set(futureSlots.filter(slot => slot.landingId || slot.status !== "PLANNED" || !["", "WAITING"].includes(preparationPhase(slot.preparation))).map(slot => slot.scheduledDate.toISOString().slice(0, 10)));
+  // Modo balanced: tipo sugerido por cuota y avisos de equilibrio calculados sobre los próximos meses.
+  const balanced = calendarEnabled && intentModeOf(activeClient.responsePolicy) === "balanced";
+  const intentNeighbors = balanced ? (await loadIntentNeighbors(prisma, activeClient.id, today, shiftDate(today, 120))).neighbors : [];
+  const balanceNotes = balanced ? balanceWarnings(intentNeighbors.filter(item => item.day >= today)) : [];
   let nextFreeDay = tomorrow;
   while (takenDays.has(nextFreeDay)) nextFreeDay = shiftDate(nextFreeDay, 1);
   const [upcoming, catalog, blogCatalog] = await Promise.all([
@@ -180,10 +184,10 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
             <summary className="cursor-pointer list-none rounded-lg bg-ink px-3 py-2 text-xs font-semibold text-paper hover:bg-ink/90">+ Nuevo artículo</summary>
             <div className="absolute right-0 top-full z-20 mt-2 w-96 max-w-[90vw] rounded-xl border border-ink/10 bg-paper p-4 shadow-lg">
               <p className="mb-3 text-xs text-slate">Elegí la fecha y, si querés, contá de qué tiene que tratar. Queda como borrador para revisar antes de publicar.</p>
-              <GenerateDateForm clientId={activeClient.id} day={nextFreeDay} minDate={tomorrow} clientSlug={activeClient.slug} language={preferences.language} comparison={preferences.comparisons} products={blogCatalog.products} globalExcluded={blogCatalog.excluded} />
+              <GenerateDateForm clientId={activeClient.id} day={nextFreeDay} minDate={tomorrow} clientSlug={activeClient.slug} language={preferences.language} comparison={preferences.comparisons} products={blogCatalog.products} globalExcluded={blogCatalog.excluded} balanced={balanced} neighbors={intentNeighbors} />
             </div>
           </details>
-          <WeekPlanner clientId={activeClient.id} products={blogCatalog.products} globalExcluded={blogCatalog.excluded} startDay={nextFreeDay} minDate={tomorrow} takenDays={[...takenDays]} language={preferences.language} comparisons={preferences.comparisons} />
+          <WeekPlanner clientId={activeClient.id} products={blogCatalog.products} globalExcluded={blogCatalog.excluded} startDay={nextFreeDay} minDate={tomorrow} takenDays={[...takenDays]} language={preferences.language} comparisons={preferences.comparisons} balanced={balanced} neighbors={intentNeighbors} />
           <details className="relative">
             <summary className="cursor-pointer list-none rounded-lg px-3 py-2 text-xs font-semibold text-slate underline underline-offset-2 hover:text-ink">Días automáticos</summary>
             <div className="absolute right-0 top-full z-20 mt-2 w-80 max-w-[85vw] rounded-xl border border-ink/10 bg-paper p-4 shadow-lg">
@@ -211,6 +215,7 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
       </header>
 
       {calendarEnabled ? <Suspense fallback={<LoadingMessage className="mb-3 text-xs text-slate">Comprobando conexión…</LoadingMessage>}><AgentConnection client={activeClient.slug} /></Suspense> : null}
+      {balanceNotes.length ? <div role="status" className="mb-3 rounded-lg border border-brass/25 bg-brass/5 px-3 py-2 text-xs text-ink"><p className="font-semibold">Equilibrio editorial</p>{balanceNotes.slice(0, 3).map(note => <p key={note}>{note}</p>)}</div> : null}
       {publishPending ? <p role="status" className="mb-3 rounded-lg border border-signal/20 bg-signal/5 px-3 py-2 text-xs text-ink">
         Hoy no se publicó ningún artículo. {todaySlot?.landingId && todaySlot.status !== "SKIPPED" ? (todaySlot.requiresApproval ? `El borrador «${todaySlot.landing?.titulo || "sin título"}» espera aprobación.` : `Hay uno listo: «${todaySlot.landing?.titulo || "sin título"}».`) : "No hay un artículo preparado para hoy."}{" "}
         <Link prefetch={false} className="font-semibold underline" href={calendarHref(activeClient.slug, today.slice(0, 7), today)}>Ver hoy</Link>
@@ -277,7 +282,7 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
           {(selectedDay > today || selected.analysisRunId) && selected.status === "FAILED" && !selected.landingId ? <GenerationActionButton id={selected.id} day={selectedDay} client={activeClient.slug} label="Reintentar preparación" action={retryBlogPreparation} kind="retry" /> : null}
           {selectedDay > today && selected.status === "SKIPPED" && !selected.landingId ? <GenerationActionButton id={selected.id} day={selectedDay} client={activeClient.slug} label="Volver a planificar" action={restoreBlogDate} kind="restore" /> : null}
           {selectedDay > today && !["SKIPPED", "PUBLISHING", "PUBLISHED"].includes(selected.status) ? <form action={skipBlogDate} className="border-t border-ink/10 pt-4"><input type="hidden" name="id" value={selected.id} /><PendingSubmitButton loadingText="Omitiendo…" className="text-sm text-slate underline">Omitir fecha</PendingSubmitButton></form> : null}
-        </> : <><h3 className="font-display text-xl">Sin artículo programado</h3>{selectedDay > today && calendarEnabled ? <GenerateDateForm clientId={activeClient.id} day={selectedDay} language={preferences.language} comparison={editorialIntentForDate(selectedDay) === "decision" ? preferences.comparisons : undefined} products={blogCatalog.products} globalExcluded={blogCatalog.excluded} /> : <p className="text-sm text-slate">No hay una publicación preparada para este día.</p>}</>}
+        </> : <><h3 className="font-display text-xl">Sin artículo programado</h3>{selectedDay > today && calendarEnabled ? <GenerateDateForm clientId={activeClient.id} day={selectedDay} language={preferences.language} comparison={balanced || editorialIntentForDate(selectedDay) === "decision" ? preferences.comparisons : undefined} products={blogCatalog.products} globalExcluded={blogCatalog.excluded} balanced={balanced} neighbors={intentNeighbors} /> : <p className="text-sm text-slate">No hay una publicación preparada para este día.</p>}</>}
       </CalendarDetail> : null}
     </main>
   );

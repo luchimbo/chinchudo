@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LoadingMessage } from "@/components/loading-ui";
 import { BLOG_LANGUAGES, type BlogLanguage } from "@/lib/blog-language";
-import { editorialIntentForDate } from "@/lib/blog-quality.mjs";
+import { editorialIntentForDate, type EditorialIntent } from "@/lib/blog-quality.mjs";
+import { assignIntent, balanceWarnings, type IntentNeighbor } from "@/lib/blog-intent.mjs";
 import { shiftDate } from "@/lib/blog-calendar";
 import { COMPETITOR_MAX, COMPETITOR_NOTES_MAX, type BlogCatalogProduct } from "@/lib/blog-day-plan";
 import { planBlogWeek, type WeekPlanResult } from "./actions";
@@ -14,9 +15,8 @@ import { BRIEF_MAX_LENGTH } from "./brief-field";
 
 const WEEKDAY = new Intl.DateTimeFormat("es-AR", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
 const dayLabel = (day: string) => WEEKDAY.format(new Date(`${day}T00:00:00Z`));
-const isDecision = (day: string) => editorialIntentForDate(day) === "decision";
 
-type Props = { clientId: string; products: BlogCatalogProduct[]; globalExcluded: string[]; startDay: string; minDate: string; takenDays: string[]; language: BlogLanguage; comparisons: boolean };
+type Props = { clientId: string; products: BlogCatalogProduct[]; globalExcluded: string[]; startDay: string; minDate: string; takenDays: string[]; language: BlogLanguage; comparisons: boolean; balanced?: boolean; neighbors?: IntentNeighbor[] };
 
 /** Arma varios días de una vez: una fila por día con producto, consigna, rival y exclusiones. */
 export function WeekPlanner(props: Props) {
@@ -27,7 +27,7 @@ export function WeekPlanner(props: Props) {
   </>;
 }
 
-function WeekPlannerDialog({ clientId, products, globalExcluded, startDay, minDate, takenDays, language: defaultLanguage, comparisons: defaultComparisons, onClose }: Props & { onClose: () => void }) {
+function WeekPlannerDialog({ clientId, products, globalExcluded, startDay, minDate, takenDays, language: defaultLanguage, comparisons: defaultComparisons, balanced = false, neighbors = [], onClose }: Props & { onClose: () => void }) {
   const router = useRouter();
   const taken = useMemo(() => new Set(takenDays), [takenDays]);
   const [start, setStart] = useState(startDay);
@@ -37,6 +37,7 @@ function WeekPlannerDialog({ clientId, products, globalExcluded, startDay, minDa
   const [weekExcluded, setWeekExcluded] = useState<string[]>([]);
   const [drafts, setDrafts] = useState<Record<string, DayDraft>>({});
   const [skipped, setSkipped] = useState<Set<string>>(new Set());
+  const [chosenIntents, setChosenIntents] = useState<Record<string, EditorialIntent>>({});
   const [results, setResults] = useState<Map<string, WeekPlanResult>>(new Map());
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -47,6 +48,20 @@ function WeekPlannerDialog({ clientId, products, globalExcluded, startDay, minDa
   const weekBlocked = useMemo(() => blockedProducts(globalExcluded, []), [globalExcluded]);
   const included = (day: string) => !taken.has(day) && !skipped.has(day) && !results.get(day)?.queued;
   const selectedDays = days.filter(included);
+  // Modo balanced: cada día nuevo recibe el tipo sugerido por cuota, de a uno, salvo que se elija a mano.
+  const intents = useMemo(() => {
+    const placed = [...neighbors];
+    const result: Record<string, EditorialIntent> = {};
+    for (const day of days) {
+      if (taken.has(day) || skipped.has(day)) continue;
+      const intent = chosenIntents[day] ?? assignIntent(day, placed);
+      result[day] = intent;
+      placed.push({ day, intent });
+    }
+    return result;
+  }, [days, taken, skipped, chosenIntents, neighbors]);
+  const isDecision = (day: string) => balanced ? (intents[day] ?? neighbors.find(item => item.day === day)?.intent) === "decision" : editorialIntentForDate(day) === "decision";
+  const balanceNotes = useMemo(() => balanced ? balanceWarnings([...neighbors.filter(item => !(item.day in intents)), ...Object.entries(intents).map(([day, intent]) => ({ day, intent }))]) : [], [balanced, neighbors, intents]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape" && !pending) onClose(); };
@@ -75,6 +90,7 @@ function WeekPlannerDialog({ clientId, products, globalExcluded, startDay, minDa
     selectedDays.forEach((day, index) => {
       const draft = draftFor(day); const key = (name: string) => `day${index}.${name}`;
       data.set(key("include"), "on"); data.set(key("scheduledDate"), day); data.set(key("language"), language);
+      if (balanced && intents[day]) data.set(key("editorialIntent"), intents[day]);
       data.set(key("comparisonOffered"), "1"); if (comparisons) data.set(key("comparison"), "on");
       if (draft.brief.trim()) data.set(key("brief"), draft.brief);
       if (draft.productId) data.set(key("productId"), draft.productId);
@@ -136,7 +152,8 @@ function WeekPlannerDialog({ clientId, products, globalExcluded, startDay, minDa
             <div className="flex items-center justify-between gap-2 lg:block">
               <div>
                 <p className="text-sm font-semibold capitalize text-ink">{dayLabel(day)}</p>
-                <span className={`mt-1 inline-block rounded border px-1.5 py-0.5 text-[10px] font-medium ${decision ? "border-brass/30 bg-brass/10 text-brass" : "border-sky-200 bg-sky-50 text-sky-800"}`}>{decision ? "Para elegir" : "Educativo"}</span>
+                {balanced && !busy && !off && !result?.queued ? <select aria-label={`Tipo de artículo del ${dayLabel(day)}`} value={intents[day]} onChange={event => setChosenIntents(current => ({ ...current, [day]: event.target.value as EditorialIntent }))} className={`mt-1 block rounded border px-1.5 py-0.5 text-[10px] font-medium ${decision ? "border-brass/30 bg-brass/10 text-brass" : "border-sky-200 bg-sky-50 text-sky-800"}`}><option value="educational">Educativo</option><option value="decision">Para elegir</option></select>
+                  : <span className={`mt-1 inline-block rounded border px-1.5 py-0.5 text-[10px] font-medium ${decision ? "border-brass/30 bg-brass/10 text-brass" : "border-sky-200 bg-sky-50 text-sky-800"}`}>{decision ? "Para elegir" : "Educativo"}</span>}
               </div>
               <div className="text-xs lg:mt-2">
                 {busy ? <span className="text-slate">Ya tiene artículo</span>
@@ -167,7 +184,8 @@ function WeekPlannerDialog({ clientId, products, globalExcluded, startDay, minDa
       </div>
 
       <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-ink/10 px-4 py-3 sm:px-6">
-        <p className="text-xs text-slate" role="status">{error ? <span className="text-signal">{error}</span> : results.size ? `${queuedCount} programados${failedCount ? ` · ${failedCount} para revisar` : ""}.` : `${selectedDays.length} ${selectedDays.length === 1 ? "día" : "días"} para programar. Se preparan de a uno, en segundo plano.`}</p>
+        <div className="min-w-0 space-y-1"><p className="text-xs text-slate" role="status">{error ? <span className="text-signal">{error}</span> : results.size ? `${queuedCount} programados${failedCount ? ` · ${failedCount} para revisar` : ""}.` : `${selectedDays.length} ${selectedDays.length === 1 ? "día" : "días"} para programar. Se preparan de a uno, en segundo plano.`}</p>
+        {balanceNotes.slice(0, 2).map(note => <p key={note} role="status" className="text-xs text-brass">Aviso: {note}</p>)}</div>
         <div className="flex gap-2">
           <button type="button" onClick={onClose} disabled={pending} className="rounded-lg border border-ink/15 px-3 py-2 text-sm font-semibold text-ink hover:bg-ink/5">{queuedCount ? "Listo" : "Cancelar"}</button>
           <button type="button" onClick={submit} disabled={pending || !selectedDays.length} aria-busy={pending} className="rounded-lg bg-ink px-3 py-2 text-sm font-semibold text-paper disabled:cursor-not-allowed disabled:opacity-60">{pending ? <LoadingMessage>Programando…</LoadingMessage> : `Programar ${selectedDays.length} ${selectedDays.length === 1 ? "día" : "días"}`}</button>
