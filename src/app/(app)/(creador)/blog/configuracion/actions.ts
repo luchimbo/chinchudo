@@ -7,7 +7,7 @@ import { assertClientAccess } from "@/lib/auth";
 import { getSetting, setSetting } from "@/lib/settings";
 import { argentinaDate, shiftDate } from "@/lib/blog-calendar";
 import { editorialCalendarEnabled } from "@/lib/blog-language";
-import { COMPETITOR_MAX, excludedProductsKey, loadBlogCatalog, MAX_PRIORITY_COMPETITORS, priorityCompetitorsKey } from "@/lib/blog-day-plan";
+import { COMPETITOR_MAX, excludedProductsKey, loadBlogCatalog, MAX_PRIORITY_COMPETITORS, ownBrandsFor, priorityCompetitorsKey } from "@/lib/blog-day-plan";
 import { researchBlogCompetitors } from "@/lib/blog-competitor-research";
 
 function str(fd: FormData, key: string) {
@@ -94,9 +94,14 @@ export async function discoverPriorityCompetitors(formData: FormData) {
   const id = z.string().min(1).parse(formData.get("id"));
   await assertClientAccess(prisma, id);
   const client = await prisma.client.findUniqueOrThrow({ where: { id }, select: { name: true, openrouterApiKey: true, openrouterModel: true } });
-  const products = await prisma.landingProduct.findMany({ where: { clientId: id, linkStatus: { not: "missing" } }, select: { name: true, model: true, useText: true }, take: 30 });
-  if (!products.length) throw new Error("Cargá el catálogo propio antes de investigar rivales.");
-  const result = await researchBlogCompetitors(client, products.map(item => ({ name: item.name, model: item.model, description: item.useText.slice(0, 400) })));
+  const [{ products: catalog }, details] = await Promise.all([
+    loadBlogCatalog(prisma, id),
+    prisma.landingProduct.findMany({ where: { clientId: id, linkStatus: { not: "missing" } }, select: { externalId: true, useText: true } }),
+  ]);
+  if (!catalog.length) throw new Error("Cargá el catálogo propio antes de investigar rivales.");
+  const descriptions = new Map(details.map(item => [item.externalId, item.useText]));
+  const products = catalog.map(item => ({ name: item.name, brand: item.brand, category: item.category, description: descriptions.get(item.id) || "" }));
+  const result = await researchBlogCompetitors(client, products, ownBrandsFor(client.name, catalog));
   const listKey = priorityCompetitorsKey(id), researchKey = `blog_priority_competitor_research:${id}`;
   await prisma.$transaction([
     prisma.appSetting.upsert({ where: { key: listKey }, create: { key: listKey, value: JSON.stringify(result.competitors.map(item => item.name)) }, update: { value: JSON.stringify(result.competitors.map(item => item.name)) } }),

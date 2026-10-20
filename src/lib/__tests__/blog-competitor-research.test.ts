@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { reachableCompetitorSuggestions, verifiedCompetitorSuggestions } from "../blog-competitor-research";
+import { reachableCompetitorSuggestions, sampleCatalog, verifiedCompetitorSuggestions } from "../blog-competitor-research";
 
 describe("investigación de rivales", () => {
   it("descarta marcas propias, fichas no oficiales y modelos repetidos", () => {
@@ -10,6 +10,22 @@ describe("investigación de rivales", () => {
       { name: "Roland FP-10", sourceUrl: "https://example.com/fp-10" },
     ] }, ["Kressmer"]);
     expect(result).toEqual([{ name: "Yamaha P-145", sourceUrl: "https://europe.yamaha.com/p-145" }]);
+  });
+
+  it("acepta cualquier fabricante con ficha en su propio dominio y rechaza tiendas y marcas del catálogo", () => {
+    const result = verifiedCompetitorSuggestions({ competitors: [
+      { brand: "Novation", name: "Launchkey 49 MK4", sourceUrl: "https://novationmusic.com/products/launchkey-49" },
+      { brand: "Native Instruments", name: "Native Instruments Kontrol S49", sourceUrl: "https://www.native-instruments.com/en/products/komplete/keyboards/kontrol-s49/" },
+      { brand: "Akai", name: "Akai MPK Mini IV", sourceUrl: "https://www.thomann.de/akai_mpk_mini.htm" },
+      { brand: "Arturia", name: "Arturia KeyLab 49", sourceUrl: "https://www.arturia.com/products/keylab" },
+      { brand: "Universal Audio", name: "Universal Audio Volt 2", sourceUrl: "https://www.uaudio.com/audio-interfaces/volt-2.html" },
+    ] }, ["PC MIDI Center", "Arturia", "Midiplus"]);
+    expect(result.map(item => item.name)).toEqual(["Novation Launchkey 49 MK4", "Native Instruments Kontrol S49", "Universal Audio Volt 2"]);
+  });
+
+  it("reparte la muestra del catálogo entre categorías", () => {
+    const products = [..."aaaab"].map((category, index) => ({ name: `P${index}`, brand: "X", category, description: "" }));
+    expect(sampleCatalog(products, 2).map(item => item.category)).toEqual(["a", "b"]);
   });
 
   it("descarta enlaces rotos o redirigidos fuera del fabricante", async () => {
@@ -25,6 +41,7 @@ describe("investigación de rivales", () => {
       return { ok: true, url: input } as Response;
     });
     expect(await reachableCompetitorSuggestions(suggestions, request as typeof fetch)).toEqual([suggestions[0]]);
-    expect(request).toHaveBeenCalledTimes(3);
+    // La ficha rota se reintenta con GET antes de descartarla.
+    expect(request).toHaveBeenCalledTimes(4);
   });
 });
