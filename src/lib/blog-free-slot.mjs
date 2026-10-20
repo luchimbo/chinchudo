@@ -27,3 +27,13 @@ export function withDateHistory(preparation, entry, now = new Date()) {
   const history = Array.isArray(base.dateHistory) ? base.dateHistory.slice(-19) : [];
   return { ...base, dateHistory: [...history, { at: now.toISOString(), ...entry }] };
 }
+
+/** Primer día libre desde `from`, sin exigir una intención (modo "balanced"). */
+export function nextFreeDay({ from, isTaken, limit = 120 }) {
+  let candidate = from;
+  for (let step = 0; isTaken(candidate); step += 1) {
+    if (step >= limit) throw new Error("No hay un día libre en los próximos meses.");
+    candidate = shift(candidate, 1);
+  }
+  return candidate;
+}

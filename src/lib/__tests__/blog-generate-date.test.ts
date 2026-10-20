@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ access: vi.fn(), client: vi.fn(), create: vi.fn(), slot: vi.fn(), reserved: vi.fn(), update: vi.fn(), revalidate: vi.fn(), products: vi.fn(), setting: vi.fn() }));
-vi.mock("@/lib/db", () => ({ prisma: { client: { findUniqueOrThrow: mocks.client }, blogPublication: { createMany: mocks.create, findUniqueOrThrow: mocks.slot, findUnique: mocks.reserved, updateMany: mocks.update }, landingProduct: { findMany: mocks.products }, appSetting: { findUnique: mocks.setting } } }));
+const mocks = vi.hoisted(() => ({ access: vi.fn(), client: vi.fn(), create: vi.fn(), slot: vi.fn(), reserved: vi.fn(), update: vi.fn(), revalidate: vi.fn(), products: vi.fn(), setting: vi.fn(), neighbors: vi.fn() }));
+vi.mock("@/lib/db", () => ({ prisma: { client: { findUniqueOrThrow: mocks.client }, blogPublication: { createMany: mocks.create, findUniqueOrThrow: mocks.slot, findUnique: mocks.reserved, updateMany: mocks.update, findMany: mocks.neighbors }, landingProduct: { findMany: mocks.products }, appSetting: { findUnique: mocks.setting } } }));
 vi.mock("@/lib/auth", () => ({ assertClientAccess: mocks.access }));
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidate }));
 import { generateBlogDate, planBlogWeek } from "@/app/(app)/(creador)/blog/calendario/actions";
@@ -19,6 +19,7 @@ beforeEach(() => {
   vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-14T01:00:00Z")); // Todavía 13 en Argentina.
   mocks.client.mockResolvedValue({ slug: "pcmidi", responsePolicy: "" });
   mocks.create.mockResolvedValue({ count: 1 });
+  mocks.neighbors.mockResolvedValue([]);
   mocks.slot.mockResolvedValue({ id: "reserved-day" });
   mocks.products.mockResolvedValue([
     { externalId: "mp-1", name: "MidiPlus X6", brand: "MidiPlus", categoryKey: "controladores", sourceSnapshot: {} },
@@ -168,5 +169,34 @@ describe("generar un artículo para un día vacío", () => {
     mocks.reserved.mockResolvedValue({ id: "taken", analysisRunId: null, updatedAt: new Date(), ...slot });
     expect(await request("2026-10-22", "es", "Tema")).toMatchObject({ queued: false, error: expect.any(String) });
     expect(mocks.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("modo balanced", () => {
+  const balanced = { blog: { intentMode: "balanced" } };
+  beforeEach(() => { mocks.client.mockResolvedValue({ slug: "pcmidi", responsePolicy: balanced }); });
+
+  it("guarda la intención elegida a mano aunque el día sea de la otra paridad", async () => {
+    // El 21 es un día para elegir por paridad.
+    expect(await planned("2026-10-21", { editorialIntent: "educational" })).toMatchObject({ queued: true });
+    expect(mocks.create.mock.calls[0][0].data[0].preparation).toEqual({ editorialIntent: "educational", language: "es", comparison: false });
+  });
+
+  it("un rival fija la intención 'para elegir' también en un día educativo", async () => {
+    expect(await planned("2026-10-22", { competitor: "Akai MPK Mini" })).toMatchObject({ queued: true });
+    expect(mocks.create.mock.calls[0][0].data[0].preparation).toMatchObject({ editorialIntent: "decision", comparison: true, competitor: "Akai MPK Mini" });
+  });
+
+  it("sin elección reparte por cuota según los días vecinos", async () => {
+    mocks.neighbors.mockResolvedValue([19, 20].map(day => ({ scheduledDate: new Date(`2026-10-${day}T00:00:00Z`), status: "READY", landingId: `l${day}`, preparation: { editorialIntent: "educational" } })));
+    expect(await planned("2026-10-21", {})).toMatchObject({ queued: true });
+    expect(mocks.create.mock.calls[0][0].data[0].preparation).toMatchObject({ editorialIntent: "decision" });
+  });
+
+  it("en modo parity no consulta vecinos ni guarda intención", async () => {
+    mocks.client.mockResolvedValue({ slug: "pcmidi", responsePolicy: "" });
+    await planned("2026-10-21", { editorialIntent: "educational" });
+    expect(mocks.neighbors).not.toHaveBeenCalled();
+    expect(mocks.create.mock.calls[0][0].data[0].preparation).not.toHaveProperty("editorialIntent");
   });
 });

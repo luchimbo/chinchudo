@@ -61,6 +61,16 @@ describe("reprogramación desde el calendario", () => {
     expect(mocks.redirect).toHaveBeenCalledWith("/blog/calendario?client=pcmidi&month=2026-10&rescheduled=slot-1&requestedDate=2026-10-11");
   });
 
+  it("en modo balanced va al día elegido aunque sea de otra paridad y fija la intención del artículo", async () => {
+    mocks.findSlot.mockResolvedValue({ ...slot, client: { slug: "pcmidi", responsePolicy: { blog: { intentMode: "balanced" } } } });
+    await expect(rescheduleBlogArticle(initialState, form("2026-10-11"))).rejects.toThrow("NEXT_REDIRECT");
+    expect(mocks.updateSlot).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      scheduledDate: dateOnly("2026-10-11"),
+      preparation: { editorialIntent: content.editorial_intent, dateHistory: [expect.objectContaining({ to: "2026-10-11", reason: "reschedule" })] },
+    }) }));
+    expect(mocks.redirect).toHaveBeenCalledWith("/blog/calendario?client=pcmidi&month=2026-10&rescheduled=slot-1&requestedDate=2026-10-11");
+  });
+
   it.each(["", "2026-02-30", "11/10/2026", "2026-13-01"])("devuelve una fecha inválida como error recuperable: %s", async target => {
     expect((await rescheduleBlogArticle(initialState, form(target))).error).toContain("fecha válida");
     expect(mocks.findSlot).not.toHaveBeenCalled();

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { carryIntent, explicitIntent, intentForSlot } from "../blog-intent.mjs";
+import { assignIntent, balanceWarnings, carryIntent, explicitIntent, intentForSlot, intentModeOf, withIntent } from "../blog-intent.mjs";
 import { editorialIntentForDate } from "../blog-quality.mjs";
 
 describe("intención editorial del slot", () => {
@@ -27,5 +27,65 @@ describe("intención editorial del slot", () => {
     const next = { phase: "WAITING" };
     expect(carryIntent({ brief: "x" }, next)).toBe(next);
     expect(carryIntent(null, next)).toBe(next);
+  });
+});
+
+const shift = (day: string, offset: number) => new Date(Date.parse(`${day}T00:00:00Z`) + offset * 86_400_000).toISOString().slice(0, 10);
+
+describe("modo de intención", () => {
+  it("solo se activa con intentMode balanced", () => {
+    expect(intentModeOf({ blog: { intentMode: "balanced" } })).toBe("balanced");
+    expect(intentModeOf({ blog: {} })).toBe("parity");
+    expect(intentModeOf(null)).toBe("parity");
+    expect(intentModeOf({ blog: { intentMode: "otro" } })).toBe("parity");
+  });
+
+  it("withIntent fija solo intenciones válidas", () => {
+    expect(withIntent({ language: "es" }, "decision")).toEqual({ language: "es", editorialIntent: "decision" });
+    expect(withIntent({ language: "es" }, "xx")).toEqual({ language: "es" });
+  });
+});
+
+describe("asignación por cuota", () => {
+  it("con el calendario vacío alterna día a día", () => {
+    const placed: { day: string; intent: "educational" | "decision" }[] = [];
+    for (let i = 0; i < 14; i++) { const day = shift("2026-11-01", i); placed.push({ day, intent: assignIntent(day, placed) }); }
+    expect(placed.filter(item => item.intent === "educational")).toHaveLength(7);
+    for (let i = 1; i < placed.length; i++) expect(placed[i].intent).not.toBe(placed[i - 1].intent);
+  });
+
+  it("completa el tipo que falta en la ventana", () => {
+    const neighbors = [-3, -2, 2, 3].map(offset => ({ day: shift("2026-11-10", offset), intent: "educational" as const }));
+    expect(assignIntent("2026-11-10", neighbors)).toBe("decision");
+  });
+
+  it("nunca deja más de 2 seguidos del mismo tipo", () => {
+    const neighbors = [{ day: "2026-11-09", intent: "decision" as const }, { day: "2026-11-08", intent: "decision" as const }];
+    expect(assignIntent("2026-11-10", neighbors)).toBe("educational");
+    const after = [{ day: "2026-11-11", intent: "educational" as const }, { day: "2026-11-12", intent: "educational" as const }];
+    expect(assignIntent("2026-11-10", after)).toBe("decision");
+  });
+
+  it("una tanda de 14 días asignada con huecos y cargas previas queda dentro de 5 a 9", () => {
+    const placed: { day: string; intent: "educational" | "decision" }[] = [{ day: "2026-11-03", intent: "decision" }, { day: "2026-11-04", intent: "decision" }, { day: "2026-11-09", intent: "decision" }];
+    for (let i = 0; i < 28; i++) { const day = shift("2026-11-01", i); if (!placed.some(item => item.day === day)) placed.push({ day, intent: assignIntent(day, placed) }); }
+    expect(balanceWarnings(placed)).toEqual([]);
+  });
+});
+
+describe("avisos de equilibrio", () => {
+  it("avisa de rachas de más de 2 días", () => {
+    const slots = ["2026-11-01", "2026-11-02", "2026-11-03"].map(day => ({ day, intent: "decision" as const }));
+    expect(balanceWarnings(slots)).toEqual([expect.stringContaining("3 días seguidos")]);
+  });
+
+  it("avisa cuando una tanda completa se sale de 5 a 9", () => {
+    const slots = Array.from({ length: 14 }, (_, i) => ({ day: shift("2026-11-01", i), intent: (i % 2 === 0 || i >= 9 ? "decision" : "educational") as "decision" | "educational" }));
+    const warnings = balanceWarnings(slots);
+    expect(warnings.some(text => text.includes("entre 5 y 9"))).toBe(true);
+  });
+
+  it("no avisa por tandas incompletas con pocos artículos", () => {
+    expect(balanceWarnings([{ day: "2026-11-01", intent: "decision" }, { day: "2026-11-03", intent: "decision" }])).toEqual([]);
   });
 });

@@ -36,6 +36,7 @@ let rows: Row[];
 let landings: Record<string, Row>;
 let settings: Record<string, string>;
 let seq: number;
+let clientPolicy: any;
 
 function withLanding(item: Row, include: any) {
   return include ? { ...item, landing: item.landingId ? landings[item.landingId] : null } : item;
@@ -43,7 +44,7 @@ function withLanding(item: Row, include: any) {
 
 const prisma = {
   $transaction: async (callback: any) => callback(prisma),
-  client: { findUnique: async () => ({ id: "c1", active: true, blogBaseUrl: "https://blog.test" }) },
+  client: { findUnique: async () => ({ id: "c1", active: true, blogBaseUrl: "https://blog.test", responsePolicy: clientPolicy }) },
   appSetting: {
     findUnique: async ({ where }: any) => (settings[where.key] ? { value: settings[where.key] } : null),
     upsert: async ({ where, create, update }: any) => { settings[where.key] = settings[where.key] === undefined ? create.value : update.value; },
@@ -125,6 +126,7 @@ beforeEach(() => {
   rows = [];
   landings = {};
   seq = 1;
+  clientPolicy = undefined;
   settings = { "blog_daily_schedule:c1": JSON.stringify({ enabled: true, publishTime: "09:00" }) };
 });
 
@@ -378,6 +380,46 @@ describe("rutina diaria del blog", () => {
     await daily.publishBlogArticle(manualInput("2026-10-21"));
     expect(row("2026-10-21")).toMatchObject({ status: "FAILED", errorCode: "DATE_INCOMPATIBLE" });
     expect(deploys(runBlogPython)).toBe(0);
+  });
+  it("en modo balanced reserva los próximos 14 días con la intención repartida y alternada", async () => {
+    clientPolicy = { blog: { intentMode: "balanced" } };
+    const { daily } = build({ generationClients: new Set(["pcmidi"]) });
+    await daily.runDailyBlogCalendar();
+    const reserved = rows.filter((item) => item.status === "PLANNED").sort((a, b) => a.scheduledDate.getTime() - b.scheduledDate.getTime());
+    expect(reserved).toHaveLength(14);
+    const intents = reserved.map((item) => item.preparation.editorialIntent);
+    expect(intents.every((intent: string) => ["educational", "decision"].includes(intent))).toBe(true);
+    expect(intents.filter((intent: string) => intent === "educational")).toHaveLength(7);
+    for (let i = 1; i < intents.length; i++) expect(intents[i]).not.toBe(intents[i - 1]);
+  });
+  it("en modo parity las reservas automáticas no llevan intención explícita", async () => {
+    const { daily } = build({ generationClients: new Set(["pcmidi"]) });
+    await daily.runDailyBlogCalendar();
+    const reserved = rows.filter((item) => item.status === "PLANNED");
+    expect(reserved).toHaveLength(14);
+    expect(reserved.every((item) => item.preparation === undefined)).toBe(true);
+  });
+  it("en modo balanced publicar antes de fecha intercambia fechas con el artículo de hoy", async () => {
+    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: false });
+    clientPolicy = { blog: { intentMode: "balanced" } };
+    addReady("2026-10-01"); addReady("2026-10-04");
+    const today = rows.find((item) => item.landingId === "l-2026-10-01")!;
+    const { daily } = build();
+    await daily.publishBlogArticle(manualInput("2026-10-04"));
+    const early = rows.find((item) => item.landingId === "l-2026-10-04")!;
+    expect(early).toMatchObject({ status: "PUBLISHED", scheduledDate: new Date("2026-10-01T00:00:00Z"), preparation: { editorialIntent: editorialIntentForDate("2026-10-04"), publishedEarly: { from: "2026-10-04", displacedTo: "2026-10-04" } } });
+    expect(today).toMatchObject({ status: "READY", scheduledDate: new Date("2026-10-04T00:00:00Z"), preparation: { editorialIntent: editorialIntentForDate("2026-10-01") } });
+    expect(rows.filter((item) => item.scheduledDate.toISOString().startsWith("2026-10-04"))).toHaveLength(1);
+    expect(rows.some((item) => item.scheduledDate.getUTCFullYear() === 9999)).toBe(false);
+  });
+  it("en modo balanced publicar antes de fecha sin artículo de hoy deja un espacio con intención en la fecha liberada", async () => {
+    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: false });
+    clientPolicy = { blog: { intentMode: "balanced" } };
+    addReady("2026-10-04");
+    const { daily } = build();
+    await daily.publishBlogArticle(manualInput("2026-10-04"));
+    const freed = rows.find((item) => item.scheduledDate.toISOString().startsWith("2026-10-04"))!;
+    expect(freed).toMatchObject({ status: "PLANNED", landingId: null, preparation: { phase: "WAITING", editorialIntent: expect.stringMatching(/^(educational|decision)$/) } });
   });
   it("pide comparativa solo en días para elegir que la reservaron", async () => {
     settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: false });

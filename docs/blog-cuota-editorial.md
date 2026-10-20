@@ -1,6 +1,6 @@
 # Diseño: intención editorial por cuota (reemplaza la paridad del día)
 
-Estado: decisiones tomadas el 2026-10-20. PR 1 implementado; PR 2 y PR 3 pendientes.
+Estado: decisiones tomadas el 2026-10-20. PR 1 y PR 2 implementados (PR 2 detrás del flag, apagado); PR 3 pendiente.
 
 **Decisiones:** la intención se guarda en `preparation.editorialIntent` (JSON, sin migración ni backfill; `null` = paridad de la fecha);
 equilibrio de 5 a 9 por tanda de 14 días y máximo 2 seguidos del mismo tipo; el operador puede elegir el tipo a mano siempre, con aviso;
@@ -131,3 +131,14 @@ PR 3: `week-planner.tsx`, `generate-date-form.tsx`, `calendario/page.tsx`.
    La alternativa es dejarla solo a la asignación automática.
 4. **Orden de despliegue.** Propongo el PR 1 primero y el flag `balanced` apagado hasta confirmar
    que el relay se reinició con el código nuevo.
+
+## Estado del PR 2
+
+Activación por cliente: `responsePolicy.blog.intentMode = "balanced"` (por defecto `parity`, sin cambios).
+Con el flag encendido:
+- La reserva automática de 14 días, `addBlogDays`, el planificador semanal y "Nuevo artículo" asignan la intención por cuota
+  (`assignIntent`) y la guardan en el slot. Se puede pasar `editorialIntent` en el formulario; un rival fija `decision`.
+- Reprogramar va al día libre pedido (sin saltos de paridad) y deja fija la intención del artículo.
+- Publicar antes de fecha intercambia fechas con el artículo de hoy (usa una fecha temporal `9999-12-31` dentro de la transacción,
+  porque `(cliente, fecha)` es único) y deja la intención explícita en ambos.
+- `balanceWarnings` está listo pero todavía no se muestra: lo conecta el PR 3 junto con el selector de tipo por día.

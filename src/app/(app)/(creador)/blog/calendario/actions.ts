@@ -9,8 +9,8 @@ import { argentinaDate, dateOnly, shiftDate } from "@/lib/blog-calendar";
 import { businessTimezone, localDay } from "@/lib/business-analysis";
 import { inspectBlogArticle } from "@/lib/blog-evidence";
 import { editorialIntentForDate } from "@/lib/blog-quality.mjs";
-import { nextFreeEditorialDay, withDateHistory } from "@/lib/blog-free-slot.mjs";
-import { carryIntent } from "@/lib/blog-intent.mjs";
+import { nextFreeDay, nextFreeEditorialDay, withDateHistory } from "@/lib/blog-free-slot.mjs";
+import { assignIntent, carryIntent, intentModeOf, loadIntentNeighbors, withIntent } from "@/lib/blog-intent.mjs";
 import { relayFetch } from "@/lib/relay-client";
 import type { Prisma } from "@prisma/client";
 import { blogLanguage, blogPreferences, editorialCalendarEnabled } from "@/lib/blog-language";
@@ -20,12 +20,12 @@ export type RescheduleFormState = { error: string | null };
 export type GenerateDateState = { error: string | null; queued: boolean; id?: string; client?: string };
 
 type EditorialClient = { slug: string; name?: string | null; responsePolicy: Prisma.JsonValue };
-type DayRequest = { scheduledDate: unknown; language: unknown; hasLanguage: boolean; brief: FormDataEntryValue | null; comparisonOffered: boolean; comparison: boolean } & DayPlanInput;
+type DayRequest = { scheduledDate: unknown; intent: unknown; language: unknown; hasLanguage: boolean; brief: FormDataEntryValue | null; comparisonOffered: boolean; comparison: boolean } & DayPlanInput;
 
 function dayRequest(formData: FormData, prefix = ""): DayRequest {
   const key = (name: string) => `${prefix}${name}`;
   return {
-    scheduledDate: formData.get(key("scheduledDate")), language: formData.get(key("language")), hasLanguage: formData.has(key("language")), brief: formData.get(key("brief")),
+    scheduledDate: formData.get(key("scheduledDate")), intent: formData.get(key("editorialIntent")), language: formData.get(key("language")), hasLanguage: formData.has(key("language")), brief: formData.get(key("brief")),
     comparisonOffered: formData.has(key("comparisonOffered")), comparison: formData.get(key("comparison")) === "on",
     productId: formData.get(key("productId")) ?? undefined, excludedProductIds: formData.getAll(key("excludedProductIds")),
     competitor: formData.get(key("competitor")) ?? undefined, competitorNotes: formData.get(key("competitorNotes")) ?? undefined,
@@ -87,7 +87,16 @@ async function reserveBlogDate(clientId: string, client: EditorialClient, input:
     }
     const brief = parseBrief(input.brief);
     if (brief === null) return { error: `La consigna admite hasta ${BRIEF_MAX} caracteres.`, queued: false };
-    const decisionDay = editorialIntentForDate(day) === "decision";
+    // En modo "balanced" la intención se elige a mano, la fija el rival o se reparte por cuota.
+    let intent: "educational" | "decision" | null = null;
+    if (intentModeOf(client.responsePolicy) === "balanced") {
+      const around = await loadIntentNeighbors(prisma, clientId, day, day);
+      const own = around.slots.get(day);
+      const chosen = input.intent === "educational" || input.intent === "decision" ? input.intent : null;
+      const hasRival = typeof input.competitor === "string" && input.competitor.trim() !== "";
+      intent = chosen ?? (hasRival ? "decision" : own?.explicit && own.status === "PLANNED" && !own.landingId ? own.intent : assignIntent(day, around.neighbors));
+    }
+    const decisionDay = (intent ?? editorialIntentForDate(day)) === "decision";
     let plan: BlogDayPlan = {};
     if (hasDayPlan(input)) {
       // El catálogo solo se consulta cuando el operador eligió productos o rival.
@@ -101,7 +110,7 @@ async function reserveBlogDate(clientId: string, client: EditorialClient, input:
     // Un rival elegido fuerza la comparativa; sin rival, la consigna manda y no hay comparativa automática.
     const comparison = !!plan.competitor || (!brief && decisionDay
       && (input.comparisonOffered ? input.comparison : blogPreferences(client.responsePolicy).comparisons));
-    const preparation = { language, comparison, ...(brief ? { brief } : {}), ...plan };
+    const preparation = { ...(intent ? { editorialIntent: intent } : {}), language, comparison, ...(brief ? { brief } : {}), ...plan };
     const created = await prisma.blogPublication.createMany({ data: [{ clientId, scheduledDate, preparation }], skipDuplicates: true });
     if (!created.count) {
       // Con la publicación automática, los próximos días ya están reservados
@@ -221,6 +230,7 @@ export async function rescheduleBlogArticle(_state: RescheduleFormState, formDat
     if (target <= localDay(new Date(), businessTimezone(slot.client.responsePolicy))) return { error: "Elegí una fecha futura." };
     if (!slot.landingId) return { error: "Esta fecha aún no tiene artículo para mover." };
     if (slot.scheduledDate.toISOString().slice(0, 10) === target) return { error: null };
+    const balanced = intentModeOf(slot.client.responsePolicy) === "balanced";
     const landing = await prisma.landing.findUniqueOrThrow({ where: { id: slot.landingId } });
     let content: Record<string, any>;
     try {
@@ -237,7 +247,9 @@ export async function rescheduleBlogArticle(_state: RescheduleFormState, formDat
             select: { id: true, scheduledDate: true, landingId: true, status: true, updatedAt: true },
           });
           const byDate = new Map(futureSlots.map(entry => [entry.scheduledDate.toISOString().slice(0, 10), entry]));
-          const candidate = nextFreeEditorialDay({ from: target, intent: content.editorial_intent, isTaken: (day) => { const entry = byDate.get(day); return !!entry && (!!entry.landingId || entry.status !== "PLANNED"); } });
+          const isTaken = (day: string) => { const entry = byDate.get(day); return !!entry && (!!entry.landingId || entry.status !== "PLANNED"); };
+          // En modo "balanced" el artículo conserva su intención y va a cualquier día libre.
+          const candidate = balanced ? nextFreeDay({ from: target, isTaken }) : nextFreeEditorialDay({ from: target, intent: content.editorial_intent, isTaken });
           if (candidate === slot.scheduledDate.toISOString().slice(0, 10)) return candidate;
           const occupied = byDate.get(candidate);
           if (occupied) {
@@ -246,7 +258,7 @@ export async function rescheduleBlogArticle(_state: RescheduleFormState, formDat
           }
           const changed = await tx.blogPublication.updateMany({
             where: { id, updatedAt: slot.updatedAt, status: slot.status, landingId: landing.id, landing: { updatedAt: landing.updatedAt } },
-            data: { ...(slot.analysisRunId ? { requiresApproval: true, approvedAt: null } : {}), scheduledDate: dateOnly(candidate), preparation: withDateHistory(slot.preparation, { from: slot.scheduledDate.toISOString().slice(0, 10), to: candidate, reason: "reschedule" }) as Prisma.InputJsonObject, status: quality.publishable ? "READY" : "FAILED", attempts: quality.publishable ? 0 : 3, lastError: quality.checks.filter((c) => c.level === "error").map((c) => c.message).join(" · "), errorCode: quality.publishable ? "" : "QUALITY_BLOCKED" },
+            data: { ...(slot.analysisRunId ? { requiresApproval: true, approvedAt: null } : {}), scheduledDate: dateOnly(candidate), preparation: (balanced ? withIntent(withDateHistory(slot.preparation, { from: slot.scheduledDate.toISOString().slice(0, 10), to: candidate, reason: "reschedule" }), content.editorial_intent) : withDateHistory(slot.preparation, { from: slot.scheduledDate.toISOString().slice(0, 10), to: candidate, reason: "reschedule" })) as Prisma.InputJsonObject, status: quality.publishable ? "READY" : "FAILED", attempts: quality.publishable ? 0 : 3, lastError: quality.checks.filter((c) => c.level === "error").map((c) => c.message).join(" · "), errorCode: quality.publishable ? "" : "QUALITY_BLOCKED" },
           });
           if (changed.count !== 1) throw new CalendarValidationError("El artículo cambió durante la reprogramación. Recargá el calendario y reintentá.");
           await tx.landing.update({ where: { id: landing.id }, data: { status: "DRAFT", publishedAt: null } });
@@ -367,9 +379,14 @@ export async function addBlogDays(formData: FormData) {
   }
   const language = formData.has("language") ? blogLanguage(formData.get("language"), preferences.language) : null;
   const comparisons = formData.has("comparisonOffered") ? formData.get("comparison") === "on" : preferences.comparisons;
+  // En modo "balanced" cada día nuevo recibe su intención repartida por cuota, de a uno.
+  const around = intentModeOf(client.responsePolicy) === "balanced" ? await loadIntentNeighbors(prisma, clientId, start, shiftDate(start, days - 1)) : null;
   const data = Array.from({ length: days }, (_, offset) => {
     const day = shiftDate(start, offset);
-    const preparation = language ? { language, comparison: editorialIntentForDate(day) === "decision" && comparisons } : undefined;
+    const intent = around && !around.slots.has(day) ? assignIntent(day, around.neighbors) : null;
+    if (intent) around!.neighbors.push({ day, intent });
+    const decision = (intent ?? editorialIntentForDate(day)) === "decision";
+    const preparation = language ? { ...(intent ? { editorialIntent: intent } : {}), language, comparison: decision && comparisons } : intent ? { editorialIntent: intent } : undefined;
     return { clientId, scheduledDate: dateOnly(day), ...(preparation ? { preparation } : {}) };
   });
   await prisma.blogPublication.createMany({ data, skipDuplicates: true });

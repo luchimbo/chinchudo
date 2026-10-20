@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { inspectBlogArticle } from "../src/lib/blog-evidence.mjs";
 import { nextFreeEditorialDay, withDateHistory } from "../src/lib/blog-free-slot.mjs";
-import { carryIntent, intentForSlot } from "../src/lib/blog-intent.mjs";
+import { assignIntent, carryIntent, intentForSlot, intentModeOf, loadIntentNeighbors, withIntent } from "../src/lib/blog-intent.mjs";
 import { newPreparation, setPreparationPhase, failPreparation, recoverPreparations } from "./blog-preparation.mjs";
 
 /** Traduce el plan guardado del día a argumentos del generador, sin valores inválidos. */
@@ -136,8 +136,9 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
     if (result === null) throw new Error("El blog está ocupado. Reintentá en unos minutos.");
   }
 
-  // Un artículo publicado antes de su fecha pasa a ocupar hoy; lo que estaba para hoy se reubica
-  // en el próximo día libre con la misma intención editorial (la paridad del día la define).
+  // Un artículo publicado antes de su fecha pasa a ocupar hoy. Lo que estaba para hoy se reubica:
+  // en modo "balanced" toma la fecha que quedó libre; en modo "parity", el próximo día libre con la
+  // misma intención editorial (la paridad del día la define).
   async function adoptToday(client, slot, day) {
     const today = argentinaNow(client.responsePolicy).date;
     if (day <= today) return;
@@ -146,16 +147,27 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
     const current = byDate.get(today);
     // Si hoy ya salió otro artículo, este conserva su fecha: un solo artículo por día.
     if (current && ["PUBLISHING", "PUBLISHED"].includes(current.status)) return;
-    const displacedTo = current ? nextFreeEditorialDay({ from: shiftDate(today, 1), intent: intentForSlot(current), isTaken: (candidate) => { const entry = byDate.get(candidate); return !!entry && (!!entry.landingId || entry.status !== "PLANNED"); } }) : null;
+    const balanced = intentModeOf(client.responsePolicy) === "balanced";
+    const displacedTo = current && balanced ? day : current ? nextFreeEditorialDay({ from: shiftDate(today, 1), intent: intentForSlot(current), isTaken: (candidate) => { const entry = byDate.get(candidate); return !!entry && (!!entry.landingId || entry.status !== "PLANNED"); } }) : null;
+    const around = balanced && !current ? await loadIntentNeighbors(prisma, client.id, day, day) : null;
     const preparation = slot.preparation && typeof slot.preparation === "object" && !Array.isArray(slot.preparation) ? slot.preparation : {};
     await prisma.$transaction(async (tx) => {
+      if (current && balanced) {
+        // Intercambio de fechas: (cliente, fecha) es único, así que el de hoy espera en una fecha temporal.
+        const own = intentForSlot(current), moved = intentForSlot(slot);
+        await tx.blogPublication.update({ where: { id: current.id }, data: { scheduledDate: dateValue("9999-12-31"), preparation: withIntent(withDateHistory(current.preparation, { from: today, to: day, reason: "displaced" }, now()), own) } });
+        await tx.blogPublication.update({ where: { id: slot.id }, data: { scheduledDate: dateValue(today), preparation: { ...withIntent(withDateHistory(preparation, { from: day, to: today, reason: "published_early" }, now()), moved), publishedEarly: { from: day, displacedTo, displacedId: current.id } } } });
+        await tx.blogPublication.update({ where: { id: current.id }, data: { scheduledDate: dateValue(day) } });
+        return;
+      }
       if (current) {
         const occupant = byDate.get(displacedTo);
         if (occupant) await tx.blogPublication.deleteMany({ where: { id: occupant.id, landingId: null, status: "PLANNED" } });
         await tx.blogPublication.update({ where: { id: current.id }, data: { scheduledDate: dateValue(displacedTo), preparation: withDateHistory(current.preparation, { from: today, to: displacedTo, reason: "displaced" }, now()) } });
       }
-      await tx.blogPublication.update({ where: { id: slot.id }, data: { scheduledDate: dateValue(today), preparation: { ...withDateHistory(preparation, { from: day, to: today, reason: "published_early" }, now()), publishedEarly: { from: day, displacedTo, displacedId: current?.id || null } } } });
-      await tx.blogPublication.createMany({ data: [{ clientId: client.id, scheduledDate: dateValue(day), preparation: { phase: "WAITING" } }], skipDuplicates: true });
+      const movedPlan = withDateHistory(preparation, { from: day, to: today, reason: "published_early" }, now());
+      await tx.blogPublication.update({ where: { id: slot.id }, data: { scheduledDate: dateValue(today), preparation: { ...(balanced ? withIntent(movedPlan, intentForSlot(slot)) : movedPlan), publishedEarly: { from: day, displacedTo, displacedId: current?.id || null } } } });
+      await tx.blogPublication.createMany({ data: [{ clientId: client.id, scheduledDate: dateValue(day), preparation: { phase: "WAITING", ...(around ? { editorialIntent: assignIntent(day, around.neighbors) } : {}) } }], skipDuplicates: true });
     });
     log.log(`[blog] Artículo publicado antes de fecha: pasó del ${day} a hoy${displacedTo ? `; el de hoy se movió al ${displacedTo}` : ""}.`);
   }
@@ -323,9 +335,14 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
       // Con la publicación activa se mantienen 14 días reservados; las fechas
       // sumadas a mano desde el calendario se escriben aunque esté apagada.
       const start = shiftDate(local.date, 1);
+      // En modo "balanced" cada día reservado nace con su intención ya repartida por cuota.
+      const balanced = active && intentModeOf(client.responsePolicy) === "balanced";
+      const around = balanced ? await loadIntentNeighbors(prisma, client.id, start, shiftDate(start, 13)) : null;
       for (let offset = 0; active && offset < 14; offset += 1) {
         const day = shiftDate(start, offset);
-        await prisma.blogPublication.upsert({ where: { clientId_scheduledDate: { clientId: client.id, scheduledDate: dateValue(day) } }, create: { clientId: client.id, scheduledDate: dateValue(day) }, update: {} });
+        const intent = around && !around.slots.has(day) ? assignIntent(day, around.neighbors) : null;
+        if (intent) around.neighbors.push({ day, intent });
+        await prisma.blogPublication.upsert({ where: { clientId_scheduledDate: { clientId: client.id, scheduledDate: dateValue(day) } }, create: { clientId: client.id, scheduledDate: dateValue(day), ...(intent ? { preparation: { editorialIntent: intent } } : {}) }, update: {} });
       }
       await prisma.blogPublication.updateMany({ where: { clientId: client.id, requiresApproval: false, scheduledDate: { lt: dateValue(local.date) }, status: { in: ["PLANNED", "READY"] } }, data: { status: "SKIPPED", lastError: "La fecha pasó sin publicación; reprogramá el artículo." } });
       if (active && config.autoApprove === true) {
