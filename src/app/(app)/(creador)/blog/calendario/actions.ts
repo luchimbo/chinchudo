@@ -9,6 +9,7 @@ import { argentinaDate, dateOnly, shiftDate } from "@/lib/blog-calendar";
 import { businessTimezone, localDay } from "@/lib/business-analysis";
 import { inspectBlogArticle } from "@/lib/blog-evidence";
 import { editorialIntentForDate } from "@/lib/blog-quality.mjs";
+import { nextFreeEditorialDay, withDateHistory } from "@/lib/blog-free-slot.mjs";
 import { relayFetch } from "@/lib/relay-client";
 import type { Prisma } from "@prisma/client";
 import { blogLanguage, blogPreferences, editorialCalendarEnabled } from "@/lib/blog-language";
@@ -235,9 +236,7 @@ export async function rescheduleBlogArticle(_state: RescheduleFormState, formDat
             select: { id: true, scheduledDate: true, landingId: true, status: true, updatedAt: true },
           });
           const byDate = new Map(futureSlots.map(entry => [entry.scheduledDate.toISOString().slice(0, 10), entry]));
-          let candidate = target;
-          if (editorialIntentForDate(candidate) !== content.editorial_intent) candidate = shiftDate(candidate, 1);
-          while (byDate.get(candidate)?.landingId || (byDate.has(candidate) && byDate.get(candidate)!.status !== "PLANNED")) candidate = shiftDate(candidate, 2);
+          const candidate = nextFreeEditorialDay({ from: target, intent: content.editorial_intent, isTaken: (day) => { const entry = byDate.get(day); return !!entry && (!!entry.landingId || entry.status !== "PLANNED"); } });
           if (candidate === slot.scheduledDate.toISOString().slice(0, 10)) return candidate;
           const occupied = byDate.get(candidate);
           if (occupied) {
@@ -246,7 +245,7 @@ export async function rescheduleBlogArticle(_state: RescheduleFormState, formDat
           }
           const changed = await tx.blogPublication.updateMany({
             where: { id, updatedAt: slot.updatedAt, status: slot.status, landingId: landing.id, landing: { updatedAt: landing.updatedAt } },
-            data: { ...(slot.analysisRunId ? { requiresApproval: true, approvedAt: null } : {}), scheduledDate: dateOnly(candidate), status: quality.publishable ? "READY" : "FAILED", attempts: quality.publishable ? 0 : 3, lastError: quality.checks.filter((c) => c.level === "error").map((c) => c.message).join(" · "), errorCode: quality.publishable ? "" : "QUALITY_BLOCKED" },
+            data: { ...(slot.analysisRunId ? { requiresApproval: true, approvedAt: null } : {}), scheduledDate: dateOnly(candidate), preparation: withDateHistory(slot.preparation, { from: slot.scheduledDate.toISOString().slice(0, 10), to: candidate, reason: "reschedule" }) as Prisma.InputJsonObject, status: quality.publishable ? "READY" : "FAILED", attempts: quality.publishable ? 0 : 3, lastError: quality.checks.filter((c) => c.level === "error").map((c) => c.message).join(" · "), errorCode: quality.publishable ? "" : "QUALITY_BLOCKED" },
           });
           if (changed.count !== 1) throw new CalendarValidationError("El artículo cambió durante la reprogramación. Recargá el calendario y reintentá.");
           await tx.landing.update({ where: { id: landing.id }, data: { status: "DRAFT", publishedAt: null } });

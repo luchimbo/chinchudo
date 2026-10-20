@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { inspectBlogArticle } from "../src/lib/blog-evidence.mjs";
 import { editorialIntentForDate } from "../src/lib/blog-quality.mjs";
+import { nextFreeEditorialDay, withDateHistory } from "../src/lib/blog-free-slot.mjs";
 import { newPreparation, setPreparationPhase, failPreparation, recoverPreparations } from "./blog-preparation.mjs";
 
 /** Traduce el plan guardado del día a argumentos del generador, sin valores inválidos. */
@@ -24,8 +25,15 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
   let lastTickAt = null, gate = "IDLE";
   const dateValue = (day) => new Date(`${day}T00:00:00.000Z`);
   const shiftDate = (day, offset) => { const date = dateValue(day); date.setUTCDate(date.getUTCDate() + offset); return date.toISOString().slice(0, 10); };
-  function argentinaNow() {
-    const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "America/Argentina/Buenos_Aires", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(now()).map((p) => [p.type, p.value]));
+  // La hora local es la del mercado de cada cliente (Buenos Aires si no configuró otra).
+  const DEFAULT_TIMEZONE = "America/Argentina/Buenos_Aires";
+  function clientTimezone(policy) {
+    const zone = policy?.businessMarket?.timezone;
+    if (typeof zone !== "string") return DEFAULT_TIMEZONE;
+    try { new Intl.DateTimeFormat("en-US", { timeZone: zone }); return zone; } catch { return DEFAULT_TIMEZONE; }
+  }
+  function argentinaNow(policy) {
+    const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: clientTimezone(policy), year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(now()).map((p) => [p.type, p.value]));
     return { date: `${parts.year}-${parts.month}-${parts.day}`, time: `${parts.hour}:${parts.minute}` };
   }
   const errors = (quality) => quality.checks.filter((c) => c.level === "error").map((c) => c.message).join(" · ").slice(0, 1000);
@@ -108,7 +116,7 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
     if (await catalogPending(clientId)) throw new Error("El catálogo se está actualizando. Reintentá en unos minutos.");
     const result = await withLease(clientId, async () => {
       const [client, slot] = await Promise.all([
-        prisma.client.findUnique({ where: { id: clientId }, select: { id: true, active: true, blogBaseUrl: true } }),
+        prisma.client.findUnique({ where: { id: clientId }, select: { id: true, active: true, blogBaseUrl: true, responsePolicy: true } }),
         prisma.blogPublication.findUnique({ where: { id }, include: { landing: { include: { contentCluster: { select: { slug: true } } } } } }),
       ]);
       if (!client?.active || !slot?.landing || slot.clientId !== clientId) throw new Error("Artículo no encontrado para este cliente.");
@@ -131,27 +139,22 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
   // Un artículo publicado antes de su fecha pasa a ocupar hoy; lo que estaba para hoy se reubica
   // en el próximo día libre con la misma intención editorial (la paridad del día la define).
   async function adoptToday(client, slot, day) {
-    const today = argentinaNow().date;
+    const today = argentinaNow(client.responsePolicy).date;
     if (day <= today) return;
     const upcoming = await prisma.blogPublication.findMany({ where: { clientId: client.id, scheduledDate: { gte: dateValue(today) } } });
     const byDate = new Map(upcoming.map((entry) => [entry.scheduledDate.toISOString().slice(0, 10), entry]));
     const current = byDate.get(today);
     // Si hoy ya salió otro artículo, este conserva su fecha: un solo artículo por día.
     if (current && ["PUBLISHING", "PUBLISHED"].includes(current.status)) return;
-    let displacedTo = null;
-    if (current) {
-      let candidate = shiftDate(today, 2);
-      for (let i = 0; i < 90 && byDate.get(candidate) && (byDate.get(candidate).landingId || byDate.get(candidate).status !== "PLANNED"); i++) candidate = shiftDate(candidate, 2);
-      displacedTo = candidate;
-    }
+    const displacedTo = current ? nextFreeEditorialDay({ from: shiftDate(today, 1), intent: editorialIntentForDate(today), isTaken: (candidate) => { const entry = byDate.get(candidate); return !!entry && (!!entry.landingId || entry.status !== "PLANNED"); } }) : null;
     const preparation = slot.preparation && typeof slot.preparation === "object" && !Array.isArray(slot.preparation) ? slot.preparation : {};
     await prisma.$transaction(async (tx) => {
       if (current) {
         const occupant = byDate.get(displacedTo);
         if (occupant) await tx.blogPublication.deleteMany({ where: { id: occupant.id, landingId: null, status: "PLANNED" } });
-        await tx.blogPublication.update({ where: { id: current.id }, data: { scheduledDate: dateValue(displacedTo) } });
+        await tx.blogPublication.update({ where: { id: current.id }, data: { scheduledDate: dateValue(displacedTo), preparation: withDateHistory(current.preparation, { from: today, to: displacedTo, reason: "displaced" }, now()) } });
       }
-      await tx.blogPublication.update({ where: { id: slot.id }, data: { scheduledDate: dateValue(today), preparation: { ...preparation, publishedEarly: { from: day, displacedTo, displacedId: current?.id || null } } } });
+      await tx.blogPublication.update({ where: { id: slot.id }, data: { scheduledDate: dateValue(today), preparation: { ...withDateHistory(preparation, { from: day, to: today, reason: "published_early" }, now()), publishedEarly: { from: day, displacedTo, displacedId: current?.id || null } } } });
       await tx.blogPublication.createMany({ data: [{ clientId: client.id, scheduledDate: dateValue(day), preparation: { phase: "WAITING" } }], skipDuplicates: true });
     });
     log.log(`[blog] Artículo publicado antes de fecha: pasó del ${day} a hoy${displacedTo ? `; el de hoy se movió al ${displacedTo}` : ""}.`);
@@ -315,7 +318,7 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
       let config; try { config = JSON.parse(setting?.value || "{}"); } catch { return; }
       await recoverInterrupted(client.id);
       await recoverPreparations(prisma, client.id, now());
-      const local = argentinaNow();
+      const local = argentinaNow(client.responsePolicy);
       const active = config.enabled && client.blogBaseUrl?.trim() && /^([01]\d|2[0-3]):[0-5]\d$/.test(config.publishTime || "");
       // Con la publicación activa se mantienen 14 días reservados; las fechas
       // sumadas a mano desde el calendario se escriben aunque esté apagada.

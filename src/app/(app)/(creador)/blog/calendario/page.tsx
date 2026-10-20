@@ -42,6 +42,13 @@ function PlanChips({ plan, productName }: { plan: BlogDayPlan; productName: Map<
   </span>;
 }
 
+const LANGUAGE_NAMES: Record<string, string> = { es: "Español", en: "Inglés", de: "Alemán" };
+const HISTORY_REASONS: Record<string, string> = { reschedule: "Reprogramado", published_early: "Publicado antes de fecha", displaced: "Movido por una publicación anticipada" };
+type DateHistoryItem = { at: string; from: string; to: string; reason: string };
+function dateHistory(value: unknown): DateHistoryItem[] {
+  const history = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>).dateHistory : null;
+  return Array.isArray(history) ? history.filter((item): item is DateHistoryItem => !!item && typeof item.at === "string" && /^\d{4}-\d{2}-\d{2}$/.test(item.from) && /^\d{4}-\d{2}-\d{2}$/.test(item.to)) : [];
+}
 const WEEKDAYS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 const STATUS: Record<string, { label: string; style: string }> = {
   PLANNED: { label: "Preparando", style: "border-amber-200 bg-amber-50 text-amber-800" },
@@ -79,6 +86,11 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
   const selectedDay = validCalendarDay(searchParams.day || rescheduledDate, month);
   const selected = slots.find(slot => slot.scheduledDate.toISOString().slice(0, 10) === selectedDay);
 
+  // El idioma vive dentro del contenido del artículo: se extrae en la base sin traer todo el texto.
+  const articleIds = slots.flatMap(slot => slot.landingId ? [slot.landingId] : []);
+  const languageRows = articleIds.length ? await prisma.$queryRaw<{ id: string; lang: string | null }[]>`SELECT id, substring("htmlContent" from '"language"[[:space:]]*:[[:space:]]*"([a-z]{2})"') AS lang FROM "Landing" WHERE id = ANY(${articleIds})` : [];
+  const languageOf = new Map(languageRows.map(row => [row.id, row.lang || "es"]));
+
   const landingIds = selected?.status === "PUBLISHED" && selected.landingId ? [selected.landingId] : [];
   const [events, leads] = landingIds.length ? await Promise.all([
     prisma.trackingEvent.groupBy({
@@ -97,6 +109,15 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
   for (const lead of leads) if (lead.landingId) {
     const value = metrics.get(lead.landingId);
     if (value) value.leads = lead._count.id;
+  }
+  // Contexto para leer las visitas: promedio de los demás artículos publicados del cliente.
+  let peerAverage: number | null = null;
+  if (selected?.status === "PUBLISHED" && selected.landingId) {
+    const [peerCount, peerViews] = await Promise.all([
+      prisma.blogPublication.count({ where: { clientId: activeClient.id, status: "PUBLISHED", landingId: { not: selected.landingId } } }),
+      prisma.trackingEvent.count({ where: { clientId: activeClient.id, eventType: "page_view", landingId: { not: selected.landingId }, landing: { blogPublication: { is: { status: "PUBLISHED" } } } } }),
+    ]);
+    if (peerCount >= 3) peerAverage = Math.round(peerViews / peerCount);
   }
   const referrals = landingIds.length ? await prisma.trackingEvent.groupBy({ by: ["landingId", "referrer"], _count: { id: true }, where: { clientId: activeClient.id, landingId: { in: landingIds }, eventType: "page_view" } }) : [];
   const referralStats = new Map<string, Map<string, number>>();
@@ -131,7 +152,15 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
   ]);
   const productName = new Map(blogCatalog.products.map(product => [product.id, product.name]));
   const selectedPlan = selected ? dayPlanFrom(selected.preparation) : {};
+  const selectedHistory = selected ? dateHistory(selected.preparation) : [];
   const preferences = blogPreferences(activeClient.responsePolicy);
+  // Aviso de día sin publicar: hoy no salió nada y ya pasó el horario (o no hay publicación automática).
+  const [todaySlot, missedRecent] = calendarEnabled ? await Promise.all([
+    prisma.blogPublication.findUnique({ where: { clientId_scheduledDate: { clientId: activeClient.id, scheduledDate: dateOnly(today) } }, select: { status: true, requiresApproval: true, landingId: true, landing: { select: { titulo: true } } } }),
+    prisma.blogPublication.count({ where: { clientId: activeClient.id, status: "SKIPPED", landingId: { not: null }, scheduledDate: { gte: dateOnly(shiftDate(today, -7)), lt: dateOnly(today) } } }),
+  ]) : [null, 0];
+  const localTime = new Intl.DateTimeFormat("en-GB", { timeZone: businessTimezone(activeClient.responsePolicy), hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date());
+  const publishPending = calendarEnabled && !["PUBLISHED", "PUBLISHING"].includes(todaySlot?.status || "") && (!config.enabled || (!!config.publishTime && localTime >= config.publishTime));
   const stateFor = (slot: typeof slots[number]) => slot.status === "PLANNED" ? { ...STATUS.PLANNED, label: preparationLabel(slot.preparation) } : slot.status === "FAILED" ? STATUS.FAILED : slot.requiresApproval ? { label: slot.landingId ? "Por aprobar" : "En espera", style: "border-brass/30 bg-brass/10 text-brass" } : STATUS[slot.status];
   const failedSlots = slots.filter(slot => slot.status === "FAILED");
   const selectedState = selected ? stateFor(selected) : null;
@@ -180,7 +209,12 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
         <p className="mt-1 truncate text-xs text-slate" title={upcoming?.landing?.titulo || undefined}>{config.enabled && upcoming ? <>Próximo: <Link prefetch={false} className="font-semibold text-ink underline underline-offset-2" href={calendarHref(activeClient.slug, upcoming.scheduledDate.toISOString().slice(0, 7), upcoming.scheduledDate.toISOString().slice(0, 10))}>{formatDay(upcoming.scheduledDate.toISOString().slice(0, 10))} · {upcoming.landing?.titulo || "Artículo preparado"}</Link></> : config.enabled ? "Todavía no hay un artículo listo para publicar." : "Seleccioná un día para consultar su artículo."}</p>
       </header>
 
-      {config.enabled ? <Suspense fallback={<LoadingMessage className="mb-3 text-xs text-slate">Comprobando conexión…</LoadingMessage>}><AgentConnection client={activeClient.slug} /></Suspense> : null}
+      {calendarEnabled ? <Suspense fallback={<LoadingMessage className="mb-3 text-xs text-slate">Comprobando conexión…</LoadingMessage>}><AgentConnection client={activeClient.slug} /></Suspense> : null}
+      {publishPending ? <p role="status" className="mb-3 rounded-lg border border-signal/20 bg-signal/5 px-3 py-2 text-xs text-ink">
+        Hoy no se publicó ningún artículo. {todaySlot?.landingId && todaySlot.status !== "SKIPPED" ? (todaySlot.requiresApproval ? `El borrador «${todaySlot.landing?.titulo || "sin título"}» espera aprobación.` : `Hay uno listo: «${todaySlot.landing?.titulo || "sin título"}».`) : "No hay un artículo preparado para hoy."}{" "}
+        <Link prefetch={false} className="font-semibold underline" href={calendarHref(activeClient.slug, today.slice(0, 7), today)}>Ver hoy</Link>
+      </p> : null}
+      {missedRecent ? <p role="status" className="mb-3 text-xs text-slate">{missedRecent} {missedRecent === 1 ? "artículo listo se omitió" : "artículos listos se omitieron"} en los últimos 7 días porque su fecha pasó. Podés reprogramarlos desde su día.</p> : null}
       {failedSlots.length ? <p className="mb-3 text-xs text-signal">{failedSlots.length} {failedSlots.length === 1 ? "artículo necesita" : "artículos necesitan"} revisión este mes. <Link prefetch={false} className="font-semibold underline" href={calendarHref(activeClient.slug, month, failedSlots[0].scheduledDate.toISOString().slice(0, 10))}>Ver detalle</Link></p> : null}
       {catalog?.status === "PARTIAL" ? <p className="mb-3 text-xs text-slate">Hay enlaces del catálogo para revisar. <Link prefetch={false} className="underline" href={`/blog/configuracion?client=${encodeURIComponent(activeClient.slug)}`}>Ver detalle</Link></p> : null}
       {rescheduledDate && requestedDate ? <p role="status" className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">Artículo reprogramado para el {formatDay(rescheduledDate)}.{rescheduledDate !== requestedDate ? ` Es la primera fecha libre compatible desde el ${formatDay(requestedDate)}.` : ""}</p> : null}
@@ -200,7 +234,7 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
           const state = slot ? stateFor(slot) : null;
           return day ? <Link prefetch={false} key={day} href={calendarHref(activeClient.slug, month, day)} scroll={false} data-calendar-day={day} aria-haspopup="dialog" aria-expanded={selectedDay === day} aria-label={`${formatDay(day)}: ${slot?.landing?.titulo || (slot ? "Artículo en preparación" : "Sin artículo")}${state ? `, ${state.label}` : ""}`} title={slot?.landing?.titulo || undefined} className={`flex min-h-28 min-w-0 flex-col border-b border-r border-ink/10 p-1.5 outline-offset-[-3px] hover:bg-ink/[0.035] focus-visible:outline focus-visible:outline-2 focus-visible:outline-moss sm:min-h-36 sm:p-3 ${day === today ? "bg-brass/[0.07]" : ""} ${selectedDay === day ? "ring-2 ring-inset ring-moss" : ""}`}>
             <span className={`mb-2 inline-flex h-6 w-6 shrink-0 items-center justify-center self-start rounded-full text-[11px] font-semibold sm:text-xs ${day === today ? "bg-ink text-paper" : "text-slate"}`}>{Number(day.slice(-2))}</span>
-            {slot ? <><p className="line-clamp-2 break-words text-[10px] font-semibold leading-snug text-ink sm:line-clamp-3 sm:text-xs">{slot.landing?.titulo || (slot.status === "SKIPPED" ? "Sin publicación" : "Preparando artículo")}</p><PlanChips plan={dayPlanFrom(slot.preparation)} productName={productName} />{state ? <span className={`mt-2 block max-w-full truncate self-start rounded border px-1 py-0.5 text-[9px] font-medium sm:px-1.5 sm:text-[10px] ${state.style}`}>{state.label}</span> : null}</> : null}
+            {slot ? <><p className="line-clamp-2 break-words text-[10px] font-semibold leading-snug text-ink sm:line-clamp-3 sm:text-xs">{slot.landing?.titulo || (slot.status === "SKIPPED" ? "Sin publicación" : "Preparando artículo")}</p><PlanChips plan={dayPlanFrom(slot.preparation)} productName={productName} />{state ? <span className={`mt-2 flex max-w-full items-center gap-1 self-start`}><span className={`block min-w-0 truncate rounded border px-1 py-0.5 text-[9px] font-medium sm:px-1.5 sm:text-[10px] ${state.style}`}>{state.label}</span>{slot.landingId && languageOf.get(slot.landingId) && languageOf.get(slot.landingId) !== "es" ? <span title={LANGUAGE_NAMES[languageOf.get(slot.landingId)!] || languageOf.get(slot.landingId)} className="shrink-0 rounded bg-ink/10 px-1 py-0.5 text-[9px] font-semibold uppercase text-ink sm:text-[10px]">{languageOf.get(slot.landingId)}</span> : null}</span> : null}</> : null}
           </Link> : <div key={`empty-${index}`} aria-hidden="true" className="min-h-28 border-b border-r border-ink/10 bg-ink/[0.015] sm:min-h-36" />;
         })}</div>
       </section>
@@ -217,7 +251,7 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
             {selectedPlan.competitor ? <p className="text-xs text-brass">Comparativa escrita por la IA: revisá los datos del rival antes de aprobarla.</p> : null}
           </dl> : null}
           {selected.status === "PLANNED" && !selected.landingId ? <PreparationStatus preparation={selected.preparation} backgroundTracking={calendarEnabled} /> : null}
-          <p className="text-sm text-slate">{editorialIntentForDate(selectedDay) === "educational" ? "Artículo educativo" : "Artículo para ayudar a elegir"}{selected.requiresApproval ? " · Pendiente de aprobación" : ""}</p>
+          <p className="text-sm text-slate">{editorialIntentForDate(selectedDay) === "educational" ? "Artículo educativo" : "Artículo para ayudar a elegir"}{selected.landingId && languageOf.get(selected.landingId) ? ` · ${LANGUAGE_NAMES[languageOf.get(selected.landingId)!] || languageOf.get(selected.landingId)}` : ""}{selected.requiresApproval ? " · Pendiente de aprobación" : ""}</p>
           {selectedIssue ? <div role="alert" className="space-y-2 rounded-lg border border-signal/20 bg-signal/5 p-3 text-sm text-signal"><p className="font-semibold">{selectedIssue.message}</p><details><summary className="cursor-pointer">{selectedIssue.action === "detail" ? "Ver detalle" : "Detalle del error"}</summary><p className="mt-1 whitespace-pre-wrap break-words">{selected.lastError}</p></details>{selectedIssue.action === "edit" && selected.landingId ? <Link prefetch={false} href={`/blog/articulos/${selected.landingId}?${new URLSearchParams({ client: activeClient.slug, calendarMonth: month, calendarDay: selectedDay })}`} className="block font-semibold underline">Corregir artículo</Link> : selectedIssue.action === "connection" ? <Link prefetch={false} href={`/blog/configuracion?client=${encodeURIComponent(activeClient.slug)}`} className="block font-semibold underline">Revisar conexión</Link> : selectedIssue.action === "reschedule" ? <a href="#reprogramar" className="block font-semibold underline">Reprogramar</a> : null}</div> : null}
           {selected.landingId ? <div className="flex flex-wrap items-center gap-3">
             <ArticlePreviewButton articleId={selected.landingId} liveUrl={selected.status === "PUBLISHED" ? selectedLiveUrl || undefined : undefined} className="rounded-lg border border-ink/15 px-3 py-2 text-sm font-semibold text-ink" />
@@ -227,11 +261,13 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
           {selected.status === "PUBLISHED" && selectedLiveUrl ? <a href={selectedLiveUrl} target="_blank" rel="noreferrer" className="block text-sm font-semibold text-moss underline">Ver artículo publicado ↗</a> : null}
           {selected.requiresApproval && selected.landingId ? <form action={approveAnalysisArticle}><input type="hidden" name="id" value={selected.id} /><PendingSubmitButton loadingText="Aprobando…" className="rounded-lg bg-moss px-3 py-2 text-sm font-semibold text-paper">Aprobar borrador</PendingSubmitButton></form> : null}
           {selected.landingId && !selected.requiresApproval && selected.errorCode !== "QUALITY_BLOCKED" && selected.errorCode !== "DATE_INCOMPATIBLE" && ["READY", "FAILED", "PUBLISHING"].includes(selected.status) ? <PublishArticleButton key={`${selected.id}-${selected.status}-${selected.updatedAt.toISOString()}`} id={selected.id} publishing={selected.status === "PUBLISHING"} client={activeClient.slug} title={selected.landing?.titulo} retry={selectedIssue?.action === "retry-publication"} confirmMessage={selectedDay > today ? `Este artículo está programado para el ${formatDay(selectedDay)}. Al publicarlo pasará a hoy${byDay.get(today) && byDay.get(today)!.status !== "PUBLISHED" ? ` y el artículo de hoy${byDay.get(today)!.landing?.titulo ? ` («${byDay.get(today)!.landing!.titulo}»)` : ""} se moverá al próximo día libre` : ""}. ¿Continuar?` : undefined} /> : null}
+          {selectedHistory.length ? <details className="text-xs text-slate"><summary className="cursor-pointer font-semibold">Historial de fechas</summary><ul className="mt-1 space-y-1">{selectedHistory.map((entry, index) => <li key={index}>{new Date(entry.at).toLocaleString("es-AR", { timeZone: businessTimezone(activeClient.responsePolicy), dateStyle: "short", timeStyle: "short" })} · {HISTORY_REASONS[entry.reason] || "Cambio de fecha"}: {formatDay(entry.from)} → {formatDay(entry.to)}</li>)}</ul></details> : null}
           {selected.status === "PUBLISHED" && (selected.preparation as any)?.publishedEarly ? <p className="rounded-lg bg-brass/10 px-3 py-2 text-xs text-ink">Publicado antes de fecha: estaba programado para el {formatDay((selected.preparation as any).publishedEarly.from)}{(selected.preparation as any).publishedEarly.displacedTo ? `; el artículo de hoy se movió al ${formatDay((selected.preparation as any).publishedEarly.displacedTo)}` : ""}.</p> : null}
           {selected.status === "PUBLISHED" && selected.needsDeploy && selected.errorCode === "DEPLOYMENT_FAILED" ? <PublishArticleButton id={selected.id} publishing={false} client={activeClient.slug} title={selected.landing?.titulo} retry revision /> : null}
           {selected.status === "PUBLISHED" ? <section className="space-y-3 border-t border-ink/10 pt-4">
             <h4 className="text-sm font-semibold">Resultados</h4>
             {selectedStats ? <p className="text-sm text-slate">{selectedStats.views} visitas · {selectedStats.clicks} clics · {selectedStats.leads} contactos</p> : null}
+            {peerAverage !== null && selectedStats ? <p className="text-xs text-slate">Promedio de los demás artículos publicados: {peerAverage} visitas{selectedStats.views >= peerAverage ? " (este va igual o mejor)" : ""}.</p> : null}
             <p className="text-xs text-slate">{selected.landing?.indexingState === "INDEX" ? "Apto para indexación" : "Excluido de indexación"}{selected.needsDeploy ? " · Actualización pendiente" : ""}</p>
             {selected.landingId && referralStats.has(selected.landingId) ? <details className="text-xs text-slate"><summary className="cursor-pointer font-semibold">Procedencia de visitas</summary>{[...referralStats.get(selected.landingId)!].map(([label, n]) => <p key={label} className="mt-1">{label}: {n}</p>)}</details> : null}
           </section> : null}

@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 import { PrismaClient } from "@prisma/client";
 import { createBlogDaily } from "./blog-daily.mjs";
 import { withBlogLease } from "./blog-lease.mjs";
+import { blogCodeStatus } from "./blog-code-version.mjs";
 import { terminateChild } from "./terminate-child.mjs";
 
 const root = resolve(import.meta.dirname, ".."), port = 3102;
@@ -54,7 +55,7 @@ async function tick() {
 }
 
 const server = http.createServer(async (req, res) => {
-  if (req.method === "GET" && req.url === "/health") return json(res, 200, { ok: true, blogRuntimeVersion: 1 });
+  if (req.method === "GET" && (req.url === "/health" || req.url === "/blog/health")) return json(res, 200, { ok: true, blogRuntimeVersion: 1, previewOnly: process.argv.includes("--preview-only"), blogCode: blogCodeStatus() });
   if (req.headers.authorization !== `Bearer ${token}`) return json(res, 401, { error: "unauthorized" });
   try {
     let text = "";

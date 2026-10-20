@@ -7,6 +7,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PrismaClient } from "@prisma/client";
 import { createBlogDaily } from "./blog-daily.mjs";
+import { blogCodeStatus } from "./blog-code-version.mjs";
 import { terminateChild } from "./terminate-child.mjs";
 import { withBlogLease } from "./blog-lease.mjs";
 
@@ -356,8 +357,8 @@ const server = http.createServer(async (req, res) => {
   const { method, url } = req;
 
   // GET /health — sin auth
-  if (method === "GET" && url === "/health") {
-    return json(res, 200, { ok: true, ts: Date.now(), blogAutomationVersion: 2, blogTaskVersion: 2, blogWorker: blogDaily.runtimeState() });
+  if (method === "GET" && (url === "/health" || url === "/blog/health")) {
+    return json(res, 200, { ok: true, ts: Date.now(), blogAutomationVersion: 2, blogTaskVersion: 2, blogWorker: blogDaily.runtimeState(), blogCode: blogCodeStatus() });
   }
 
   if (!authOk(req)) {

@@ -103,7 +103,7 @@ describe("reprogramación desde el calendario", () => {
     expect(mocks.deleteDestination).toHaveBeenCalledWith({ where: { id: "empty", landingId: null, status: "PLANNED", updatedAt } });
     expect(mocks.updateSlot).toHaveBeenCalledWith({
       where: { id: slot.id, updatedAt, status: "READY", landingId: landing.id, landing: { updatedAt } },
-      data: { scheduledDate: dateOnly("2026-11-01"), status: "READY", attempts: 0, lastError: "", errorCode: "" },
+      data: { scheduledDate: dateOnly("2026-11-01"), preparation: { dateHistory: [{ at: expect.any(String), from: slot.scheduledDate.toISOString().slice(0, 10), to: "2026-11-01", reason: "reschedule" }] }, status: "READY", attempts: 0, lastError: "", errorCode: "" },
     });
     expect(mocks.updateLanding).toHaveBeenCalledWith({ where: { id: landing.id }, data: { status: "DRAFT", publishedAt: null } });
     expect(mocks.revalidatePath.mock.calls.flat()).toEqual(expect.arrayContaining(["/blog", "/blog/calendario", "/blog/articulos/article-1"]));

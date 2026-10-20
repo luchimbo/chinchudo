@@ -73,6 +73,7 @@
     "db:supabase-push": "prisma db push",
     "relay": "node scripts/agent-relay.mjs",
     "relay:start": "node scripts/start-relay.mjs",
+    "blog:status": "node scripts/blog-status.mjs",
     "llm:tunnel:start": "powershell -ExecutionPolicy Bypass -File scripts/start-local-llm-tunnel.ps1",
     "test": "vitest run"
   },
