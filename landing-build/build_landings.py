@@ -39,6 +39,7 @@ SEED_TOPICS_PATH = DATA_DIR / "temas_semilla.csv"
 
 # Config activa del cliente (se puebla desde --client-slug al arrancar)
 _CLIENT_CONFIG: dict = {}
+_PREVIEW_CONTEXT: dict = {}
 _GENERATION_LANGUAGE = ""
 _GENERATION_COMPARISON = False
 OPERATOR_BRIEF_MAX = 500
@@ -113,7 +114,7 @@ def load_client_config_from_env() -> dict:
 
 
 def load_catalog_from_env() -> tuple[dict, dict] | None:
-    raw = os.environ.get("LANDING_CATALOG_JSON", "")
+    raw = json.dumps(_PREVIEW_CONTEXT["catalog"]) if "catalog" in _PREVIEW_CONTEXT else os.environ.get("LANDING_CATALOG_JSON", "")
     if not raw:
         return None
     try:
@@ -462,6 +463,13 @@ def normalize_pg_landing(row: dict) -> dict:
 
 
 def load_preview_landing(landing_id: str = "") -> dict | None:
+    # El relay ya leyó el artículo y verificó su pertenencia al cliente.
+    # Reutilizar esa instantánea evita otra conexión durante el renderizado.
+    row = _PREVIEW_CONTEXT.get("landing")
+    if row:
+        if row.get("id") != landing_id or row.get("clientId") != _CLIENT_CONFIG.get("id"):
+            raise ValueError("El artículo de vista previa no pertenece al cliente solicitado")
+        return normalize_generated_landing(normalize_pg_landing(row))
     db_url = os.environ.get("DATABASE_URL", "")
     if db_url:
         try:
@@ -4484,6 +4492,7 @@ def main() -> None:
     preview_parser.add_argument("--landing-id", default="", help="ID de landing real a previsualizar")
     preview_parser.add_argument("--content-stdin", action="store_true", help="Lee de stdin el JSON del borrador del editor")
     preview_parser.add_argument("--client-slug", default=argparse.SUPPRESS, help="Cliente a previsualizar")
+    preview_parser.add_argument("--preview-context-stdin", action="store_true", help="Instantánea verificada del relay por stdin")
     research_parser = sub.add_parser("research")
     research_parser.add_argument("--limit", type=int, default=50, help="Cantidad maxima de oportunidades nuevas")
     research_parser.add_argument("--no-web", action="store_true", help="No intenta buscar sugerencias web")
@@ -4531,8 +4540,10 @@ def main() -> None:
     sub.add_parser("selftest")
     parser.add_argument("--client-slug", default="", help="Cliente cuya API key de OpenRouter usar (default: .env)")
     args = parser.parse_args()
+    if args.command == "preview" and args.preview_context_stdin:
+        _PREVIEW_CONTEXT.update(json.loads(sys.stdin.buffer.read().decode("utf-8")))
     if getattr(args, "client_slug", ""):
-        env_config = load_client_config_from_env()
+        env_config = _PREVIEW_CONTEXT.get("clientConfig") or load_client_config_from_env()
         if env_config:
             if env_config.get("slug") != args.client_slug:
                 raise SystemExit("Contexto de cliente invalido: el slug recibido no coincide con el relay")
@@ -4541,14 +4552,16 @@ def main() -> None:
             try:
                 sys.path.insert(0, str(ROOT.parent / "agents"))
                 import db_pg
-                db_pg.inject_openrouter_env(client_slug=args.client_slug)
+                if args.command != "preview":
+                    db_pg.inject_openrouter_env(client_slug=args.client_slug)
             except Exception as exc:
                 print(f"build-landings: no se pudo cargar la key del cliente ({exc})")
         else:
             try:
                 sys.path.insert(0, str(ROOT.parent / "agents"))
                 import db_pg
-                db_pg.inject_openrouter_env(client_slug=args.client_slug)
+                if args.command != "preview":
+                    db_pg.inject_openrouter_env(client_slug=args.client_slug)
                 _CLIENT_CONFIG = db_pg.get_client_config(args.client_slug)
                 print(f"build-landings: cliente activo -> {_CLIENT_CONFIG.get('name')} ({args.client_slug})")
             except Exception as exc:
@@ -4568,7 +4581,7 @@ def main() -> None:
         build(base_url=args.base_url)
         print(f"Sitio generado en {SITE_DIR}")
     elif args.command == "preview":
-        override = json.loads(sys.stdin.buffer.read().decode("utf-8") or "{}") if args.content_stdin else None
+        override = _PREVIEW_CONTEXT.get("content") if args.preview_context_stdin else (json.loads(sys.stdin.buffer.read().decode("utf-8") or "{}") if args.content_stdin else None)
         preview_command(landing_id=args.landing_id, base_url=args.base_url, content_override=override)
     elif args.command == "research":
         research_opportunities(limit=args.limit, use_web=not args.no_web)

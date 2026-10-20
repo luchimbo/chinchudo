@@ -68,11 +68,19 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "POST" && req.url === "/landings/preview") {
       if (typeof body.clientSlug !== "string" || typeof body.landingId !== "string") throw new Error("Faltan los datos del artículo.");
-      const client = await db.client.findUniqueOrThrow({ where: { slug: body.clientSlug }, select: { id: true } });
-      const landing = await db.landing.findFirst({ where: { id: body.landingId, clientId: client.id }, select: { id: true } });
+      const client = await db.client.findUniqueOrThrow({ where: { slug: body.clientSlug }, select: { id: true, slug: true, name: true, storeUrl: true, blogBaseUrl: true, labName: true, logoUrl: true, landingTemplate: true, landingPrimaryColor: true, landingSecondaryColor: true, responsePolicy: true } });
+      const [landing, categories, products] = await Promise.all([
+        db.landing.findFirst({ where: { id: body.landingId, clientId: client.id } }),
+        db.landingCategory.findMany({ where: { clientId: client.id } }),
+        db.landingProduct.findMany({ where: { clientId: client.id } }),
+      ]);
       if (!landing) throw new Error("Artículo no encontrado para este cliente.");
-      const args = ["preview", "--landing-id", landing.id, "--base-url", body.blogBaseUrl || "", ...(body.content ? ["--content-stdin"] : [])];
-      const output = await runPython(args, client.id, 60_000, undefined, body.content ? JSON.stringify(body.content) : undefined);
+      const args = ["preview", "--landing-id", landing.id, "--base-url", body.blogBaseUrl || "", "--preview-context-stdin"];
+      const catalog = {
+        categories: categories.map(c => ({ id: c.key, nombre: c.name, url: c.url, descripcion: c.description, keywords: c.keywords, linkStatus: c.linkStatus })),
+        products: products.map(p => ({ id: p.externalId, nombre: p.name, marca: p.brand, modelo: p.model, categoria_id: p.categoryKey, url: p.url, uso: p.useText, linkStatus: p.linkStatus, editorialEligible: p.sourceSnapshot?.editorialEligible ?? true })),
+      };
+      const output = await runPython(args, client.id, 20_000, undefined, JSON.stringify({ clientConfig: client, catalog, landing, content: body.content }));
       const start = output.search(/<!doctype html>/i), end = output.lastIndexOf("</html>");
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }); res.end(start >= 0 ? output.slice(start, end + 7) : output); return;
     }
@@ -80,14 +88,16 @@ const server = http.createServer(async (req, res) => {
   } catch (error) { if (!res.writableEnded) json(res, 409, { error: error.message }); else console.error("[blog-runtime]", error.message); }
 });
 
-let tunnel, stopping = false, restart;
+let tunnel, stopping = false, restart, tunnelUrl = "", tunnelStartedAt = 0, healthFailures = 0;
 function startTunnel() {
   if (stopping) return;
+  tunnelUrl = ""; tunnelStartedAt = Date.now(); healthFailures = 0;
   tunnel = spawn("cloudflared", ["tunnel", "--url", `http://127.0.0.1:${port}`], { cwd: root, windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
   let published = false;
   tunnel.stderr.on("data", async chunk => {
     const match = chunk.toString().match(/https:\/\/(?!api\.)[a-z0-9-]+\.trycloudflare\.com/);
     if (!match || published) return; published = true;
+    tunnelUrl = match[0];
     const key = "blog_runtime_relay_url";
     try { await db.appSetting.upsert({ where: { key }, create: { key, value: match[0] }, update: { value: match[0] } }); console.log("Shared blog runtime connected."); }
     catch (error) { console.error(error.message); }
@@ -95,6 +105,21 @@ function startTunnel() {
   tunnel.on("error", error => console.error(error.message));
   tunnel.on("close", () => { if (!stopping) restart = setTimeout(startTunnel, 5000); });
 }
-const timer = setInterval(tick, 15000);
-server.listen(port, "127.0.0.1", () => { console.log(`Shared blog runtime on ${port}.`); startTunnel(); void tick(); });
-for (const event of ["SIGINT", "SIGTERM"]) process.on(event, () => { stopping = true; clearInterval(timer); clearTimeout(restart); tunnel?.kill(); server.close(); void db.$disconnect().finally(() => process.exit(0)); });
+// Un quick tunnel puede perder su DNS sin terminar el proceso de cloudflared.
+let checkingTunnel = false;
+const watchdog = setInterval(async () => {
+  if (stopping || checkingTunnel || !tunnel) return;
+  if (!tunnelUrl) { if (Date.now() - tunnelStartedAt > 120_000) tunnel.kill(); return; }
+  checkingTunnel = true;
+  try {
+    const response = await fetch(`${tunnelUrl}/health`, { signal: AbortSignal.timeout(10_000), cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    healthFailures = 0;
+  } catch {
+    if (++healthFailures >= 3) { console.error("[blog-runtime] Túnel caído; recreando conexión."); tunnel?.kill(); }
+  } finally { checkingTunnel = false; }
+}, 60_000);
+const previewOnly = process.argv.includes("--preview-only");
+const timer = previewOnly ? undefined : setInterval(tick, 15000);
+server.listen(port, "127.0.0.1", () => { console.log(`Shared blog runtime on ${port}.`); startTunnel(); if (!previewOnly) void tick(); });
+for (const event of ["SIGINT", "SIGTERM"]) process.on(event, () => { stopping = true; clearInterval(timer); clearInterval(watchdog); clearTimeout(restart); tunnel?.kill(); server.close(); void db.$disconnect().finally(() => process.exit(0)); });

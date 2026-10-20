@@ -8,6 +8,8 @@ import re
 import json
 import io
 import sys
+import os
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -402,6 +404,33 @@ def test_preview_renders_unsaved_editor_content(monkeypatch, capsysbinary):
     assert 'content="noindex,nofollow"' in html_text
     with pytest.raises(SystemExit):
         bl.preview_command(landing_id="otro", base_url=BASE, content_override=override)
+
+
+def test_preview_relay_snapshot_renders_without_database():
+    """Ni catálogo ni artículo ni claves LLM requieren conexiones desde Python."""
+    base = {**article("guia-instantanea", "controladores-midi"), **BODY}
+    context = {
+        "clientConfig": {"id": "client-1", "slug": "pcmidi", "name": "PC MIDI Center", "storeUrl": STORE},
+        "catalog": {"categories": list(CATEGORIES.values()), "products": list(PRODUCTS.values())},
+        "landing": {"id": "article-1", "clientId": "client-1", "htmlContent": json.dumps(base)},
+        "content": {"h1": "Cambios sin guardar verificados"},
+    }
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "build_landings.py"), "--client-slug", "pcmidi", "preview", "--landing-id", "article-1", "--preview-context-stdin"],
+        input=json.dumps(context), capture_output=True, text=True, encoding="utf-8", timeout=8,
+        env={**os.environ, "DATABASE_URL": "postgresql://invalid:invalid@127.0.0.1:1/invalid", "DIRECT_URL": "postgresql://invalid:invalid@127.0.0.1:1/invalid"},
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Cambios sin guardar verificados" in result.stdout
+    assert 'content="noindex,nofollow"' in result.stdout
+
+
+def test_preview_snapshot_rejects_another_tenant_or_article(monkeypatch):
+    monkeypatch.setattr(bl, "_CLIENT_CONFIG", {"id": "client-1"})
+    for row in [{"id": "article-1", "clientId": "client-2"}, {"id": "article-2", "clientId": "client-1"}]:
+        monkeypatch.setattr(bl, "_PREVIEW_CONTEXT", {"landing": row})
+        with pytest.raises(ValueError, match="no pertenece"):
+            bl.load_preview_landing("article-1")
 
 
 def test_article_body_links_store_inside_text(site):
