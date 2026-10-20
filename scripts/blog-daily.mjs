@@ -3,6 +3,21 @@ import { inspectBlogArticle } from "../src/lib/blog-evidence.mjs";
 import { editorialIntentForDate } from "../src/lib/blog-quality.mjs";
 import { newPreparation, setPreparationPhase, failPreparation, recoverPreparations } from "./blog-preparation.mjs";
 
+/** Traduce el plan guardado del día a argumentos del generador, sin valores inválidos. */
+export function dayPlanArgs(preparation) {
+  const value = preparation && typeof preparation === "object" && !Array.isArray(preparation) ? preparation : {};
+  const text = (field, max) => typeof value[field] === "string" ? value[field].replace(/\s+/g, " ").trim().slice(0, max) : "";
+  const productId = text("productId", 200);
+  const competitor = text("competitor", 60);
+  const competitorNotes = competitor ? text("competitorNotes", 300) : "";
+  const excluded = Array.isArray(value.excludedProductIds) ? [...new Set(value.excludedProductIds.filter(id => typeof id === "string" && id && !id.includes(",")))] : [];
+  return {
+    competitor,
+    metadata: { ...(productId ? { productId } : {}), ...(excluded.length ? { excludedProductIds: excluded } : {}), ...(competitor ? { competitor } : {}), ...(competitorNotes ? { competitorNotes } : {}) },
+    args: [...(productId ? ["--product-id", productId] : []), ...(excluded.length ? ["--exclude-products", excluded.join(",")] : []), ...(competitor ? ["--competitor", competitor] : []), ...(competitorNotes ? ["--competitor-notes", competitorNotes] : [])],
+  };
+}
+
 export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcmidi", fetchUrl = fetch, now = () => new Date(), generationClients = new Set(), log = console, withLease = async (_id, fn) => fn(), catalogPending = async () => false, inspect = (clientId, content, id) => inspectBlogArticle(prisma, clientId, content, id) }) {
   let running = false;
   let lastStartedAt = null, lastCompletedAt = null, lastFailure = false, blockedByCatalog = false;
@@ -282,6 +297,8 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
       if (active && config.autoApprove === true) {
         const pending = await prisma.blogPublication.findMany({ where: { clientId: client.id, requiresApproval: true, scheduledDate: { gte: dateValue(local.date) }, status: { in: ["READY", "FAILED"] }, attempts: { lt: 3 }, landing: { isNot: null } }, include: { landing: true }, orderBy: { scheduledDate: "asc" } });
         for (const slot of pending) {
+          // Los datos del rival los escribe la IA: siempre los revisa una persona.
+          if (dayPlanArgs(slot.preparation).competitor) continue;
           try { await autoApproveArticle(client, slot); }
           catch (error) {
             await prisma.blogPublication.updateMany({ where: { id: slot.id, clientId: client.id, updatedAt: slot.updatedAt, requiresApproval: true, status: slot.status, landing: { updatedAt: slot.landing.updatedAt } }, data: { status: "FAILED", attempts: 3, lastError: String(error.message || error).slice(0, 1000) } });
@@ -306,18 +323,21 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
       const day = empty.scheduledDate.toISOString().slice(0, 10);
       // La consigna del operador define el tema; reemplaza la comparativa automática.
       const brief = typeof empty.preparation?.brief === "string" ? empty.preparation.brief.trim().slice(0, 500) : "";
-      const comparison = !brief && editorialIntentForDate(day) === "decision" && (typeof empty.preparation?.comparison === "boolean" ? empty.preparation.comparison : client.responsePolicy?.blog?.comparisons === true);
-      const metadata = { ...newPreparation(now(), 240_000), language, comparison, ...(brief ? { brief } : {}) };
+      // Plan del operador: producto protagonista, productos excluidos y rival elegido.
+      const plan = dayPlanArgs(empty.preparation);
+      const comparison = !!plan.competitor || (!brief && editorialIntentForDate(day) === "decision" && (typeof empty.preparation?.comparison === "boolean" ? empty.preparation.comparison : client.responsePolicy?.blog?.comparisons === true));
+      const metadata = { ...newPreparation(now(), 240_000), language, comparison, ...(brief ? { brief } : {}), ...plan.metadata };
       const generationClaim = await prisma.blogPublication.updateMany({ where: { id: empty.id, updatedAt: empty.updatedAt, landingId: null, attempts: empty.attempts, status: { in: ["PLANNED", "FAILED"] } }, data: { attempts: { increment: 1 }, status: "PLANNED", lastError: "", errorCode: "", preparation: metadata } });
       if (!generationClaim.count) { generationClients.delete(targetClientSlug); return; }
       try {
-        await runBlogPython(["generate", "--limit", "1", "--schedule-date", day, "--max-seconds", "180", "--language", language, ...(comparison ? ["--comparison"] : []), ...(brief ? ["--brief", brief] : [])], client.id, 240_000, {
+        await runBlogPython(["generate", "--limit", "1", "--schedule-date", day, "--max-seconds", "180", "--language", language, ...(comparison ? ["--comparison"] : []), ...(brief ? ["--brief", brief] : []), ...plan.args], client.id, 240_000, {
           attemptId: metadata.attemptId,
           onPhase: phase => setPreparationPhase(prisma, empty.id, client.id, metadata, phase, now()),
         });
         const result = await prisma.blogPublication.findUnique({ where: { id: empty.id } });
         if (result?.status === "FAILED" && result.landingId) return;
         if (result?.status !== "READY") throw new Error("El generador no produjo un artículo válido para esta fecha.");
+        if (plan.competitor && !result.requiresApproval) await prisma.blogPublication.updateMany({ where: { id: empty.id, status: "READY", landingId: result.landingId }, data: { requiresApproval: true, approvedAt: null } });
         log.log(`[blog] Artículo preparado para ${day}`);
       } catch (error) {
         await failPreparation(prisma, empty.id, client.id, metadata, error, now());

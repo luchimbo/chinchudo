@@ -12,33 +12,94 @@ import { editorialIntentForDate } from "@/lib/blog-quality.mjs";
 import { relayFetch } from "@/lib/relay-client";
 import type { Prisma } from "@prisma/client";
 import { blogLanguage, blogPreferences, editorialCalendarEnabled } from "@/lib/blog-language";
+import { dayPlanFrom, hasDayPlan, loadBlogCatalog, ownBrandsFor, validateDayPlan, type BlogDayPlan, type DayPlanInput } from "@/lib/blog-day-plan";
 
 export type RescheduleFormState = { error: string | null };
 export type GenerateDateState = { error: string | null; queued: boolean; id?: string; client?: string };
+
+type EditorialClient = { slug: string; name?: string | null; responsePolicy: Prisma.JsonValue };
+type DayRequest = { scheduledDate: unknown; language: unknown; hasLanguage: boolean; brief: FormDataEntryValue | null; comparisonOffered: boolean; comparison: boolean } & DayPlanInput;
+
+function dayRequest(formData: FormData, prefix = ""): DayRequest {
+  const key = (name: string) => `${prefix}${name}`;
+  return {
+    scheduledDate: formData.get(key("scheduledDate")), language: formData.get(key("language")), hasLanguage: formData.has(key("language")), brief: formData.get(key("brief")),
+    comparisonOffered: formData.has(key("comparisonOffered")), comparison: formData.get(key("comparison")) === "on",
+    productId: formData.get(key("productId")) ?? undefined, excludedProductIds: formData.getAll(key("excludedProductIds")),
+    competitor: formData.get(key("competitor")) ?? undefined, competitorNotes: formData.get(key("competitorNotes")) ?? undefined,
+  };
+}
 
 /** Reserva exactamente el día pedido; el worker existente prepara el artículo. */
 export async function generateBlogDate(_state: GenerateDateState, formData: FormData): Promise<GenerateDateState> {
   try {
     const clientId = z.string().min(1).parse(formData.get("clientId"));
     await assertClientAccess(prisma, clientId);
-    const client = await prisma.client.findUniqueOrThrow({ where: { id: clientId }, select: { slug: true, responsePolicy: true } });
+    const client = await prisma.client.findUniqueOrThrow({ where: { id: clientId }, select: { slug: true, name: true, responsePolicy: true } });
     if (!editorialCalendarEnabled(client)) return { error: "Configurá el calendario editorial del cliente antes de generar.", queued: false };
-    if (formData.has("language") && !["es", "en", "de"].includes(String(formData.get("language")))) return { error: "Elegí español, inglés o alemán.", queued: false };
-    const language = blogLanguage(formData.get("language"), blogPreferences(client.responsePolicy).language);
+    const result = await reserveBlogDate(clientId, client, dayRequest(formData));
+    if (result.queued) { revalidatePath("/blog/calendario"); revalidatePath("/blog/articulos"); }
+    return result;
+  } catch {
+    return { error: "No se pudo solicitar el artículo. Verificá tu acceso y reintentá.", queued: false };
+  }
+}
+
+export type WeekPlanResult = { day: string; queued: boolean; error: string | null };
+export type WeekPlanState = { results: WeekPlanResult[]; error: string | null };
+const WEEK_MAX_DAYS = 14;
+
+/** Programa varios días con su plan; cada fila se reserva por separado e informa su resultado. */
+export async function planBlogWeek(_state: WeekPlanState, formData: FormData): Promise<WeekPlanState> {
+  try {
+    const clientId = z.string().min(1).parse(formData.get("clientId"));
+    await assertClientAccess(prisma, clientId);
+    const client = await prisma.client.findUniqueOrThrow({ where: { id: clientId }, select: { slug: true, name: true, responsePolicy: true } });
+    if (!editorialCalendarEnabled(client)) return { results: [], error: "Configurá el calendario editorial del cliente antes de programar." };
+    const rows = z.coerce.number().int().min(1).max(WEEK_MAX_DAYS).parse(formData.get("rows"));
+    const catalog = await loadBlogCatalog(prisma, clientId);
+    const results: WeekPlanResult[] = [];
+    for (let index = 0; index < rows; index++) {
+      if (formData.get(`day${index}.include`) !== "on") continue;
+      const request = dayRequest(formData, `day${index}.`);
+      const result = await reserveBlogDate(clientId, client, request, catalog);
+      results.push({ day: String(request.scheduledDate || ""), queued: result.queued, error: result.error });
+    }
+    if (results.some(result => result.queued)) { revalidatePath("/blog/calendario"); revalidatePath("/blog/articulos"); }
+    return { results, error: results.length ? null : "Elegí al menos un día para programar." };
+  } catch {
+    return { results: [], error: "No se pudo programar la semana. Verificá tu acceso y reintentá." };
+  }
+}
+
+async function reserveBlogDate(clientId: string, client: EditorialClient, input: DayRequest, catalog?: Awaited<ReturnType<typeof loadBlogCatalog>>): Promise<GenerateDateState> {
+  try {
+    if (input.hasLanguage && !["es", "en", "de"].includes(String(input.language))) return { error: "Elegí español, inglés o alemán.", queued: false };
+    const language = blogLanguage(input.language, blogPreferences(client.responsePolicy).language);
     let scheduledDate: Date;
-    try { scheduledDate = dateOnly(String(formData.get("scheduledDate") || "")); }
+    try { scheduledDate = dateOnly(String(input.scheduledDate || "")); }
     catch { return { error: "Elegí una fecha válida.", queued: false }; }
-    if (scheduledDate.toISOString().slice(0, 10) <= localDay(new Date(), businessTimezone(client.responsePolicy))) {
+    const day = scheduledDate.toISOString().slice(0, 10);
+    if (day <= localDay(new Date(), businessTimezone(client.responsePolicy))) {
       return { error: "Elegí un día posterior a hoy.", queued: false };
     }
-    const brief = parseBrief(formData.get("brief"));
+    const brief = parseBrief(input.brief);
     if (brief === null) return { error: `La consigna admite hasta ${BRIEF_MAX} caracteres.`, queued: false };
+    const decisionDay = editorialIntentForDate(day) === "decision";
+    let plan: BlogDayPlan = {};
+    if (hasDayPlan(input)) {
+      // El catálogo solo se consulta cuando el operador eligió productos o rival.
+      const context = catalog ?? await loadBlogCatalog(prisma, clientId);
+      const checked = validateDayPlan(input, { ...context, ownBrands: ownBrandsFor(client.name ?? undefined, context.products), decisionDay });
+      if ("error" in checked) return { error: checked.error, queued: false };
+      plan = checked.plan;
+    }
     // La restricción única evita sobrescribir artículos incluso con pedidos simultáneos.
     // Las comparativas son artículos para elegir: solo en días de esa intención.
-    // Con consigna manda el tema pedido, sin comparativa automática.
-    const comparison = !brief && editorialIntentForDate(scheduledDate.toISOString().slice(0, 10)) === "decision"
-      && (formData.has("comparisonOffered") ? formData.get("comparison") === "on" : blogPreferences(client.responsePolicy).comparisons);
-    const preparation = { language, comparison, ...(brief ? { brief } : {}) };
+    // Un rival elegido fuerza la comparativa; sin rival, la consigna manda y no hay comparativa automática.
+    const comparison = !!plan.competitor || (!brief && decisionDay
+      && (input.comparisonOffered ? input.comparison : blogPreferences(client.responsePolicy).comparisons));
+    const preparation = { language, comparison, ...(brief ? { brief } : {}), ...plan };
     const created = await prisma.blogPublication.createMany({ data: [{ clientId, scheduledDate, preparation }], skipDuplicates: true });
     if (!created.count) {
       // Con la publicación automática, los próximos días ya están reservados
@@ -51,8 +112,6 @@ export async function generateBlogDate(_state: GenerateDateState, formData: Form
       if (!updated.count) return { error: "El agente empezó a preparar este día. Elegí otra fecha o usá «Generar otro artículo».", queued: false };
     }
     const slot = await prisma.blogPublication.findUniqueOrThrow({ where: { clientId_scheduledDate: { clientId, scheduledDate } }, select: { id: true } });
-    revalidatePath("/blog/calendario");
-    revalidatePath("/blog/articulos");
     return { error: null, queued: true, id: slot.id, client: client.slug };
   } catch {
     return { error: "No se pudo solicitar el artículo. Verificá tu acceso y reintentá.", queued: false };
@@ -69,7 +128,9 @@ class CalendarDateConflictError extends Error {}
 function waitingPreparation(value: Prisma.JsonValue | null, brief?: string): Prisma.InputJsonValue {
   const metadata = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   const nextBrief = brief ?? (typeof metadata.brief === "string" ? metadata.brief : "");
-  return { phase: "WAITING", ...(["es", "en", "de"].includes(String(metadata.language)) ? { language: String(metadata.language) } : {}), ...(nextBrief ? { brief: nextBrief, comparison: false } : typeof metadata.comparison === "boolean" ? { comparison: metadata.comparison } : {}) };
+  // El plan del día (producto, exclusiones, rival) sobrevive a reintentos y reemplazos.
+  const plan = dayPlanFrom(metadata);
+  return { phase: "WAITING", ...(["es", "en", "de"].includes(String(metadata.language)) ? { language: String(metadata.language) } : {}), ...(nextBrief ? { brief: nextBrief, comparison: false } : typeof metadata.comparison === "boolean" ? { comparison: metadata.comparison } : {}), ...plan, ...(plan.competitor ? { comparison: true } : {}) };
 }
 
 export async function publishCalendarArticle(id: string): Promise<{ ok: true } | { ok: false; error: string; code?: string }> {
@@ -112,7 +173,8 @@ export async function retryBlogDeployment(id: string): Promise<{ ok: true } | { 
 export async function approveAnalysisArticle(formData: FormData) {
   const id = z.string().min(1).parse(formData.get("id"));
   const slot = await prisma.blogPublication.findUnique({ where: { id }, include: { landing: true } });
-  if (!slot?.landing || !slot.analysisRunId || !slot.requiresApproval) throw new Error("Borrador no encontrado.");
+  // Requieren aprobación los borradores del análisis comercial y las comparativas con rival elegido.
+  if (!slot?.landing || !(slot.analysisRunId || dayPlanFrom(slot.preparation).competitor) || !slot.requiresApproval) throw new Error("Borrador no encontrado.");
   await assertClientAccess(prisma, slot.clientId);
   if (["PUBLISHED", "PUBLISHING"].includes(slot.status)) throw new Error("El artículo ya está en publicación.");
   const content = JSON.parse(slot.landing.htmlContent);

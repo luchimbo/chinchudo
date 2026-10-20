@@ -7,6 +7,7 @@ import { assertClientAccess } from "@/lib/auth";
 import { getSetting, setSetting } from "@/lib/settings";
 import { argentinaDate, shiftDate } from "@/lib/blog-calendar";
 import { editorialCalendarEnabled } from "@/lib/blog-language";
+import { excludedProductsKey, loadBlogCatalog } from "@/lib/blog-day-plan";
 
 function str(fd: FormData, key: string) {
   return String(fd.get(key) ?? "").trim();
@@ -58,6 +59,18 @@ export async function updateLandingsConfig(formData: FormData) {
 
   revalidatePath("/blog/configuracion");
   revalidatePath("/blog"); revalidatePath("/blog/articulos");
+  revalidatePath("/blog/calendario");
+}
+
+/** Productos propios que ningún artículo del blog puede nombrar. */
+export async function updateExcludedProducts(formData: FormData) {
+  const id = z.string().min(1).parse(formData.get("id"));
+  await assertClientAccess(prisma, id);
+  const { products } = await loadBlogCatalog(prisma, id);
+  const known = new Set(products.map(product => product.id));
+  const excluded = [...new Set(formData.getAll("excludedProductIds").map(String).filter(value => known.has(value)))];
+  await setSetting(excludedProductsKey(id), JSON.stringify(excluded));
+  revalidatePath("/blog/configuracion");
   revalidatePath("/blog/calendario");
 }
 

@@ -1,7 +1,9 @@
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { assertClientAccess, getVisibleClients } from "@/lib/auth";
-import { updateLandingsConfig, updateEmailConfig } from "./actions";
+import { updateLandingsConfig, updateEmailConfig, updateExcludedProducts } from "./actions";
+import { ExcludedProductsForm } from "./excluded-products-form";
+import { loadBlogCatalog } from "@/lib/blog-day-plan";
 import { LandingsForm } from "./landings-form";
 import { EmailsForm } from "./emails-form";
 import { CatalogSyncPanel } from "./catalog-sync-panel";
@@ -68,9 +70,10 @@ export default async function LandingsConfigPage({
   } catch {
     notFound();
   }
-  const [generationSetting, dailySetting] = await Promise.all([
+  const [generationSetting, dailySetting, blogCatalog] = await Promise.all([
     prisma.appSetting.findUnique({ where: { key: `landing_generation_schedule:${c.id}` }, select: { value: true } }),
     prisma.appSetting.findUnique({ where: { key: `blog_daily_schedule:${c.id}` }, select: { value: true } }),
+    editorialCalendarEnabled(c) ? loadBlogCatalog(prisma, c.id) : Promise.resolve(null),
   ]);
   const schedule = parseSchedule(generationSetting?.value ?? null);
   const dailyBlogSchedule = parseDailyBlogSchedule(dailySetting?.value ?? null);
@@ -85,6 +88,11 @@ export default async function LandingsConfigPage({
       </header>
 
       {slug === "pcmidi" ? <CatalogSyncPanel clientId={c.id} /> : null}
+      {blogCatalog?.products.length ? <section className="mt-8 rounded-xl border border-ink/10 bg-paper p-6 shadow-sm">
+        <h2 className="font-display text-xl font-semibold text-ink">Productos que no se nombran</h2>
+        <p className="mb-4 mt-1 text-sm text-slate">Valen para todos los artículos del blog. Para excluir productos solo un día, usá el calendario.</p>
+        <ExcludedProductsForm clientId={c.id} products={blogCatalog.products} excluded={blogCatalog.excluded} action={updateExcludedProducts} />
+      </section> : null}
       <div className="mt-8 grid gap-8 lg:grid-cols-2">
         {/* Columna Izquierda: Landings */}
         <section className="rounded-xl border border-ink/10 bg-paper p-6 shadow-sm">

@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ access: vi.fn(), client: vi.fn(), create: vi.fn(), slot: vi.fn(), reserved: vi.fn(), update: vi.fn(), revalidate: vi.fn() }));
-vi.mock("@/lib/db", () => ({ prisma: { client: { findUniqueOrThrow: mocks.client }, blogPublication: { createMany: mocks.create, findUniqueOrThrow: mocks.slot, findUnique: mocks.reserved, updateMany: mocks.update } } }));
+const mocks = vi.hoisted(() => ({ access: vi.fn(), client: vi.fn(), create: vi.fn(), slot: vi.fn(), reserved: vi.fn(), update: vi.fn(), revalidate: vi.fn(), products: vi.fn(), setting: vi.fn() }));
+vi.mock("@/lib/db", () => ({ prisma: { client: { findUniqueOrThrow: mocks.client }, blogPublication: { createMany: mocks.create, findUniqueOrThrow: mocks.slot, findUnique: mocks.reserved, updateMany: mocks.update }, landingProduct: { findMany: mocks.products }, appSetting: { findUnique: mocks.setting } } }));
 vi.mock("@/lib/auth", () => ({ assertClientAccess: mocks.access }));
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidate }));
-import { generateBlogDate } from "@/app/(app)/(creador)/blog/calendario/actions";
+import { generateBlogDate, planBlogWeek } from "@/app/(app)/(creador)/blog/calendario/actions";
 
 function request(day: string, language?: string, brief?: string) {
   const data = new FormData();
@@ -20,6 +20,68 @@ beforeEach(() => {
   mocks.client.mockResolvedValue({ slug: "pcmidi", responsePolicy: "" });
   mocks.create.mockResolvedValue({ count: 1 });
   mocks.slot.mockResolvedValue({ id: "reserved-day" });
+  mocks.products.mockResolvedValue([
+    { externalId: "mp-1", name: "MidiPlus X6", brand: "MidiPlus", categoryKey: "controladores", sourceSnapshot: {} },
+    { externalId: "mp-2", name: "MidiPlus Studio", brand: "MidiPlus", categoryKey: "monitores", sourceSnapshot: {} },
+    { externalId: "kr-1", name: "Kressmer K1", brand: "Kressmer", categoryKey: "controladores", sourceSnapshot: { editorialEligible: false } },
+  ]);
+  mocks.setting.mockResolvedValue({ value: JSON.stringify(["mp-2"]) });
+});
+
+function planned(day: string, fields: Record<string, string | string[]>) {
+  const data = new FormData();
+  data.set("clientId", "pcmidi-id"); data.set("scheduledDate", day); data.set("language", "es");
+  for (const [key, value] of Object.entries(fields)) for (const item of [value].flat()) data.append(key, item);
+  return generateBlogDate({ error: null, queued: false }, data);
+}
+
+describe("plan del día", () => {
+  it("guarda producto, exclusiones y rival; el rival fuerza la comparativa aunque haya consigna", async () => {
+    expect(await planned("2026-10-21", { brief: "Para tocar en vivo", productId: "mp-1", excludedProductIds: ["mp-2"], competitor: " Akai  MPK Mini ", competitorNotes: "Sin soporte local" })).toMatchObject({ queued: true });
+    expect(mocks.create.mock.calls[0][0].data[0].preparation).toEqual({ language: "es", comparison: true, brief: "Para tocar en vivo", productId: "mp-1", excludedProductIds: ["mp-2"], competitor: "Akai MPK Mini", competitorNotes: "Sin soporte local" });
+  });
+  it("no consulta el catálogo sin plan", async () => {
+    await planned("2026-10-21", {});
+    expect(mocks.products).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["un producto excluido siempre", { productId: "mp-2" }, "no se nombran"],
+    ["un producto fuera del catálogo editorial", { productId: "kr-1" }, "catálogo"],
+    ["protagonista también excluido", { productId: "mp-1", excludedProductIds: ["mp-1"] }, "excluido"],
+    ["rival de marca propia", { competitor: "MidiPlus Origin 49" }, "otra marca"],
+    ["notas sin rival", { competitorNotes: "algo" }, "rival"],
+  ])("rechaza %s sin reservar", async (_label, fields, message) => {
+    expect(await planned("2026-10-21", fields)).toMatchObject({ queued: false, error: expect.stringContaining(message) });
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+  it("rechaza rival en días educativos", async () => {
+    expect(await planned("2026-10-22", { competitor: "Akai MPK Mini" })).toMatchObject({ queued: false, error: expect.stringContaining("para elegir") });
+  });
+});
+
+describe("planificar semana", () => {
+  it("reserva cada fila incluida e informa el resultado por día", async () => {
+    mocks.create.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
+    mocks.reserved.mockResolvedValue({ id: "taken", status: "READY", landingId: "landing-1", analysisRunId: null, preparation: null, updatedAt: new Date() });
+    const data = new FormData();
+    data.set("clientId", "pcmidi-id"); data.set("rows", "3");
+    data.set("day0.include", "on"); data.set("day0.scheduledDate", "2026-10-21"); data.set("day0.productId", "mp-1"); data.set("day0.competitor", "Akai MPK Mini");
+    data.set("day1.include", "on"); data.set("day1.scheduledDate", "2026-10-22");
+    data.set("day2.scheduledDate", "2026-10-23");
+    const state = await planBlogWeek({ results: [], error: null }, data);
+    expect(state.results).toEqual([
+      { day: "2026-10-21", queued: true, error: null },
+      { day: "2026-10-22", queued: false, error: expect.stringContaining("ya tiene") },
+    ]);
+    expect(mocks.create).toHaveBeenCalledTimes(2);
+    expect(mocks.products).toHaveBeenCalledTimes(1);
+    expect(mocks.create.mock.calls[0][0].data[0].preparation).toMatchObject({ productId: "mp-1", competitor: "Akai MPK Mini", comparison: true });
+  });
+  it("exige al menos un día", async () => {
+    const data = new FormData();
+    data.set("clientId", "pcmidi-id"); data.set("rows", "1");
+    expect(await planBlogWeek({ results: [], error: null }, data)).toMatchObject({ results: [], error: expect.any(String) });
+  });
 });
 afterEach(() => vi.useRealTimers());
 

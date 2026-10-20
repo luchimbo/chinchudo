@@ -9,6 +9,8 @@ import { BLOG_LANGUAGES, type BlogLanguage } from "@/lib/blog-language";
 import { editorialIntentForDate } from "@/lib/blog-quality.mjs";
 import { calendarHref } from "@/lib/blog-navigation";
 import { BriefField } from "./brief-field";
+import { DayPlanFields, EMPTY_DAY, type DayDraft } from "./day-plan-fields";
+import type { BlogCatalogProduct } from "@/lib/blog-day-plan";
 
 export function PreparationStatus({ preparation, backgroundTracking = false }: { preparation?: unknown; backgroundTracking?: boolean }) {
   const router = useRouter();
@@ -26,12 +28,14 @@ const intentLabel = (day: string) => editorialIntentForDate(day) === "decision" 
  * Pide un artículo para una fecha. En el panel del día la fecha es fija; desde
  * «Nuevo artículo» (`minDate`) se elige y, al terminar, se abre ese día.
  */
-export function GenerateDateForm({ clientId, day, language = "es", comparison, minDate, clientSlug }: { clientId: string; day: string; language?: BlogLanguage; comparison?: boolean; minDate?: string; clientSlug?: string }) {
+export function GenerateDateForm({ clientId, day, language = "es", comparison, minDate, clientSlug, products = [], globalExcluded = [] }: { clientId: string; day: string; language?: BlogLanguage; comparison?: boolean; minDate?: string; clientSlug?: string; products?: BlogCatalogProduct[]; globalExcluded?: string[] }) {
   const router = useRouter();
   const [state, setState] = useState<GenerateDateState>({ error: null, queued: false });
   const [pending, setPending] = useState(false);
   const [date, setDate] = useState(day);
-  const [brief, setBrief] = useState("");
+  const [draft, setDraft] = useState<DayDraft>(EMPTY_DAY);
+  const brief = draft.brief;
+  const setBrief = (value: string) => setDraft(current => ({ ...current, brief: value }));
   const editableDate = minDate !== undefined;
   const decisionDay = /^\d{4}-\d{2}-\d{2}$/.test(date) && editorialIntentForDate(date) === "decision";
   if (state.queued && !editableDate) return <PreparationStatus backgroundTracking />;
@@ -54,11 +58,12 @@ export function GenerateDateForm({ clientId, day, language = "es", comparison, m
       {/^\d{4}-\d{2}-\d{2}$/.test(date) ? <span className="mt-1 block text-xs font-normal text-slate">{intentLabel(date)}</span> : null}
     </label> : <input type="hidden" name="scheduledDate" value={day} />}
     <BriefField value={brief} onChange={setBrief} />
+    <DayPlanFields products={products} globalExcluded={globalExcluded} decisionDay={editableDate ? decisionDay : editorialIntentForDate(day) === "decision"} draft={draft} onChange={next => { setDraft(next); setState({ error: null, queued: false }); }} />
     <label className="block text-sm font-medium text-ink">Idioma del artículo
       <select name="language" defaultValue={language} className="mt-1 block w-full rounded-lg border border-ink/20 bg-paper px-3 py-2">{BLOG_LANGUAGES.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
     </label>
-    {comparison !== undefined && (editableDate ? decisionDay : true) && !brief.trim() ? <label className="flex items-start gap-2 text-sm text-ink"><input type="hidden" name="comparisonOffered" value="1" /><input type="checkbox" name="comparison" defaultChecked={comparison} className="mt-1" /><span>Comparar con un producto de otra marca<span className="block text-xs text-slate">Se elige automáticamente; las ventajas propias salen de las fichas verificadas.</span></span></label> : null}
-    <p className="text-sm text-slate">{brief.trim() ? "Se escribirá sobre tu consigna, con los controles de calidad habituales." : "Se preparará un artículo para este día, con los controles de calidad habituales."}</p>
+    {comparison !== undefined && (editableDate ? decisionDay : true) && !brief.trim() && !draft.competitor.trim() ? <label className="flex items-start gap-2 text-sm text-ink"><input type="hidden" name="comparisonOffered" value="1" /><input type="checkbox" name="comparison" defaultChecked={comparison} className="mt-1" /><span>Comparar con un producto de otra marca<span className="block text-xs text-slate">Se elige automáticamente; las ventajas propias salen de las fichas verificadas.</span></span></label> : null}
+    <p className="text-sm text-slate">{draft.competitor.trim() ? `Se preparará una comparativa con ${draft.competitor.trim()}; queda pendiente de tu aprobación.` : brief.trim() ? "Se escribirá sobre tu consigna, con los controles de calidad habituales." : draft.productId ? "Se preparará un artículo centrado en el producto elegido." : "Se preparará un artículo para este día, con los controles de calidad habituales."}</p>
     <button type="submit" disabled={pending} aria-busy={pending} className="rounded-lg bg-moss px-3 py-2 text-sm font-semibold text-paper disabled:cursor-wait disabled:opacity-60">{pending ? <LoadingMessage>Solicitando…</LoadingMessage> : "Generar artículo"}</button>
     {state.error ? <p role="alert" className="text-sm text-signal">{state.error}</p> : null}
   </form>;

@@ -219,6 +219,7 @@ def upsert_landing(slug: str, keyword: str, html_content: str, **kwargs) -> str:
     import datetime
     schedule_date = kwargs.pop("schedule_date", "")
     schedule_error = kwargs.pop("schedule_error", "")
+    requires_approval = bool(kwargs.pop("requires_approval", False))
     fields = {"slug": slug, "keyword": keyword, "htmlContent": html_content, **kwargs}
     if not fields.get("clientId"):
         raise ValueError("Landing clientId is required")
@@ -239,7 +240,7 @@ def upsert_landing(slug: str, keyword: str, html_content: str, **kwargs) -> str:
     with connect() as conn:
         row = conn.execute(sql, fields).fetchone()
         if schedule_date:
-            _attach_scheduled_landing(conn, fields["clientId"], row["id"], schedule_date, schedule_error)
+            _attach_scheduled_landing(conn, fields["clientId"], row["id"], schedule_date, schedule_error, requires_approval)
     return row["id"]  # type: ignore[index]
 
 
@@ -259,7 +260,7 @@ def update_landing_status(landing_id: str, status: str) -> None:
         )
 
 
-def _attach_scheduled_landing(conn, client_id: str, landing_id: str, scheduled_date: str, error: str = "") -> None:
+def _attach_scheduled_landing(conn, client_id: str, landing_id: str, scheduled_date: str, error: str = "", requires_approval: bool = False) -> None:
     attempt = os.environ.get("BLOG_PREPARATION_ATTEMPT_ID", "")
     # Legacy CLI calls keep their behavior; tracked jobs must still own the attempt.
     guard = ''' AND "preparation"->>'attemptId' = %s AND "preparation"->>'phase' IN ('GENERATING', 'REVIEWING')''' if attempt else ''' AND COALESCE("preparation"->>'phase', 'WAITING') NOT IN ('GENERATING', 'REVIEWING')'''
@@ -267,21 +268,22 @@ def _attach_scheduled_landing(conn, client_id: str, landing_id: str, scheduled_d
         '''UPDATE "BlogPublication"
            SET "landingId" = %s, status = %s::"BlogPublicationStatus", attempts = %s, "lastError" = %s,
                "errorCode" = %s,
+               "requiresApproval" = CASE WHEN %s THEN true ELSE "requiresApproval" END,
                "preparation" = CASE WHEN "preparation" IS NULL THEN NULL ELSE "preparation" || jsonb_build_object('phase', %s::text, 'finishedAt', NOW()) END,
                "updatedAt" = NOW()
            WHERE "clientId" = %s AND "scheduledDate" = %s::date
              AND status IN ('PLANNED', 'FAILED') AND "landingId" IS NULL
            ''' + guard + ''' RETURNING id''',
-        (landing_id, "FAILED" if error else "READY", 3 if error else 0, error, "QUALITY_BLOCKED" if error else "", "FAILED" if error else "DONE", client_id, scheduled_date, *((attempt,) if attempt else ())),
+        (landing_id, "FAILED" if error else "READY", 3 if error else 0, error, "QUALITY_BLOCKED" if error else "", requires_approval, "FAILED" if error else "DONE", client_id, scheduled_date, *((attempt,) if attempt else ())),
     ).fetchone()
     if not row:
         raise RuntimeError(f"No hay un día libre reservado para {scheduled_date}")
 
 
-def attach_scheduled_landing(client_id: str, landing_id: str, scheduled_date: str) -> None:
+def attach_scheduled_landing(client_id: str, landing_id: str, scheduled_date: str, requires_approval: bool = False) -> None:
     """Vincula un borrador al día reservado por el calendario editorial."""
     with connect() as conn:
-        _attach_scheduled_landing(conn, client_id, landing_id, scheduled_date)
+        _attach_scheduled_landing(conn, client_id, landing_id, scheduled_date, requires_approval=requires_approval)
 
 
 def load_editorial_sources(client_id: str) -> list[dict]:
@@ -306,6 +308,22 @@ def load_blog_exclusions(client_id: str) -> list[str]:
     try:
         values = json.loads(row["value"])
         return [str(value).strip().lower() for value in values if str(value).strip()] if isinstance(values, list) else []
+    except (TypeError, ValueError):
+        return []
+
+
+def load_blog_excluded_products(client_id: str) -> list[str]:
+    """externalIds de LandingProduct que el blog no debe mencionar."""
+    with connect() as conn:
+        row = conn.execute(
+            'SELECT value FROM "AppSetting" WHERE key = %s',
+            (f"blog_excluded_products:{client_id}",),
+        ).fetchone()
+    if not row:
+        return []
+    try:
+        values = json.loads(row["value"])
+        return [str(value).strip() for value in values if str(value).strip()] if isinstance(values, list) else []
     except (TypeError, ValueError):
         return []
 

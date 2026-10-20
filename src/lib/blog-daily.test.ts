@@ -325,6 +325,30 @@ describe("rutina diaria del blog", () => {
     expect(args).not.toContain("--comparison");
     expect(preparationDuringRun).toMatchObject({ brief: "Cómo elegir auriculares para mezclar", comparison: false });
   });
+  it("pasa producto, exclusiones y rival del plan, y deja la comparativa para aprobar", async () => {
+    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: false });
+    rows.push({ id: "plan", clientId: "c1", landingId: null, scheduledDate: new Date("2026-10-21T00:00:00Z"), status: "PLANNED", attempts: 0, updatedAt: clock, preparation: { language: "es", comparison: false, brief: "Para producir en vivo", productId: "mp-1", excludedProductIds: ["mp-2", "mp-3"], competitor: "Akai MPK Mini", competitorNotes: "Sin soporte local" } });
+    let preparationDuringRun: Row | undefined;
+    const runBlogPython = vi.fn(async (args: string[]) => { if (args[0] === "generate") { preparationDuringRun = row("2026-10-21").preparation; addReady("2026-10-21"); } });
+    const { daily } = build({ runBlogPython, targetClientSlug: "any-brand" });
+    await daily.runDailyBlogCalendar();
+    const args = runBlogPython.mock.calls[0][0];
+    expect(args).toContain("--comparison");
+    expect(args[args.indexOf("--product-id") + 1]).toBe("mp-1");
+    expect(args[args.indexOf("--exclude-products") + 1]).toBe("mp-2,mp-3");
+    expect(args[args.indexOf("--competitor") + 1]).toBe("Akai MPK Mini");
+    expect(args[args.indexOf("--competitor-notes") + 1]).toBe("Sin soporte local");
+    expect(preparationDuringRun).toMatchObject({ productId: "mp-1", competitor: "Akai MPK Mini", comparison: true });
+    expect(row("2026-10-21")).toMatchObject({ status: "READY", requiresApproval: true });
+  });
+  it("no aprueba sola una comparativa con rival elegido", async () => {
+    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: true, autoApprove: true, publishTime: "23:59" });
+    addReady("2026-10-21");
+    Object.assign(row("2026-10-21"), { requiresApproval: true, preparation: { competitor: "Akai MPK Mini" } });
+    const { daily } = build({ runBlogPython: vi.fn(), targetClientSlug: "any-brand" });
+    await daily.runDailyBlogCalendar();
+    expect(row("2026-10-21").requiresApproval).toBe(true);
+  });
   it("no pide comparativa en días educativos", async () => {
     settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: false });
     rows.push({ id: "educational", clientId: "c1", landingId: null, scheduledDate: new Date("2026-10-20T00:00:00Z"), status: "PLANNED", attempts: 0, updatedAt: clock, preparation: { language: "es", comparison: true } });
