@@ -13,7 +13,7 @@ const STATUS_LABELS: Record<string, string> = {
   APPROVED: "Lista para publicar",
   PREVIEW_ONLINE: "Preview online",
   PUBLISHED: "Publicada",
-  ARCHIVED: "Archivada",
+  ARCHIVED: "Eliminada",
 };
 
 const STATUS_CLASS: Record<string, string> = {
@@ -40,7 +40,7 @@ export default async function LandingsPage({
 }: {
   searchParams: { status?: string; client?: string };
 }) {
-  const { status = "PREVIEW_ONLINE", client: clientSlug } = searchParams;
+  const { status = "DRAFT", client: clientSlug } = searchParams;
   const activeClient = await requirePageClient(prisma, clientSlug);
 
   const clientFilter = { clientId: activeClient.id };
@@ -90,14 +90,12 @@ export default async function LandingsPage({
   const linkCandidates: LinkCandidate[] = candidates.map((item) => ({ id: item.id, title: item.titulo || item.slug, clusterName: item.contentCluster?.name ?? "Sin cluster" }));
 
   const countMap = Object.fromEntries(counts.map((c) => [c.status, c._count.id]));
-  const readyCount = (countMap.APPROVED || 0) + (countMap.PREVIEW_ONLINE || 0);
   const clientParam = `&client=${activeClient.slug}`;
 
   const tabs = [
     { status: "DRAFT", label: "Borradores" },
-    { status: "PREVIEW_ONLINE", label: "Listas para publicar" },
     { status: "PUBLISHED", label: "Publicadas" },
-    { status: "ARCHIVED", label: "Archivadas" },
+    { status: "ARCHIVED", label: "Eliminadas" },
   ];
 
   const dbBlogBase = activeClient.blogBaseUrl || "";
@@ -127,8 +125,8 @@ export default async function LandingsPage({
             }`}
           >
             {tab.label}
-            {(tab.status === "PREVIEW_ONLINE" ? readyCount : countMap[tab.status]) ? (
-              <span className="ml-2 rounded-full bg-ink/10 px-2 py-0.5 text-xs">{tab.status === "PREVIEW_ONLINE" ? readyCount : countMap[tab.status]}</span>
+            {countMap[tab.status] ? (
+              <span className="ml-2 rounded-full bg-ink/10 px-2 py-0.5 text-xs">{countMap[tab.status]}</span>
             ) : null}
           </Link>
         ))}
