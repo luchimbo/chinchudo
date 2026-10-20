@@ -7,7 +7,7 @@ import { notifyPublicationStarted } from "@/lib/blog-publications";
 import { LoadingMessage } from "@/components/loading-ui";
 import { PendingNavigationLink as Link } from "@/components/pending-navigation-link";
 
-export function PublishArticleButton({ id, publishing, title = "Artículo del blog", client, retry = false, revision = false }: { id: string; publishing: boolean; title?: string; client?: string; retry?: boolean; revision?: boolean }) {
+export function PublishArticleButton({ id, publishing, title = "Artículo del blog", client, retry = false, revision = false, confirmMessage }: { id: string; publishing: boolean; title?: string; client?: string; retry?: boolean; revision?: boolean; confirmMessage?: string }) {
   const params = useSearchParams();
   const clientSlug = client || params.get("client") || "";
   const [pending, setPending] = useState(false);
@@ -19,6 +19,7 @@ export function PublishArticleButton({ id, publishing, title = "Artículo del bl
     <button type="button" disabled={pending || publishing || accepted} aria-busy={pending || publishing || accepted}
       className="w-full rounded-lg bg-moss px-2 py-1.5 text-[11px] font-semibold text-white transition hover:bg-moss/90 disabled:cursor-wait disabled:opacity-60"
       onClick={async () => {
+        if (confirmMessage && !window.confirm(confirmMessage)) return;
         setPending(true);
         setError("");
         setConnectionError(false);

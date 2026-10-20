@@ -128,6 +128,35 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
     if (result === null) throw new Error("El blog está ocupado. Reintentá en unos minutos.");
   }
 
+  // Un artículo publicado antes de su fecha pasa a ocupar hoy; lo que estaba para hoy se reubica
+  // en el próximo día libre con la misma intención editorial (la paridad del día la define).
+  async function adoptToday(client, slot, day) {
+    const today = argentinaNow().date;
+    if (day <= today) return;
+    const upcoming = await prisma.blogPublication.findMany({ where: { clientId: client.id, scheduledDate: { gte: dateValue(today) } } });
+    const byDate = new Map(upcoming.map((entry) => [entry.scheduledDate.toISOString().slice(0, 10), entry]));
+    const current = byDate.get(today);
+    // Si hoy ya salió otro artículo, este conserva su fecha: un solo artículo por día.
+    if (current && ["PUBLISHING", "PUBLISHED"].includes(current.status)) return;
+    let displacedTo = null;
+    if (current) {
+      let candidate = shiftDate(today, 2);
+      for (let i = 0; i < 90 && byDate.get(candidate) && (byDate.get(candidate).landingId || byDate.get(candidate).status !== "PLANNED"); i++) candidate = shiftDate(candidate, 2);
+      displacedTo = candidate;
+    }
+    const preparation = slot.preparation && typeof slot.preparation === "object" && !Array.isArray(slot.preparation) ? slot.preparation : {};
+    await prisma.$transaction(async (tx) => {
+      if (current) {
+        const occupant = byDate.get(displacedTo);
+        if (occupant) await tx.blogPublication.deleteMany({ where: { id: occupant.id, landingId: null, status: "PLANNED" } });
+        await tx.blogPublication.update({ where: { id: current.id }, data: { scheduledDate: dateValue(displacedTo) } });
+      }
+      await tx.blogPublication.update({ where: { id: slot.id }, data: { scheduledDate: dateValue(today), preparation: { ...preparation, publishedEarly: { from: day, displacedTo, displacedId: current?.id || null } } } });
+      await tx.blogPublication.createMany({ data: [{ clientId: client.id, scheduledDate: dateValue(day), preparation: { phase: "WAITING" } }], skipDuplicates: true });
+    });
+    log.log(`[blog] Artículo publicado antes de fecha: pasó del ${day} a hoy${displacedTo ? `; el de hoy se movió al ${displacedTo}` : ""}.`);
+  }
+
   async function publishClaimedArticle(client, slot) {
     let landing;
     try {
@@ -146,6 +175,8 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
       const url = await deployVerified(client, landing, content);
       await prisma.blogPublication.update({ where: { id: slot.id }, data: { status: "PUBLISHED", publishedAt: now(), lastError: "", errorCode: "" } });
       log.log(`[blog] Artículo publicado: ${url}`);
+      // La publicación ya salió: un fallo al reubicar fechas no debe marcarla como fallida.
+      try { await adoptToday(client, slot, day); } catch (error) { log.error("[blog] No se pudo mover el artículo publicado a hoy:", error); }
     } catch (error) {
       if (landing) await restorePrivateDraft(landing);
       await prisma.blogPublication.update({ where: { id: slot.id }, data: { status: "FAILED", lastError: String(error).slice(-1000), errorCode: ["DATE_INCOMPATIBLE", "QUALITY_BLOCKED", "CONNECTION"].includes(error.code) ? error.code : "DEPLOYMENT_FAILED" } });

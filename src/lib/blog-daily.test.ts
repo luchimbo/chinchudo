@@ -77,6 +77,14 @@ const prisma = {
       found.forEach((item) => apply(item, data));
       return { count: found.length };
     },
+    deleteMany: async ({ where }: any) => {
+      const found = rows.filter((item) => matches(item, where));
+      found.forEach((item) => rows.splice(rows.indexOf(item), 1));
+      return { count: found.length };
+    },
+    createMany: async ({ data }: any) => {
+      for (const create of data) if (!rows.some((item) => item.scheduledDate.getTime() === create.scheduledDate.getTime())) rows.push({ id: `p${seq++}`, landingId: null, status: "PLANNED", attempts: 0, needsDeploy: false, revisionAttempts: 0, lastError: "", updatedAt: new Date(clock.getTime()), ...create });
+    },
     upsert: async ({ where, create }: any) => {
       const time = where.clientId_scheduledDate.scheduledDate.getTime();
       if (rows.some((item) => item.scheduledDate.getTime() === time)) return;
@@ -166,16 +174,40 @@ describe("rutina diaria del blog", () => {
     expect(inspect).not.toHaveBeenCalled(); expect(row("2026-10-02").requiresApproval).toBe(true);
   });
 
-  it("publica a pedido una fecha futura con la automatización apagada y conserva su fecha", async () => {
+  it("publica a pedido una fecha futura con la automatización apagada y pasa a ocupar hoy", async () => {
     settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: false });
     addReady("2026-10-20");
     const { daily, runBlogPython, fetchUrl } = build();
     const accepted = vi.fn(() => expect(row("2026-10-20").status).toBe("PUBLISHING"));
     await daily.publishBlogArticle(manualInput("2026-10-20"), accepted);
     expect(accepted).toHaveBeenCalledOnce();
-    expect(row("2026-10-20")).toMatchObject({ status: "PUBLISHED", scheduledDate: new Date("2026-10-20T00:00:00Z") });
+    expect(row("2026-10-01")).toMatchObject({ status: "PUBLISHED", landingId: "l-2026-10-20", preparation: { publishedEarly: { from: "2026-10-20", displacedTo: null } } });
+    expect(row("2026-10-20")).toMatchObject({ status: "PLANNED", landingId: null });
     expect(deploys(runBlogPython)).toBe(1);
     expect(fetchUrl).toHaveBeenCalledOnce();
+  });
+
+  it("al publicar antes de fecha reubica el artículo de hoy en el próximo día libre de su misma intención", async () => {
+    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: false });
+    addReady("2026-10-01"); addReady("2026-10-04");
+    rows.push({ id: "plan-3", clientId: "c1", landingId: null, scheduledDate: new Date("2026-10-03T00:00:00Z"), status: "PLANNED", attempts: 0, updatedAt: new Date(clock.getTime()) });
+    const { daily } = build();
+    await daily.publishBlogArticle(manualInput("2026-10-04"));
+    const early = rows.find((item) => item.landingId === "l-2026-10-04")!;
+    expect(early).toMatchObject({ status: "PUBLISHED", scheduledDate: new Date("2026-10-01T00:00:00Z"), preparation: { publishedEarly: { from: "2026-10-04", displacedTo: "2026-10-03" } } });
+    const displaced = rows.find((item) => item.landingId === "l-2026-10-01")!;
+    expect(displaced).toMatchObject({ status: "READY", scheduledDate: new Date("2026-10-03T00:00:00Z") });
+    expect(editorialIntentForDate("2026-10-03")).toBe(editorialIntentForDate("2026-10-01"));
+    expect(rows.filter((item) => item.scheduledDate.toISOString().startsWith("2026-10-03"))).toHaveLength(1);
+  });
+
+  it("si hoy ya salió otro artículo, el publicado antes de fecha conserva su fecha", async () => {
+    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: false });
+    addReady("2026-10-01"); row("2026-10-01").status = "PUBLISHED"; addReady("2026-10-04");
+    const { daily } = build();
+    await daily.publishBlogArticle(manualInput("2026-10-04"));
+    expect(row("2026-10-04")).toMatchObject({ status: "PUBLISHED", landingId: "l-2026-10-04" });
+    expect(row("2026-10-01")).toMatchObject({ status: "PUBLISHED", landingId: "l-2026-10-01" });
   });
 
   it("la publicación manual exige aprobación y respeta el cliente", async () => {
