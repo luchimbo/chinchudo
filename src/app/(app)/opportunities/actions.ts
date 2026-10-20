@@ -922,7 +922,7 @@ export async function approveAndPublishResponse(formData: FormData) {
   if (!rateLimit.ok) {
     const msg = rateLimit.error === "rate_limited_daily"
       ? "Límite diario alcanzado para esta cuenta."
-      : `Esperá ${rateLimit.retryAfterSec ? Math.ceil(rateLimit.retryAfterSec / 60) : "unos minutos"} antes de publicar.`;
+      : `Esperá ${rateLimit.retryAfterSec ? `${rateLimit.retryAfterSec} s` : "unos segundos"} antes de publicar.`;
     throw new Error(msg);
   }
 
