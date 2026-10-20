@@ -350,7 +350,10 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
         for (const slot of pending) {
           // Los datos del rival los escribe la IA: siempre los revisa una persona.
           if (dayPlanArgs(slot.preparation).competitor) continue;
-          try { await autoApproveArticle(client, slot); }
+          try {
+            if (JSON.parse(slot.landing.htmlContent || "{}").comparison?.mode === "priority") continue;
+            await autoApproveArticle(client, slot);
+          }
           catch (error) {
             await prisma.blogPublication.updateMany({ where: { id: slot.id, clientId: client.id, updatedAt: slot.updatedAt, requiresApproval: true, status: slot.status, landing: { updatedAt: slot.landing.updatedAt } }, data: { status: "FAILED", attempts: 3, lastError: String(error.message || error).slice(0, 1000) } });
             log.error("[blog] No se pudo revisar el borrador:", error);

@@ -49,13 +49,18 @@ async function tick() {
   ticking = true;
   try {
     const clients = await db.client.findMany({ where: { active: true }, select: { id: true, slug: true, responsePolicy: true } });
-    for (const client of clients) if (client.responsePolicy?.blog?.calendar === true) await worker(client).runDailyBlogCalendar();
+    for (const client of clients) {
+      if (client.responsePolicy?.blog?.calendar !== true) continue;
+      // PC MIDI ya corre en el relay principal; este servicio atiende los otros calendarios.
+      if (secondaryCalendars && client.slug === "pcmidi") continue;
+      await worker(client).runDailyBlogCalendar();
+    }
   } catch (error) { console.error("[blog-runtime]", error.message); }
   finally { ticking = false; }
 }
 
 const server = http.createServer(async (req, res) => {
-  if (req.method === "GET" && (req.url === "/health" || req.url === "/blog/health")) return json(res, 200, { ok: true, blogRuntimeVersion: 1, previewOnly: process.argv.includes("--preview-only"), blogCode: blogCodeStatus() });
+  if (req.method === "GET" && (req.url === "/health" || req.url === "/blog/health")) return json(res, 200, { ok: true, blogRuntimeVersion: 1, previewOnly, secondaryCalendars, blogCode: blogCodeStatus() });
   if (req.headers.authorization !== `Bearer ${token}`) return json(res, 401, { error: "unauthorized" });
   try {
     let text = "";
@@ -121,6 +126,8 @@ const watchdog = setInterval(async () => {
   } finally { checkingTunnel = false; }
 }, 60_000);
 const previewOnly = process.argv.includes("--preview-only");
+const secondaryCalendars = process.argv.includes("--secondary-calendars");
+if (previewOnly && secondaryCalendars) throw new Error("Elegí un solo modo del servicio del blog.");
 const timer = previewOnly ? undefined : setInterval(tick, 15000);
 server.listen(port, "127.0.0.1", () => { console.log(`Shared blog runtime on ${port}.`); startTunnel(); if (!previewOnly) void tick(); });
 for (const event of ["SIGINT", "SIGTERM"]) process.on(event, () => { stopping = true; clearInterval(timer); clearInterval(watchdog); clearTimeout(restart); tunnel?.kill(); server.close(); void db.$disconnect().finally(() => process.exit(0)); });

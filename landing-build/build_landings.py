@@ -1476,7 +1476,7 @@ def apply_editorial_metadata(topic: dict, landing: dict, cluster: dict | None) -
     focus_id = comparison["product_id"] if comparison else topic.get("focus_product_id")
     if comparison:
         landing["comparison"] = dict(comparison)
-        if comparison.get("mode") == "free":
+        if comparison.get("mode") in ("free", "priority"):
             landing["requires_manual_approval"] = True
     if focus_id:
         ids = [pid for pid in landing.get("product_ids") or [] if pid != focus_id]
@@ -1566,12 +1566,28 @@ COMPETITOR_HEARSAY_RE = re.compile(
 )
 
 
-def choose_comparison(categories: dict[str, dict], products: dict[str, dict], existing: list[dict], model: str) -> dict | None:
+def choose_comparison(categories: dict[str, dict], products: dict[str, dict], existing: list[dict], model: str, priority_competitors: list[str] | None = None) -> dict | None:
     """Elige automáticamente un producto propio y uno de otra marca que una
     persona compararía antes de comprar. Rota competidores ya usados."""
     if not products:
         return None
     own_brands = {client_name().lower(), *(str(p.get("marca") or "").strip().lower() for p in products.values())} - {""}
+    priority_competitors = [name for name in (priority_competitors or []) if not any(brand in name.casefold() for brand in own_brands)]
+    if priority_competitors:
+        used = [str((item.get("comparison") or {}).get("competitor") or "").casefold() for item in existing]
+        # El rival menos usado tiene prioridad; el orden guardado desempata.
+        rival = min(priority_competitors, key=lambda name: used.count(name.casefold()))
+        candidate = pick_product_for_competitor(rival, categories, products)
+        catalog = [{"id": pid, "name": p.get("nombre"), "description": str(p.get("descripcion") or p.get("uso") or "")[:250]} for pid, p in list(products.items())[:40]]
+        try:
+            selected = chat_json("Elegí solo el producto propio más comparable con el rival indicado. No inventes productos ni datos técnicos. Devolvé JSON con product_id.", json.dumps({"rival": rival, "catalogo_propio": catalog}, ensure_ascii=False), model=model, temperature=0.1)
+            if str(selected.get("product_id") or "") in products:
+                candidate = selected["product_id"]
+        except Exception as exc:
+            print(f"[build_landings] No se pudo elegir producto propio para {rival}: {exc}")
+        if not candidate:
+            return None
+        return {"product_id": candidate, "competitor": rival, "competitor_brand": rival.split(" ")[0][:30], "mode": "priority"}
     catalog = [
         {"id": pid, "nombre": p.get("nombre"), "categoria": (categories.get(p.get("categoria_id")) or {}).get("nombre", ""), "descripcion": str(p.get("descripcion") or p.get("uso") or "")[:200]}
         for pid, p in list(products.items())[:40]
@@ -2552,8 +2568,10 @@ def apply_day_plan_checks(landing: dict, topic: dict) -> dict:
         if named:
             checks.append({"id": "excluded-product", "group": "Catálogo", "level": "error", "message": "Nombra productos excluidos del blog: " + ", ".join(dict.fromkeys(named)) + ". Sacalos del texto."})
             quality["publishable"] = False
-    if (landing.get("comparison") or {}).get("mode") == "free":
-        checks.append({"id": "competitor-claims", "group": "Comparativa", "level": "warning", "message": "Datos del rival escritos por la IA: verificalos antes de publicar."})
+    comparison_mode = (landing.get("comparison") or {}).get("mode")
+    if comparison_mode in ("free", "priority"):
+        message = "Datos del rival escritos por la IA: verificalos antes de publicar." if comparison_mode == "free" else "Comparativa con un rival prioritario: verificá el contenido antes de publicar."
+        checks.append({"id": "competitor-claims", "group": "Comparativa", "level": "warning", "message": message})
         landing["requires_manual_approval"] = True
     return landing
 
@@ -2590,6 +2608,13 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
     if product_id and not focus_id:
         print(f"[build_landings] El producto {product_id!r} no está disponible (excluido o fuera del catálogo); se ignora.")
     excluded_names = excluded_product_names(excluded_products, products, competitor)
+    priority_competitors = []
+    if _CLIENT_CONFIG.get("id") and os.environ.get("DATABASE_URL"):
+        try:
+            from db_pg import load_blog_priority_competitors  # type: ignore
+            priority_competitors = load_blog_priority_competitors(str(_CLIENT_CONFIG["id"]))
+        except Exception as exc:
+            print(f"[build_landings] No se pudieron leer rivales prioritarios: {exc}")
     existing = load_landings(include_drafts=True) if schedule_date else load_landings()
     existing_slugs = {item.get("slug") for item in existing}
     existing_keywords = {topic_key_from_record(item) for item in existing}
@@ -2649,7 +2674,7 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
         curated = [t for t in seeds if t.get("intencion") in ("educational", "decision") and t.get("intencion") == scheduled_intent]
         topics = curated + pillar_topics + balance_topics_by_source([t for t in seeds if t.get("intencion") not in ("educational", "decision")])
         if _GENERATION_COMPARISON and scheduled_intent == "decision" and editorial_mode:
-            choice = choose_comparison(categories, products, existing, model)
+            choice = choose_comparison(categories, products, existing, model, priority_competitors)
             comparison = comparison_topic(choice, categories, products, clusters, pillar_slugs) if choice else None
             if comparison:
                 topics = [comparison, *topics]

@@ -9,6 +9,8 @@ export const COMPETITOR_MAX = 60;
 export const COMPETITOR_NOTES_MAX = 300;
 export const MAX_DAY_EXCLUSIONS = 30;
 export const excludedProductsKey = (clientId: string) => `blog_excluded_products:${clientId}`;
+export const priorityCompetitorsKey = (clientId: string) => `blog_priority_competitors:${clientId}`;
+export const MAX_PRIORITY_COMPETITORS = 30;
 
 const clean = (value: unknown, max: number) => typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, max + 1) : "";
 
@@ -28,6 +30,23 @@ export function parseExcludedList(value: string | null | undefined): string[] {
   try {
     const parsed = JSON.parse(value || "[]");
     return Array.isArray(parsed) ? [...new Set(parsed.filter((id): id is string => typeof id === "string" && !!id))] : [];
+  } catch { return []; }
+}
+
+/** Modelos rivales indicados por el equipo para las comparativas automáticas. */
+export function parsePriorityCompetitors(value: string | null | undefined): string[] {
+  try {
+    const parsed: unknown = JSON.parse(value || "[]");
+    if (!Array.isArray(parsed)) return [];
+    const seen = new Set<string>();
+    return parsed.filter((item): item is string => typeof item === "string")
+      .map(item => item.replace(/\s+/g, " ").trim())
+      .filter(item => {
+        const key = item.toLocaleLowerCase();
+        if (!item || item.length > COMPETITOR_MAX || seen.has(key) || seen.size >= MAX_PRIORITY_COMPETITORS) return false;
+        seen.add(key);
+        return true;
+      });
   } catch { return []; }
 }
 

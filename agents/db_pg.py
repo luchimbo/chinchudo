@@ -328,6 +328,33 @@ def load_blog_excluded_products(client_id: str) -> list[str]:
         return []
 
 
+def load_blog_priority_competitors(client_id: str) -> list[str]:
+    """Rivales investigados y aprobados para las comparativas automáticas."""
+    with connect() as conn:
+        row = conn.execute(
+            'SELECT value FROM "AppSetting" WHERE key = %s',
+            (f"blog_priority_competitors:{client_id}",),
+        ).fetchone()
+    if not row:
+        return []
+    try:
+        values = json.loads(row["value"])
+        if not isinstance(values, list):
+            return []
+        seen = set()
+        result = []
+        for value in values:
+            if not isinstance(value, str):
+                continue
+            name = " ".join(value.split())[:60]
+            if name and name.casefold() not in seen:
+                seen.add(name.casefold())
+                result.append(name)
+        return result[:30]
+    except (TypeError, ValueError):
+        return []
+
+
 # ─── Blog editorial / enlaces internos ──────────────────────────────────────
 
 def list_content_clusters(client_slug: str) -> list[dict]:

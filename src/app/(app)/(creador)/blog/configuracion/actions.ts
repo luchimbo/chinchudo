@@ -7,7 +7,8 @@ import { assertClientAccess } from "@/lib/auth";
 import { getSetting, setSetting } from "@/lib/settings";
 import { argentinaDate, shiftDate } from "@/lib/blog-calendar";
 import { editorialCalendarEnabled } from "@/lib/blog-language";
-import { excludedProductsKey, loadBlogCatalog } from "@/lib/blog-day-plan";
+import { COMPETITOR_MAX, excludedProductsKey, loadBlogCatalog, MAX_PRIORITY_COMPETITORS, priorityCompetitorsKey } from "@/lib/blog-day-plan";
+import { researchBlogCompetitors } from "@/lib/blog-competitor-research";
 
 function str(fd: FormData, key: string) {
   return String(fd.get(key) ?? "").trim();
@@ -70,6 +71,37 @@ export async function updateExcludedProducts(formData: FormData) {
   const known = new Set(products.map(product => product.id));
   const excluded = [...new Set(formData.getAll("excludedProductIds").map(String).filter(value => known.has(value)))];
   await setSetting(excludedProductsKey(id), JSON.stringify(excluded));
+  revalidatePath("/blog/configuracion");
+  revalidatePath("/blog/calendario");
+}
+
+export async function updatePriorityCompetitors(formData: FormData) {
+  const id = z.string().min(1).parse(formData.get("id"));
+  await assertClientAccess(prisma, id);
+  const raw = z.string().max(5000).parse(formData.get("competitors") ?? "");
+  const names = raw.split(/\r?\n/).map(value => value.replace(/\s+/g, " ").trim()).filter(Boolean);
+  if (names.length > MAX_PRIORITY_COMPETITORS || names.some(name => name.length > COMPETITOR_MAX)) throw new Error(`Ingresá hasta ${MAX_PRIORITY_COMPETITORS} rivales de ${COMPETITOR_MAX} caracteres cada uno.`);
+  const { products } = await loadBlogCatalog(prisma, id);
+  const ownBrands = [...new Set(products.map(product => product.brand.toLocaleLowerCase()).filter(Boolean))];
+  if (names.some(name => ownBrands.some(brand => name.toLocaleLowerCase().includes(brand)))) throw new Error("Los rivales deben ser de marcas ajenas al catálogo propio.");
+  const unique = [...new Map(names.map(name => [name.toLocaleLowerCase(), name])).values()];
+  await setSetting(priorityCompetitorsKey(id), JSON.stringify(unique));
+  revalidatePath("/blog/configuracion");
+  revalidatePath("/blog/calendario");
+}
+
+export async function discoverPriorityCompetitors(formData: FormData) {
+  const id = z.string().min(1).parse(formData.get("id"));
+  await assertClientAccess(prisma, id);
+  const client = await prisma.client.findUniqueOrThrow({ where: { id }, select: { name: true, openrouterApiKey: true, openrouterModel: true } });
+  const products = await prisma.landingProduct.findMany({ where: { clientId: id, linkStatus: { not: "missing" } }, select: { name: true, model: true, useText: true }, take: 30 });
+  if (!products.length) throw new Error("Cargá el catálogo propio antes de investigar rivales.");
+  const result = await researchBlogCompetitors(client, products.map(item => ({ name: item.name, model: item.model, description: item.useText.slice(0, 400) })));
+  const listKey = priorityCompetitorsKey(id), researchKey = `blog_priority_competitor_research:${id}`;
+  await prisma.$transaction([
+    prisma.appSetting.upsert({ where: { key: listKey }, create: { key: listKey, value: JSON.stringify(result.competitors.map(item => item.name)) }, update: { value: JSON.stringify(result.competitors.map(item => item.name)) } }),
+    prisma.appSetting.upsert({ where: { key: researchKey }, create: { key: researchKey, value: JSON.stringify({ at: new Date().toISOString(), model: result.model, sources: result.competitors }) }, update: { value: JSON.stringify({ at: new Date().toISOString(), model: result.model, sources: result.competitors }) } }),
+  ]);
   revalidatePath("/blog/configuracion");
   revalidatePath("/blog/calendario");
 }

@@ -152,6 +152,23 @@ def test_competitor_without_product_picks_one_without_ai(scheduled, monkeypatch)
     assert len(prompts) >= 1 and saved[0][0]["comparison"]["product_id"] in {"minilab-3", "keystation-49"}
 
 
+def test_priority_competitors_are_selected_and_require_review(scheduled, monkeypatch):
+    prompts, saved, _ = scheduled
+    monkeypatch.setattr(sys.modules["db_pg"], "load_blog_priority_competitors", lambda client_id: ["Roland FP-10", "Yamaha P-225"], raising=False)
+    monkeypatch.setattr(bl, "_GENERATION_COMPARISON", True)
+    bl.generate_landings(limit=1, model="test", schedule_date="2026-10-01", intent="decision")
+    assert saved[0][0]["comparison"]["competitor"] == "Roland FP-10"
+    assert saved[0][0]["comparison"]["mode"] == "priority"
+    assert saved[0][0]["requires_manual_approval"] is True
+    assert "COMPARATIVA:" in prompts[-1][0]
+    assert "COMPARATIVA ELEGIDA POR EL EQUIPO" not in prompts[-1][0]
+    prior = [{"comparison": {"competitor": "Roland FP-10"}}]
+    choice = bl.choose_comparison(CATEGORIES, {"minilab-3": PRODUCTS["minilab-3"]}, prior, "test", ["Roland FP-10", "Yamaha P-225"])
+    assert choice == {"product_id": "minilab-3", "competitor": "Yamaha P-225", "competitor_brand": "Yamaha", "mode": "priority"}
+    landing = bl.apply_editorial_metadata({"comparison": choice}, {"product_ids": []}, CLUSTERS[0])
+    assert landing["requires_manual_approval"] is True
+
+
 def test_excluded_product_named_in_text_is_an_error():
     topic = {"_excluded_names": bl.excluded_product_names({"launchpad-x": PRODUCTS["launchpad-x"]}, {"minilab-3": PRODUCTS["minilab-3"]}), "_excluded_ids": ["launchpad-x"]}
     clean = bl.apply_day_plan_checks({"sections": [{"h2": "a", "body": "El [[p:minilab-3]] alcanza."}]}, topic)
