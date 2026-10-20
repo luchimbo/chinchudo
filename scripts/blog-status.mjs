@@ -8,7 +8,8 @@ import { blogCodeStatus } from "./blog-code-version.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const deployRoot = process.env.BLOG_DEPLOY_WORKTREE || "C:/Users/PC Midi/.codex/worktrees/kressmer-blog/pcmidi-suite";
-const sha = (path) => createHash("sha1").update(readFileSync(path)).digest("hex");
+// Git normaliza los fines de línea: CRLF y LF del mismo archivo no cuentan como diferencia.
+const sha = (path) => createHash("sha1").update(readFileSync(path, "utf8").replaceAll("\r", "")).digest("hex");
 
 async function health(name, url) {
   try {
