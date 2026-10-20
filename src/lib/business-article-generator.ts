@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import type { Client, PrismaClient } from "@prisma/client";
 import { fetchChatCompletion, resolveLLMConfig } from "./llm-provider";
-import { editorialIntentForDate } from "./blog-quality.mjs";
+import { intentForSlot } from "./blog-intent.mjs";
 import { inspectBlogArticle } from "./blog-evidence";
 import { completeBlogArticle } from "./complete-blog-article";
 import { jsonData } from "./business-analysis-service";
@@ -57,7 +57,7 @@ export async function generatePrivateBusinessArticle(db: PrismaClient, client: C
   ]);
   const prompt = await readFile(join(process.cwd(), "prompts", "business-article-v1.txt"), "utf8");
   const generated = await businessJson(client, prompt, {
-    topic, editorial_intent: editorialIntentForDate(slot.scheduledDate.toISOString().slice(0, 10)), name: client.name, description: profile.draft.description, audience: profile.draft.targetAudience,
+    topic, editorial_intent: intentForSlot(slot), name: client.name, description: profile.draft.description, audience: profile.draft.targetAudience,
     market: profile.market, exclusions: profile.exclusions, differentiators: profile.differentiators,
     offerings: profile.draft.offerings.filter(o => o.selected).map(o => ({ name: o.name, kind: o.kind, category: o.category, description: o.description, specs: o.specs, url: o.url, evidence: o.evidence })),
     catalog: catalog.map(c => ({ id: c.key, name: c.name })),
@@ -68,7 +68,7 @@ export async function generatePrivateBusinessArticle(db: PrismaClient, client: C
   const slug = `analisis-${slot.analysisRunId}-${slot.scheduledDate.toISOString().slice(0, 10)}`;
   const rawContent = {
     ...generated, slug, keyword: topic.keyword, titulo: generated.h1, intro: generated.direct_answer, hero_lede: generated.direct_answer,
-    editorial_intent: editorialIntentForDate(slot.scheduledDate.toISOString().slice(0, 10)), content_type: "GUIDE", indexing_state: "INDEX", author_name: `Equipo ${client.name}`,
+    editorial_intent: intentForSlot(slot), content_type: "GUIDE", indexing_state: "INDEX", author_name: `Equipo ${client.name}`,
     primary_category_id: category?.key || "", secondary_category_ids: [], product_ids: [],
     components: [], steps: [], source_refs: [], research_source_urls: topic.sourceUrls,
     generation_mode: "private-draft", analysis_run_id: slot.analysisRunId,

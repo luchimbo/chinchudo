@@ -4,7 +4,7 @@ import { recoverMissedBlogArticles } from "./blog-recovery.mjs";
 import { withBlogLease } from "./blog-lease.mjs";
 import { argentinaDate, shiftDate, dateOnly } from "../src/lib/blog-calendar";
 import { inspectBlogArticle } from "../src/lib/blog-evidence";
-import { editorialIntentForDate } from "../src/lib/blog-quality.mjs";
+import { intentForSlot } from "../src/lib/blog-intent.mjs";
 
 for (const line of readFileSync(".env", "utf8").split("\n")) {
   const s = line.trim(); if (!s || s.startsWith("#")) continue;
@@ -33,7 +33,7 @@ try {
     if (!next?.landing || next.status !== "READY") throw new Error(`No hay un artículo listo para ${tomorrow}. Corregilo antes de activar.`);
     const content = JSON.parse(next.landing.htmlContent);
     const quality = await inspectBlogArticle(prisma, client.id, content, next.landingId!);
-    if (!quality.publishable || next.landing.slug.startsWith("ejemplo-calendario-") || content.editorial_intent !== editorialIntentForDate(tomorrow)) throw new Error("El primer artículo no pasa los controles editoriales.");
+    if (!quality.publishable || next.landing.slug.startsWith("ejemplo-calendario-") || content.editorial_intent !== intentForSlot(next)) throw new Error("El primer artículo no pasa los controles editoriales.");
     const catalog = await prisma.catalogSyncRun.findFirst({ where: { clientId: client.id }, orderBy: { startedAt: "desc" } });
     if (!catalog || !["COMPLETED", "PARTIAL"].includes(catalog.status) || !(catalog.deployment as any)?.verified) throw new Error("Verificá el despliegue del catálogo antes de activar.");
     const key = `blog_daily_schedule:${client.id}`;

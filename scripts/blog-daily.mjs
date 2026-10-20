@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { inspectBlogArticle } from "../src/lib/blog-evidence.mjs";
-import { editorialIntentForDate } from "../src/lib/blog-quality.mjs";
 import { nextFreeEditorialDay, withDateHistory } from "../src/lib/blog-free-slot.mjs";
+import { carryIntent, intentForSlot } from "../src/lib/blog-intent.mjs";
 import { newPreparation, setPreparationPhase, failPreparation, recoverPreparations } from "./blog-preparation.mjs";
 
 /** Traduce el plan guardado del día a argumentos del generador, sin valores inválidos. */
@@ -146,7 +146,7 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
     const current = byDate.get(today);
     // Si hoy ya salió otro artículo, este conserva su fecha: un solo artículo por día.
     if (current && ["PUBLISHING", "PUBLISHED"].includes(current.status)) return;
-    const displacedTo = current ? nextFreeEditorialDay({ from: shiftDate(today, 1), intent: editorialIntentForDate(today), isTaken: (candidate) => { const entry = byDate.get(candidate); return !!entry && (!!entry.landingId || entry.status !== "PLANNED"); } }) : null;
+    const displacedTo = current ? nextFreeEditorialDay({ from: shiftDate(today, 1), intent: intentForSlot(current), isTaken: (candidate) => { const entry = byDate.get(candidate); return !!entry && (!!entry.landingId || entry.status !== "PLANNED"); } }) : null;
     const preparation = slot.preparation && typeof slot.preparation === "object" && !Array.isArray(slot.preparation) ? slot.preparation : {};
     await prisma.$transaction(async (tx) => {
       if (current) {
@@ -172,7 +172,7 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
         return;
       }
       const day = slot.scheduledDate.toISOString().slice(0, 10);
-      if (content.editorial_intent !== editorialIntentForDate(day)) throw Object.assign(new Error("La intención del artículo no coincide con la fecha; reprogramá para conservar el equilibrio."), { code: "DATE_INCOMPATIBLE" });
+      if (content.editorial_intent !== intentForSlot(slot)) throw Object.assign(new Error("La intención del artículo no coincide con la fecha; reprogramá para conservar el equilibrio."), { code: "DATE_INCOMPATIBLE" });
       content.published_at = now().toISOString();
       await prisma.landing.update({ where: { id: landing.id }, data: { status: "PUBLISHED", publishedAt: now() } });
       const url = await deployVerified(client, landing, content);
@@ -243,7 +243,7 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
     const content = parseContent(slot.landing);
     const quality = await validate(client, slot.landing, content);
     const day = slot.scheduledDate.toISOString().slice(0, 10);
-    const lastError = !quality.publishable ? errors(quality) : content.editorial_intent !== editorialIntentForDate(day) ? "La intención del artículo no coincide con la fecha; reprogramá para conservar el equilibrio." : "";
+    const lastError = !quality.publishable ? errors(quality) : content.editorial_intent !== intentForSlot(slot) ? "La intención del artículo no coincide con la fecha; reprogramá para conservar el equilibrio." : "";
     await prisma.$transaction(async tx => {
       const changed = await tx.blogPublication.updateMany({
         where: { id: slot.id, clientId: client.id, updatedAt: slot.updatedAt, requiresApproval: true, status: slot.status, landing: { updatedAt: slot.landing.updatedAt } },
@@ -359,12 +359,13 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
       const brief = typeof empty.preparation?.brief === "string" ? empty.preparation.brief.trim().slice(0, 500) : "";
       // Plan del operador: producto protagonista, productos excluidos y rival elegido.
       const plan = dayPlanArgs(empty.preparation);
-      const comparison = !!plan.competitor || (!brief && editorialIntentForDate(day) === "decision" && (typeof empty.preparation?.comparison === "boolean" ? empty.preparation.comparison : client.responsePolicy?.blog?.comparisons === true));
-      const metadata = { ...newPreparation(now(), 240_000), language, comparison, ...(brief ? { brief } : {}), ...plan.metadata };
+      const intent = intentForSlot(empty);
+      const comparison = !!plan.competitor || (!brief && intent === "decision" && (typeof empty.preparation?.comparison === "boolean" ? empty.preparation.comparison : client.responsePolicy?.blog?.comparisons === true));
+      const metadata = carryIntent(empty.preparation, { ...newPreparation(now(), 240_000), language, comparison, ...(brief ? { brief } : {}), ...plan.metadata });
       const generationClaim = await prisma.blogPublication.updateMany({ where: { id: empty.id, updatedAt: empty.updatedAt, landingId: null, attempts: empty.attempts, status: { in: ["PLANNED", "FAILED"] } }, data: { attempts: { increment: 1 }, status: "PLANNED", lastError: "", errorCode: "", preparation: metadata } });
       if (!generationClaim.count) { generationClients.delete(targetClientSlug); return; }
       try {
-        await runBlogPython(["generate", "--limit", "1", "--schedule-date", day, "--max-seconds", "180", "--language", language, ...(comparison ? ["--comparison"] : []), ...(brief ? ["--brief", brief] : []), ...plan.args], client.id, 240_000, {
+        await runBlogPython(["generate", "--limit", "1", "--schedule-date", day, "--intent", intent, "--max-seconds", "180", "--language", language, ...(comparison ? ["--comparison"] : []), ...(brief ? ["--brief", brief] : []), ...plan.args], client.id, 240_000, {
           attemptId: metadata.attemptId,
           onPhase: phase => setPreparationPhase(prisma, empty.id, client.id, metadata, phase, now()),
         });

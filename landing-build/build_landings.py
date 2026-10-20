@@ -2558,7 +2558,7 @@ def apply_day_plan_checks(landing: dict, topic: dict) -> dict:
     return landing
 
 
-def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds: int = 0, research_first: bool = False, schedule_date: str = "", brief: str = "", product_id: str = "", exclude_products: list[str] | None = None, competitor: str = "", competitor_notes: str = "") -> dict:
+def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds: int = 0, research_first: bool = False, schedule_date: str = "", brief: str = "", product_id: str = "", exclude_products: list[str] | None = None, competitor: str = "", competitor_notes: str = "", intent: str = "") -> dict:
     if client_slug_active() == "pcmidi" and _CLIENT_CONFIG.get("id") and os.environ.get("DATABASE_URL") and not schedule_date and not dry_run:
         raise RuntimeError("Para PC MIDI, prepará artículos privados desde el calendario con --schedule-date.")
     if schedule_date and limit != 1:
@@ -2599,7 +2599,8 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
     clusters = load_content_clusters()
     editorial_mode = bool(clusters)
     use_quality = editorial_mode and (client_slug_active() == "pcmidi" or blog_config().get("calendar") is True)
-    scheduled_intent = intent_for_date(schedule_date) if schedule_date else ""
+    # La intención del slot la define el calendario; sin ella rige la paridad de la fecha (comportamiento histórico).
+    scheduled_intent = (intent if intent in ("educational", "decision") else intent_for_date(schedule_date)) if schedule_date else ""
     excluded_terms: list[str] = []
     if _CLIENT_CONFIG.get("id") and os.environ.get("DATABASE_URL"):
         try:
@@ -4513,6 +4514,7 @@ def main() -> None:
     generate_parser.add_argument("--dry-run", action="store_true", help="Genera y valida sin guardar")
     generate_parser.add_argument("--research-first", action="store_true", help="Actualiza oportunidades internas y externas antes de generar")
     generate_parser.add_argument("--max-seconds", type=int, default=0, help="Corta ordenadamente la generacion despues de N segundos")
+    generate_parser.add_argument("--intent", default="", choices=["", "educational", "decision"], help="Intención editorial del slot de --schedule-date; por defecto la de la paridad de la fecha")
     generate_parser.add_argument("--schedule-date", default="", help="Reserva YYYY-MM-DD del calendario; guarda un borrador privado")
     run_parser = sub.add_parser("run")
     run_parser.add_argument("--limit", type=int, default=50, help="Cantidad maxima de landings nuevas")
@@ -4588,7 +4590,7 @@ def main() -> None:
     elif args.command == "discover":
         discover_opportunities(limit=args.limit, use_reddit=not args.no_reddit, use_youtube=not args.no_youtube)
     elif args.command == "generate":
-        generate_landings(limit=args.limit, model=args.model, dry_run=args.dry_run, max_seconds=args.max_seconds, research_first=args.research_first, schedule_date=args.schedule_date, brief=args.brief, product_id=args.product_id, exclude_products=[item.strip() for item in args.exclude_products.split(",") if item.strip()], competitor=args.competitor, competitor_notes=args.competitor_notes)
+        generate_landings(limit=args.limit, model=args.model, dry_run=args.dry_run, max_seconds=args.max_seconds, research_first=args.research_first, schedule_date=args.schedule_date, brief=args.brief, product_id=args.product_id, exclude_products=[item.strip() for item in args.exclude_products.split(",") if item.strip()], competitor=args.competitor, competitor_notes=args.competitor_notes, intent=args.intent)
     elif args.command == "run":
         run_pipeline(limit=args.limit, model=args.model, base_url=args.base_url, dry_run=args.dry_run, max_seconds=args.max_seconds)
     elif args.command == "deploy":

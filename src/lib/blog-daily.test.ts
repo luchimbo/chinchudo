@@ -337,6 +337,48 @@ describe("rutina diaria del blog", () => {
     expect(row("2026-10-20").status).toBe("READY");
     expect(deploys(runBlogPython)).toBe(0);
   });
+  it("pasa la intención del slot al generador y la conserva en la preparación", async () => {
+    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: false });
+    // El 21 es un día para elegir por paridad; el slot pide un artículo educativo.
+    rows.push({ id: "explicit", clientId: "c1", landingId: null, scheduledDate: new Date("2026-10-21T00:00:00Z"), status: "PLANNED", attempts: 0, updatedAt: clock, preparation: { language: "es", editorialIntent: "educational" } });
+    let during: any;
+    const runBlogPython = vi.fn(async (args: string[]) => { if (args[0] === "generate") { during = row("2026-10-21").preparation; addReady("2026-10-21"); } });
+    const { daily } = build({ runBlogPython, targetClientSlug: "any-brand" });
+    await daily.runDailyBlogCalendar();
+    expect(runBlogPython.mock.calls[0][0]).toEqual(expect.arrayContaining(["--intent", "educational", "--schedule-date", "2026-10-21"]));
+    expect(runBlogPython.mock.calls[0][0]).not.toContain("--comparison");
+    expect(during).toMatchObject({ editorialIntent: "educational" });
+  });
+  it("sin intención explícita el generador recibe la de la paridad de la fecha", async () => {
+    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: false });
+    rows.push({ id: "parity", clientId: "c1", landingId: null, scheduledDate: new Date("2026-10-21T00:00:00Z"), status: "PLANNED", attempts: 0, updatedAt: clock, preparation: { language: "es" } });
+    const runBlogPython = vi.fn(async (args: string[]) => { if (args[0] === "generate") addReady("2026-10-21"); });
+    const { daily } = build({ runBlogPython, targetClientSlug: "any-brand" });
+    await daily.runDailyBlogCalendar();
+    expect(runBlogPython.mock.calls[0][0]).toEqual(expect.arrayContaining(["--intent", editorialIntentForDate("2026-10-21")]));
+  });
+  it("publica un artículo cuya intención explícita no coincide con la paridad de la fecha", async () => {
+    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: false });
+    addReady("2026-10-21");
+    const opposite = editorialIntentForDate("2026-10-21") === "decision" ? "educational" : "decision";
+    landings["l-2026-10-21"].htmlContent = JSON.stringify({ h1: "Artículo", editorial_intent: opposite });
+    row("2026-10-21").preparation = { editorialIntent: opposite };
+    const { daily, runBlogPython } = build();
+    await daily.publishBlogArticle(manualInput("2026-10-21"));
+    // Publicado antes de fecha: el artículo pasa a hoy y conserva su intención.
+    expect(rows.find((item) => item.landingId === "l-2026-10-21")).toMatchObject({ status: "PUBLISHED", preparation: { editorialIntent: opposite } });
+    expect(deploys(runBlogPython)).toBe(1);
+  });
+  it("sin intención explícita sigue bloqueando un artículo que no coincide con la paridad", async () => {
+    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: false });
+    addReady("2026-10-21");
+    const opposite = editorialIntentForDate("2026-10-21") === "decision" ? "educational" : "decision";
+    landings["l-2026-10-21"].htmlContent = JSON.stringify({ h1: "Artículo", editorial_intent: opposite });
+    const { daily, runBlogPython } = build();
+    await daily.publishBlogArticle(manualInput("2026-10-21"));
+    expect(row("2026-10-21")).toMatchObject({ status: "FAILED", errorCode: "DATE_INCOMPATIBLE" });
+    expect(deploys(runBlogPython)).toBe(0);
+  });
   it("pide comparativa solo en días para elegir que la reservaron", async () => {
     settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: false });
     rows.push({ id: "compare", clientId: "c1", landingId: null, scheduledDate: new Date("2026-10-21T00:00:00Z"), status: "PLANNED", attempts: 0, updatedAt: clock, preparation: { language: "es", comparison: true } });

@@ -10,6 +10,7 @@ import { businessTimezone, localDay } from "@/lib/business-analysis";
 import { inspectBlogArticle } from "@/lib/blog-evidence";
 import { editorialIntentForDate } from "@/lib/blog-quality.mjs";
 import { nextFreeEditorialDay, withDateHistory } from "@/lib/blog-free-slot.mjs";
+import { carryIntent } from "@/lib/blog-intent.mjs";
 import { relayFetch } from "@/lib/relay-client";
 import type { Prisma } from "@prisma/client";
 import { blogLanguage, blogPreferences, editorialCalendarEnabled } from "@/lib/blog-language";
@@ -131,7 +132,7 @@ function waitingPreparation(value: Prisma.JsonValue | null, brief?: string): Pri
   const nextBrief = brief ?? (typeof metadata.brief === "string" ? metadata.brief : "");
   // El plan del día (producto, exclusiones, rival) sobrevive a reintentos y reemplazos.
   const plan = dayPlanFrom(metadata);
-  return { phase: "WAITING", ...(["es", "en", "de"].includes(String(metadata.language)) ? { language: String(metadata.language) } : {}), ...(nextBrief ? { brief: nextBrief, comparison: false } : typeof metadata.comparison === "boolean" ? { comparison: metadata.comparison } : {}), ...plan, ...(plan.competitor ? { comparison: true } : {}) };
+  return carryIntent(metadata, { phase: "WAITING", ...(["es", "en", "de"].includes(String(metadata.language)) ? { language: String(metadata.language) } : {}), ...(nextBrief ? { brief: nextBrief, comparison: false } : typeof metadata.comparison === "boolean" ? { comparison: metadata.comparison } : {}), ...plan, ...(plan.competitor ? { comparison: true } : {}) }) as Prisma.InputJsonValue;
 }
 
 export async function publishCalendarArticle(id: string): Promise<{ ok: true } | { ok: false; error: string; code?: string }> {
