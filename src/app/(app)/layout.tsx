@@ -3,6 +3,10 @@ import { prisma } from "@/lib/db";
 import { getVisibleClients, getCurrentUser, isDefaultIssueReporter } from "@/lib/auth";
 import { AppShell } from "@/components/app-shell";
 
+// Todo el panel depende de sesion y DB: nunca se prerenderiza en build
+// (los previews de Vercel no tienen DATABASE_URL y los datos quedarian congelados).
+export const dynamic = "force-dynamic";
+
 export default async function AppLayout({
   children,
 }: {
