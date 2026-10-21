@@ -26,3 +26,20 @@ export function blogCodeStatus() {
   const disk = blogCodeHash();
   return { loaded, disk, stale: loaded !== disk };
 }
+
+/**
+ * Cierra el proceso cuando cambia el código del blog para que su ciclo de arranque lo levante con la versión nueva.
+ * Espera dos controles seguidos con el cambio (por si se están copiando archivos) y a que no haya trabajo en curso.
+ */
+export function restartOnBlogCodeChange({ isBusy = () => false, restart = () => process.exit(0), label = "blog", intervalMs = 30_000 } = {}) {
+  let pending = 0;
+  const timer = setInterval(() => {
+    if (!blogCodeStatus().stale) { pending = 0; return; }
+    if (++pending < 2 || isBusy()) return;
+    console.log(`[${label}] El código del blog cambió; reinicio para cargarlo.`);
+    clearInterval(timer);
+    restart();
+  }, intervalMs);
+  timer.unref();
+  return timer;
+}

@@ -20,12 +20,12 @@ export type RescheduleFormState = { error: string | null };
 export type GenerateDateState = { error: string | null; queued: boolean; id?: string; client?: string };
 
 type EditorialClient = { slug: string; name?: string | null; responsePolicy: Prisma.JsonValue };
-type DayRequest = { scheduledDate: unknown; intent: unknown; language: unknown; hasLanguage: boolean; brief: FormDataEntryValue | null; comparisonOffered: boolean; comparison: boolean } & DayPlanInput;
+type DayRequest = { scheduledDate: unknown; intent: unknown; language: unknown; hasLanguage: boolean; dailyLanguages: unknown[]; brief: FormDataEntryValue | null; comparisonOffered: boolean; comparison: boolean } & DayPlanInput;
 
 function dayRequest(formData: FormData, prefix = ""): DayRequest {
   const key = (name: string) => `${prefix}${name}`;
   return {
-    scheduledDate: formData.get(key("scheduledDate")), intent: formData.get(key("editorialIntent")), language: formData.get(key("language")), hasLanguage: formData.has(key("language")), brief: formData.get(key("brief")),
+    scheduledDate: formData.get(key("scheduledDate")), intent: formData.get(key("editorialIntent")), language: formData.get(key("language")), hasLanguage: formData.has(key("language")), dailyLanguages: formData.getAll(key("dailyLanguages")), brief: formData.get(key("brief")),
     comparisonOffered: formData.has(key("comparisonOffered")), comparison: formData.get(key("comparison")) === "on",
     productId: formData.get(key("productId")) ?? undefined, excludedProductIds: formData.getAll(key("excludedProductIds")),
     competitor: formData.get(key("competitor")) ?? undefined, competitorNotes: formData.get(key("competitorNotes")) ?? undefined,
@@ -77,7 +77,9 @@ export async function planBlogWeek(_state: WeekPlanState, formData: FormData): P
 async function reserveBlogDate(clientId: string, client: EditorialClient, input: DayRequest, catalog?: Awaited<ReturnType<typeof loadBlogCatalog>>): Promise<GenerateDateState> {
   try {
     if (input.hasLanguage && !["es", "en", "de"].includes(String(input.language))) return { error: "Elegí español, inglés o alemán.", queued: false };
-    const language = blogLanguage(input.language, blogPreferences(client.responsePolicy).language);
+    // Varios idiomas = el mismo tema escrito en el primero y traducido a los demás.
+    const dailyLanguages = [...new Set(input.dailyLanguages.filter((item): item is string => ["es", "en", "de"].includes(String(item))))];
+    const language = blogLanguage(dailyLanguages[0] ?? input.language, blogPreferences(client.responsePolicy).language);
     let scheduledDate: Date;
     try { scheduledDate = dateOnly(String(input.scheduledDate || "")); }
     catch { return { error: "Elegí una fecha válida.", queued: false }; }
@@ -88,7 +90,8 @@ async function reserveBlogDate(clientId: string, client: EditorialClient, input:
     const brief = parseBrief(input.brief);
     if (brief === null) return { error: `La consigna admite hasta ${BRIEF_MAX} caracteres.`, queued: false };
     // En modo "balanced" la intención se elige a mano, la fija el rival o se reparte por cuota.
-    let intent: "educational" | "decision" | null = null;
+    // Elegir el tipo a mano vale en cualquier modo; sin elegirlo, "parity" sigue la fecha.
+    let intent: "educational" | "decision" | null = input.intent === "educational" || input.intent === "decision" ? input.intent : null;
     if (intentModeOf(client.responsePolicy) === "balanced") {
       const around = await loadIntentNeighbors(prisma, clientId, day, day);
       const own = around.slots.get(day);
@@ -110,7 +113,7 @@ async function reserveBlogDate(clientId: string, client: EditorialClient, input:
     // Un rival elegido fuerza la comparativa; sin rival, la consigna manda y no hay comparativa automática.
     const comparison = !!plan.competitor || (!brief && decisionDay
       && (input.comparisonOffered ? input.comparison : blogPreferences(client.responsePolicy).comparisons));
-    const preparation = { ...(intent ? { editorialIntent: intent } : {}), language, comparison, ...(brief ? { brief } : {}), ...plan };
+    const preparation = { ...(intent ? { editorialIntent: intent } : {}), language, ...(dailyLanguages.length > 1 ? { dailyLanguages } : {}), comparison, ...(brief ? { brief } : {}), ...plan };
     const created = await prisma.blogPublication.createMany({ data: [{ clientId, scheduledDate, preparation }], skipDuplicates: true });
     if (!created.count) {
       // Con la publicación automática, los próximos días ya están reservados

@@ -9,14 +9,15 @@ import { assignIntent, balanceWarnings, type IntentNeighbor } from "@/lib/blog-i
 import { shiftDate } from "@/lib/blog-calendar";
 import { COMPETITOR_MAX, COMPETITOR_NOTES_MAX, type BlogCatalogProduct } from "@/lib/blog-day-plan";
 import { planBlogWeek, type WeekPlanResult } from "./actions";
+import { researchCompetitorsForPlanner } from "../configuracion/actions";
 import { ProductMultiPicker, ProductPicker } from "./product-picker";
-import { blockedProducts, competitorPlaceholder, EMPTY_DAY, type DayDraft } from "./day-plan-fields";
+import { blockedProducts, EMPTY_DAY, RivalFields, useCompetitorResearch, type DayDraft } from "./day-plan-fields";
 import { BRIEF_MAX_LENGTH } from "./brief-field";
 
 const WEEKDAY = new Intl.DateTimeFormat("es-AR", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
 const dayLabel = (day: string) => WEEKDAY.format(new Date(`${day}T00:00:00Z`));
 
-type Props = { clientId: string; products: BlogCatalogProduct[]; globalExcluded: string[]; startDay: string; minDate: string; takenDays: string[]; language: BlogLanguage; comparisons: boolean; balanced?: boolean; neighbors?: IntentNeighbor[] };
+type Props = { clientId: string; products: BlogCatalogProduct[]; globalExcluded: string[]; startDay: string; minDate: string; takenDays: string[]; language: BlogLanguage; comparisons: boolean; balanced?: boolean; neighbors?: IntentNeighbor[]; competitors?: string[] };
 
 /** Arma varios días de una vez: una fila por día con producto, consigna, rival y exclusiones. */
 export function WeekPlanner(props: Props) {
@@ -27,12 +28,12 @@ export function WeekPlanner(props: Props) {
   </>;
 }
 
-function WeekPlannerDialog({ clientId, products, globalExcluded, startDay, minDate, takenDays, language: defaultLanguage, comparisons: defaultComparisons, balanced = false, neighbors = [], onClose }: Props & { onClose: () => void }) {
+function WeekPlannerDialog({ clientId, products, globalExcluded, startDay, minDate, takenDays, language: defaultLanguage, comparisons: defaultComparisons, balanced = false, neighbors = [], competitors: knownCompetitors = [], onClose }: Props & { onClose: () => void }) {
   const router = useRouter();
   const taken = useMemo(() => new Set(takenDays), [takenDays]);
   const [start, setStart] = useState(startDay);
   const [length, setLength] = useState(7);
-  const [language, setLanguage] = useState<BlogLanguage>(defaultLanguage);
+  const [languages, setLanguages] = useState<BlogLanguage[]>([defaultLanguage]);
   const [comparisons, setComparisons] = useState(defaultComparisons);
   const [weekExcluded, setWeekExcluded] = useState<string[]>([]);
   const [drafts, setDrafts] = useState<Record<string, DayDraft>>({});
@@ -54,13 +55,15 @@ function WeekPlannerDialog({ clientId, products, globalExcluded, startDay, minDa
     const result: Record<string, EditorialIntent> = {};
     for (const day of days) {
       if (taken.has(day) || skipped.has(day)) continue;
-      const intent = chosenIntents[day] ?? assignIntent(day, placed);
+      const intent = chosenIntents[day] ?? (balanced ? assignIntent(day, placed) : editorialIntentForDate(day));
       result[day] = intent;
       placed.push({ day, intent });
     }
     return result;
-  }, [days, taken, skipped, chosenIntents, neighbors]);
-  const isDecision = (day: string) => balanced ? (intents[day] ?? neighbors.find(item => item.day === day)?.intent) === "decision" : editorialIntentForDate(day) === "decision";
+  }, [days, taken, skipped, chosenIntents, neighbors, balanced]);
+  const anyDecision = days.some(day => !taken.has(day) && (intents[day] ?? editorialIntentForDate(day)) === "decision");
+  const { competitors, researching, error: researchError, research } = useCompetitorResearch(clientId, knownCompetitors, anyDecision);
+  const isDecision = (day: string) => (intents[day] ?? (balanced ? neighbors.find(item => item.day === day)?.intent : undefined) ?? editorialIntentForDate(day)) === "decision";
   const balanceNotes = useMemo(() => balanced ? balanceWarnings([...neighbors.filter(item => !(item.day in intents)), ...Object.entries(intents).map(([day, intent]) => ({ day, intent }))]) : [], [balanced, neighbors, intents]);
 
   useEffect(() => {
@@ -83,14 +86,14 @@ function WeekPlannerDialog({ clientId, products, globalExcluded, startDay, minDa
   };
 
   const submit = async () => {
-    if (pending || !selectedDays.length) return;
+    if (pending || !selectedDays.length || !languages.length) return;
     setPending(true); setError(null);
     const data = new FormData();
     data.set("clientId", clientId); data.set("rows", String(selectedDays.length));
     selectedDays.forEach((day, index) => {
       const draft = draftFor(day); const key = (name: string) => `day${index}.${name}`;
-      data.set(key("include"), "on"); data.set(key("scheduledDate"), day); data.set(key("language"), language);
-      if (balanced && intents[day]) data.set(key("editorialIntent"), intents[day]);
+      data.set(key("include"), "on"); data.set(key("scheduledDate"), day); data.set(key("language"), languages[0]); if (languages.length > 1) for (const item of languages) data.append(key("dailyLanguages"), item);
+      if (intents[day] && (balanced || chosenIntents[day])) data.set(key("editorialIntent"), intents[day]);
       data.set(key("comparisonOffered"), "1"); if (comparisons) data.set(key("comparison"), "on");
       if (draft.brief.trim()) data.set(key("brief"), draft.brief);
       if (draft.productId) data.set(key("productId"), draft.productId);
@@ -126,13 +129,16 @@ function WeekPlannerDialog({ clientId, products, globalExcluded, startDay, minDa
         <label className="font-medium text-ink">Días
           <select value={length} onChange={event => setLength(Number(event.target.value))} className="mt-1 block w-full rounded-lg border border-ink/15 bg-paper px-3 py-2 font-normal"><option value={7}>Una semana (7)</option><option value={14}>Dos semanas (14)</option></select>
         </label>
-        <label className="font-medium text-ink">Idioma
-          <select value={language} onChange={event => setLanguage(event.target.value as BlogLanguage)} className="mt-1 block w-full rounded-lg border border-ink/15 bg-paper px-3 py-2 font-normal">{BLOG_LANGUAGES.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
-        </label>
+        <fieldset className="font-medium text-ink">
+          <legend>Idiomas</legend>
+          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 rounded-lg border border-ink/15 bg-paper px-3 py-2 font-normal">{BLOG_LANGUAGES.map(item => <label key={item.value} className="inline-flex items-center gap-1.5"><input type="checkbox" checked={languages.includes(item.value)} onChange={event => setLanguages(current => { const next = event.target.checked ? [...current, item.value] : current.filter(value => value !== item.value); return BLOG_LANGUAGES.map(option => option.value).filter(value => next.includes(value)); })} />{item.label}</label>)}</div>
+          {languages.length > 1 ? <p className="mt-1 text-[11px] font-normal text-slate">Cada día: el mismo artículo en {languages.length} idiomas.</p> : !languages.length ? <p className="mt-1 text-[11px] font-normal text-signal">Elegí al menos un idioma.</p> : null}
+        </fieldset>
         <div className="font-medium text-ink">No nombrar en toda la semana
           <div className="mt-1"><ProductMultiPicker products={products} value={weekExcluded} onChange={setWeekExcluded} blocked={weekBlocked} /></div>
         </div>
         <label className="flex items-start gap-2 text-ink sm:col-span-2 lg:col-span-4"><input type="checkbox" checked={comparisons} onChange={event => setComparisons(event.target.checked)} className="mt-1" /><span>Comparativa automática en días «para elegir» sin rival ni consigna</span></label>
+        <p className="flex flex-wrap items-center gap-2 text-xs text-slate sm:col-span-2 lg:col-span-4" role="status">{researching ? <LoadingMessage>Investigando rivales…</LoadingMessage> : researchError ? <span className="text-signal">{researchError}</span> : `${competitors.length} ${competitors.length === 1 ? "rival investigado" : "rivales investigados"} para elegir o rotar en modo automático.`}<button type="button" disabled={researching} onClick={() => void research(true)} className="font-semibold text-moss underline underline-offset-2 disabled:opacity-60">Investigar de nuevo</button></p>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-6">
@@ -152,7 +158,7 @@ function WeekPlannerDialog({ clientId, products, globalExcluded, startDay, minDa
             <div className="flex items-center justify-between gap-2 lg:block">
               <div>
                 <p className="text-sm font-semibold capitalize text-ink">{dayLabel(day)}</p>
-                {balanced && !busy && !off && !result?.queued ? <select aria-label={`Tipo de artículo del ${dayLabel(day)}`} value={intents[day]} onChange={event => setChosenIntents(current => ({ ...current, [day]: event.target.value as EditorialIntent }))} className={`mt-1 block rounded border px-1.5 py-0.5 text-[10px] font-medium ${decision ? "border-brass/30 bg-brass/10 text-brass" : "border-sky-200 bg-sky-50 text-sky-800"}`}><option value="educational">Educativo</option><option value="decision">Para elegir</option></select>
+                {!busy && !off && !result?.queued ? <select aria-label={`Tipo de artículo del ${dayLabel(day)}`} value={chosenIntents[day] ?? ""} onChange={event => setChosenIntents(current => { const next = { ...current }; if (event.target.value) next[day] = event.target.value as EditorialIntent; else delete next[day]; return next; })} className={`mt-1 block rounded border px-1.5 py-0.5 text-[10px] font-medium ${decision ? "border-brass/30 bg-brass/10 text-brass" : "border-sky-200 bg-sky-50 text-sky-800"}`}><option value="">Auto · {decision ? "Para elegir" : "Educativo"}</option><option value="educational">Educativo</option><option value="decision">Para elegir</option></select>
                   : <span className={`mt-1 inline-block rounded border px-1.5 py-0.5 text-[10px] font-medium ${decision ? "border-brass/30 bg-brass/10 text-brass" : "border-sky-200 bg-sky-50 text-sky-800"}`}>{decision ? "Para elegir" : "Educativo"}</span>}
               </div>
               <div className="text-xs lg:mt-2">
@@ -164,13 +170,10 @@ function WeekPlannerDialog({ clientId, products, globalExcluded, startDay, minDa
             {locked || off ? <p className="text-xs text-slate lg:col-span-5">{busy ? "Este día se gestiona desde el calendario." : result?.queued ? "Se preparará en segundo plano." : "No se programará."}</p> : <>
               <div><span className="mb-1 block text-[11px] font-semibold text-slate lg:hidden">Producto</span><ProductPicker compact products={products} value={draft.productId} onChange={productId => update(day, { productId })} blocked={rowBlocked} /></div>
               <div><span className="mb-1 block text-[11px] font-semibold text-slate lg:hidden">Consigna</span>
-                <textarea rows={2} maxLength={BRIEF_MAX_LENGTH} value={draft.brief} onChange={event => update(day, { brief: event.target.value })} placeholder="Tema automático" className="block w-full resize-y rounded-lg border border-ink/20 bg-paper px-2 py-1.5 text-xs" />
+                <textarea rows={2} maxLength={BRIEF_MAX_LENGTH} value={draft.brief} onChange={event => update(day, { brief: event.target.value })} placeholder="Tema automático (o escribí uno)" className="block w-full resize-y rounded-lg border border-ink/20 bg-paper px-2 py-1.5 text-xs" />
               </div>
               <div><span className="mb-1 block text-[11px] font-semibold text-slate lg:hidden">Rival</span>
-                {decision ? <div className="space-y-1.5">
-                  <input type="text" maxLength={COMPETITOR_MAX} value={draft.competitor} onChange={event => update(day, { competitor: event.target.value })} placeholder={competitorPlaceholder} className="block w-full rounded-lg border border-ink/20 bg-paper px-2 py-1.5 text-xs" />
-                  {draft.competitor.trim() ? <textarea rows={2} maxLength={COMPETITOR_NOTES_MAX} value={draft.competitorNotes} onChange={event => update(day, { competitorNotes: event.target.value })} placeholder="Qué sabés del rival (opcional)" className="block w-full resize-y rounded-lg border border-ink/20 bg-paper px-2 py-1.5 text-xs" /> : null}
-                </div> : <p className="text-[11px] text-slate">Solo en días «para elegir».</p>}
+                {decision ? <RivalFields compact competitors={competitors} draft={draft} onChange={patch => update(day, patch)} /> : null}
               </div>
               <div><span className="mb-1 block text-[11px] font-semibold text-slate lg:hidden">No nombrar</span><ProductMultiPicker compact products={products} value={draft.excludedProductIds} onChange={excludedProductIds => update(day, { excludedProductIds, productId: excludedProductIds.includes(draft.productId) ? "" : draft.productId })} blocked={blockedProducts([...globalExcluded, ...weekExcluded], [])} placeholder="Agregar…" /></div>
               <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs lg:flex-col">
@@ -188,7 +191,7 @@ function WeekPlannerDialog({ clientId, products, globalExcluded, startDay, minDa
         {balanceNotes.slice(0, 2).map(note => <p key={note} role="status" className="text-xs text-brass">Aviso: {note}</p>)}</div>
         <div className="flex gap-2">
           <button type="button" onClick={onClose} disabled={pending} className="rounded-lg border border-ink/15 px-3 py-2 text-sm font-semibold text-ink hover:bg-ink/5">{queuedCount ? "Listo" : "Cancelar"}</button>
-          <button type="button" onClick={submit} disabled={pending || !selectedDays.length} aria-busy={pending} className="rounded-lg bg-ink px-3 py-2 text-sm font-semibold text-paper disabled:cursor-not-allowed disabled:opacity-60">{pending ? <LoadingMessage>Programando…</LoadingMessage> : `Programar ${selectedDays.length} ${selectedDays.length === 1 ? "día" : "días"}`}</button>
+          <button type="button" onClick={submit} disabled={pending || !selectedDays.length || !languages.length} aria-busy={pending} className="rounded-lg bg-ink px-3 py-2 text-sm font-semibold text-paper disabled:cursor-not-allowed disabled:opacity-60">{pending ? <LoadingMessage>Programando…</LoadingMessage> : `Programar ${selectedDays.length} ${selectedDays.length === 1 ? "día" : "días"}`}</button>
         </div>
       </footer>
     </div>

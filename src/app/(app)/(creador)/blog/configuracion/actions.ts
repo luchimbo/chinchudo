@@ -8,7 +8,7 @@ import { getSetting, setSetting } from "@/lib/settings";
 import { argentinaDate, shiftDate } from "@/lib/blog-calendar";
 import { editorialCalendarEnabled } from "@/lib/blog-language";
 import { validateDailyArticlePlan } from "@/lib/blog-daily-plan.mjs";
-import { COMPETITOR_MAX, excludedProductsKey, loadBlogCatalog, MAX_PRIORITY_COMPETITORS, ownBrandsFor, priorityCompetitorsKey } from "@/lib/blog-day-plan";
+import { COMPETITOR_MAX, excludedProductsKey, loadBlogCatalog, MAX_PRIORITY_COMPETITORS, ownBrandsFor, parsePriorityCompetitors, priorityCompetitorsKey } from "@/lib/blog-day-plan";
 import { researchBlogCompetitors } from "@/lib/blog-competitor-research";
 
 function str(fd: FormData, key: string) {
@@ -92,9 +92,7 @@ export async function updatePriorityCompetitors(formData: FormData) {
   revalidatePath("/blog/calendario");
 }
 
-export async function discoverPriorityCompetitors(formData: FormData) {
-  const id = z.string().min(1).parse(formData.get("id"));
-  await assertClientAccess(prisma, id);
+async function discoverCompetitorsFor(id: string): Promise<string[]> {
   const client = await prisma.client.findUniqueOrThrow({ where: { id }, select: { name: true, openrouterApiKey: true, openrouterModel: true } });
   const [{ products: catalog }, details] = await Promise.all([
     loadBlogCatalog(prisma, id),
@@ -105,12 +103,37 @@ export async function discoverPriorityCompetitors(formData: FormData) {
   const products = catalog.map(item => ({ name: item.name, brand: item.brand, category: item.category, description: descriptions.get(item.id) || "" }));
   const result = await researchBlogCompetitors(client, products, ownBrandsFor(client.name, catalog));
   const listKey = priorityCompetitorsKey(id), researchKey = `blog_priority_competitor_research:${id}`;
+  const names = JSON.stringify(result.competitors.map(item => item.name));
+  const research = JSON.stringify({ at: new Date().toISOString(), model: result.model, sources: result.competitors });
   await prisma.$transaction([
-    prisma.appSetting.upsert({ where: { key: listKey }, create: { key: listKey, value: JSON.stringify(result.competitors.map(item => item.name)) }, update: { value: JSON.stringify(result.competitors.map(item => item.name)) } }),
-    prisma.appSetting.upsert({ where: { key: researchKey }, create: { key: researchKey, value: JSON.stringify({ at: new Date().toISOString(), model: result.model, sources: result.competitors }) }, update: { value: JSON.stringify({ at: new Date().toISOString(), model: result.model, sources: result.competitors }) } }),
+    prisma.appSetting.upsert({ where: { key: listKey }, create: { key: listKey, value: names }, update: { value: names } }),
+    prisma.appSetting.upsert({ where: { key: researchKey }, create: { key: researchKey, value: research }, update: { value: research } }),
   ]);
   revalidatePath("/blog/configuracion");
   revalidatePath("/blog/calendario");
+  return result.competitors.map(item => item.name);
+}
+
+export async function discoverPriorityCompetitors(formData: FormData) {
+  const id = z.string().min(1).parse(formData.get("id"));
+  await assertClientAccess(prisma, id);
+  await discoverCompetitorsFor(id);
+}
+
+/** Desde el planificador: investiga los rivales y devuelve la lista. Sin `force` solo investiga si no hay ninguno cargado. */
+export async function researchCompetitorsForPlanner(clientId: string, force: boolean): Promise<{ competitors: string[]; error: string | null }> {
+  try {
+    const id = z.string().min(1).parse(clientId);
+    await assertClientAccess(prisma, id);
+    if (!force) {
+      const current = await prisma.appSetting.findUnique({ where: { key: priorityCompetitorsKey(id) }, select: { value: true } });
+      const names = parsePriorityCompetitors(current?.value);
+      if (names.length) return { competitors: names, error: null };
+    }
+    return { competitors: await discoverCompetitorsFor(id), error: null };
+  } catch (error) {
+    return { competitors: [], error: error instanceof Error && error.message.includes("catálogo") ? error.message : "No se pudieron investigar los rivales. Reintentá en unos minutos." };
+  }
 }
 
 export async function updateEmailConfig(formData: FormData) {

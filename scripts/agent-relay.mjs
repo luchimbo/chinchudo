@@ -7,7 +7,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PrismaClient } from "@prisma/client";
 import { createBlogDaily } from "./blog-daily.mjs";
-import { blogCodeStatus } from "./blog-code-version.mjs";
+import { blogCodeStatus, restartOnBlogCodeChange } from "./blog-code-version.mjs";
 import { terminateChild } from "./terminate-child.mjs";
 import { withBlogLease } from "./blog-lease.mjs";
 
@@ -809,6 +809,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, "127.0.0.1", () => {
+  restartOnBlogCodeChange({ label: "agent-relay", isBusy: () => { const state = blogDaily.runtimeState(); return state.running || state.generating; } });
   console.log(`[agent-relay] escuchando en http://127.0.0.1:${PORT}`);
   console.log(`[agent-relay] token: ${TOKEN.slice(0, 4)}...${TOKEN.slice(-4)}`);
   console.log(`[agent-relay] para exponer: cloudflared tunnel --url http://127.0.0.1:${PORT}`);

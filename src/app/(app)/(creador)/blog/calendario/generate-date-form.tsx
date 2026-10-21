@@ -29,7 +29,7 @@ const intentLabel = (day: string) => editorialIntentForDate(day) === "decision" 
  * Pide un artículo para una fecha. En el panel del día la fecha es fija; desde
  * «Nuevo artículo» (`minDate`) se elige y, al terminar, se abre ese día.
  */
-export function GenerateDateForm({ clientId, day, language = "es", comparison, minDate, clientSlug, products = [], globalExcluded = [], balanced = false, neighbors = [], initialIntent }: { clientId: string; day: string; language?: BlogLanguage; comparison?: boolean; minDate?: string; clientSlug?: string; products?: BlogCatalogProduct[]; globalExcluded?: string[]; balanced?: boolean; neighbors?: IntentNeighbor[]; initialIntent?: EditorialIntent }) {
+export function GenerateDateForm({ clientId, day, language = "es", comparison, minDate, clientSlug, products = [], competitors = [], globalExcluded = [], balanced = false, neighbors = [], initialIntent }: { clientId: string; day: string; language?: BlogLanguage; comparison?: boolean; minDate?: string; clientSlug?: string; products?: BlogCatalogProduct[]; competitors?: string[]; globalExcluded?: string[]; balanced?: boolean; neighbors?: IntentNeighbor[]; initialIntent?: EditorialIntent }) {
   const router = useRouter();
   const [state, setState] = useState<GenerateDateState>({ error: null, queued: false });
   const [pending, setPending] = useState(false);
@@ -41,8 +41,8 @@ export function GenerateDateForm({ clientId, day, language = "es", comparison, m
   const validDate = /^\d{4}-\d{2}-\d{2}$/.test(date);
   // En modo balanced el tipo se sugiere por cuota y se puede cambiar; si no, lo define la fecha.
   const [chosen, setChosen] = useState<EditorialIntent | null>(initialIntent ?? null);
-  const intent: EditorialIntent | null = balanced && validDate ? chosen ?? assignIntent(date, neighbors) : null;
-  const decisionDay = balanced ? intent === "decision" : validDate && editorialIntentForDate(date) === "decision";
+  const intent: EditorialIntent | null = balanced && validDate ? chosen ?? assignIntent(date, neighbors) : chosen;
+  const decisionDay = (intent ?? (validDate ? editorialIntentForDate(date) : null)) === "decision";
   const warnings = intent ? warningsIntroducedBy(neighbors, date, intent) : [];
   if (state.queued && !editableDate) return <PreparationStatus backgroundTracking />;
   return <form onSubmit={async event => {
@@ -61,19 +61,19 @@ export function GenerateDateForm({ clientId, day, language = "es", comparison, m
     <input type="hidden" name="clientId" value={clientId} />
     {editableDate ? <label className="block text-sm font-medium text-ink">Fecha de publicación
       <input type="date" name="scheduledDate" required min={minDate} value={date} onChange={event => { setDate(event.target.value); setChosen(null); setState({ error: null, queued: false }); }} className="mt-1 block w-full rounded-lg border border-ink/20 bg-paper px-3 py-2" />
-      {!balanced && validDate ? <span className="mt-1 block text-xs font-normal text-slate">{intentLabel(date)}</span> : null}
+      
     </label> : <input type="hidden" name="scheduledDate" value={day} />}
-    {balanced && intent ? <div>
+    {validDate ? <div>
       <label className="block text-sm font-medium text-ink">Tipo de artículo
-        <select name="editorialIntent" value={intent} onChange={event => setChosen(event.target.value as EditorialIntent)} className="mt-1 block w-full rounded-lg border border-ink/20 bg-paper px-3 py-2">
-          <option value="educational">Educativo</option><option value="decision">Para ayudar a elegir</option>
+        <select name={balanced || chosen ? "editorialIntent" : undefined} value={balanced ? intent ?? "" : chosen ?? ""} onChange={event => setChosen((event.target.value || null) as EditorialIntent | null)} className="mt-1 block w-full rounded-lg border border-ink/20 bg-paper px-3 py-2">
+          {balanced ? null : <option value="">Automático · {intentLabel(date)}</option>}<option value="educational">Educativo</option><option value="decision">Para ayudar a elegir</option>
         </select>
       </label>
-      <p className="mt-1 text-xs text-slate">{chosen ? "Elegido por vos." : "Sugerido para mantener la mezcla pareja."}</p>
+      <p className="mt-1 text-xs text-slate">{chosen ? "Elegido por vos." : balanced ? "Sugerido para mantener la mezcla pareja." : "Según la fecha."}</p>
       {warnings.map(warning => <p key={warning} role="status" className="mt-1 text-xs text-brass">Aviso: {warning}</p>)}
     </div> : null}
     <BriefField value={brief} onChange={setBrief} />
-    <DayPlanFields products={products} globalExcluded={globalExcluded} decisionDay={decisionDay} draft={draft} onChange={next => { setDraft(next); setState({ error: null, queued: false }); }} />
+    <DayPlanFields clientId={clientId} competitors={competitors} products={products} globalExcluded={globalExcluded} decisionDay={decisionDay} draft={draft} onChange={next => { setDraft(next); setState({ error: null, queued: false }); }} />
     <label className="block text-sm font-medium text-ink">Idioma del artículo
       <select name="language" defaultValue={language} className="mt-1 block w-full rounded-lg border border-ink/20 bg-paper px-3 py-2">{BLOG_LANGUAGES.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
     </label>

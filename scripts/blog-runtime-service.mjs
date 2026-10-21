@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 import { PrismaClient } from "@prisma/client";
 import { createBlogDaily } from "./blog-daily.mjs";
 import { withBlogLease } from "./blog-lease.mjs";
-import { blogCodeStatus } from "./blog-code-version.mjs";
+import { blogCodeStatus, restartOnBlogCodeChange } from "./blog-code-version.mjs";
 import { terminateChild } from "./terminate-child.mjs";
 
 const root = resolve(import.meta.dirname, ".."), port = 3102;
@@ -130,4 +130,5 @@ const secondaryCalendars = process.argv.includes("--secondary-calendars");
 if (previewOnly && secondaryCalendars) throw new Error("Elegí un solo modo del servicio del blog.");
 const timer = previewOnly ? undefined : setInterval(tick, 15000);
 server.listen(port, "127.0.0.1", () => { console.log(`Shared blog runtime on ${port}.`); startTunnel(); if (!previewOnly) void tick(); });
+restartOnBlogCodeChange({ label: "blog-runtime", isBusy: () => [...workers.values()].some(worker => { const state = worker.runtimeState(); return state.running || state.generating; }), restart: () => process.kill(process.pid, "SIGTERM") });
 for (const event of ["SIGINT", "SIGTERM"]) process.on(event, () => { stopping = true; clearInterval(timer); clearInterval(watchdog); clearTimeout(restart); tunnel?.kill(); server.close(); void db.$disconnect().finally(() => process.exit(0)); });

@@ -25,7 +25,7 @@ import { preparationLabel } from "@/lib/blog-tasks";
 import { blogTaskError } from "@/lib/blog-task-errors";
 import { GenerationActionButton } from "./generation-action-button";
 import { WeekPlanner } from "./week-planner";
-import { dayPlanFrom, loadBlogCatalog, type BlogDayPlan } from "@/lib/blog-day-plan";
+import { dayPlanFrom, loadBlogCatalog, parsePriorityCompetitors, priorityCompetitorsKey, type BlogDayPlan } from "@/lib/blog-day-plan";
 
 function preparationField(value: unknown, field: string) {
   const metadata = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -169,6 +169,8 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
     activeClient.slug === "pcmidi" ? prisma.catalogSyncRun.findFirst({ where: { clientId: activeClient.id }, orderBy: { startedAt: "desc" }, select: { status: true } }) : Promise.resolve(null),
     calendarEnabled ? loadBlogCatalog(prisma, activeClient.id) : Promise.resolve({ products: [], excluded: [] }),
   ]);
+  const competitorSetting = calendarEnabled ? await prisma.appSetting.findUnique({ where: { key: priorityCompetitorsKey(activeClient.id) }, select: { value: true } }) : null;
+  const priorityCompetitors = parsePriorityCompetitors(competitorSetting?.value);
   const productName = new Map(blogCatalog.products.map(product => [product.id, product.name]));
   const selectedPlan = selected ? dayPlanFrom(selected.preparation) : {};
   const selectedHistory = selected ? dateHistory(selected.preparation) : [];
@@ -198,10 +200,10 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
             <summary className="cursor-pointer list-none rounded-lg bg-ink px-3 py-2 text-xs font-semibold text-paper hover:bg-ink/90">+ Nuevo artículo</summary>
             <div className="absolute right-0 top-full z-20 mt-2 w-96 max-w-[90vw] rounded-xl border border-ink/10 bg-paper p-4 shadow-lg">
               <p className="mb-3 text-xs text-slate">Elegí la fecha y, si querés, contá de qué tiene que tratar. Queda como borrador para revisar antes de publicar.</p>
-              <GenerateDateForm clientId={activeClient.id} day={nextFreeDay} minDate={tomorrow} clientSlug={activeClient.slug} language={preferences.language} comparison={preferences.comparisons} products={blogCatalog.products} globalExcluded={blogCatalog.excluded} balanced={balanced} neighbors={intentNeighbors} />
+              <GenerateDateForm competitors={priorityCompetitors} clientId={activeClient.id} day={nextFreeDay} minDate={tomorrow} clientSlug={activeClient.slug} language={preferences.language} comparison={preferences.comparisons} products={blogCatalog.products} globalExcluded={blogCatalog.excluded} balanced={balanced} neighbors={intentNeighbors} />
             </div>
           </details>
-          <WeekPlanner clientId={activeClient.id} products={blogCatalog.products} globalExcluded={blogCatalog.excluded} startDay={nextFreeDay} minDate={tomorrow} takenDays={[...takenDays]} language={preferences.language} comparisons={preferences.comparisons} balanced={balanced} neighbors={intentNeighbors} />
+          <WeekPlanner competitors={priorityCompetitors} clientId={activeClient.id} products={blogCatalog.products} globalExcluded={blogCatalog.excluded} startDay={nextFreeDay} minDate={tomorrow} takenDays={[...takenDays]} language={preferences.language} comparisons={preferences.comparisons} balanced={balanced} neighbors={intentNeighbors} />
           <details className="relative">
             <summary className="cursor-pointer list-none rounded-lg px-3 py-2 text-xs font-semibold text-slate underline underline-offset-2 hover:text-ink">Días automáticos</summary>
             <div className="absolute right-0 top-full z-20 mt-2 w-80 max-w-[85vw] rounded-xl border border-ink/10 bg-paper p-4 shadow-lg">
@@ -300,7 +302,7 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
           {(selectedDay > today || selected.analysisRunId) && selected.status === "FAILED" && !selected.landingId ? <GenerationActionButton id={selected.id} day={selectedDay} client={activeClient.slug} label="Reintentar preparación" action={retryBlogPreparation} kind="retry" /> : null}
           {selectedDay > today && selected.status === "SKIPPED" && !selected.landingId ? <GenerationActionButton id={selected.id} day={selectedDay} client={activeClient.slug} label="Volver a planificar" action={restoreBlogDate} kind="restore" /> : null}
           {selectedDay > today && !["SKIPPED", "PUBLISHING", "PUBLISHED"].includes(selected.status) ? <form action={skipBlogDate} className="border-t border-ink/10 pt-4"><input type="hidden" name="id" value={selected.id} /><PendingSubmitButton loadingText="Omitiendo…" className="text-sm text-slate underline">Omitir fecha</PendingSubmitButton></form> : null}
-        </> : <><h3 className="font-display text-xl">Sin artículo programado</h3>{selectedDay > today && calendarEnabled ? <GenerateDateForm clientId={activeClient.id} day={selectedDay} language={preferences.language} comparison={balanced || editorialIntentForDate(selectedDay) === "decision" ? preferences.comparisons : undefined} products={blogCatalog.products} globalExcluded={blogCatalog.excluded} balanced={balanced} neighbors={intentNeighbors} /> : <p className="text-sm text-slate">No hay una publicación preparada para este día.</p>}</>}
+        </> : <><h3 className="font-display text-xl">Sin artículo programado</h3>{selectedDay > today && calendarEnabled ? <GenerateDateForm competitors={priorityCompetitors} clientId={activeClient.id} day={selectedDay} language={preferences.language} comparison={balanced || editorialIntentForDate(selectedDay) === "decision" ? preferences.comparisons : undefined} products={blogCatalog.products} globalExcluded={blogCatalog.excluded} balanced={balanced} neighbors={intentNeighbors} /> : <p className="text-sm text-slate">No hay una publicación preparada para este día.</p>}</>}
       </CalendarDetail> : null}
     </main>
   );

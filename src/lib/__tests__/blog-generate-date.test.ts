@@ -193,10 +193,16 @@ describe("modo balanced", () => {
     expect(mocks.create.mock.calls[0][0].data[0].preparation).toMatchObject({ editorialIntent: "decision" });
   });
 
-  it("en modo parity no consulta vecinos ni guarda intención", async () => {
+  it("en modo parity no consulta vecinos y solo guarda la intención si se eligió a mano", async () => {
     mocks.client.mockResolvedValue({ slug: "pcmidi", responsePolicy: "" });
     await planned("2026-10-21", { editorialIntent: "educational" });
     expect(mocks.neighbors).not.toHaveBeenCalled();
+    expect(mocks.create.mock.calls[0][0].data[0].preparation).toMatchObject({ editorialIntent: "educational" });
+  });
+
+  it("en modo parity sin elegir el tipo sigue la fecha", async () => {
+    mocks.client.mockResolvedValue({ slug: "pcmidi", responsePolicy: "" });
+    await planned("2026-10-21", {});
     expect(mocks.create.mock.calls[0][0].data[0].preparation).not.toHaveProperty("editorialIntent");
   });
 });
