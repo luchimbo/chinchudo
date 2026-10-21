@@ -72,7 +72,7 @@ export function LandingsForm({
       <label className="flex items-start gap-2 text-sm text-ink">
         <input type="checkbox" name="blogComparisons" defaultChecked={config.blogComparisons} className="mt-1" />
         <span>Comparativas automáticas con otras marcas
-          <span className={hintCls + " block"}>En los días para ayudar a elegir, se compara un producto propio con uno de otra marca. Las ventajas salen de las fichas verificadas; de la otra marca solo se indica qué revisar.</span>
+          <span className={hintCls + " block"}>En los días de comparativa, se compara un producto propio con uno de otra marca. Las ventajas salen de las fichas verificadas; de la otra marca solo se indica qué revisar.</span>
         </span>
       </label>
 

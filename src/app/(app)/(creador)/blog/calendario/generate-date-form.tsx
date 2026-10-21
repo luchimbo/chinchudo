@@ -23,7 +23,7 @@ export function PreparationStatus({ preparation, backgroundTracking = false }: {
   return <div className="space-y-3 text-sm text-slate"><LoadingMessage>{preparationLabel(preparation)}…</LoadingMessage><div role="progressbar" aria-label="Preparación del artículo" aria-valuetext="Preparación en segundo plano" className="loading-progress-track h-1.5 rounded-full"><span /></div><p>Podés seguir trabajando; este día se actualizará cuando esté listo.</p></div>;
 }
 
-const intentLabel = (day: string) => editorialIntentForDate(day) === "decision" ? "Artículo para ayudar a elegir" : "Artículo educativo";
+const intentLabel = (day: string) => editorialIntentForDate(day) === "decision" ? "Artículo comparativo" : "Artículo educativo";
 
 /**
  * Pide un artículo para una fecha. En el panel del día la fecha es fija; desde
@@ -66,7 +66,7 @@ export function GenerateDateForm({ clientId, day, language = "es", comparison, m
     {validDate ? <div>
       <label className="block text-sm font-medium text-ink">Tipo de artículo
         <select name={balanced || chosen ? "editorialIntent" : undefined} value={balanced ? intent ?? "" : chosen ?? ""} onChange={event => setChosen((event.target.value || null) as EditorialIntent | null)} className="mt-1 block w-full rounded-lg border border-ink/20 bg-paper px-3 py-2">
-          {balanced ? null : <option value="">Automático · {intentLabel(date)}</option>}<option value="educational">Educativo</option><option value="decision">Para ayudar a elegir</option>
+          {balanced ? null : <option value="">Automático · {intentLabel(date)}</option>}<option value="educational">Educativo</option><option value="decision">Comparativa</option>
         </select>
       </label>
       <p className="mt-1 text-xs text-slate">{chosen ? "Elegido por vos." : balanced ? "Sugerido para mantener la mezcla pareja." : "Según la fecha."}</p>

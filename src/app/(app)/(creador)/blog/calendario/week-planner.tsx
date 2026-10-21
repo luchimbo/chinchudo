@@ -79,7 +79,7 @@ function WeekPlannerDialog({ clientId, products, globalExcluded, startDay, minDa
     setDrafts(current => {
       const next = { ...current };
       for (const day of days) if (day > from && included(day)) {
-        // El rival solo se copia a días «para elegir».
+        // El rival solo se copia a días de comparativa.
         next[day] = { ...source, excludedProductIds: [...source.excludedProductIds], competitor: isDecision(day) ? source.competitor : "", competitorNotes: isDecision(day) ? source.competitorNotes : "" };
       }
       return next;
@@ -141,7 +141,7 @@ function WeekPlannerDialog({ clientId, products, globalExcluded, startDay, minDa
         <div className="font-medium text-ink">No nombrar en toda la semana
           <div className="mt-1"><ProductMultiPicker products={products} value={weekExcluded} onChange={setWeekExcluded} blocked={weekBlocked} /></div>
         </div>
-        <label className="flex items-start gap-2 text-ink sm:col-span-2 lg:col-span-4"><input type="checkbox" checked={comparisons} onChange={event => setComparisons(event.target.checked)} className="mt-1" /><span>Comparativa automática en días «para elegir» sin rival ni consigna</span></label>
+        <label className="flex items-start gap-2 text-ink sm:col-span-2 lg:col-span-4"><input type="checkbox" checked={comparisons} onChange={event => setComparisons(event.target.checked)} className="mt-1" /><span>Comparativa automática en días de comparativa sin rival ni consigna</span></label>
         <p className="flex flex-wrap items-center gap-2 text-xs text-slate sm:col-span-2 lg:col-span-4" role="status">{researching ? <LoadingMessage>Investigando rivales…</LoadingMessage> : researchError ? <span className="text-signal">{researchError}</span> : `${competitors.length} ${competitors.length === 1 ? "rival investigado" : "rivales investigados"} para elegir o rotar en modo automático.`}<button type="button" disabled={researching} onClick={() => void research(true)} className="font-semibold text-moss underline underline-offset-2 disabled:opacity-60">Investigar de nuevo</button></p>
       </div>
 
@@ -162,8 +162,8 @@ function WeekPlannerDialog({ clientId, products, globalExcluded, startDay, minDa
             <div className="flex items-center justify-between gap-2 lg:block">
               <div>
                 <p className="text-sm font-semibold capitalize text-ink">{dayLabel(day)}</p>
-                {!busy && !off && !result?.queued ? <select aria-label={`Tipo de artículo del ${dayLabel(day)}`} value={chosenIntents[day] ?? ""} onChange={event => setChosenIntents(current => { const next = { ...current }; if (event.target.value) next[day] = event.target.value as EditorialIntent; else delete next[day]; return next; })} className={`mt-1 block rounded border px-1.5 py-0.5 text-[10px] font-medium ${decision ? "border-brass/30 bg-brass/10 text-brass" : "border-sky-200 bg-sky-50 text-sky-800"}`}><option value="">Auto · {decision ? "Para elegir" : "Educativo"}</option><option value="educational">Educativo</option><option value="decision">Para elegir</option></select>
-                  : <span className={`mt-1 inline-block rounded border px-1.5 py-0.5 text-[10px] font-medium ${decision ? "border-brass/30 bg-brass/10 text-brass" : "border-sky-200 bg-sky-50 text-sky-800"}`}>{decision ? "Para elegir" : "Educativo"}</span>}
+                {!busy && !off && !result?.queued ? <select aria-label={`Tipo de artículo del ${dayLabel(day)}`} value={chosenIntents[day] ?? ""} onChange={event => setChosenIntents(current => { const next = { ...current }; if (event.target.value) next[day] = event.target.value as EditorialIntent; else delete next[day]; return next; })} className={`mt-1 block rounded border px-1.5 py-0.5 text-[10px] font-medium ${decision ? "border-brass/30 bg-brass/10 text-brass" : "border-sky-200 bg-sky-50 text-sky-800"}`}><option value="">Auto · {decision ? "Comparativa" : "Educativo"}</option><option value="educational">Educativo</option><option value="decision">Comparativa</option></select>
+                  : <span className={`mt-1 inline-block rounded border px-1.5 py-0.5 text-[10px] font-medium ${decision ? "border-brass/30 bg-brass/10 text-brass" : "border-sky-200 bg-sky-50 text-sky-800"}`}>{decision ? "Comparativa" : "Educativo"}</span>}
               </div>
               <div className="text-xs lg:mt-2">
                 {busy ? <span className="text-slate">Ya tiene artículo</span>
