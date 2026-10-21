@@ -51,4 +51,10 @@ describe("avisos del agente local", () => {
     expect(connectionIssues({ ok: true }, code("a"))).toEqual([expect.stringContaining("sin control de versiones")]);
     expect(connectionIssues(code("a"), null)).toEqual([expect.stringContaining("no responde")]);
   });
+
+  it("no avisa mientras un proceso desactualizado se reinicia solo", () => {
+    const reloading = (loaded: string) => ({ ok: true, blogCode: { loaded, disk: "otro", stale: true, autoRestart: true } });
+    expect(connectionIssues(reloading("viejo"), code("nuevo"))).toEqual([]);
+    expect(connectionIssues(code("nuevo"), reloading("viejo"))).toEqual([]);
+  });
 });

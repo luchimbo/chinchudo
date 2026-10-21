@@ -7,7 +7,7 @@ const root = resolve(import.meta.dirname, "..");
 export const BLOG_CODE_FILES = [
   "scripts/blog-daily.mjs", "scripts/blog-preparation.mjs", "scripts/blog-lease.mjs",
   "src/lib/blog-quality.mjs", "src/lib/blog-free-slot.mjs", "src/lib/blog-intent.mjs", "src/lib/blog-evidence.mjs",
-  "src/lib/blog-daily-plan.mjs",
+  "src/lib/blog-daily-plan.mjs", "scripts/blog-code-version.mjs",
 ];
 
 export function blogCodeHash(base = root) {
@@ -20,11 +20,15 @@ export function blogCodeHash(base = root) {
 }
 
 const loaded = blogCodeHash();
+let autoRestart = false;
 
-/** `stale` indica que el archivo en disco cambió después de que arrancó este proceso. */
+/**
+ * `stale` indica que el archivo en disco cambió después de que arrancó este proceso.
+ * `autoRestart` indica que el proceso se reinicia solo al detectarlo, así que no hace falta avisar.
+ */
 export function blogCodeStatus() {
   const disk = blogCodeHash();
-  return { loaded, disk, stale: loaded !== disk };
+  return { loaded, disk, stale: loaded !== disk, autoRestart };
 }
 
 /**
@@ -33,6 +37,7 @@ export function blogCodeStatus() {
  */
 export function restartOnBlogCodeChange({ isBusy = () => false, restart = () => process.exit(0), label = "blog", intervalMs = 30_000 } = {}) {
   let pending = 0;
+  autoRestart = true;
   const timer = setInterval(() => {
     if (!blogCodeStatus().stale) { pending = 0; return; }
     if (++pending < 2 || isBusy()) return;

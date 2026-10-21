@@ -1,7 +1,7 @@
 import { PendingNavigationLink as Link } from "@/components/pending-navigation-link";
 import { relayFetch } from "@/lib/relay-client";
 
-type CodeStatus = { loaded?: string; disk?: string; stale?: boolean } | undefined;
+type CodeStatus = { loaded?: string; disk?: string; stale?: boolean; autoRestart?: boolean } | undefined;
 type Health = { ok: boolean; blogCode?: CodeStatus };
 
 async function health(path: string): Promise<Health | null> {
@@ -18,12 +18,14 @@ export function connectionIssues(relay: Health | null, runtime: Health | null): 
   if (!relay) return ["El agente está sin conexión. La publicación necesita que esté encendido."];
   const issues: string[] = [];
   const processes: [string, Health | null][] = [["El agente (relay)", relay], ["El servicio de publicación y vistas previas", runtime]];
+  // Un proceso desactualizado que se reinicia solo no necesita aviso: en un par de minutos carga el código nuevo.
+  const reloading = (item: Health | null) => Boolean(item?.blogCode?.stale && item.blogCode.autoRestart);
   for (const [name, item] of processes) {
     if (!item) { if (name !== "El agente (relay)") issues.push(`${name} no responde.`); continue; }
     if (!item.blogCode) issues.push(`${name} corre una versión anterior sin control de versiones. Reinicialo.`);
-    else if (item.blogCode.stale) issues.push(`${name} tiene cambios sin aplicar. Reinicialo para usar el código nuevo.`);
+    else if (item.blogCode.stale && !reloading(item)) issues.push(`${name} tiene cambios sin aplicar. Reinicialo para usar el código nuevo.`);
   }
-  if (relay.blogCode && runtime?.blogCode && relay.blogCode.loaded !== runtime.blogCode.loaded) issues.push("El agente y el servicio de publicación corren versiones distintas. Reiniciá el que quedó atrás.");
+  if (relay.blogCode && runtime?.blogCode && relay.blogCode.loaded !== runtime.blogCode.loaded && !reloading(relay) && !reloading(runtime)) issues.push("El agente y el servicio de publicación corren versiones distintas. Reiniciá el que quedó atrás.");
   return issues;
 }
 
