@@ -33,6 +33,7 @@ function WeekPlannerDialog({ clientId, products, globalExcluded, startDay, minDa
   const taken = useMemo(() => new Set(takenDays), [takenDays]);
   const [start, setStart] = useState(startDay);
   const [length, setLength] = useState(7);
+  const [perDay, setPerDay] = useState(1);
   const [languages, setLanguages] = useState<BlogLanguage[]>([defaultLanguage]);
   const [comparisons, setComparisons] = useState(defaultComparisons);
   const [weekExcluded, setWeekExcluded] = useState<string[]>([]);
@@ -92,7 +93,7 @@ function WeekPlannerDialog({ clientId, products, globalExcluded, startDay, minDa
     data.set("clientId", clientId); data.set("rows", String(selectedDays.length));
     selectedDays.forEach((day, index) => {
       const draft = draftFor(day); const key = (name: string) => `day${index}.${name}`;
-      data.set(key("include"), "on"); data.set(key("scheduledDate"), day); data.set(key("language"), languages[0]); if (languages.length > 1) for (const item of languages) data.append(key("dailyLanguages"), item);
+      data.set(key("include"), "on"); data.set(key("scheduledDate"), day); data.set(key("count"), String(perDay)); data.set(key("language"), languages[0]); if (languages.length > 1) for (const item of languages) data.append(key("dailyLanguages"), item);
       if (intents[day] && (balanced || chosenIntents[day])) data.set(key("editorialIntent"), intents[day]);
       data.set(key("comparisonOffered"), "1"); if (comparisons) data.set(key("comparison"), "on");
       if (draft.brief.trim()) data.set(key("brief"), draft.brief);
@@ -122,12 +123,15 @@ function WeekPlannerDialog({ clientId, products, globalExcluded, startDay, minDa
         <button type="button" onClick={onClose} disabled={pending} aria-label="Cerrar" className="rounded-lg border border-ink/10 px-3 py-1.5 text-sm hover:bg-ink/5">×</button>
       </header>
 
-      <div className="grid gap-3 border-b border-ink/10 bg-ink/[0.02] px-4 py-3 text-sm sm:grid-cols-2 sm:px-6 lg:grid-cols-[auto_auto_auto_1fr]">
+      <div className="grid gap-3 border-b border-ink/10 bg-ink/[0.02] px-4 py-3 text-sm sm:grid-cols-2 sm:px-6 lg:grid-cols-[auto_auto_auto_auto_1fr]">
         <label className="font-medium text-ink">Desde
           <input type="date" min={minDate} value={start} onChange={event => { setStart(event.target.value); setResults(new Map()); }} className="mt-1 block w-full rounded-lg border border-ink/15 bg-paper px-3 py-2 font-normal" />
         </label>
         <label className="font-medium text-ink">Días
           <select value={length} onChange={event => setLength(Number(event.target.value))} className="mt-1 block w-full rounded-lg border border-ink/15 bg-paper px-3 py-2 font-normal"><option value={7}>Una semana (7)</option><option value={14}>Dos semanas (14)</option></select>
+        </label>
+        <label className="font-medium text-ink">Artículos por día
+          <select value={perDay} onChange={event => setPerDay(Number(event.target.value))} className="mt-1 block w-full rounded-lg border border-ink/15 bg-paper px-3 py-2 font-normal">{Array.from({ length: 10 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}</option>)}</select>
         </label>
         <fieldset className="font-medium text-ink">
           <legend>Idiomas</legend>
@@ -187,7 +191,7 @@ function WeekPlannerDialog({ clientId, products, globalExcluded, startDay, minDa
       </div>
 
       <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-ink/10 px-4 py-3 sm:px-6">
-        <div className="min-w-0 space-y-1"><p className="text-xs text-slate" role="status">{error ? <span className="text-signal">{error}</span> : results.size ? `${queuedCount} programados${failedCount ? ` · ${failedCount} para revisar` : ""}.` : `${selectedDays.length} ${selectedDays.length === 1 ? "día" : "días"} para programar. Se preparan de a uno, en segundo plano.`}</p>
+        <div className="min-w-0 space-y-1"><p className="text-xs text-slate" role="status">{error ? <span className="text-signal">{error}</span> : results.size ? `${queuedCount} programados${failedCount ? ` · ${failedCount} para revisar` : ""}.` : `${selectedDays.length} ${selectedDays.length === 1 ? "día" : "días"} para programar${perDay > 1 ? `, ${perDay} artículos cada uno` : ""}. Se preparan de a uno, en segundo plano.`}</p>
         {balanceNotes.slice(0, 2).map(note => <p key={note} role="status" className="text-xs text-brass">Aviso: {note}</p>)}</div>
         <div className="flex gap-2">
           <button type="button" onClick={onClose} disabled={pending} className="rounded-lg border border-ink/15 px-3 py-2 text-sm font-semibold text-ink hover:bg-ink/5">{queuedCount ? "Listo" : "Cancelar"}</button>

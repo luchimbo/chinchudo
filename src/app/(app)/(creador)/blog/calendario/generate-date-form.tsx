@@ -74,6 +74,10 @@ export function GenerateDateForm({ clientId, day, language = "es", comparison, m
     </div> : null}
     <BriefField value={brief} onChange={setBrief} />
     <DayPlanFields clientId={clientId} competitors={competitors} products={products} globalExcluded={globalExcluded} decisionDay={decisionDay} draft={draft} onChange={next => { setDraft(next); setState({ error: null, queued: false }); }} />
+    <label className="block text-sm font-medium text-ink">Artículos para este día
+      <select name="count" defaultValue="1" className="mt-1 block w-full rounded-lg border border-ink/20 bg-paper px-3 py-2">{Array.from({ length: 10 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}</option>)}</select>
+      <span className="mt-1 block text-xs font-normal text-slate">Los extra son otros temas automáticos del mismo tipo e idioma.</span>
+    </label>
     <label className="block text-sm font-medium text-ink">Idioma del artículo
       <select name="language" defaultValue={language} className="mt-1 block w-full rounded-lg border border-ink/20 bg-paper px-3 py-2">{BLOG_LANGUAGES.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
     </label>

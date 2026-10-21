@@ -10,6 +10,7 @@ import { businessTimezone, localDay } from "@/lib/business-analysis";
 import { inspectBlogArticle } from "@/lib/blog-evidence";
 import { editorialIntentForDate } from "@/lib/blog-quality.mjs";
 import { nextFreeDay, nextFreeEditorialDay, withDateHistory } from "@/lib/blog-free-slot.mjs";
+import { MAX_DAILY_TOPICS } from "@/lib/blog-daily-plan.mjs";
 import { assignIntent, carryIntent, intentModeOf, loadIntentNeighbors, withIntent } from "@/lib/blog-intent.mjs";
 import { relayFetch } from "@/lib/relay-client";
 import type { Prisma } from "@prisma/client";
@@ -20,12 +21,12 @@ export type RescheduleFormState = { error: string | null };
 export type GenerateDateState = { error: string | null; queued: boolean; id?: string; client?: string };
 
 type EditorialClient = { slug: string; name?: string | null; responsePolicy: Prisma.JsonValue };
-type DayRequest = { scheduledDate: unknown; intent: unknown; language: unknown; hasLanguage: boolean; dailyLanguages: unknown[]; brief: FormDataEntryValue | null; comparisonOffered: boolean; comparison: boolean } & DayPlanInput;
+type DayRequest = { scheduledDate: unknown; intent: unknown; language: unknown; hasLanguage: boolean; dailyLanguages: unknown[]; count: unknown; brief: FormDataEntryValue | null; comparisonOffered: boolean; comparison: boolean } & DayPlanInput;
 
 function dayRequest(formData: FormData, prefix = ""): DayRequest {
   const key = (name: string) => `${prefix}${name}`;
   return {
-    scheduledDate: formData.get(key("scheduledDate")), intent: formData.get(key("editorialIntent")), language: formData.get(key("language")), hasLanguage: formData.has(key("language")), dailyLanguages: formData.getAll(key("dailyLanguages")), brief: formData.get(key("brief")),
+    scheduledDate: formData.get(key("scheduledDate")), intent: formData.get(key("editorialIntent")), language: formData.get(key("language")), hasLanguage: formData.has(key("language")), dailyLanguages: formData.getAll(key("dailyLanguages")), count: formData.get(key("count")), brief: formData.get(key("brief")),
     comparisonOffered: formData.has(key("comparisonOffered")), comparison: formData.get(key("comparison")) === "on",
     productId: formData.get(key("productId")) ?? undefined, excludedProductIds: formData.getAll(key("excludedProductIds")),
     competitor: formData.get(key("competitor")) ?? undefined, competitorNotes: formData.get(key("competitorNotes")) ?? undefined,
@@ -124,6 +125,12 @@ async function reserveBlogDate(clientId: string, client: EditorialClient, input:
       if (!waiting) return { error: "Este día ya tiene un artículo o se está preparando. Elegí otra fecha o usá «Generar otro artículo» desde el día.", queued: false };
       const updated = await prisma.blogPublication.updateMany({ where: { id: reserved.id, status: "PLANNED", landingId: null, updatedAt: reserved.updatedAt }, data: { preparation: { ...preparation, phase: "WAITING" } } });
       if (!updated.count) return { error: "El agente empezó a preparar este día. Elegí otra fecha o usá «Generar otro artículo».", queued: false };
+    }
+    // Los artículos extra del día son otros temas automáticos, con el mismo tipo e idiomas.
+    const topics = Math.min(Math.max(Math.trunc(Number(input.count)) || 1, 1), MAX_DAILY_TOPICS);
+    if (topics > 1) {
+      const extra = { ...(intent ? { editorialIntent: intent } : {}), language, ...(dailyLanguages.length > 1 ? { dailyLanguages } : {}), comparison: decisionDay && !brief && (input.comparisonOffered ? input.comparison : blogPreferences(client.responsePolicy).comparisons) };
+      await prisma.blogPublication.createMany({ data: Array.from({ length: topics - 1 }, (_, index) => ({ clientId, scheduledDate, dailySlot: index + 1, preparation: extra })), skipDuplicates: true });
     }
     const slot = await prisma.blogPublication.findUniqueOrThrow({ where: { clientId_scheduledDate: { dailySlot: 0, clientId, scheduledDate } }, select: { id: true } });
     return { error: null, queued: true, id: slot.id, client: client.slug };
@@ -393,5 +400,31 @@ export async function addBlogDays(formData: FormData) {
     return { clientId, scheduledDate: dateOnly(day), ...(preparation ? { preparation } : {}) };
   });
   await prisma.blogPublication.createMany({ data, skipDuplicates: true });
+  revalidatePath("/blog/calendario");
+}
+
+/** Suma artículos a un día que ya tiene alguno: cada uno ocupa el siguiente lugar libre y se escribe con el tipo e idiomas del primero. */
+export async function addBlogDayArticles(formData: FormData) {
+  const clientId = await editorialClient(formData);
+  const day = String(formData.get("day") || "");
+  const scheduledDate = dateOnly(day);
+  const client = await prisma.client.findUniqueOrThrow({ where: { id: clientId }, select: { responsePolicy: true } });
+  if (day <= localDay(new Date(), businessTimezone(client.responsePolicy))) throw new Error("Elegí un día posterior a hoy.");
+  const existing = await prisma.blogPublication.findMany({ where: { clientId, scheduledDate }, orderBy: { dailySlot: "asc" } });
+  if (!existing.length) throw new Error("Este día todavía no tiene artículos.");
+  const room = MAX_DAILY_TOPICS - existing.length;
+  const adding = Math.min(z.coerce.number().int().min(1).max(MAX_DAILY_TOPICS).parse(formData.get("count")), room);
+  if (adding < 1) throw new Error(`Un día admite hasta ${MAX_DAILY_TOPICS} artículos.`);
+  const first = existing[0].preparation && typeof existing[0].preparation === "object" && !Array.isArray(existing[0].preparation) ? existing[0].preparation as Record<string, unknown> : {};
+  const preparation = {
+    ...(first.editorialIntent ? { editorialIntent: first.editorialIntent } : {}),
+    language: ["es", "en", "de"].includes(String(first.language)) ? first.language : blogPreferences(client.responsePolicy).language,
+    ...(Array.isArray(first.dailyLanguages) ? { dailyLanguages: first.dailyLanguages } : {}),
+    comparison: typeof first.comparison === "boolean" && !first.brief && !first.competitor ? first.comparison : false,
+  };
+  const used = new Set(existing.map(item => item.dailySlot));
+  const slots: number[] = [];
+  for (let index = 0; slots.length < adding; index++) if (!used.has(index)) slots.push(index);
+  await prisma.blogPublication.createMany({ data: slots.map(dailySlot => ({ clientId, scheduledDate, dailySlot, preparation: preparation as Prisma.InputJsonValue })), skipDuplicates: true });
   revalidatePath("/blog/calendario");
 }
