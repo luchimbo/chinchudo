@@ -10,6 +10,40 @@ mismo generador Python como `--language`. El artículo guarda `language` en
 `htmlContent`; el editor muestra ese idioma y conserva el formato habitual.
 En Configuración del blog se puede guardar un idioma predeterminado.
 
+## Cantidad diaria y versiones por idioma
+
+En **Blog → Configuración → Calendario editorial** se eligen entre 1 y 10
+temas diarios. Cada tema tiene su propia selección de español, inglés y alemán.
+Un tema en los tres idiomas produce tres artículos; dos temas en los tres
+idiomas producen seis. El total aparece en el formulario antes de guardar.
+El primer idioma seleccionado es el original y las demás versiones se traducen
+desde ese mismo artículo, conservando el vínculo `translation_of` y hreflang.
+Cada versión se edita desde el editor habitual.
+
+El plan se guarda como `articlePlan` en `blog_daily_schedule:CLIENT_ID`, por
+ejemplo `[["en", "es", "de"], ["es"]]` para cuatro artículos diarios sobre dos
+temas. Los clientes sin plan conservan un artículo en su idioma predeterminado.
+`BlogPublication.dailySlot` identifica cada tema dentro de la fecha. Las
+traducciones acompañan su fecha, aprobación y publicación. Antes del despliegue
+se comprueba que existan todas las versiones y que pasen los controles de calidad.
+Una traducción fallida se reintenta hasta tres veces; después se informa el error
+y se puede volver a solicitar desde el editor del original.
+
+Los cambios afectan reservas automáticas que todavía no empezaron. Los artículos
+preparados y las fechas manuales se conservan. Cambiar el plan no activa la
+publicación automática ni modifica la aprobación manual.
+
+Aplicar primero `prisma migrate deploy` y regenerar Prisma, luego desplegar la
+app y reiniciar ambos trabajadores (`agent-relay` y `blog-runtime-service`).
+Para preconfigurar Kressmer sin activar publicación:
+
+```powershell
+node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/configure-blog-daily-plan.mts --client kressmer --languages en,es,de --topics 1 --dry-run
+node --env-file=.env node_modules/tsx/dist/cli.mjs scripts/configure-blog-daily-plan.mts --client kressmer --languages en,es,de --topics 1 --apply
+```
+
+El comando guarda un reporte con respaldo de la configuración anterior.
+
 La configuración por cliente vive en `Client.responsePolicy.blog`:
 
 ```json

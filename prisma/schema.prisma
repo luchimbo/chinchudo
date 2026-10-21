@@ -1019,6 +1019,7 @@ model BlogPublication {
   plannedTitle String                @default("")
   analysisRun BusinessAnalysisRun? @relation(fields: [analysisRunId], references: [id], onDelete: SetNull)
   scheduledDate DateTime              @db.Date
+  dailySlot     Int                   @default(0)
   status        BlogPublicationStatus @default(PLANNED)
   attempts      Int                   @default(0)
   needsDeploy   Boolean               @default(false)
@@ -1032,7 +1033,7 @@ model BlogPublication {
   client        Client                @relation(fields: [clientId], references: [id], onDelete: Cascade)
   landing       Landing?              @relation(fields: [landingId], references: [id], onDelete: SetNull)
 
-  @@unique([clientId, scheduledDate])
+  @@unique([clientId, scheduledDate, dailySlot], name: "clientId_scheduledDate")
   @@index([clientId, status, scheduledDate])
   @@index([analysisRunId])
 }

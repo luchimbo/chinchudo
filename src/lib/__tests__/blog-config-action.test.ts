@@ -15,6 +15,18 @@ function form() {
 beforeEach(() => { vi.resetAllMocks(); mocks.client.mockResolvedValue({ slug: "pcmidi" }); mocks.get.mockResolvedValue(JSON.stringify({ enabled: true, firstPublishDate: "2026-10-14" })); });
 
 describe("configuración propia del blog", () => {
+  it("guarda un tema diario con tres versiones conservando el resto del calendario", async () => {
+    mocks.client.mockResolvedValue({ slug: "kressmer", responsePolicy: { blog: { calendar: true, language: "en" } } });
+    const fd = form(); fd.set("blogArticlePlan", JSON.stringify([["en", "es", "de"]]));
+    await updateLandingsConfig(fd);
+    const value = mocks.set.mock.calls.find(([key]) => key === "blog_daily_schedule:pc")![1];
+    expect(JSON.parse(value)).toMatchObject({ articlePlan: [["en", "es", "de"]], firstPublishDate: "2026-10-14" });
+  });
+  it("rechaza idiomas inválidos antes de escribir", async () => {
+    const fd = form(); fd.set("blogArticlePlan", JSON.stringify([["fr"]]));
+    await expect(updateLandingsConfig(fd)).rejects.toThrow("Elegí");
+    expect(mocks.update).not.toHaveBeenCalled(); expect(mocks.set).not.toHaveBeenCalled();
+  });
   it("guarda aprobación del blog sin modificar las opciones compartidas del cliente", async () => {
     await updateLandingsConfig(form());
     const data = mocks.update.mock.calls[0][0].data;

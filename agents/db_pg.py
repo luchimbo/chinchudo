@@ -271,10 +271,10 @@ def _attach_scheduled_landing(conn, client_id: str, landing_id: str, scheduled_d
                "requiresApproval" = CASE WHEN %s THEN true ELSE "requiresApproval" END,
                "preparation" = CASE WHEN "preparation" IS NULL THEN NULL ELSE "preparation" || jsonb_build_object('phase', %s::text, 'finishedAt', NOW()) END,
                "updatedAt" = NOW()
-           WHERE "clientId" = %s AND "scheduledDate" = %s::date
+           WHERE "clientId" = %s AND "scheduledDate" = %s::date AND "dailySlot" = %s
              AND status IN ('PLANNED', 'FAILED') AND "landingId" IS NULL
            ''' + guard + ''' RETURNING id''',
-        (landing_id, "FAILED" if error else "READY", 3 if error else 0, error, "QUALITY_BLOCKED" if error else "", requires_approval, "FAILED" if error else "DONE", client_id, scheduled_date, *((attempt,) if attempt else ())),
+        (landing_id, "FAILED" if error else "READY", 3 if error else 0, error, "QUALITY_BLOCKED" if error else "", requires_approval, "FAILED" if error else "DONE", client_id, scheduled_date, int(os.environ.get("BLOG_DAILY_SLOT", "0")), *((attempt,) if attempt else ())),
     ).fetchone()
     if not row:
         raise RuntimeError(f"No hay un día libre reservado para {scheduled_date}")

@@ -97,7 +97,7 @@ export async function reserveAnalysisWeek(db: PrismaClient, run: BusinessAnalysi
     const scheduledDate = new Date(`${day}T00:00:00Z`);
     await db.$transaction(async tx => {
       await tx.$queryRaw`SELECT id FROM "Client" WHERE id = ${run.clientId} FOR UPDATE`;
-      const occupied = await tx.blogPublication.findUnique({ where: { clientId_scheduledDate: { clientId: run.clientId, scheduledDate } } });
+      const occupied = await tx.blogPublication.findUnique({ where: { clientId_scheduledDate: { dailySlot: 0, clientId: run.clientId, scheduledDate } } });
       if (occupied) return;
       const topic = topics[index++];
       await tx.blogPublication.create({ data: { clientId: run.clientId, scheduledDate, analysisRunId: run.id, targetKeyword: topic?.keyword || "", plannedTitle: topic?.title || "", requiresApproval: true, status: topic ? "PLANNED" : "FAILED", lastError: topic ? "" : "No se encontró un tema nuevo respaldado por la oferta propia." } });

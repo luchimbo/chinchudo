@@ -19,7 +19,7 @@ const python = process.env.AGENTS_PYTHON_BIN || (existsSync(resolve(root, ".venv
 async function runPython(args, clientId, timeoutMs = 300_000, progress, stdin) {
   const client = await db.client.findUniqueOrThrow({ where: { id: clientId }, select: { slug: true } });
   return new Promise((accept, reject) => {
-    const child = spawn(python, [resolve(root, "landing-build/build_landings.py"), "--client-slug", client.slug, ...args], { cwd: root, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: "utf-8", LANDING_EXPECTED_CLIENT_ID: clientId, BLOG_PREPARATION_ATTEMPT_ID: progress?.attemptId || "" } });
+    const child = spawn(python, [resolve(root, "landing-build/build_landings.py"), "--client-slug", client.slug, ...args], { cwd: root, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: "utf-8", LANDING_EXPECTED_CLIENT_ID: clientId, BLOG_PREPARATION_ATTEMPT_ID: progress?.attemptId || "", BLOG_DAILY_SLOT: String(progress?.dailySlot || 0) } });
     child.stdin.end(stdin);
     let output = "", lines = "", updates = Promise.resolve();
     child.stdout.on("data", chunk => {

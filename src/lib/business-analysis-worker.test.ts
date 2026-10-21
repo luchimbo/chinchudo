@@ -37,7 +37,7 @@ function database() {
     landingCategory: { findFirst: async () => ({ key: "clases", name: "Clases" }) },
     landing: { findMany: async ({ where }: any) => landings.filter(row => matches(row, where)) },
     blogPublication: {
-      findUnique: async ({ where }: any) => slots.find(row => matches(row, where.clientId_scheduledDate)),
+      findUnique: async ({ where }: any) => slots.find(row => matches({ dailySlot: 0, ...row }, where.clientId_scheduledDate)),
       create: vi.fn(async ({ data }: any) => { const slot = { id: `s${slots.length}`, attempts: 0, landingId: null, ...data }; slots.push(slot); return slot; }),
       findMany: async ({ where }: any) => slots.filter(row => matches(row, where)),
       update: async ({ where, data }: any) => { const slot = slots.find(row => row.id === where.id); apply(slot, data); return slot; },

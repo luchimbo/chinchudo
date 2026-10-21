@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { dailyArticlePlan } from "../src/lib/blog-daily-plan.mjs";
 import { inspectBlogArticle } from "../src/lib/blog-evidence.mjs";
 import { nextFreeEditorialDay, withDateHistory } from "../src/lib/blog-free-slot.mjs";
 import { assignIntent, carryIntent, intentForSlot, intentModeOf, loadIntentNeighbors, withIntent } from "../src/lib/blog-intent.mjs";
@@ -142,7 +143,7 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
   async function adoptToday(client, slot, day) {
     const today = argentinaNow(client.responsePolicy).date;
     if (day <= today) return;
-    const upcoming = await prisma.blogPublication.findMany({ where: { clientId: client.id, scheduledDate: { gte: dateValue(today) } } });
+    const upcoming = await prisma.blogPublication.findMany({ where: { clientId: client.id, dailySlot: slot.dailySlot || 0, scheduledDate: { gte: dateValue(today) } } });
     const byDate = new Map(upcoming.map((entry) => [entry.scheduledDate.toISOString().slice(0, 10), entry]));
     const current = byDate.get(today);
     // Si hoy ya salió otro artículo, este conserva su fecha: un solo artículo por día.
@@ -167,7 +168,7 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
       }
       const movedPlan = withDateHistory(preparation, { from: day, to: today, reason: "published_early" }, now());
       await tx.blogPublication.update({ where: { id: slot.id }, data: { scheduledDate: dateValue(today), preparation: { ...(balanced ? withIntent(movedPlan, intentForSlot(slot)) : movedPlan), publishedEarly: { from: day, displacedTo, displacedId: current?.id || null } } } });
-      await tx.blogPublication.createMany({ data: [{ clientId: client.id, scheduledDate: dateValue(day), preparation: { phase: "WAITING", ...(around ? { editorialIntent: assignIntent(day, around.neighbors) } : {}) } }], skipDuplicates: true });
+      await tx.blogPublication.createMany({ data: [{ clientId: client.id, dailySlot: slot.dailySlot || 0, scheduledDate: dateValue(day), preparation: { phase: "WAITING", ...(around ? { editorialIntent: assignIntent(day, around.neighbors) } : {}) } }], skipDuplicates: true });
     });
     log.log(`[blog] Artículo publicado antes de fecha: pasó del ${day} a hoy${displacedTo ? `; el de hoy se movió al ${displacedTo}` : ""}.`);
   }
@@ -177,6 +178,15 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
     try {
       landing = await prisma.landing.findUnique({ where: { id: slot.landingId }, include: { contentCluster: { select: { slug: true } } } });
       const content = parseContent(landing);
+      const missing = await missingDailyLanguages(client, slot, content);
+      if (missing.length) throw new Error(`Faltan versiones del artículo: ${missing.join(", ")}.`);
+      if (slot.preparation?.dailyLanguages?.length > 1) {
+        const siblings = await prisma.landing.findMany({ where: { clientId: client.id, ...translationWhere(landing.id) } });
+        for (const sibling of siblings) {
+          const quality = await validate(client, sibling, parseContent(sibling));
+          if (!quality.publishable) throw new Error(`Revisá la traducción ${parseContent(sibling).language}: ${errors(quality)}`);
+        }
+      }
       const quality = await validate(client, landing, content);
       if (!quality.publishable) {
         await prisma.landing.update({ where: { id: landing.id }, data: { htmlContent: JSON.stringify(content), status: "DRAFT", publishedAt: null } });
@@ -318,6 +328,36 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
     return true;
   }
 
+  async function missingDailyLanguages(client, slot, content) {
+    const wanted = slot.preparation?.dailyLanguages;
+    if (!Array.isArray(wanted) || wanted.length < 2) return [];
+    const siblings = await prisma.landing.findMany({ where: { clientId: client.id, ...translationWhere(slot.landingId) } });
+    const have = new Set([content.language || "es", ...siblings.flatMap(row => {
+      try { const value = parseContent(row); return value.translation_of === slot.landingId ? [value.language] : []; } catch { return []; }
+    })]);
+    return wanted.filter(language => !have.has(language));
+  }
+
+  // Una traducción por vuelta. Si se interrumpe, se detecta por su vínculo con el original.
+  async function prepareDailyTranslation(client, start) {
+    const candidates = await prisma.blogPublication.findMany({ where: { clientId: client.id, scheduledDate: { gte: dateValue(start) }, status: { in: ["READY", "FAILED"] }, landingId: { not: null } }, include: { landing: true }, orderBy: { scheduledDate: "asc" } });
+    for (const slot of candidates) {
+      if (!slot.landing || !Array.isArray(slot.preparation?.dailyLanguages) || slot.preparation.dailyLanguages.length < 2) continue;
+      const language = (await missingDailyLanguages(client, slot, parseContent(slot.landing)))[0];
+      if (!language) continue;
+      const failures = slot.preparation.translationFailures || {};
+      if (Number(failures[language] || 0) >= 3) continue;
+      try {
+        await runBlogPython(["translate", "--landing-id", slot.landingId, "--language", language], client.id, 300_000);
+        await prisma.blogPublication.update({ where: { id: slot.id }, data: { lastError: "", preparation: { ...slot.preparation, translationFailures: { ...failures, [language]: 0 } } } });
+      } catch (error) {
+        await prisma.blogPublication.update({ where: { id: slot.id }, data: { lastError: `Traducción ${language}: ${String(error.message || error).slice(-700)}`, preparation: { ...slot.preparation, translationFailures: { ...failures, [language]: Number(failures[language] || 0) + 1 } } } });
+      }
+      return true;
+    }
+    return false;
+  }
+
   async function runDailyBlogCalendar() {
     if (running) return;
     running = true;
@@ -338,12 +378,19 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
       // En modo "balanced" cada día reservado nace con su intención ya repartida por cuota.
       const balanced = active && intentModeOf(client.responsePolicy) === "balanced";
       const around = balanced ? await loadIntentNeighbors(prisma, client.id, start, shiftDate(start, 13)) : null;
+      const dailyPlan = dailyArticlePlan(config.articlePlan, client.responsePolicy?.blog?.language);
       for (let offset = 0; active && offset < 14; offset += 1) {
         const day = shiftDate(start, offset);
         const intent = around && !around.slots.has(day) ? assignIntent(day, around.neighbors) : null;
         if (intent) around.neighbors.push({ day, intent });
-        await prisma.blogPublication.upsert({ where: { clientId_scheduledDate: { clientId: client.id, scheduledDate: dateValue(day) } }, create: { clientId: client.id, scheduledDate: dateValue(day), ...(intent ? { preparation: { editorialIntent: intent } } : {}) }, update: {} });
+        for (const [dailySlot, dailyLanguages] of dailyPlan.entries()) {
+          const reserved = await prisma.blogPublication.upsert({ where: { clientId_scheduledDate: { clientId: client.id, scheduledDate: dateValue(day), dailySlot } }, create: { clientId: client.id, scheduledDate: dateValue(day), dailySlot, preparation: { automaticDailyPlan: true, language: dailyLanguages[0], dailyLanguages, ...(intent ? { editorialIntent: intent } : {}) } }, update: {} });
+          if (reserved?.preparation?.automaticDailyPlan && !reserved.landingId && reserved.status === "PLANNED" && reserved.attempts === 0) {
+            await prisma.blogPublication.updateMany({ where: { id: reserved.id, updatedAt: reserved.updatedAt, status: "PLANNED", attempts: 0, landingId: null }, data: { preparation: { ...reserved.preparation, language: dailyLanguages[0], dailyLanguages } } });
+          }
+        }
       }
+      if (active) await prisma.blogPublication.deleteMany({ where: { clientId: client.id, dailySlot: { gte: dailyPlan.length }, scheduledDate: { gte: dateValue(start) }, landingId: null, status: "PLANNED", attempts: 0, preparation: { path: ["automaticDailyPlan"], equals: true } } });
       await prisma.blogPublication.updateMany({ where: { clientId: client.id, requiresApproval: false, scheduledDate: { lt: dateValue(local.date) }, status: { in: ["PLANNED", "READY"] } }, data: { status: "SKIPPED", lastError: "La fecha pasó sin publicación; reprogramá el artículo." } });
       if (active && config.autoApprove === true) {
         const pending = await prisma.blogPublication.findMany({ where: { clientId: client.id, requiresApproval: true, scheduledDate: { gte: dateValue(local.date) }, status: { in: ["READY", "FAILED"] }, attempts: { lt: 3 }, landing: { isNot: null } }, include: { landing: true }, orderBy: { scheduledDate: "asc" } });
@@ -360,7 +407,12 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
           }
         }
       }
-      const due = await prisma.blogPublication.findUnique({ where: { clientId_scheduledDate: { clientId: client.id, scheduledDate: dateValue(local.date) } }, include: { landing: { include: { contentCluster: { select: { slug: true } } } } } });
+      if (await prepareDailyTranslation(client, local.date)) return;
+      const dueCandidates = await prisma.blogPublication.findMany({ where: { clientId: client.id, scheduledDate: dateValue(local.date), requiresApproval: false, status: { in: ["READY", "FAILED"] }, attempts: { lt: 3 }, landingId: { not: null } }, include: { landing: { include: { contentCluster: { select: { slug: true } } } } } });
+      let due;
+      for (const candidate of dueCandidates) {
+        if (candidate.landing && !(await missingDailyLanguages(client, candidate, parseContent(candidate.landing))).length) { due = candidate; break; }
+      }
       if (active && (!config.firstPublishDate || local.date >= config.firstPublishDate) && local.time >= config.publishTime && due?.landing && !due.requiresApproval && ["READY", "FAILED"].includes(due.status) && due.attempts < 3) {
         const claimed = await prisma.blogPublication.updateMany({ where: { id: due.id, requiresApproval: false, status: { in: ["READY", "FAILED"] }, attempts: { lt: 3 } }, data: { status: "PUBLISHING", attempts: { increment: 1 }, lastError: "", errorCode: "" } });
         if (claimed.count) await publishClaimedArticle(client, due);
@@ -381,12 +433,13 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
       const plan = dayPlanArgs(empty.preparation);
       const intent = intentForSlot(empty);
       const comparison = !!plan.competitor || (!brief && intent === "decision" && (typeof empty.preparation?.comparison === "boolean" ? empty.preparation.comparison : client.responsePolicy?.blog?.comparisons === true));
-      const metadata = carryIntent(empty.preparation, { ...newPreparation(now(), 240_000), language, comparison, ...(brief ? { brief } : {}), ...plan.metadata });
+      const metadata = carryIntent(empty.preparation, { ...empty.preparation, ...newPreparation(now(), 240_000), language, comparison, ...(brief ? { brief } : {}), ...plan.metadata });
       const generationClaim = await prisma.blogPublication.updateMany({ where: { id: empty.id, updatedAt: empty.updatedAt, landingId: null, attempts: empty.attempts, status: { in: ["PLANNED", "FAILED"] } }, data: { attempts: { increment: 1 }, status: "PLANNED", lastError: "", errorCode: "", preparation: metadata } });
       if (!generationClaim.count) { generationClients.delete(targetClientSlug); return; }
       try {
         await runBlogPython(["generate", "--limit", "1", "--schedule-date", day, "--intent", intent, "--max-seconds", "180", "--language", language, ...(comparison ? ["--comparison"] : []), ...(brief ? ["--brief", brief] : []), ...plan.args], client.id, 240_000, {
           attemptId: metadata.attemptId,
+          dailySlot: empty.dailySlot || 0,
           onPhase: phase => setPreparationPhase(prisma, empty.id, client.id, metadata, phase, now()),
         });
         const result = await prisma.blogPublication.findUnique({ where: { id: empty.id } });

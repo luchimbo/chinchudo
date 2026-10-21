@@ -1,5 +1,6 @@
 import { FirstUseHint } from "@/components/first-use-hint";
 import { BLOG_LANGUAGES, blogPreferences, editorialCalendarEnabled } from "@/lib/blog-language";
+import { findTranslations } from "@/lib/blog-translations";
 import { PendingSubmitButton } from "@/components/pending-submit-button";
 import { Suspense } from "react";
 import { LoadingSpinner, LoadingMessage } from "@/components/loading-ui";
@@ -60,7 +61,7 @@ const STATUS: Record<string, { label: string; style: string }> = {
   SKIPPED: { label: "Omitido", style: "border-ink/10 bg-ink/5 text-slate" },
 };
 
-export default async function BlogCalendarPage({ searchParams }: { searchParams: { firstUse?: string; client?: string; month?: string; day?: string; rescheduled?: string; requestedDate?: string } }) {
+export default async function BlogCalendarPage({ searchParams }: { searchParams: { firstUse?: string; client?: string; month?: string; day?: string; rescheduled?: string; requestedDate?: string; publication?: string } }) {
   const activeClient = await requirePageClient(prisma, searchParams.client);
   const calendarEnabled = editorialCalendarEnabled(activeClient);
 
@@ -85,12 +86,25 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
   try { requestedDate = dateOnly(searchParams.requestedDate || "").toISOString().slice(0, 10); } catch { /* Sin aviso para parámetros inválidos. */ }
   const rescheduledDate = rescheduledSlot?.scheduledDate.toISOString().slice(0, 10);
   const selectedDay = validCalendarDay(searchParams.day || rescheduledDate, month);
-  const selected = slots.find(slot => slot.scheduledDate.toISOString().slice(0, 10) === selectedDay);
+  const selectedSlots = slots.filter(slot => slot.scheduledDate.toISOString().slice(0, 10) === selectedDay);
+  const selected = selectedSlots.find(slot => slot.id === (searchParams.publication || searchParams.rescheduled)) || selectedSlots[0];
+  const selectedTranslations = selected?.landingId ? await findTranslations(prisma, activeClient.id, selected.landingId) : [];
 
   // El idioma vive dentro del contenido del artículo: se extrae en la base sin traer todo el texto.
   const articleIds = slots.flatMap(slot => slot.landingId ? [slot.landingId] : []);
   const languageRows = articleIds.length ? await prisma.$queryRaw<{ id: string; lang: string | null }[]>`SELECT id, substring("htmlContent" from '"language"[[:space:]]*:[[:space:]]*"([a-z]{2})"') AS lang FROM "Landing" WHERE id = ANY(${articleIds})` : [];
   const languageOf = new Map(languageRows.map(row => [row.id, row.lang || "es"]));
+  // Versiones por idioma de cada artículo (el original más sus traducciones), para mostrarlas juntas en la grilla.
+  const versionRows = articleIds.length ? await prisma.$queryRaw<{ titulo: string; lang: string | null; parent: string | null }[]>`SELECT titulo, substring("htmlContent" from '"language"[[:space:]]*:[[:space:]]*"([a-z]{2})"') AS lang, substring("htmlContent" from '"translation_of"[[:space:]]*:[[:space:]]*"([^"]+)"') AS parent FROM "Landing" WHERE "clientId" = ${activeClient.id} AND "htmlContent" LIKE '%"translation_of"%'` : [];
+  const versionsOf = new Map<string, Map<string, string>>();
+  for (const slot of slots) {
+    if (!slot.landingId) continue;
+    const versions = new Map<string, string>([[languageOf.get(slot.landingId) || "es", slot.landing?.titulo || ""]]);
+    for (const row of versionRows) if (row.parent === slot.landingId && !versions.has(row.lang || "es")) versions.set(row.lang || "es", row.titulo);
+    versionsOf.set(slot.landingId, versions);
+  }
+  const versionLanguages = (landingId: string | null | undefined) => (["es", "de", "en"] as const).filter(language => landingId && versionsOf.get(landingId)?.has(language));
+  const displayTitle = (slot: (typeof slots)[number]) => (slot.landingId && versionsOf.get(slot.landingId)?.get("es")) || slot.landing?.titulo || "";
 
   const landingIds = selected?.status === "PUBLISHED" && selected.landingId ? [selected.landingId] : [];
   const [events, leads] = landingIds.length ? await Promise.all([
@@ -130,7 +144,7 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
     referralStats.set(row.landingId, entries);
   }
 
-  const byDay = new Map(slots.map((slot) => [slot.scheduledDate.toISOString().slice(0, 10), slot]));
+  const byDay = new Map([...slots].reverse().map((slot) => [slot.scheduledDate.toISOString().slice(0, 10), slot]));
   const leading = (start.getUTCDay() + 6) % 7;
   const daysInMonth = Math.round((end.getTime() - start.getTime()) / 86_400_000);
   const calendarDays = Array.from({ length: leading + daysInMonth }, (_, index) => index < leading ? "" : shiftDate(`${month}-01`, index - leading));
@@ -161,7 +175,7 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
   const preferences = blogPreferences(activeClient.responsePolicy);
   // Aviso de día sin publicar: hoy no salió nada y ya pasó el horario (o no hay publicación automática).
   const [todaySlot, missedRecent] = calendarEnabled ? await Promise.all([
-    prisma.blogPublication.findUnique({ where: { clientId_scheduledDate: { clientId: activeClient.id, scheduledDate: dateOnly(today) } }, select: { status: true, requiresApproval: true, landingId: true, landing: { select: { titulo: true } } } }),
+    prisma.blogPublication.findUnique({ where: { clientId_scheduledDate: { dailySlot: 0, clientId: activeClient.id, scheduledDate: dateOnly(today) } }, select: { status: true, requiresApproval: true, landingId: true, landing: { select: { titulo: true } } } }),
     prisma.blogPublication.count({ where: { clientId: activeClient.id, status: "SKIPPED", landingId: { not: null }, scheduledDate: { gte: dateOnly(shiftDate(today, -7)), lt: dateOnly(today) } } }),
   ]) : [null, 0];
   const localTime = new Intl.DateTimeFormat("en-GB", { timeZone: businessTimezone(activeClient.responsePolicy), hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date());
@@ -238,15 +252,19 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
         <div className="grid grid-cols-7">{calendarDays.map((day, index) => {
           const slot = day ? byDay.get(day) : null;
           const state = slot ? stateFor(slot) : null;
-          return day ? <Link prefetch={false} key={day} href={calendarHref(activeClient.slug, month, day)} scroll={false} data-calendar-day={day} aria-haspopup="dialog" aria-expanded={selectedDay === day} aria-label={`${formatDay(day)}: ${slot?.landing?.titulo || (slot ? "Artículo en preparación" : "Sin artículo")}${state ? `, ${state.label}` : ""}`} title={slot?.landing?.titulo || undefined} className={`flex min-h-28 min-w-0 flex-col border-b border-r border-ink/10 p-1.5 outline-offset-[-3px] hover:bg-ink/[0.035] focus-visible:outline focus-visible:outline-2 focus-visible:outline-moss sm:min-h-36 sm:p-3 ${day === today ? "bg-brass/[0.07]" : ""} ${selectedDay === day ? "ring-2 ring-inset ring-moss" : ""}`}>
-            <span className={`mb-2 inline-flex h-6 w-6 shrink-0 items-center justify-center self-start rounded-full text-[11px] font-semibold sm:text-xs ${day === today ? "bg-ink text-paper" : "text-slate"}`}>{Number(day.slice(-2))}</span>
-            {slot ? <><p className="line-clamp-2 break-words text-[10px] font-semibold leading-snug text-ink sm:line-clamp-3 sm:text-xs">{slot.landing?.titulo || (slot.status === "SKIPPED" ? "Sin publicación" : "Preparando artículo")}</p><PlanChips plan={dayPlanFrom(slot.preparation)} productName={productName} />{state ? <span className={`mt-2 flex max-w-full items-center gap-1 self-start`}><span className={`block min-w-0 truncate rounded border px-1 py-0.5 text-[9px] font-medium sm:px-1.5 sm:text-[10px] ${state.style}`}>{state.label}</span>{slot.landingId && languageOf.get(slot.landingId) && languageOf.get(slot.landingId) !== "es" ? <span title={LANGUAGE_NAMES[languageOf.get(slot.landingId)!] || languageOf.get(slot.landingId)} className="shrink-0 rounded bg-ink/10 px-1 py-0.5 text-[9px] font-semibold uppercase text-ink sm:text-[10px]">{languageOf.get(slot.landingId)}</span> : null}</span> : null}</> : null}
+          const daySlots = slots.filter(item => item.scheduledDate.toISOString().slice(0, 10) === day);
+          return day ? <Link prefetch={false} key={day} href={calendarHref(activeClient.slug, month, day)} scroll={false} data-calendar-day={day} aria-haspopup="dialog" aria-expanded={selectedDay === day} aria-label={`${formatDay(day)}: ${(slot && displayTitle(slot)) || (slot ? "Artículo en preparación" : "Sin artículo")}${state ? `, ${state.label}` : ""}`} title={(slot && displayTitle(slot)) || undefined} className={`flex min-h-28 min-w-0 flex-col border-b border-r border-ink/10 p-1.5 outline-offset-[-3px] hover:bg-ink/[0.035] focus-visible:outline focus-visible:outline-2 focus-visible:outline-moss sm:min-h-36 sm:p-3 ${day === today ? "bg-brass/[0.07]" : ""} ${selectedDay === day ? "ring-2 ring-inset ring-moss" : ""}`}>
+            {daySlots.length > 1 ? <span className="mb-1 text-[10px] text-slate">{daySlots.length} temas</span> : null}<span className={`mb-2 inline-flex h-6 w-6 shrink-0 items-center justify-center self-start rounded-full text-[11px] font-semibold sm:text-xs ${day === today ? "bg-ink text-paper" : "text-slate"}`}>{Number(day.slice(-2))}</span>
+            {slot ? <><p className="line-clamp-2 break-words text-[10px] font-semibold leading-snug text-ink sm:line-clamp-3 sm:text-xs">{displayTitle(slot) || (slot.status === "SKIPPED" ? "Sin publicación" : "Preparando artículo")}</p><PlanChips plan={dayPlanFrom(slot.preparation)} productName={productName} />{state ? <span className={`mt-2 flex max-w-full items-center gap-1 self-start`}><span className={`block min-w-0 truncate rounded border px-1 py-0.5 text-[9px] font-medium sm:px-1.5 sm:text-[10px] ${state.style}`}>{state.label}</span>{versionLanguages(slot.landingId).map(language => <span key={language} title={LANGUAGE_NAMES[language]} className="shrink-0 rounded bg-ink/10 px-1 py-0.5 text-[9px] font-semibold uppercase text-ink sm:text-[10px]">{language}</span>)}</span> : null}</> : null}
           </Link> : <div key={`empty-${index}`} aria-hidden="true" className="min-h-28 border-b border-r border-ink/10 bg-ink/[0.015] sm:min-h-36" />;
         })}</div>
       </section>
 
       {selectedDay ? <CalendarDetail key={selectedDay} client={activeClient.slug} day={selectedDay} dateLabel={formatDay(selectedDay)} closeHref={calendarHref(activeClient.slug, month)} publicationId={selected?.id} publishing={selected?.status === "PUBLISHING"}>
+        {selectedSlots.length > 1 ? <nav aria-label="Temas del día" className="flex flex-wrap gap-2">{selectedSlots.map((slot, index) => <Link key={slot.id} prefetch={false} href={`${calendarHref(activeClient.slug, month, selectedDay)}&publication=${encodeURIComponent(slot.id)}`} aria-current={slot.id === selected?.id ? "page" : undefined} className={`rounded-lg border px-3 py-2 text-xs ${slot.id === selected?.id ? "bg-ink text-paper" : "border-ink/20 text-ink"}`}>Tema {index + 1}</Link>)}</nav> : null}
         {selected ? <>
+          {selectedTranslations.length ? <nav aria-label="Versiones por idioma" className="flex flex-wrap gap-3">{selectedTranslations.map(article => <Link key={article.id} prefetch={false} className="text-sm font-semibold text-moss underline" href={`/blog/articulos/${article.id}?client=${encodeURIComponent(activeClient.slug)}`}>Editar {LANGUAGE_NAMES[article.language]}</Link>)}</nav> : null}
+          {selected.lastError && selected.status !== "FAILED" ? <p role="alert" className="text-sm text-signal">{selected.lastError}</p> : null}
           {selectedState ? <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${selectedState.style}`}>{selected.status === "PUBLISHING" ? <LoadingSpinner className="mr-1" /> : null}{selectedState.label}</span> : null}
           <h3 className="font-display text-2xl leading-tight text-ink">{selected.landing?.titulo || (selected.status === "SKIPPED" ? "Sin publicación" : "Preparando artículo")}</h3>
           {preparationBrief(selected.preparation) ? <p className="rounded-lg bg-ink/[0.04] px-3 py-2 text-sm text-ink"><span className="font-semibold">Consigna:</span> {preparationBrief(selected.preparation)}</p> : null}

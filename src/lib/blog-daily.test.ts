@@ -10,7 +10,7 @@ function matches(row: Row, where: Row = {}): boolean {
     if (key === "landing") return cond?.isNot === null ? row.landingId != null : true;
     if (key === "OR") return (cond as Row[]).some((item) => matches(row, item));
     if (key === "blogPublication") return cond?.is === null ? !rows.some((item) => item.landingId === row.id) : true;
-    const value = key === "requiresApproval" ? row[key] ?? false : key === "analysisRunId" ? row[key] ?? null : row[key];
+    const value = key === "dailySlot" ? row[key] ?? 0 : key === "requiresApproval" ? row[key] ?? false : key === "analysisRunId" ? row[key] ?? null : row[key];
     if (cond && typeof cond === "object" && !(cond instanceof Date)) {
       if ("in" in cond) return cond.in.includes(value);
       if ("contains" in cond) return String(value ?? "").includes(cond.contains);
@@ -51,7 +51,7 @@ const prisma = {
     deleteMany: async ({ where }: any) => { const hit = settings[where.key] === where.value; if (hit) delete settings[where.key]; return { count: hit ? 1 : 0 }; },
   },
   landing: {
-    findMany: async () => Object.values(landings).filter((l) => l.status === "PUBLISHED" && !rows.some((r) => r.landingId === l.id) && l.htmlContent.includes('"pending_revision"')),
+    findMany: async ({ where }: any) => Object.values(landings).filter(l => matches({ clientId: "c1", contentType: "GUIDE", ...l }, where)),
     findUnique: async ({ where }: any) => ({ ...landings[where.id] }),
     update: async ({ where, data }: any) => { apply(landings[where.id], data); },
     updateMany: async ({ where, data }: any) => {
@@ -68,7 +68,7 @@ const prisma = {
     },
     findUnique: async ({ where, select, include }: any) => {
       const key = where.clientId_scheduledDate;
-      const found = rows.find((item) => (key ? item.scheduledDate.getTime() === key.scheduledDate.getTime() : item.id === where.id));
+      const found = rows.find((item) => (key ? item.scheduledDate.getTime() === key.scheduledDate.getTime() && (item.dailySlot || 0) === (key.dailySlot || 0) : item.id === where.id));
       if (!found) return null;
       return include ? withLanding(found, include) : select ? { status: found.status } : found;
     },
@@ -88,8 +88,9 @@ const prisma = {
     },
     upsert: async ({ where, create }: any) => {
       const time = where.clientId_scheduledDate.scheduledDate.getTime();
-      if (rows.some((item) => item.scheduledDate.getTime() === time)) return;
+      if (rows.some((item) => item.scheduledDate.getTime() === time && (item.dailySlot || 0) === (create.dailySlot || 0))) return rows.find(item => item.scheduledDate.getTime() === time && (item.dailySlot || 0) === (create.dailySlot || 0));
       rows.push({ id: `p${seq++}`, landingId: null, status: "PLANNED", attempts: 0, needsDeploy: false, revisionAttempts: 0, lastError: "", updatedAt: new Date(clock.getTime()), ...create });
+      return rows[rows.length - 1];
     },
   },
 };
@@ -397,7 +398,7 @@ describe("rutina diaria del blog", () => {
     await daily.runDailyBlogCalendar();
     const reserved = rows.filter((item) => item.status === "PLANNED");
     expect(reserved).toHaveLength(14);
-    expect(reserved.every((item) => item.preparation === undefined)).toBe(true);
+    expect(reserved.every((item) => !item.preparation?.editorialIntent)).toBe(true);
   });
   it("en modo balanced publicar antes de fecha intercambia fechas con el artículo de hoy", async () => {
     settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: false });
@@ -715,5 +716,68 @@ describe("traducciones y borrado", () => {
     await daily.runDailyBlogCalendar();
     expect(deploys(runBlogPython)).toBe(1);
     expect(settings["blog_redeploy_pending:c1"]).toBe("2026-10-01T14:00:00Z");
+  });
+});
+
+
+describe("calendario multilingüe diario", () => {
+  it("reserva varios temas por fecha y conserva los idiomas por tema", async () => {
+    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: true, publishTime: "09:00", articlePlan: [["en", "es", "de"], ["es"]] });
+    const { daily } = build({ generationClients: new Set(["pcmidi"]) });
+    await daily.runDailyBlogCalendar();
+    const tomorrow = rows.filter(item => item.scheduledDate.toISOString().startsWith("2026-10-02"));
+    expect(rows).toHaveLength(28);
+    expect(tomorrow.map(item => [item.dailySlot, item.preparation.dailyLanguages])).toEqual([[0, ["en", "es", "de"]], [1, ["es"]]]);
+  });
+  it("completa idiomas del mismo original antes de desplegar y reanuda sin duplicar", async () => {
+    addReady("2026-10-01");
+    row("2026-10-01").preparation = { dailyLanguages: ["es", "en", "de"] };
+    const runner = vi.fn(async (args: string[]) => {
+      if (args[0] === "translate") {
+        const language = args[args.indexOf("--language") + 1];
+        landings[language] = { id: language, slug: language, status: "DRAFT", htmlContent: JSON.stringify({ language, translation_of: "l-2026-10-01" }) };
+      }
+      return "ok";
+    });
+    const { daily } = build({ runBlogPython: runner });
+    await daily.runDailyBlogCalendar();
+    expect(runner.mock.calls[0][0]).toEqual(["translate", "--landing-id", "l-2026-10-01", "--language", "en"]);
+    expect(deploys(runner)).toBe(0);
+    await daily.runDailyBlogCalendar();
+    expect(runner.mock.calls[1][0]).toContain("de");
+    await daily.runDailyBlogCalendar();
+    expect(row("2026-10-01").status).toBe("PUBLISHED");
+    expect(landings.en.status).toBe("PUBLISHED"); expect(landings.de.status).toBe("PUBLISHED");
+    expect(runner.mock.calls.filter(([args]) => args[0] === "translate")).toHaveLength(2);
+  });
+  it("publica dos temas del mismo día en vueltas sucesivas", async () => {
+    addReady("2026-10-01");
+    rows.push({ ...row("2026-10-01"), id: "second", dailySlot: 1, landingId: "second" });
+    landings.second = { ...landings["l-2026-10-01"], id: "second", slug: "second" };
+    const { daily } = build();
+    await daily.runDailyBlogCalendar(); await daily.runDailyBlogCalendar();
+    expect(rows.filter(item => item.scheduledDate.toISOString().startsWith("2026-10-01")).map(item => item.status)).toEqual(["PUBLISHED", "PUBLISHED"]);
+  });
+  it("conserva el original privado cuando falla una traducción y limita los reintentos", async () => {
+    addReady("2026-10-01"); row("2026-10-01").preparation = { dailyLanguages: ["es", "de"] };
+    const runner = vi.fn(async (args: string[]) => { if (args[0] === "translate") throw new Error("proveedor no disponible"); return "ok"; });
+    const { daily } = build({ runBlogPython: runner, generationClients: new Set(["pcmidi"]) });
+    for (let index = 0; index < 5; index++) await daily.runDailyBlogCalendar();
+    expect(runner.mock.calls.filter(([args]) => args[0] === "translate")).toHaveLength(3);
+    expect(deploys(runner)).toBe(0);
+    expect(landings["l-2026-10-01"].status).toBe("DRAFT");
+    expect(row("2026-10-01").lastError).toContain("Traducción de");
+  });
+  it("cambiar la cantidad conserva artículos preparados y elimina solo reservas automáticas sin empezar", async () => {
+    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: true, publishTime: "09:00", articlePlan: [["en"], ["es"]] });
+    const { daily } = build({ generationClients: new Set(["pcmidi"]) });
+    await daily.runDailyBlogCalendar();
+    const reserved = rows.find(item => item.dailySlot === 1)!;
+    reserved.landingId = "kept"; reserved.status = "READY";
+    landings.kept = { id: "kept", status: "DRAFT", htmlContent: "{}" };
+    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: true, publishTime: "09:00", articlePlan: [["en", "de"]] });
+    await daily.runDailyBlogCalendar();
+    expect(rows.filter(item => item.dailySlot === 1)).toEqual([reserved]);
+    expect(rows.find(item => item.dailySlot === 0)!.preparation.dailyLanguages).toEqual(["en", "de"]);
   });
 });

@@ -7,6 +7,7 @@ import { assertClientAccess } from "@/lib/auth";
 import { getSetting, setSetting } from "@/lib/settings";
 import { argentinaDate, shiftDate } from "@/lib/blog-calendar";
 import { editorialCalendarEnabled } from "@/lib/blog-language";
+import { validateDailyArticlePlan } from "@/lib/blog-daily-plan.mjs";
 import { COMPETITOR_MAX, excludedProductsKey, loadBlogCatalog, MAX_PRIORITY_COMPETITORS, ownBrandsFor, priorityCompetitorsKey } from "@/lib/blog-day-plan";
 import { researchBlogCompetitors } from "@/lib/blog-competitor-research";
 
@@ -37,6 +38,7 @@ export async function updateLandingsConfig(formData: FormData) {
     // La publicación arranca al día siguiente de activarla.
     if (dailyEnabled && !dailyConfig.enabled) dailyConfig.firstPublishDate = shiftDate(argentinaDate(), 1);
   }
+  const articlePlan = usesCalendar && formData.has("blogArticlePlan") ? validateDailyArticlePlan(JSON.parse(str(formData, "blogArticlePlan"))) : dailyConfig.articlePlan;
   await prisma.client.update({
     where: { id },
     data: {
@@ -55,7 +57,7 @@ export async function updateLandingsConfig(formData: FormData) {
   await setSetting(`landing_generation_schedule:${id}`, JSON.stringify({ enabled, intervalHours, limit, weeklyTarget, lastRunAt: new Date().toISOString() }));
 
   if (usesCalendar) {
-    await setSetting(`blog_daily_schedule:${id}`, JSON.stringify({ ...dailyConfig, enabled: dailyEnabled, autoApprove: formData.get("blogAutoApprove") === "on", publishTime, timezone: "America/Argentina/Buenos_Aires", horizonDays: 14 }));
+    await setSetting(`blog_daily_schedule:${id}`, JSON.stringify({ ...dailyConfig, ...(articlePlan ? { articlePlan } : {}), enabled: dailyEnabled, autoApprove: formData.get("blogAutoApprove") === "on", publishTime, timezone: "America/Argentina/Buenos_Aires", horizonDays: 14 }));
   }
 
   revalidatePath("/blog/configuracion");

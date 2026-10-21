@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { LogoUpload } from "@/app/(app)/configuracion/logo-upload";
 import { LoadingSpinner } from "@/components/loading-ui";
 import { BLOG_LANGUAGES, type BlogLanguage } from "@/lib/blog-language";
+import { dailyArticlePlan, MAX_DAILY_TOPICS } from "@/lib/blog-daily-plan.mjs";
 
 const inputCls = "rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm text-ink w-full";
 const labelCls = "grid gap-1 text-xs font-semibold text-slate";
@@ -23,7 +24,7 @@ type Config = {
   autoApprove: boolean;
   autoPublish: boolean;
   generationSchedule: { enabled: boolean; intervalHours: number; limit: number; weeklyTarget: number };
-  dailyBlogSchedule: { enabled: boolean; publishTime: string; autoApprove: boolean };
+  dailyBlogSchedule: { enabled: boolean; publishTime: string; autoApprove: boolean; articlePlan?: unknown };
 };
 
 export function LandingsForm({
@@ -38,6 +39,8 @@ export function LandingsForm({
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+  const [articlePlan, setArticlePlan] = useState(() => dailyArticlePlan(config.dailyBlogSchedule.articlePlan, config.blogLanguage));
+  const dailyTotal = articlePlan.reduce((total, row) => total + row.length, 0);
   const usesCalendar = config.editorialCalendar ?? config.clientSlug === "pcmidi";
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -52,8 +55,8 @@ export function LandingsForm({
       setSaved(true);
       router.refresh();
       setTimeout(() => setSaved(false), 3000);
-    } catch {
-      setError("No se pudo guardar la configuración. Intentá de nuevo.");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "No se pudo guardar la configuración. Intentá de nuevo.");
     } finally {
       setSaving(false);
     }
@@ -126,8 +129,29 @@ export function LandingsForm({
           <div className="rounded-xl border border-moss/20 bg-moss/5 p-4">
             <label className="flex items-start gap-3 text-sm text-slate">
               <input type="checkbox" name="blogDailyEnabled" defaultChecked={config.dailyBlogSchedule.enabled} className="mt-0.5" />
-              <span><span className="font-semibold text-ink">Publicar un artículo diario</span><span className={`block ${hintCls}`}>Comienza al día siguiente de la activación.</span></span>
+              <span><span className="font-semibold text-ink">Activar publicación diaria</span><span className={`block ${hintCls}`}>Comienza al día siguiente de la activación.</span></span>
             </label>
+            <input type="hidden" name="blogArticlePlan" value={JSON.stringify(articlePlan)} />
+            <label className={`${labelCls} mt-4 max-w-xs`}>Temas distintos por día
+              <input type="number" min="1" max={MAX_DAILY_TOPICS} value={articlePlan.length} onChange={event => {
+                const count = Math.max(1, Math.min(MAX_DAILY_TOPICS, Number(event.target.value) || 1));
+                setArticlePlan(previous => Array.from({ length: count }, (_, index) => previous[index] || [...previous[previous.length - 1]]));
+              }} className={inputCls} />
+              <span className={hintCls}>Cada tema genera el mismo artículo en los idiomas elegidos.</span>
+            </label>
+            <div className="mt-4 grid gap-3">
+              {articlePlan.map((row, index) => <fieldset key={index} className="rounded-lg border border-ink/10 p-3">
+                <legend className="px-1 text-xs font-semibold text-ink">Idiomas del tema {index + 1}</legend>
+                <div className="flex flex-wrap gap-4">{BLOG_LANGUAGES.map(language => <label key={language.value} className="flex items-center gap-2 text-sm text-ink">
+                  <input type="checkbox" checked={row.includes(language.value)} disabled={row.length === 1 && row.includes(language.value)} onChange={event => {
+                    const checked = event.target.checked;
+                    setArticlePlan(previous => previous.map((item, position) => position === index ? checked ? [...item, language.value] : item.filter(value => value !== language.value) : item));
+                  }} />{language.label}
+                </label>)}</div>
+              </fieldset>)}
+            </div>
+            <p role="status" className="mt-3 text-sm font-semibold text-ink">{dailyTotal} {dailyTotal === 1 ? "artículo diario" : "artículos diarios"} · {articlePlan.length} {articlePlan.length === 1 ? "tema" : "temas"}</p>
+            <p className={`${hintCls} mt-1`}>El primer idioma seleccionado se usa como original. Cada versión se puede editar por separado. Los cambios se aplican a las próximas fechas; los artículos ya preparados se conservan.</p>
             <label className="mt-4 flex items-start gap-3 text-sm text-slate">
               <input type="checkbox" name="blogAutoApprove" defaultChecked={config.dailyBlogSchedule.autoApprove} className="mt-0.5" />
               <span><span className="font-semibold text-ink">Aprobar artículos automáticamente</span><span className={`block ${hintCls}`}>Incluye los borradores del análisis comercial. Solo se publican artículos que pasan los controles de calidad; los bloqueados quedan para revisión.</span></span>

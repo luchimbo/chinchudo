@@ -27,7 +27,7 @@ try {
       for (const [language, raw] of Object.entries(content.translations)) {
         if (!["es", "en", "de"].includes(language)) continue;
         const text = raw as { title: string; description: string; sections: Array<{ heading: string; paragraphs: string[] }> };
-        while (editorialIntentForDate(day) !== "educational" || await db.blogPublication.findUnique({ where: { clientId_scheduledDate: { clientId: client.id, scheduledDate: new Date(`${day}T00:00:00Z`) } } })) day = shiftDate(day, 1);
+        while (editorialIntentForDate(day) !== "educational" || await db.blogPublication.findUnique({ where: { clientId_scheduledDate: { dailySlot: 0, clientId: client.id, scheduledDate: new Date(`${day}T00:00:00Z`) } } })) day = shiftDate(day, 1);
         const localizedSlug = first ? row.slug : `${row.slug}-${language}`;
         const contentData = {
           slug: localizedSlug, intent: "educational", keyword: text.title.slice(0, 160), h1: text.title, titulo: text.title,

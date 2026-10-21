@@ -29,7 +29,7 @@ try {
     if ((await relay.json()).blogAutomationVersion !== 2) throw new Error("Reiniciá el agente local para cargar la nueva automatización antes de activar.");
     const publicSite = await fetch(client.blogBaseUrl, { signal: AbortSignal.timeout(20_000) });
     if (!publicSite.ok) throw new Error("El sitio público no está disponible.");
-    const next = await prisma.blogPublication.findUnique({ where: { clientId_scheduledDate: { clientId: client.id, scheduledDate: dateOnly(tomorrow) } }, include: { landing: true } });
+    const next = await prisma.blogPublication.findUnique({ where: { clientId_scheduledDate: { dailySlot: 0, clientId: client.id, scheduledDate: dateOnly(tomorrow) } }, include: { landing: true } });
     if (!next?.landing || next.status !== "READY") throw new Error(`No hay un artículo listo para ${tomorrow}. Corregilo antes de activar.`);
     const content = JSON.parse(next.landing.htmlContent);
     const quality = await inspectBlogArticle(prisma, client.id, content, next.landingId!);

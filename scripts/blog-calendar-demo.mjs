@@ -75,7 +75,7 @@ async function seed() {
       landingId = landing.id;
     }
     await prisma.blogPublication.upsert({
-      where: { clientId_scheduledDate: { clientId: client.id, scheduledDate: day(sample.date) } },
+      where: { clientId_scheduledDate: { dailySlot: 0, clientId: client.id, scheduledDate: day(sample.date) } },
       create: {
         clientId: client.id, scheduledDate: day(sample.date), status: sample.status, landingId,
         lastError: sample.error || sample.note || "", publishedAt: sample.status === "PUBLISHED" ? day(sample.date) : null,

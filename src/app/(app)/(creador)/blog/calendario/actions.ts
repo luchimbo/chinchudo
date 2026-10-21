@@ -115,14 +115,14 @@ async function reserveBlogDate(clientId: string, client: EditorialClient, input:
     if (!created.count) {
       // Con la publicación automática, los próximos días ya están reservados
       // vacíos. Mientras el agente no empezó a escribirlos se pueden completar.
-      const reserved = await prisma.blogPublication.findUnique({ where: { clientId_scheduledDate: { clientId, scheduledDate } } });
+      const reserved = await prisma.blogPublication.findUnique({ where: { clientId_scheduledDate: { dailySlot: 0, clientId, scheduledDate } } });
       const phase = reserved?.preparation && typeof reserved.preparation === "object" && !Array.isArray(reserved.preparation) ? (reserved.preparation as Record<string, unknown>).phase : undefined;
       const waiting = reserved && reserved.status === "PLANNED" && !reserved.landingId && !reserved.analysisRunId && (phase === undefined || phase === "WAITING");
       if (!waiting) return { error: "Este día ya tiene un artículo o se está preparando. Elegí otra fecha o usá «Generar otro artículo» desde el día.", queued: false };
       const updated = await prisma.blogPublication.updateMany({ where: { id: reserved.id, status: "PLANNED", landingId: null, updatedAt: reserved.updatedAt }, data: { preparation: { ...preparation, phase: "WAITING" } } });
       if (!updated.count) return { error: "El agente empezó a preparar este día. Elegí otra fecha o usá «Generar otro artículo».", queued: false };
     }
-    const slot = await prisma.blogPublication.findUniqueOrThrow({ where: { clientId_scheduledDate: { clientId, scheduledDate } }, select: { id: true } });
+    const slot = await prisma.blogPublication.findUniqueOrThrow({ where: { clientId_scheduledDate: { dailySlot: 0, clientId, scheduledDate } }, select: { id: true } });
     return { error: null, queued: true, id: slot.id, client: client.slug };
   } catch {
     return { error: "No se pudo solicitar el artículo. Verificá tu acceso y reintentá.", queued: false };
@@ -141,7 +141,7 @@ function waitingPreparation(value: Prisma.JsonValue | null, brief?: string): Pri
   const nextBrief = brief ?? (typeof metadata.brief === "string" ? metadata.brief : "");
   // El plan del día (producto, exclusiones, rival) sobrevive a reintentos y reemplazos.
   const plan = dayPlanFrom(metadata);
-  return carryIntent(metadata, { phase: "WAITING", ...(["es", "en", "de"].includes(String(metadata.language)) ? { language: String(metadata.language) } : {}), ...(nextBrief ? { brief: nextBrief, comparison: false } : typeof metadata.comparison === "boolean" ? { comparison: metadata.comparison } : {}), ...plan, ...(plan.competitor ? { comparison: true } : {}) }) as Prisma.InputJsonValue;
+  return carryIntent(metadata, { phase: "WAITING", ...(Array.isArray(metadata.dailyLanguages) ? { dailyLanguages: metadata.dailyLanguages } : {}), ...(metadata.automaticDailyPlan === true ? { automaticDailyPlan: true } : {}), ...(["es", "en", "de"].includes(String(metadata.language)) ? { language: String(metadata.language) } : {}), ...(nextBrief ? { brief: nextBrief, comparison: false } : typeof metadata.comparison === "boolean" ? { comparison: metadata.comparison } : {}), ...plan, ...(plan.competitor ? { comparison: true } : {}) }) as Prisma.InputJsonValue;
 }
 
 export async function publishCalendarArticle(id: string): Promise<{ ok: true } | { ok: false; error: string; code?: string }> {
@@ -243,7 +243,7 @@ export async function rescheduleBlogArticle(_state: RescheduleFormState, formDat
       try {
         finalDate = await prisma.$transaction(async (tx) => {
           const futureSlots = await tx.blogPublication.findMany({
-            where: { clientId: slot.clientId, id: { not: id }, scheduledDate: { gte: dateOnly(target) } },
+            where: { clientId: slot.clientId, dailySlot: slot.dailySlot, id: { not: id }, scheduledDate: { gte: dateOnly(target) } },
             select: { id: true, scheduledDate: true, landingId: true, status: true, updatedAt: true },
           });
           const byDate = new Map(futureSlots.map(entry => [entry.scheduledDate.toISOString().slice(0, 10), entry]));

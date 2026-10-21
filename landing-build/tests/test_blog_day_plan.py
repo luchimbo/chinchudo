@@ -218,3 +218,19 @@ def test_generate_cli_accepts_day_plan_args(monkeypatch):
         pass
     assert seen["product_id"] == "minilab-3" and seen["exclude_products"] == ["a", "b", "c"]
     assert seen["competitor"] == "Novation Launchkey 25" and seen["competitor_notes"] == "notas"
+
+
+def test_scheduled_attach_targets_only_daily_topic(monkeypatch):
+    import importlib
+    db_pg = importlib.import_module("db_pg")
+    class Connection:
+        def execute(self, sql, args):
+            self.sql, self.args = sql, args
+            return self
+        def fetchone(self):
+            return {"id": "slot"}
+    connection = Connection()
+    monkeypatch.setenv("BLOG_DAILY_SLOT", "2")
+    db_pg._attach_scheduled_landing(connection, "client", "article", "2026-11-01")
+    assert '\"dailySlot\" = %s' in connection.sql
+    assert connection.args[9] == 2

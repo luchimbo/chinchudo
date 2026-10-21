@@ -68,7 +68,7 @@ try {
   }
   for (let i = 0; i < 14; i++) {
     const day = shift(start, i), scheduledDate = new Date(`${day}T00:00:00Z`);
-    const where = { clientId_scheduledDate: { clientId: client.id, scheduledDate } };
+    const where = { clientId_scheduledDate: { dailySlot: 0, clientId: client.id, scheduledDate } };
     let slot = dry ? await prisma.blogPublication.findUnique({ where }) : await prisma.blogPublication.upsert({ where, create: { clientId: client.id, scheduledDate }, update: {} });
     if (generate && !slot.landingId && slot.status !== "SKIPPED") {
       console.log(`Preparando ${day} · ${editorialIntentForDate(day)}`);

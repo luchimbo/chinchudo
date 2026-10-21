@@ -11,7 +11,7 @@ import { PendingSubmitButton } from "@/components/pending-submit-button";
 import { blogPreferences, editorialCalendarEnabled } from "@/lib/blog-language";
 
 type GenerationSchedule = { enabled: boolean; intervalHours: number; limit: number; weeklyTarget: number };
-type DailyBlogSchedule = { enabled: boolean; publishTime: string; autoApprove: boolean };
+type DailyBlogSchedule = { enabled: boolean; publishTime: string; autoApprove: boolean; articlePlan?: unknown };
 
 function parseSchedule(value: string | null): GenerationSchedule {
   try {
@@ -25,7 +25,7 @@ function parseSchedule(value: string | null): GenerationSchedule {
 function parseDailyBlogSchedule(value: string | null): DailyBlogSchedule {
   try {
     const raw = JSON.parse(value || "{}");
-    return { enabled: Boolean(raw.enabled), publishTime: typeof raw.publishTime === "string" ? raw.publishTime : "12:00", autoApprove: raw.autoApprove === true };
+    return { enabled: Boolean(raw.enabled), publishTime: typeof raw.publishTime === "string" ? raw.publishTime : "12:00", autoApprove: raw.autoApprove === true, articlePlan: raw.articlePlan };
   } catch {
     return { enabled: false, publishTime: "12:00", autoApprove: false };
   }

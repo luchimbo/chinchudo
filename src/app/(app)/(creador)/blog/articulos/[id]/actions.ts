@@ -29,6 +29,7 @@ export async function saveBlogArticle(input: { id: string; expectedUpdatedAt: st
 
   let content: Record<string, any>;
   try { content = JSON.parse(landing.htmlContent); } catch { return { ok: false, error: "El artículo no tiene una estructura editable." }; }
+  const translationParentId = typeof content.translation_of === "string" ? content.translation_of : null;
   if (content.deployment_started_at && Date.parse(content.deployment_started_at) > Date.now() - 15 * 60000) return { ok: false, error: "Esperá a que termine el despliegue de la revisión." };
   const [catalog, evidence] = await Promise.all([loadArticleCatalog(prisma, landing.clientId, landing.id), loadBlogEvidence(prisma, landing.clientId)]);
   catalog.sources = evidence.sources.map((s) => ({ ref: s.id, name: s.title }));
@@ -47,6 +48,10 @@ export async function saveBlogArticle(input: { id: string; expectedUpdatedAt: st
   const redeploy = published && quality.publishable;
   let updated: { updatedAt: Date };
   try { updated = await prisma.$transaction(async (tx) => {
+    if (translationParentId) {
+      const parents = await tx.$queryRaw<Array<{ status: string }>>`SELECT status::text FROM "BlogPublication" WHERE "landingId" = ${translationParentId} AND "clientId" = ${landing.clientId} FOR UPDATE`;
+      if (parents.some(parent => parent.status === "PUBLISHING")) throw new Error("Esperá a que termine la publicación del artículo original.");
+    }
     if (landing.blogPublication) {
       const slots = await tx.$queryRaw<Array<{ status: string }>>`SELECT status::text FROM "BlogPublication" WHERE id = ${landing.blogPublication.id} FOR UPDATE`;
       if (!slots.length || slots[0].status === "PUBLISHING" || slots[0].status !== landing.blogPublication.status) throw new Error("El estado cambió. Recargá el artículo.");

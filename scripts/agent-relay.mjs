@@ -70,7 +70,7 @@ async function runBlogPythonProcess(args, clientId, timeoutMs = 300_000, lease, 
   return new Promise((resolve, reject) => {
     const child = spawn(python.command, [...python.argsPrefix, join(ROOT, "landing-build", "build_landings.py"), "--client-slug", client.slug, ...args], {
       cwd: ROOT, windowsHide: true,
-      env: { ...process.env, PYTHONIOENCODING: "utf-8", LANDING_EXPECTED_CLIENT_ID: clientId, LANDING_CATALOG_VERSION: catalogVersion, BLOG_PREPARATION_ATTEMPT_ID: progress?.attemptId || "" },
+      env: { ...process.env, PYTHONIOENCODING: "utf-8", LANDING_EXPECTED_CLIENT_ID: clientId, LANDING_CATALOG_VERSION: catalogVersion, BLOG_PREPARATION_ATTEMPT_ID: progress?.attemptId || "", BLOG_DAILY_SLOT: String(progress?.dailySlot || 0) },
     });
     let output = "";
     let lines = "", updates = Promise.resolve(), progressError;

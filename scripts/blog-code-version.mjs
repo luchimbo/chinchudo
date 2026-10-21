@@ -7,6 +7,7 @@ const root = resolve(import.meta.dirname, "..");
 export const BLOG_CODE_FILES = [
   "scripts/blog-daily.mjs", "scripts/blog-preparation.mjs", "scripts/blog-lease.mjs",
   "src/lib/blog-quality.mjs", "src/lib/blog-free-slot.mjs", "src/lib/blog-intent.mjs", "src/lib/blog-evidence.mjs",
+  "src/lib/blog-daily-plan.mjs",
 ];
 
 export function blogCodeHash(base = root) {
