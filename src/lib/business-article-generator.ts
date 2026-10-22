@@ -8,7 +8,7 @@ import { intentForSlot } from "./blog-intent.mjs";
 import { inspectBlogArticle } from "./blog-evidence";
 import { completeBlogArticle } from "./complete-blog-article";
 import { jsonData } from "./business-analysis-service";
-import type { BusinessProfileData, ContentOpportunity } from "./business-analysis";
+import { topicKey, type BusinessProfileData, type ContentOpportunity } from "./business-analysis";
 
 const articleSchema = z.object({
   h1: z.string().min(5).max(200), seo_title: z.string().min(5).max(200),
@@ -18,6 +18,13 @@ const articleSchema = z.object({
   faqs: z.array(z.object({ q: z.string().min(5).max(300), a: z.string().min(20).max(2000) })).min(3).max(6),
   brand_solution: z.object({ title: z.string().max(200), body: z.string().max(2000) }),
 });
+const slugText = (value: string) => topicKey(value).replace(/ /g, "-").slice(0, 90).replace(/-+$/, "");
+/** Las claves `analysis-<hash>` son internas: nunca llegan a una URL pública. */
+export function articleClusterSlug(category: { key: string; name: string } | undefined) {
+  if (!category) return "guias";
+  return category.key.startsWith("analysis-") ? slugText(category.name) || "guias" : category.key;
+}
+
 export async function businessJson<T>(client: Client, system: string, input: unknown, schema: z.ZodType<T>, signal?: AbortSignal, maxTokens = 8000): Promise<T> {
   const config = resolveLLMConfig(client);
   const reasoning = config.provider === "openrouter" && (config.model === "deepseek/deepseek-v4-flash" || "BLOG_LLM_REASONING_ENABLED" in process.env)
@@ -65,7 +72,8 @@ export async function generatePrivateBusinessArticle(db: PrismaClient, client: C
   }, articleSchema, signal);
   signal?.throwIfAborted();
   const category = catalog.find(c => c.name.toLowerCase() === topic.category.toLowerCase()) || catalog[0];
-  const slug = `analisis-${slot.analysisRunId}-${slot.scheduledDate.toISOString().slice(0, 10)}`;
+  const baseSlug = slugText(topic.keyword) || slugText(generated.h1) || "guia";
+  const slug = await db.landing.findFirst({ where: { clientId: client.id, slug: baseSlug } }) ? `${baseSlug}-${slot.scheduledDate.toISOString().slice(0, 10)}` : baseSlug;
   const rawContent = {
     ...generated, slug, keyword: topic.keyword, titulo: generated.h1, intro: generated.direct_answer, hero_lede: generated.direct_answer,
     editorial_intent: intentForSlot(slot), content_type: "GUIDE", indexing_state: "INDEX", author_name: `Equipo ${client.name}`,
@@ -88,9 +96,10 @@ export async function generatePrivateBusinessArticle(db: PrismaClient, client: C
     }
     const duplicate = await tx.landing.findFirst({ where: { clientId: client.id, keyword: topic.keyword } });
     if (duplicate) throw new Error("La búsqueda ya tiene un artículo; elegí otro tema.");
+    const clusterSlug = articleClusterSlug(category);
     const cluster = await tx.contentCluster.upsert({
-      where: { clientId_slug: { clientId: client.id, slug: category?.key || "guias" } },
-      create: { clientId: client.id, slug: category?.key || "guias", name: category?.name || "Guías" }, update: {},
+      where: { clientId_slug: { clientId: client.id, slug: clusterSlug } },
+      create: { clientId: client.id, slug: clusterSlug, name: category?.name || "Guías" }, update: {},
     });
     const article = await tx.landing.create({ data: {
       clientId: client.id, slug, keyword: topic.keyword, intent: content.editorial_intent, titulo: generated.h1,

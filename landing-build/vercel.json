@@ -1,6 +1,13 @@
 {
   "cleanUrls": true,
   "trailingSlash": true,
+  "redirects": [
+    {
+      "source": "/guias/analysis-23730268946441cdace1(/.*)?",
+      "destination": "/guias/controladores-midi/",
+      "statusCode": 301
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/:path*/",

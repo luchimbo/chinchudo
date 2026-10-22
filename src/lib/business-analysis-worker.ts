@@ -14,9 +14,12 @@ export type AnalysisDependencies = {
   generate: typeof generatePrivateBusinessArticle;
 };
 const hash = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 20);
+/** Un producto sin categoría no es un tema: usar su nombre crearía una categoría
+ * (y un cluster) por producto. Un servicio sí puede nombrar su propio tema. */
+export const offeringCategory = (o: { kind: string; category: string; name: string }) => o.category || (o.kind === "service" ? o.name : "");
 export function analyzedSite(analysis: WebsiteAnalysis, url: string): AnalyzedSite {
   return { domain: competitorDomain(url), description: analysis.draft.description, offer: analysis.draft.offer,
-    audience: analysis.draft.targetAudience, categories: [...new Set(analysis.draft.offerings.filter(o => o.selected).map(o => o.category || o.name))], topics: analysis.draft.topics,
+    audience: analysis.draft.targetAudience, categories: [...new Set(analysis.draft.offerings.filter(o => o.selected).map(offeringCategory))].filter(Boolean), topics: analysis.draft.topics,
     pages: analysis.pages.map(p => ({ url: p.url, title: p.title, pageType: p.pageType, seo: p.seo, fetchedAt: p.fetchedAt || new Date().toISOString() })) };
 }
 
@@ -49,7 +52,7 @@ export async function discoverBusinessCompetitors(profile: BusinessProfileData, 
 }
 const opportunitySchema = z.object({ opportunities: z.array(z.object({ keyword: z.string().min(5).max(180), title: z.string().min(5).max(220), category: z.string().max(180), reason: z.string().max(600), sourceUrls: z.array(z.string().url()).max(8) })).max(20) });
 export async function discoverContentOpportunities(client: Client, profile: BusinessProfileData, result: AnalysisResult, signal?: AbortSignal): Promise<ContentOpportunity[]> {
-  const categories = [...new Set([...profile.priorities, ...profile.draft.offerings.filter(o => o.selected).map(o => o.category || o.name), ...profile.draft.topics])].filter(Boolean).slice(0, 40);
+  const categories = [...new Set([...profile.priorities, ...profile.draft.offerings.filter(o => o.selected).map(offeringCategory), ...profile.draft.topics])].filter(Boolean).slice(0, 40);
   if (!categories.length && profile.draft.offer) categories.push(profile.draft.offer);
   if (!categories.length) return [];
   const sources = new Set([...(result.own?.pages || []), ...(result.competitors || []).flatMap(site => site.pages)].map(page => page.url));
@@ -67,7 +70,7 @@ export async function discoverContentOpportunities(client: Client, profile: Busi
 /** Mirror only first-party offerings into the existing article catalog; curated fields win. */
 export async function prepareBusinessArticleCatalog(db: PrismaClient, clientId: string, profile: BusinessProfileData) {
   const offerings = profile.draft.offerings.filter(o => o.selected);
-  const categories = [...new Set(offerings.map(o => o.category || o.name))];
+  const categories = [...new Set(offerings.map(offeringCategory))].filter(Boolean);
   if (!categories.length && profile.draft.offer) categories.push(profile.draft.offer);
   for (const name of categories) {
     const key = `analysis-${hash(name)}`;
@@ -75,7 +78,7 @@ export async function prepareBusinessArticleCatalog(db: PrismaClient, clientId: 
     if (!exists) await db.landingCategory.upsert({ where: { clientId_key: { clientId, key } }, create: { clientId, key, name, keywords: jsonData([name]) }, update: {} });
   }
   for (const item of offerings) {
-    const category = await db.landingCategory.findFirst({ where: { clientId, name: item.category || item.name } });
+    const category = offeringCategory(item) ? await db.landingCategory.findFirst({ where: { clientId, name: offeringCategory(item) } }) : null;
     const identity = `analysis-${hash(item.url || `${item.kind}:${item.name}`)}`;
     const exists = await db.landingProduct.findFirst({ where: { clientId, OR: [{ externalId: identity }, ...(item.url ? [{ url: item.url }] : []), { name: item.name }] } });
     const imported = { name: item.name, url: item.url, useText: item.description, categoryKey: category?.key || "", brand: profile.draft.brand };

@@ -6,7 +6,7 @@ vi.mock("./business-analysis-service", async () => ({
   ensureBusinessProfile: async (db: any) => db.profile,
   saveAnalyzedProfile: async (db: any, _client: any, draft: any) => ({ ...db.profile.data, draft }),
 }));
-import { processBusinessAnalysis, reserveAnalysisWeek } from "./business-analysis-worker";
+import { offeringCategory, processBusinessAnalysis, reserveAnalysisWeek } from "./business-analysis-worker";
 const topics: ContentOpportunity[] = ["primer instrumento", "práctica en casa", "lectura musical", "técnica de manos", "rutina semanal", "cuidado del piano", "clases para adultos"].map(keyword => ({ keyword, title: `Guía de ${keyword}`, category: "Clases", reason: "Orientación", sourceUrls: [], interpretation: true }));
 function database() {
   const data: BusinessProfileData = { draft: { ...defaultDraft("Clases Norte"), description: "Enseñanza de piano", offer: "Clases de piano" }, market: DEFAULT_MARKET, priorities: ["Clases"], exclusions: [], differentiators: [], manualFields: [] };
@@ -98,5 +98,12 @@ describe("cola y reservas del análisis", () => {
     const analyze = vi.fn(async () => { throw new Error("Sitio inaccesible"); });
     for (let n = 0; n < 4; n++) await processBusinessAnalysis(db, run.id, { analyze });
     expect(run.status).toBe("FAILED"); expect(analyze).toHaveBeenCalledTimes(3); expect(profile.draft.description).toBe("Enseñanza de piano");
+  });
+});
+describe("categorías del análisis", () => {
+  it("un producto sin categoría no abre un tema propio; un servicio sí", () => {
+    expect(offeringCategory({ kind: "product", category: "", name: "Arturia MiniLab 3" })).toBe("");
+    expect(offeringCategory({ kind: "product", category: "Controladores MIDI", name: "Arturia MiniLab 3" })).toBe("Controladores MIDI");
+    expect(offeringCategory({ kind: "service", category: "", name: "Clases de piano" })).toBe("Clases de piano");
   });
 });

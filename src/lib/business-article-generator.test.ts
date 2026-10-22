@@ -71,6 +71,20 @@ describe("generación privada del análisis", () => {
     await generatePrivateBusinessArticle(db, client, profile, topic, slot.id);
     expect(db.landing.create).toHaveBeenCalledTimes(1);
   });
+  it("publica con slug y cluster legibles aunque la categoría venga del análisis", async () => {
+    const { db, slot } = database();
+    db.landingCategory.findMany.mockResolvedValue([{ key: "analysis-23730268946441cdace1", name: "Clases" }]);
+    await generatePrivateBusinessArticle(db, client, profile, topic, slot.id);
+    const data = db.landing.create.mock.calls[0][0].data;
+    expect(data.slug).toBe("como-preparar-la-primera-clase-de-piano");
+    expect(db.contentCluster.upsert.mock.calls[0][0].create).toMatchObject({ slug: "clases", name: "Clases" });
+  });
+  it("si el slug ya existe le agrega la fecha de la reserva", async () => {
+    const { db, slot } = database();
+    db.landing.findFirst.mockImplementation(async ({ where }: any) => where.slug ? { id: "otro" } : null);
+    await generatePrivateBusinessArticle(db, client, profile, topic, slot.id);
+    expect(db.landing.create.mock.calls[0][0].data.slug).toBe("como-preparar-la-primera-clase-de-piano-2026-10-05");
+  });
   it("completa enlaces y fuentes antes de revisar y persistir la respuesta de IA", async () => {
     const { db, slot } = database();
     mocks.complete.mockImplementation(async (_db, _clientId, content) => ({ content: { ...content, seo_title: "Primera clase de piano", sections: [{ h2: "Preparación", body: "Consultá [[c:clases|las clases]]." }], source_refs: [{ id: "catalog-clases" }] }, changes: ["catalog-link"] }));
