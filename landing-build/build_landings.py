@@ -811,7 +811,8 @@ def category_ids_for(landing: dict) -> list[str]:
 
 def validate_landings(landings: list[dict], categories: dict[str, dict], products: dict[str, dict]) -> list[str]:
     errors: list[str] = []
-    seen: dict[str, set[str]] = {"slug": set(), "seo_title": set(), "meta_description": set(), "h1": set()}
+    # El título SEO es metadato: puede repetirse sin impedir el despliegue.
+    seen: dict[str, dict[str, str]] = {"slug": {}, "meta_description": {}, "h1": {}}
     required = ["keyword", "intent", "seo_title", "meta_description", "h1", "hero_lede", "primary_category_id"]
 
     for product_id, product in products.items():
@@ -833,8 +834,13 @@ def validate_landings(landings: list[dict], categories: dict[str, dict], product
             if not value:
                 continue
             if value in seen[field]:
-                errors.append(f"{label}: {field} duplicado")
-            seen[field].add(value)
+                errors.append(
+                    f"{label}: {field} duplicado con {seen[field][value]} "
+                    f"(valor: {str(landing.get(field, '')).strip()!r}). "
+                    "Editá ese campo en una de las páginas y volvé a publicar."
+                )
+            else:
+                seen[field][value] = str(label)
 
         ids = category_ids_for(landing)
         if not ids:
@@ -1774,7 +1780,7 @@ def validate_editorial_candidate(
         if not value:
             errors.append(f"{label}: falta {field}")
             continue
-        if any(str(item.get(field) or "").strip().lower() == value for item in existing):
+        if field != "seo_title" and any(str(item.get(field) or "").strip().lower() == value for item in existing):
             errors.append(f"{label}: {field} duplicado con otra publicación")
     reason = editorial_overlap_reason(str(landing.get("keyword") or ""), existing) or editorial_overlap_reason(str(landing.get("h1") or ""), existing)
     # Un tema pedido por el equipo se genera igual; el parecido queda como aviso.
