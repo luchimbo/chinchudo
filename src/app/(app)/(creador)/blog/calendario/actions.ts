@@ -17,7 +17,10 @@ import type { Prisma } from "@prisma/client";
 import { blogLanguage, blogPreferences, editorialCalendarEnabled } from "@/lib/blog-language";
 import { dayPlanFrom, hasDayPlan, loadBlogCatalog, ownBrandsFor, validateDayPlan, type BlogDayPlan, type DayPlanInput } from "@/lib/blog-day-plan";
 
-export type RescheduleFormState = { error: string | null };
+export type RescheduleFormState = { error: string | null; suggestedDate?: string };
+class OccupiedCalendarDayError extends Error {
+  constructor(public suggestedDate: string) { super("Ese día está ocupado: ya hay un artículo programado. Te recomendamos la próxima fecha libre compatible."); }
+}
 export type GenerateDateState = { error: string | null; queued: boolean; id?: string; client?: string };
 
 type EditorialClient = { slug: string; name?: string | null; responsePolicy: Prisma.JsonValue };
@@ -260,6 +263,7 @@ export async function rescheduleBlogArticle(_state: RescheduleFormState, formDat
           const isTaken = (day: string) => { const entry = byDate.get(day); return !!entry && (!!entry.landingId || entry.status !== "PLANNED"); };
           // En modo "balanced" el artículo conserva su intención y va a cualquier día libre.
           const candidate = balanced ? nextFreeDay({ from: target, isTaken }) : nextFreeEditorialDay({ from: target, intent: content.editorial_intent, isTaken });
+          if (isTaken(target)) throw new OccupiedCalendarDayError(candidate);
           if (candidate === slot.scheduledDate.toISOString().slice(0, 10)) return candidate;
           const occupied = byDate.get(candidate);
           if (occupied) {
@@ -283,6 +287,7 @@ export async function rescheduleBlogArticle(_state: RescheduleFormState, formDat
     }
     revalidatePath(`/blog/articulos/${landing.id}`);
   } catch (error) {
+    if (error instanceof OccupiedCalendarDayError) return { error: error.message, suggestedDate: error.suggestedDate };
     if (error instanceof CalendarValidationError) return { error: error.message };
     if (error instanceof Error && ["No autenticado.", "No tenés acceso a este cliente."].includes(error.message)) return { error: error.message };
     console.error("[blog] No se pudo reprogramar el artículo", error);

@@ -101,10 +101,10 @@ describe("reprogramación desde el calendario", () => {
     { id: "occupied", landingId: "published", status: "PUBLISHED" },
   ])("salta el destino ocupado sin modificarlo: %j", async occupied => {
     mocks.findDestination.mockResolvedValue([{ ...occupied, scheduledDate: dateOnly("2026-10-12"), updatedAt }]);
-    await expect(rescheduleBlogArticle(initialState, form())).rejects.toThrow("NEXT_REDIRECT");
-    expect(mocks.deleteDestination).not.toHaveBeenCalled();
-    expect(mocks.updateSlot).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ scheduledDate: dateOnly("2026-10-14") }) }));
-    expect(mocks.findDestination).toHaveBeenCalledWith(expect.objectContaining({ where: { clientId: slot.clientId, id: { not: slot.id }, scheduledDate: { gte: dateOnly("2026-10-12") } } }));
+    const result = await rescheduleBlogArticle(initialState, form());
+    expect(result.error).toContain("ocupado");
+    expect(result.suggestedDate).toBe("2026-10-14");
+    expect(mocks.updateSlot).not.toHaveBeenCalled();
   });
 
   it("mueve a una reserva vacía, conserva el contenido y abre el mes de destino", async () => {
@@ -150,28 +150,42 @@ describe("reprogramación desde el calendario", () => {
     expect(mocks.redirect).not.toHaveBeenCalled();
   });
 
-  it("busca nuevamente si otro proceso ocupa la fecha durante el guardado", async () => {
+  it("busca nuevamente si otro proceso ocupa la fecha durante el guardado (requiere elegir la sugerencia)", async () => {
     mocks.findDestination.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: "race", landingId: "new-article", status: "READY", scheduledDate: dateOnly("2026-10-12"), updatedAt }]);
     mocks.updateSlot.mockRejectedValueOnce({ code: "P2002" });
-    await expect(rescheduleBlogArticle(initialState, form())).rejects.toThrow("NEXT_REDIRECT");
-    expect(mocks.transaction).toHaveBeenCalledTimes(2);
-    expect(mocks.updateSlot).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({ scheduledDate: dateOnly("2026-10-14") }) }));
+    const result = await rescheduleBlogArticle(initialState, form());
+    expect(result.error).toContain("ocupado");
+    expect(result.suggestedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(mocks.redirect).not.toHaveBeenCalled();
   });
 
   it("no borra una reserva si otro proceso ya le asignó un artículo", async () => {
     const occupied = { id: "race", landingId: null, status: "PLANNED", scheduledDate: dateOnly("2026-10-12"), updatedAt };
     mocks.findDestination.mockResolvedValueOnce([occupied]).mockResolvedValueOnce([{ ...occupied, landingId: "new-article" }]);
     mocks.deleteDestination.mockResolvedValueOnce({ count: 0 });
-    await expect(rescheduleBlogArticle(initialState, form())).rejects.toThrow("NEXT_REDIRECT");
+    const result = await rescheduleBlogArticle(initialState, form());
+    expect(result.error).toContain("ocupado");
+    expect(result.suggestedDate).toBe("2026-10-14");
+    expect(mocks.updateSlot).not.toHaveBeenCalled();
     expect(mocks.transaction).toHaveBeenCalledTimes(2);
-    expect(mocks.updateSlot).toHaveBeenCalledTimes(1);
-    expect(mocks.updateSlot).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ scheduledDate: dateOnly("2026-10-14") }) }));
   });
 
   it("informa conflictos repetidos sin romper la página", async () => {
     mocks.transaction.mockRejectedValue({ code: "P2034" });
     expect((await rescheduleBlogArticle(initialState, form())).error).toContain("próxima disponible");
     expect(mocks.transaction).toHaveBeenCalledTimes(3);
+    expect(mocks.redirect).not.toHaveBeenCalled();
+  });
+
+  it("avisa que el día está ocupado y recomienda una fecha sin mover el artículo", async () => {
+    mocks.findDestination.mockResolvedValue([
+      { id: "occupied", landingId: "existing", status: "READY", scheduledDate: dateOnly("2026-10-12"), updatedAt },
+    ]);
+    const result = await rescheduleBlogArticle(initialState, form());
+    expect(result.error).toContain("ocupado");
+    expect(result.suggestedDate).toBe("2026-10-14");
+    expect(mocks.updateSlot).not.toHaveBeenCalled();
+    expect(mocks.deleteDestination).not.toHaveBeenCalled();
     expect(mocks.redirect).not.toHaveBeenCalled();
   });
 
@@ -182,28 +196,30 @@ describe("reprogramación desde el calendario", () => {
       { id: "empty", landingId: null, status: "PLANNED", scheduledDate: dateOnly("2026-10-16"), updatedAt },
       { id: "later", landingId: "existing-3", status: "READY", scheduledDate: dateOnly("2026-10-18"), updatedAt },
     ]);
-    await expect(rescheduleBlogArticle(initialState, form())).rejects.toThrow("NEXT_REDIRECT");
-    expect(mocks.updateSlot).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ scheduledDate: dateOnly("2026-10-16") }) }));
-    expect(mocks.deleteDestination).toHaveBeenCalledTimes(1);
-    expect(mocks.deleteDestination).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ id: "empty" }) }));
+    const result = await rescheduleBlogArticle(initialState, form());
+    expect(result.error).toContain("ocupado");
+    expect(result.suggestedDate).toBe("2026-10-16");
+    expect(mocks.updateSlot).not.toHaveBeenCalled();
   });
 
   it("abre el mes de la fecha asignada cuando la búsqueda cruza de mes", async () => {
     mocks.findDestination.mockResolvedValue([{ id: "occupied", landingId: "existing", status: "READY", scheduledDate: dateOnly("2026-10-30"), updatedAt }]);
-    await expect(rescheduleBlogArticle(initialState, form("2026-10-30"))).rejects.toThrow("NEXT_REDIRECT");
-    expect(mocks.updateSlot).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ scheduledDate: dateOnly("2026-11-01") }) }));
-    expect(mocks.redirect).toHaveBeenCalledWith("/blog/calendario?client=pcmidi&month=2026-11&rescheduled=slot-1&requestedDate=2026-10-30");
+    const result = await rescheduleBlogArticle(initialState, form("2026-10-30"));
+    expect(result.error).toContain("ocupado");
+    expect(result.suggestedDate).toBe("2026-11-01");
+    expect(mocks.updateSlot).not.toHaveBeenCalled();
   });
 
-  it("conserva la fecha actual si es el primer hueco al intentar adelantar", async () => {
+  it("conserva la fecha actual si es el primer hueco al intentar adelantar (requiere elegir la sugerencia)", async () => {
     mocks.findSlot.mockResolvedValue({ ...slot, scheduledDate: dateOnly("2026-10-16") });
     mocks.findDestination.mockResolvedValue([
       { id: "first", landingId: "existing-1", status: "READY", scheduledDate: dateOnly("2026-10-12"), updatedAt },
       { id: "second", landingId: "existing-2", status: "READY", scheduledDate: dateOnly("2026-10-14"), updatedAt },
     ]);
-    await expect(rescheduleBlogArticle(initialState, form())).rejects.toThrow("NEXT_REDIRECT");
-    expect(mocks.updateSlot).not.toHaveBeenCalled();
-    expect(mocks.updateLanding).not.toHaveBeenCalled();
+    const result = await rescheduleBlogArticle(initialState, form());
+    expect(result.error).toContain("ocupado");
+    expect(result.suggestedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(mocks.redirect).not.toHaveBeenCalled();
   });
 
   it("devuelve un error recuperable si falta el tipo editorial", async () => {
