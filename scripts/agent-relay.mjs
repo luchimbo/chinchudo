@@ -31,6 +31,7 @@ if (existsSync(envPath)) {
 
 const PORT = parseInt(process.env.AGENT_RELAY_PORT ?? "3099", 10);
 const TOKEN = process.env.AGENT_RELAY_TOKEN;
+const blogCalendarEnabled = process.env.BLOG_CALENDAR_ENABLED !== "false";
 const landingGenerationClients = new Set();
 const landingGenerationJobs = new Map();
 const relayDatabaseUrl = new URL(process.env.DATABASE_URL);
@@ -817,8 +818,12 @@ server.listen(PORT, "127.0.0.1", () => {
   // falla con EADDRINUSE no debe disparar generaciones antes de morir.
   setInterval(runScheduledLandings, 60_000).unref();
   void runScheduledLandings();
-  setInterval(runDailyBlogCalendar, 60_000).unref();
-  void runDailyBlogCalendar();
+  if (blogCalendarEnabled) {
+    setInterval(runDailyBlogCalendar, 60_000).unref();
+    void runDailyBlogCalendar();
+  } else {
+    console.log("[agent-relay] calendario del blog delegado al runtime remoto.");
+  }
   let catalogRunning = false;
   const runCatalog = () => {
     if (catalogRunning) return;
