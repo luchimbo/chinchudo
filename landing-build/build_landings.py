@@ -991,7 +991,9 @@ def deploy_with_vercel(base_url: str, build_summary: dict | None = None) -> dict
         })
         raise SystemExit(f"Deploy bloqueado: no se encontro Vercel CLI. Reporte: {report_path}")
 
-    token = os.environ.get("VERCEL_TOKEN", "").strip()
+    tenant = re.sub(r"[^A-Z0-9_]", "_", client_slug_active().upper())
+    tenant_token = os.environ.get(f"VERCEL_TOKEN_{tenant}", "").strip()
+    token = tenant_token or os.environ.get("VERCEL_TOKEN", "").strip()
     scope = os.environ.get("VERCEL_SCOPE", "").strip()
     if token:
         command.extend(["--token", token])
