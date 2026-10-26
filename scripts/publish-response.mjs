@@ -74,9 +74,9 @@ async function main() {
     process.exit(1);
   }
 
-  // --- Anti-spam: cap diario por cuenta + separación mínima entre comentarios ---
+  // Los límites internos dependen del canal; YouTube usa las cuotas de su API.
   if (!dryRun) {
-    const rateLimit = await checkPublishRateLimits(prisma, account);
+    const rateLimit = await checkPublishRateLimits(prisma, account, channel);
     if (!rateLimit.ok) {
       process.stdout.write(JSON.stringify({
         success: false, error: rateLimit.error,

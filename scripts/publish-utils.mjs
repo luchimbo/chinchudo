@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process";
 import { PrismaClient } from "@prisma/client";
 
-export async function checkPublishRateLimits(prisma, account) {
-  if (!account) return { ok: true };
+export async function checkPublishRateLimits(prisma, account, channel) {
+  // YouTube no tiene cupo ni espera internos; la API aplica sus propias cuotas.
+  if (channel?.toLowerCase() === "youtube" || !account) return { ok: true };
 
   const dailyCapRaw = await prisma.appSetting.findUnique({ where: { key: "PUBLISH_DAILY_PER_ACCOUNT" } });
   const spacingMinRaw = await prisma.appSetting.findUnique({ where: { key: "PUBLISH_MIN_SPACING_MIN" } });

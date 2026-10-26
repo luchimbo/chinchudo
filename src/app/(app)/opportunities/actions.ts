@@ -380,7 +380,7 @@ export async function publishCopilotYouTubeResponse(formData: FormData) {
     return { success: false as const, message: "Esta oportunidad ya fue respondida.", reconnectRequired: false };
   }
 
-  const rateLimit = await checkPublishRateLimits(prisma, parsed.account);
+  const rateLimit = await checkPublishRateLimits(prisma, parsed.account, opportunity.channel.name);
   if (!rateLimit.ok) {
     return { success: false as const, message: rateLimit.error === "rate_limited_daily" ? "Límite diario alcanzado para esta cuenta." : "Esperá antes de volver a publicar con esta cuenta.", reconnectRequired: false };
   }
@@ -918,7 +918,7 @@ export async function approveAndPublishResponse(formData: FormData) {
     data.personaId = parsed.personaId;
   }
 
-  const rateLimit = await checkPublishRateLimits(prisma, parsed.account);
+  const rateLimit = await checkPublishRateLimits(prisma, parsed.account, opportunity.channel.name);
   if (!rateLimit.ok) {
     const msg = rateLimit.error === "rate_limited_daily"
       ? "Límite diario alcanzado para esta cuenta."
@@ -1214,7 +1214,7 @@ export async function publishViaAgent(formData: FormData) {
     });
   }
 
-  const rateLimit = await checkPublishRateLimits(prisma, account);
+  const rateLimit = await checkPublishRateLimits(prisma, account, channel);
   if (!rateLimit.ok) return backToOpportunity(`agentError=${rateLimit.error === "rate_limited_daily" ? "rate_limited_daily" : "rate_limited_spacing"}`);
 
   const publishedText = parsed.editedText || response.editedText || response.draftText;

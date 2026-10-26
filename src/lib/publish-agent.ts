@@ -7,9 +7,11 @@ export type PublishResult =
 
 export async function checkPublishRateLimits(
   prisma: PrismaClient,
-  account: string
+  account: string,
+  channel?: string
 ): Promise<{ ok: true } | { ok: false; error: string; retryAfterSec?: number }> {
-  if (!account) return { ok: true };
+  // YouTube no tiene cupo ni espera internos; la API aplica sus propias cuotas.
+  if (channel?.toLowerCase() === "youtube" || !account) return { ok: true };
 
   const dailyCapRaw = await prisma.appSetting.findUnique({ where: { key: "PUBLISH_DAILY_PER_ACCOUNT" } });
   const spacingMinRaw = await prisma.appSetting.findUnique({ where: { key: "PUBLISH_MIN_SPACING_MIN" } });
