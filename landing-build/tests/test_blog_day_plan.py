@@ -234,3 +234,56 @@ def test_scheduled_attach_targets_only_daily_topic(monkeypatch):
     db_pg._attach_scheduled_landing(connection, "client", "article", "2026-11-01")
     assert '\"dailySlot\" = %s' in connection.sql
     assert connection.args[9] == 2
+
+
+def existing_guide(keyword: str, slug: str = "guia-existente") -> dict:
+    return {"id": f"id-{slug}", "slug": slug, "keyword": keyword, "h1": keyword, "content_type": "GUIDE", "indexing_state": "INDEX", "cluster_slug": "controladores-midi", "status": "PUBLISHED"}
+
+
+SEED = {"keyword": "controlador midi para ableton", "intencion": bl.intent_for_date("2026-10-01"), "categorias_sugeridas": "controladores-midi", "source": "seed"}
+
+
+def test_repeated_topic_reason_ignores_requests_from_the_team():
+    existing = [existing_guide("controlador midi para ableton")]
+    assert bl.repeated_topic_reason({"keyword": "controlador midi para ableton", "source": "seed"}, existing) == "already_exists"
+    assert bl.repeated_topic_reason({"keyword": "usar un controlador midi para ableton", "source": "seed"}, existing).startswith("canibaliza")
+    assert bl.repeated_topic_reason({"keyword": "interfaz para grabar voces en casa", "source": "seed"}, existing) == ""
+    for source in ("operator", "product", "comparison", "editorial_pillar"):
+        assert bl.repeated_topic_reason({"keyword": "controlador midi para ableton", "source": source}, existing) == ""
+    assert bl.repeated_topic_reason({"keyword": "controlador midi para ableton", "operator_planned": True}, existing) == ""
+
+
+def test_covered_topic_is_not_written_again_and_a_new_one_is_proposed(scheduled, monkeypatch):
+    prompts, saved, _ = scheduled
+    monkeypatch.setattr(bl, "load_seed_topics", lambda: [SEED])
+    monkeypatch.setattr(bl, "load_landings", lambda include_drafts=False: [pillar(), existing_guide(SEED["keyword"])])
+    generation = bl.chat_json
+
+    def chat(system, user, model, temperature=0.35, **options):
+        if "Proponés búsquedas nuevas" in system:
+            assert options.get("reasoning_off") is True
+            return {"topics": ["qué interfaz de audio sirve para grabar voces en casa", "usar un controlador midi para ableton", "interfaz de audio para grabar voces"]}
+        return generation(system, user, model, temperature)
+
+    monkeypatch.setattr(bl, "chat_json", chat)
+    summary = bl.generate_landings(limit=1, model="test", schedule_date="2026-10-01")
+    assert summary["created_count"] == 1
+    assert saved[0][0]["keyword"] == "qué interfaz de audio sirve para grabar voces en casa"
+    assert len(prompts) == 1 and "- keyword: qué interfaz de audio" in prompts[0][1]
+
+
+def test_without_new_topics_nothing_is_written_instead_of_repeating(scheduled, monkeypatch):
+    prompts, saved, _ = scheduled
+    monkeypatch.setattr(bl, "load_seed_topics", lambda: [SEED])
+    monkeypatch.setattr(bl, "load_landings", lambda include_drafts=False: [pillar(), existing_guide(SEED["keyword"])])
+    monkeypatch.setattr(bl, "chat_json", lambda system, user, model, temperature=0.35, **options: {"topics": ["usar un controlador midi para ableton"]})
+    summary = bl.generate_landings(limit=1, model="test", schedule_date="2026-10-01")
+    assert summary["created_count"] == 0 and not saved and not prompts
+
+
+def test_a_fresh_seed_does_not_ask_the_ai_for_ideas(scheduled, monkeypatch):
+    prompts, saved, _ = scheduled
+    monkeypatch.setattr(bl, "load_seed_topics", lambda: [SEED])
+    monkeypatch.setattr(bl, "load_landings", lambda include_drafts=False: [pillar()])
+    bl.generate_landings(limit=1, model="test", schedule_date="2026-10-01")
+    assert saved[0][0]["keyword"] == SEED["keyword"] and len(prompts) == 1
