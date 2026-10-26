@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 const root = resolve(import.meta.dirname, "..");
 // Módulos que cada proceso carga en memoria al arrancar; editarlos exige reiniciarlo.
 export const BLOG_CODE_FILES = [
+  "scripts/agent-relay.mjs",
   "scripts/blog-daily.mjs", "scripts/blog-preparation.mjs", "scripts/blog-lease.mjs",
   "src/lib/blog-quality.mjs", "src/lib/blog-free-slot.mjs", "src/lib/blog-intent.mjs", "src/lib/blog-evidence.mjs",
   "src/lib/blog-daily-plan.mjs", "scripts/blog-code-version.mjs",
