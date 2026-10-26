@@ -254,11 +254,22 @@ def test_editorial_candidate_validation(monkeypatch):
     candidate = article("otra-guia", "controladores-midi", keyword="teclado para grabar podcasts")
     assert bl.validate_editorial_candidate(candidate, existing, clusters, {"controladores-midi"}) == []
     duplicated = article("otra", "controladores-midi", h1=existing[0]["h1"], keyword="tema distinto")
-    assert any("h1 duplicado" in error for error in bl.validate_editorial_candidate(duplicated, existing, clusters, {"controladores-midi"}))
+    assert bl.validate_editorial_candidate(duplicated, existing, clusters, {"controladores-midi"}) == []
     cannibal = article("otra", "controladores-midi", keyword="controlador midi para ableton live")
-    assert any("canibaliza" in error for error in bl.validate_editorial_candidate(cannibal, existing, clusters, {"controladores-midi"}))
+    assert bl.validate_editorial_candidate(cannibal, existing, clusters, {"controladores-midi"}) == []
+    same_url = article(existing[0]["slug"], "controladores-midi")
+    assert any("slug duplicado" in error for error in bl.validate_editorial_candidate(same_url, existing, clusters, {"controladores-midi"}))
     no_pillar = article("sinte", "sintetizadores", keyword="primer sintetizador analógico")
     assert any("no tiene artículo pilar" in error for error in bl.validate_editorial_candidate(no_pillar, existing, clusters, {"controladores-midi"}))
+
+
+def test_titulos_y_metadatos_iguales_no_bloquean_el_build():
+    first = article("first", "controladores-midi", **BODY)
+    second = {**first, "id": "second", "slug": "second"}
+    errors = bl.validate_landings([first, second], CATEGORIES, PRODUCTS)
+    assert not any("duplicado" in error for error in errors)
+    second["slug"] = first["slug"]
+    assert any("slug duplicado" in error for error in bl.validate_landings([first, second], CATEGORIES, PRODUCTS))
 
 
 def test_operator_brief_routes_to_a_cluster_with_pillar(monkeypatch):

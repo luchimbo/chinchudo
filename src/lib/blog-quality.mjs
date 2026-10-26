@@ -90,11 +90,11 @@ export function reviewArticle({ content, sources = [], products = {}, categories
     const shared = [...topic].filter((word) => other.has(word)).length;
     return topic.size >= 3 && other.size >= 3 && union && shared / union >= (item.content_type === "LEGACY" ? 0.8 : 0.6);
   });
-  add("topic-duplicate", "SEO", nearDuplicate ? "error" : "ok", nearDuplicate ? "El tema se parece demasiado a otra búsqueda ya cubierta. Elegí otro enfoque." : "Tema diferenciado de las otras búsquedas.");
+  add("topic-duplicate", "SEO", nearDuplicate ? "warning" : "ok", nearDuplicate ? "El tema se parece a otra búsqueda cubierta; se informa sin impedir la publicación." : "Tema diferenciado de las otras búsquedas.");
   for (const field of ["keyword", "h1", "seo_title", "meta_description"]) {
     const value = norm(content[field]);
     const duplicate = existing.some((item) => item.id !== content.id && (norm(item[field] || (field === "h1" ? item.titulo : "")) === value));
-    add(field, "SEO", !value || duplicate ? "error" : "ok", !value ? `Falta ${field}.` : duplicate ? `${field} coincide con otro artículo.` : `${field} propio y presente.`);
+    add(field, "SEO", !value ? "error" : duplicate ? "warning" : "ok", !value ? `Falta ${field}.` : duplicate ? `${field} coincide con otro artículo; se informa sin impedir la publicación.` : `${field} propio y presente.`);
   }
   const answer = resolve(content.direct_answer).trim();
   add("answer", "AEO", answer.length < 50 ? "error" : "ok", answer.length < 50 ? "Falta una respuesta directa completa al comienzo." : "Respuesta directa al comienzo.");

@@ -811,7 +811,9 @@ def category_ids_for(landing: dict) -> list[str]:
 
 def validate_landings(landings: list[dict], categories: dict[str, dict], products: dict[str, dict]) -> list[str]:
     errors: list[str] = []
-    seen: dict[str, set[str]] = {"slug": set(), "seo_title": set(), "meta_description": set(), "h1": set()}
+    # Títulos y metadatos iguales no impiden publicar. Solo se protege la URL:
+    # dos páginas del mismo idioma no pueden escribir sobre la misma ruta.
+    seen: dict[str, set[str]] = {"slug": set()}
     required = ["keyword", "intent", "seo_title", "meta_description", "h1", "hero_lede", "primary_category_id"]
 
     for product_id, product in products.items():
@@ -830,6 +832,8 @@ def validate_landings(landings: list[dict], categories: dict[str, dict], product
         landing.setdefault("slug", slugify(landing.get("keyword", "")))
         for field in seen:
             value = landing.get(field, "").strip().lower()
+            if field == "slug":
+                value = f"{valid_blog_language(landing.get('language'))}:{value}"
             if not value:
                 continue
             if value in seen[field]:
@@ -1790,12 +1794,8 @@ def validate_editorial_candidate(
         if not value:
             errors.append(f"{label}: falta {field}")
             continue
-        if any(str(item.get(field) or "").strip().lower() == value for item in existing):
+        if field == "slug" and any(str(item.get(field) or "").strip().lower() == value and valid_blog_language(item.get("language")) == valid_blog_language(landing.get("language")) for item in existing):
             errors.append(f"{label}: {field} duplicado con otra publicación")
-    reason = editorial_overlap_reason(str(landing.get("keyword") or ""), existing) or editorial_overlap_reason(str(landing.get("h1") or ""), existing)
-    # Un tema pedido por el equipo se genera igual; el parecido queda como aviso.
-    if reason and not landing.get("operator_brief") and not landing.get("operator_planned"):
-        errors.append(f"{label}: contenido duplicado o canibalizante ({reason})")
     cluster_slugs = {str(cluster.get("slug")) for cluster in clusters}
     cluster_slug = str(landing.get("cluster_slug") or "")
     if cluster_slug not in cluster_slugs:
@@ -2741,13 +2741,13 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
                 intent = scheduled_intent or inferred
                 topic = {**topic, "editorial_intent": intent}
         print("@@landing-progress " + json.dumps({"event": "processing", "keyword": topic.get("keyword") or topic.get("busqueda_objetivo") or "Tema sin nombre"}, ensure_ascii=False), flush=True)
-        if not requested_by_team and topic_key_from_record(topic) in existing_keywords:
+        if not editorial_mode and not requested_by_team and topic_key_from_record(topic) in existing_keywords:
             skipped = {"keyword": topic.get("keyword") or topic.get("busqueda_objetivo"), "reason": "already_exists"}
             skipped_items.append(skipped)
             append_generation_event(run_id, {"command": "generate", "event": "skipped", "dry_run": dry_run, **skipped})
             continue
         overlap_reason = editorial_overlap_reason(topic_label, existing) if editorial_mode else ("near_duplicate" if is_near_duplicate_topic(topic_label, existing) else "")
-        if overlap_reason and not requested_by_team:
+        if overlap_reason and not requested_by_team and not editorial_mode:
             skipped = {"keyword": topic_label, "reason": "near_duplicate", "detail": overlap_reason}
             skipped_items.append(skipped)
             append_generation_event(run_id, {"command": "generate", "event": "skipped", "dry_run": dry_run, **skipped})
@@ -2803,8 +2803,12 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
                 except Exception as exc:
                     append_generation_event(run_id, {"command": "generate", "event": "editorial_revision_error", "keyword": topic_label, "dry_run": dry_run, "error": str(exc)})
         if editorial_mode:
-            # Los controles estructurales (catálogo, secciones, cierre, títulos
-            # únicos) también se corrigen antes de bloquear: el borrador que
+            base_slug, suffix = landing["slug"], 2
+            while landing["slug"] in existing_slugs:
+                landing["slug"] = slugify(f"{base_slug}-{suffix}")
+                suffix += 1
+            # Los controles estructurales (catálogo, secciones y cierre)
+            # también se corrigen antes de bloquear: el borrador que
             # llega al calendario tiene que poder publicarse.
             landing = repair_structural_issues(landing, topic, cluster, system, user, model, existing, clusters, pillar_slugs, categories, products, source_bank, use_quality, run_id, dry_run, max_seconds and max_seconds - (time.monotonic() - started_at))
         landing = apply_day_plan_checks(landing, topic)
@@ -2812,8 +2816,10 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
             add_operator_overlap_warning(landing, existing)
         if schedule_date:
             landing.pop("published_at", None)
-        if landing["slug"] in existing_slugs:
-            landing["slug"] = slugify(f"{landing['slug']}-{created + 1}")
+        base_slug, suffix = landing["slug"], 2
+        while landing["slug"] in existing_slugs:
+            landing["slug"] = slugify(f"{base_slug}-{suffix}")
+            suffix += 1
         # La propuesta se valida contra el catálogo del cliente activo. Las
         # landings históricas ya fueron deduplicadas arriba; revalidarlas acá
         # puede bloquear un cliente por registros viejos de otro catálogo.
@@ -2970,6 +2976,11 @@ def translate_article(landing_id: str, language: str, model: str) -> dict:
     """Crea una traducción del artículo como página hermana (`translation_of`).
     El original no se modifica; la traducción hereda su estado público."""
     language = valid_blog_language(language)
+    def existing_result(translation_id: str) -> dict:
+        result = {"command": "translate", "date": datetime.now(timezone.utc).isoformat(), "channel": "blog", "landing_id": landing_id, "translation_id": translation_id, "language": language, "existing": True, "errors": []}
+        write_report("translate", result)
+        print(json.dumps(result, ensure_ascii=False))
+        return result
     client_id = str(_CLIENT_CONFIG.get("id") or "")
     if not client_id or not os.environ.get("DATABASE_URL"):
         raise RuntimeError("La traducción necesita el cliente activo y DATABASE_URL.")
@@ -2989,7 +3000,7 @@ def translate_article(landing_id: str, language: str, model: str) -> dict:
         if valid_blog_language(original.get("language")) == language:
             raise RuntimeError("El artículo ya está en ese idioma.")
         siblings = conn.execute(
-            'SELECT "htmlContent" FROM "Landing" WHERE "clientId" = %s AND "htmlContent" LIKE %s',
+            'SELECT id, "htmlContent" FROM "Landing" WHERE "clientId" = %s AND status::text != \'ARCHIVED\' AND "htmlContent" LIKE %s',
             (client_id, f"%translation_of%{landing_id}%"),
         ).fetchall()
         for sibling in siblings:
@@ -2998,7 +3009,7 @@ def translate_article(landing_id: str, language: str, model: str) -> dict:
             except Exception:
                 continue
             if data.get("translation_of") == landing_id and valid_blog_language(data.get("language")) == language:
-                raise RuntimeError("Ya existe una traducción en ese idioma.")
+                return existing_result(sibling["id"])
 
     source = {key: value for key, value in original.items() if key not in TRANSLATION_DROPPED_FIELDS and key not in TRANSLATION_KEPT_FIELDS and not str(key).startswith("_")}
     target = TRANSLATION_TARGETS[language]
@@ -3033,6 +3044,17 @@ def translate_article(landing_id: str, language: str, model: str) -> dict:
     status = "PUBLISHED" if row["status"] == "PUBLISHED" else "DRAFT"
     new_id = "tr" + uuid.uuid4().hex[:23]
     with psycopg.connect(url, row_factory=dict_row) as conn:
+        # La IA corre fuera de la transacción. Serializar y volver a comprobar al
+        # guardar evita dos hermanas del mismo idioma ante pedidos simultáneos.
+        conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"blog-translation:{client_id}:{landing_id}:{language}",))
+        siblings = conn.execute(
+            'SELECT id, "htmlContent" FROM "Landing" WHERE "clientId" = %s AND status::text != \'ARCHIVED\' AND "htmlContent" LIKE %s',
+            (client_id, f"%translation_of%{landing_id}%"),
+        ).fetchall()
+        for sibling in siblings:
+            data = json.loads(sibling["htmlContent"] or "{}")
+            if data.get("translation_of") == landing_id and valid_blog_language(data.get("language")) == language:
+                return existing_result(sibling["id"])
         slug, suffix = base_slug, 1
         while conn.execute('SELECT 1 FROM "Landing" WHERE "clientId" = %s AND slug = %s', (client_id, slug)).fetchone():
             suffix += 1

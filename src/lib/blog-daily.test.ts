@@ -132,6 +132,110 @@ beforeEach(() => {
 });
 
 describe("rutina diaria del blog", () => {
+  it("depura sola una traducción repetida conservando el texto y la copia pública", async () => {
+    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: true, publishTime: "23:00" });
+    const content = { language: "en", translation_of: "original", h1: "Title" };
+    landings.keep = { id: "keep", clientId: "c1", status: "PUBLISHED", htmlContent: JSON.stringify(content), updatedAt: clock };
+    landings.copy = { id: "copy", clientId: "c1", status: "DRAFT", htmlContent: JSON.stringify(content), updatedAt: clock };
+    const { daily } = build({ generationClients: new Set(["pcmidi"]) });
+    await daily.runDailyBlogCalendar(); await daily.runDailyBlogCalendar();
+    expect(landings.keep.status).toBe("PUBLISHED");
+    expect(landings.copy.status).toBe("ARCHIVED");
+    expect(JSON.parse(landings.copy.htmlContent)).toMatchObject({ h1: "Title", _automatic_recovery: { retainedId: "keep", previousStatus: "DRAFT" } });
+  });
+
+  it("retoma fallos técnicos agotados sin repetir los reintentos continuamente", async () => {
+    addReady("2026-10-01"); Object.assign(row("2026-10-01"), { status: "FAILED", attempts: 3, errorCode: "DEPLOYMENT_FAILED", lastError: "HTTP 503" });
+    const { daily } = build({ runBlogPython: failingDeploy("HTTP 503"), generationClients: new Set(["pcmidi"]) });
+    await daily.runDailyBlogCalendar();
+    expect(row("2026-10-01").preparation.automaticRecovery.count).toBe(1);
+    Object.assign(row("2026-10-01"), { status: "FAILED", attempts: 3 });
+    await daily.runDailyBlogCalendar();
+    expect(row("2026-10-01").attempts).toBe(3);
+    clock = new Date(clock.getTime() + 16 * 60_000);
+    await daily.runDailyBlogCalendar();
+    expect(row("2026-10-01").preparation.automaticRecovery.count).toBe(2);
+  });
+
+  it("reanuda traducciones agotadas y levanta bloqueos resueltos por la revisión vigente", async () => {
+    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: true, publishTime: "23:00" });
+    addReady("2026-10-01"); Object.assign(row("2026-10-01"), { status: "FAILED", attempts: 3, errorCode: "QUALITY_BLOCKED", preparation: { dailyLanguages: ["es", "en"], translationFailures: { en: 3 } } });
+    const { daily, runBlogPython } = build({ generationClients: new Set(["pcmidi"]) });
+    await daily.runDailyBlogCalendar();
+    expect(row("2026-10-01").status).toBe("READY");
+    expect(row("2026-10-01").preparation.translationFailures.en).toBe(0);
+    expect(runBlogPython).toHaveBeenCalledWith(["translate", "--landing-id", "l-2026-10-01", "--language", "en"], "c1", 300_000);
+  });
+
+  it("conserva los bloqueos reales y la aprobación humana al recuperar", async () => {
+    addReady("2026-10-01"); Object.assign(row("2026-10-01"), { status: "FAILED", attempts: 3, errorCode: "QUALITY_BLOCKED" });
+    const { daily, runBlogPython } = build({ inspect: async () => ({ publishable: false, checks: [{ level: "error", message: "Dato inválido" }] }), generationClients: new Set(["pcmidi"]) });
+    await daily.runDailyBlogCalendar();
+    expect(row("2026-10-01").status).toBe("FAILED");
+    expect(row("2026-10-01").attempts).toBe(3);
+    expect(deploys(runBlogPython)).toBe(0);
+    row("2026-10-01").requiresApproval = true; row("2026-10-01").errorCode = "DEPLOYMENT_FAILED";
+    clock = new Date(clock.getTime() + 16 * 60_000);
+    await daily.runDailyBlogCalendar(); expect(row("2026-10-01").requiresApproval).toBe(true);
+  });
+
+  it("recupera días vencidos sin cambiar su fecha y no vuelve a publicar al repetir", async () => {
+    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: true, catchUpMissed: true, firstPublishDate: "2026-09-29", publishTime: "09:00" });
+    addReady("2026-09-29"); addReady("2026-09-30"); addReady("2026-10-01");
+    const { daily, runBlogPython } = build({ generationClients: new Set(["pcmidi"]) });
+    for (let i = 0; i < 4; i++) await daily.runDailyBlogCalendar();
+    expect(["2026-09-29", "2026-09-30", "2026-10-01"].map(day => row(day).status)).toEqual(["PUBLISHED", "PUBLISHED", "PUBLISHED"]);
+    expect(deploys(runBlogPython)).toBe(3);
+  });
+
+  it("aplica los tres idiomas a borradores existentes y conserva el bloqueo editorial", async () => {
+    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: true, articlePlan: [["es", "en", "de"]], publishTime: "09:00" });
+    addReady("2026-10-01");
+    row("2026-10-01").preparation = { language: "es" };
+    const { daily, runBlogPython } = build({ generationClients: new Set(["pcmidi"]) });
+    await daily.runDailyBlogCalendar();
+    expect(row("2026-10-01").preparation.dailyLanguages).toEqual(["es", "en", "de"]);
+    expect(deploys(runBlogPython)).toBe(0);
+    row("2026-10-01").attempts = 3; row("2026-10-01").status = "FAILED";
+    row("2026-10-01").errorCode = "QUALITY_BLOCKED";
+    await daily.runDailyBlogCalendar();
+    expect(row("2026-10-01").status).toBe("FAILED");
+  });
+
+  it("verifica las tres URLs y mantiene fallida una publicación si falla una traducción pública", async () => {
+    addReady("2026-10-01");
+    row("2026-10-01").preparation = { dailyLanguages: ["es", "en", "de"] };
+    for (const language of ["en", "de"]) landings[language] = { id: language, slug: language, status: "DRAFT", htmlContent: JSON.stringify({ language, translation_of: "l-2026-10-01" }) };
+    const fetchUrl = vi.fn(async (url: string) => ({ ok: !url.includes("/de/"), status: url.includes("/de/") ? 404 : 200, text: async () => `<meta name="editorial-revision" content="${new URL(url).searchParams.get("revision")}">` }));
+    const { daily } = build({ fetchUrl });
+    await daily.runDailyBlogCalendar();
+    expect(fetchUrl).toHaveBeenCalledTimes(3);
+    expect(row("2026-10-01").status).toBe("FAILED");
+    expect(row("2026-10-01").lastError).toContain("404");
+    expect(landings.en.status).toBe("DRAFT"); expect(landings.de.status).toBe("DRAFT");
+    expect(JSON.parse(landings.en.htmlContent).editorial_quality.publishable).toBe(true);
+  });
+
+  it("no despliega una traducción que no supera la revisión editorial", async () => {
+    addReady("2026-10-01");
+    row("2026-10-01").preparation = { dailyLanguages: ["es", "en"] };
+    landings.en = { id: "en", slug: "en", status: "DRAFT", htmlContent: JSON.stringify({ language: "en", translation_of: "l-2026-10-01" }) };
+    const { daily, runBlogPython } = build({ inspect: async (_client: string, content: Row) => ({ publishable: content.language !== "en", checks: content.language === "en" ? [{ level: "error", message: "Sin evidencia" }] : [] }) });
+    await daily.runDailyBlogCalendar();
+    expect(deploys(runBlogPython)).toBe(0);
+    expect(row("2026-10-01").errorCode).toBe("QUALITY_BLOCKED");
+    expect(landings.en.status).toBe("DRAFT");
+  });
+
+  it("publica lo vencido después de la hora local del cliente", async () => {
+    settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: true, catchUpMissed: true, firstPublishDate: "2026-09-30", publishTime: "12:00" });
+    clock = new Date("2026-10-01T14:59:00Z"); addReady("2026-09-30");
+    const { daily, runBlogPython } = build({ generationClients: new Set(["pcmidi"]) });
+    await daily.runDailyBlogCalendar(); expect(deploys(runBlogPython)).toBe(0);
+    clock = new Date("2026-10-01T15:00:00Z");
+    await daily.runDailyBlogCalendar(); expect(deploys(runBlogPython)).toBe(1);
+  });
+
   it("aprueba y publica un artículo del análisis comercial con la opción del blog", async () => {
     settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: true, autoApprove: true, publishTime: "12:00" });
     addReady("2026-10-01"); Object.assign(row("2026-10-01"), { analysisRunId: "analysis", requiresApproval: true });

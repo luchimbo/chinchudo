@@ -32,8 +32,8 @@ export function articleLanguageInfo(htmlContent: string): { language: BlogLangua
   } catch { return { language: "es", translationOf: null }; }
 }
 
-export async function findTranslations(db: Db, clientId: string, landingId: string) {
-  const rows = await db.landing.findMany({ where: { clientId, ...translationOfFilter(landingId) }, select: { id: true, titulo: true, status: true, slug: true, htmlContent: true } });
+export async function findTranslations(db: Db, clientId: string, landingId: string, { includeArchived = false } = {}) {
+  const rows = await db.landing.findMany({ where: { clientId, ...(!includeArchived ? { status: { not: "ARCHIVED" } } : {}), ...translationOfFilter(landingId) }, select: { id: true, titulo: true, status: true, slug: true, htmlContent: true } });
   // `contains` es una búsqueda de texto: se confirma con el JSON real.
   return rows.flatMap(row => { const info = articleLanguageInfo(row.htmlContent); return info.translationOf === landingId ? [{ id: row.id, titulo: row.titulo, status: row.status, slug: row.slug, language: info.language }] : []; });
 }

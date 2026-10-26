@@ -29,9 +29,45 @@ se comprueba que existan todas las versiones y que pasen los controles de calida
 Una traducción fallida se reintenta hasta tres veces; después se informa el error
 y se puede volver a solicitar desde el editor del original.
 
-Los cambios afectan reservas automáticas que todavía no empezaron. Los artículos
-preparados y las fechas manuales se conservan. Cambiar el plan no activa la
-publicación automática ni modifica la aprobación manual.
+Los idiomas del plan también se aplican a los borradores existentes del calendario
+activo. Se conservan el original, su idioma y las fechas; solo se completan las
+versiones faltantes. Cambiar el plan no activa la publicación automática ni
+modifica la aprobación manual. Cada URL se verifica con la revisión desplegada
+antes de marcar la publicación como completada.
+
+### Recuperación de notas vencidas
+
+Revisar primero la selección, sin modificar datos:
+
+```powershell
+node --env-file=.env scripts/recover-blog-publications.mjs --client kressmer --dry-run
+```
+
+Para preparar y publicar las notas válidas, conservando sus fechas originales:
+
+```powershell
+node --env-file=.env scripts/recover-blog-publications.mjs --client kressmer --apply --publish
+```
+
+El comando comparte la reserva del publicador, guarda un respaldo y un reporte
+en `reports/`, archiva traducciones duplicadas no publicadas y completa ES/EN/DE.
+No recupera omisiones deliberadas ni evita aprobaciones o controles de calidad.
+Sin `--publish` solo prepara la recuperación; el calendario activo podrá publicarla
+en su siguiente ejecución a partir de la hora configurada. Repetir el comando no
+republica artículos completados. La opción guardada `catchUpMissed: true` permite
+recuperar automáticamente futuras notas vencidas después de una interrupción del
+servicio. El equipo debe estar encendido; al volver a arrancar se procesa lo pendiente.
+
+El trabajador depura automáticamente traducciones repetidas no publicadas y
+conserva un registro de la copia archivada. Los títulos, palabras clave,
+descripciones y temas similares son avisos informativos: no bloquean el build
+ni la generación editorial. Si una URL ya existe, el generador agrega un sufijo.
+Los fallos técnicos y traducciones que agotaron sus tres intentos vuelven a la
+cola automáticamente: primero a los 15 minutos y luego con espera creciente,
+hasta un máximo de seis horas. La recuperación guarda el error previo y la
+próxima hora de reintento en `preparation.automaticRecovery`, conserva las fechas
+y respeta la aprobación humana. Un bloqueo editorial se revisa otra vez y solo
+se levanta cuando la validación vigente lo permite.
 
 Aplicar primero `prisma migrate deploy` y regenerar Prisma, luego desplegar la
 app y reiniciar ambos trabajadores (`agent-relay` y `blog-runtime-service`).

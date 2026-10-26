@@ -169,7 +169,7 @@ export async function deleteBlogArticle(id: string): Promise<DeleteArticleResult
     const landing = await prisma.landing.findUnique({ where: { id }, select: { id: true, clientId: true, status: true } });
     if (!landing) return { ok: false, error: "El artículo ya no existe. Recargá la página." };
     await assertClientAccess(prisma, landing.clientId);
-    const translations = await findTranslations(prisma, landing.clientId, landing.id);
+    const translations = await findTranslations(prisma, landing.clientId, landing.id, { includeArchived: true });
     const ids = [landing.id, ...translations.map(item => item.id)];
     await prisma.$transaction(async (tx) => {
       const slots = await tx.blogPublication.findMany({ where: { landingId: { in: ids } }, select: { id: true, status: true } });
