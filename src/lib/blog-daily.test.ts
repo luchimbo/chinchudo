@@ -854,6 +854,62 @@ describe("calendario multilingüe diario", () => {
     expect(landings.en.status).toBe("PUBLISHED"); expect(landings.de.status).toBe("PUBLISHED");
     expect(runner.mock.calls.filter(([args]) => args[0] === "translate")).toHaveLength(2);
   });
+  it("traduce a la vez todos los idiomas que faltan, sin esperar a que termine el primero", async () => {
+    addReady("2026-10-01"); row("2026-10-01").preparation = { dailyLanguages: ["es", "en", "de"] };
+    const started: string[] = [], finish: Array<() => void> = [];
+    const runner = vi.fn((args: string[]) => args[0] !== "translate" ? Promise.resolve("ok") : new Promise<string>(resolve => {
+      const language = args[args.indexOf("--language") + 1];
+      started.push(language);
+      finish.push(() => { landings[language] = { id: language, slug: language, status: "DRAFT", htmlContent: JSON.stringify({ language, translation_of: "l-2026-10-01" }) }; resolve("ok"); });
+    }));
+    const { daily } = build({ runBlogPython: runner, generationClients: new Set(["pcmidi"]) });
+    const tick = daily.runDailyBlogCalendar();
+    await vi.waitFor(() => expect([...started].sort()).toEqual(["de", "en"]));
+    finish.forEach(done => done());
+    await tick;
+    expect(row("2026-10-01").preparation.translationFailures).toEqual({ en: 0, de: 0 });
+  });
+  it("si falla un idioma el otro igual se guarda y solo se reintenta el que falló", async () => {
+    addReady("2026-10-01"); row("2026-10-01").preparation = { dailyLanguages: ["es", "en", "de"] };
+    const runner = vi.fn(async (args: string[]) => {
+      if (args[0] !== "translate") return "ok";
+      const language = args[args.indexOf("--language") + 1];
+      if (language === "en") throw new Error("proveedor no disponible");
+      landings[language] = { id: language, slug: language, status: "DRAFT", htmlContent: JSON.stringify({ language, translation_of: "l-2026-10-01" }) };
+      return "ok";
+    });
+    const { daily } = build({ runBlogPython: runner, generationClients: new Set(["pcmidi"]) });
+    await daily.runDailyBlogCalendar();
+    expect(row("2026-10-01").preparation.translationFailures).toEqual({ en: 1, de: 0 });
+    expect(row("2026-10-01").lastError).toContain("Traducción en");
+    await daily.runDailyBlogCalendar();
+    const languages = runner.mock.calls.filter(([args]) => args[0] === "translate").map(([args]) => args[args.indexOf("--language") + 1]);
+    expect(languages).toEqual(["en", "de", "en"]);
+  });
+  it("traduce el artículo anterior mientras escribe el siguiente día", async () => {
+    addReady("2026-10-03"); row("2026-10-03").preparation = { dailyLanguages: ["es", "en"] };
+    const started: string[] = [], finish: Array<() => void> = [];
+    const runner = vi.fn((args: string[]) => !["translate", "generate"].includes(args[0]) ? Promise.resolve("ok") : new Promise<string>(resolve => { started.push(args[0]); finish.push(() => resolve("ok")); }));
+    const { daily } = build({ runBlogPython: runner });
+    const tick = daily.runDailyBlogCalendar();
+    await vi.waitFor(() => expect([...started].sort()).toEqual(["generate", "translate"]));
+    finish.forEach(done => done());
+    await tick;
+  });
+  it("las consultas de traducciones por vuelta no crecen con la cantidad de artículos", async () => {
+    const consultas = async (days: string[]) => {
+      rows = []; landings = {};
+      for (const day of days) { addReady(day); row(day).preparation = { dailyLanguages: ["es", "en"] }; landings[`l-${day}-en`] = { id: `l-${day}-en`, slug: `en-${day}`, status: "DRAFT", htmlContent: JSON.stringify({ language: "en", translation_of: `l-${day}` }) }; }
+      const spy = vi.spyOn(prisma.landing, "findMany");
+      const { daily } = build({ generationClients: new Set(["pcmidi"]) });
+      await daily.runDailyBlogCalendar();
+      const count = spy.mock.calls.filter(([args]: any) => JSON.stringify(args.where).includes("translation_of")).length;
+      spy.mockRestore();
+      return count;
+    };
+    const uno = await consultas(["2026-10-02"]);
+    expect(await consultas(["2026-10-02", "2026-10-03", "2026-10-04", "2026-10-05", "2026-10-06", "2026-10-07"])).toBe(uno);
+  });
   it("publica dos temas del mismo día en vueltas sucesivas", async () => {
     addReady("2026-10-01");
     rows.push({ ...row("2026-10-01"), id: "second", dailySlot: 1, landingId: "second" });

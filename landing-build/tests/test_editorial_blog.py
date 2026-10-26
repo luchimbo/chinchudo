@@ -673,6 +673,12 @@ def test_editorial_request_bounds_output_and_configured_deepseek_reasoning(monke
     assert "reasoning" not in payloads[-1]
     bl.chat_json("Otro flujo", "brief", "other-model")
     assert "max_tokens" not in payloads[-1]
+    bl.chat_json("Traducir", "texto", "deepseek/deepseek-v4-flash", reasoning_off=True)
+    assert payloads[-1]["reasoning"] == {"enabled": False}
+    bl.chat_json("Traducir", "texto", "other-model", reasoning_off=True)
+    assert "reasoning" not in payloads[-1]
+    bl.chat_json("Traducir", "texto", "deepseek/deepseek-v4-flash")
+    assert "reasoning" not in payloads[-1]
 
 
 def test_decision_prompt_includes_required_comparison_in_json_shape(monkeypatch):
