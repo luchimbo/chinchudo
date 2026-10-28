@@ -931,7 +931,11 @@ def load_vercel_project() -> dict:
         return configured
     if client_slug_active() != "pcmidi":
         return {}
-    project_path = ROOT / ".vercel" / "project.json"
+    # Keep the blog identity in source control so clean server installs work.
+    # These identifiers are public metadata, never authentication credentials.
+    project_path = ROOT / "vercel-projects" / "pcmidi.json"
+    if not project_path.exists():
+        project_path = ROOT / ".vercel" / "project.json"
     if not project_path.exists():
         return {}
     try:
