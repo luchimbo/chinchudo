@@ -4,6 +4,7 @@ import { inspectBlogArticle } from "../src/lib/blog-evidence.mjs";
 import { nextFreeEditorialDay, withDateHistory } from "../src/lib/blog-free-slot.mjs";
 import { assignIntent, carryIntent, intentForSlot, intentModeOf, loadIntentNeighbors, withIntent } from "../src/lib/blog-intent.mjs";
 import { newPreparation, setPreparationPhase, failPreparation, recoverPreparations } from "./blog-preparation.mjs";
+import { repairBlogContent } from "../src/lib/blog-auto-repair.mjs";
 
 /** Traduce el plan guardado del día a argumentos del generador, sin valores inválidos. */
 export function dayPlanArgs(preparation) {
@@ -393,8 +394,30 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
       if (slot.errorCode === "QUALITY_BLOCKED") {
         if (!slot.landing) continue;
         try {
-          const quality = await validate(client, slot.landing, parseContent(slot.landing));
-          if (!quality.publishable) continue;
+          const [products, categories] = await Promise.all([
+            prisma.landingProduct.findMany({ where: { clientId: client.id }, select: { externalId: true, name: true, url: true, linkStatus: true, sourceSnapshot: true } }),
+            prisma.landingCategory.findMany({ where: { clientId: client.id }, select: { key: true, name: true, url: true, linkStatus: true } }),
+          ]);
+          const repaired = repairBlogContent(parseContent(slot.landing), { products, categories, clientName: client.name });
+          const quality = await validate(client, slot.landing, repaired.content);
+          if (!quality.publishable) {
+            // Keep the failed draft as an audit record and let the existing
+            // generator produce a replacement. Never approve the rejected text.
+            const count = Number(previous.count || 0) + 1;
+            await prisma.$transaction(async tx => {
+              const claimed = await tx.blogPublication.updateMany({ where: { id: slot.id, clientId: client.id, updatedAt: slot.updatedAt, landingId: slot.landingId, requiresApproval: false, status: "FAILED" }, data: { landingId: null, analysisRunId: null, status: "PLANNED", attempts: 0, lastError: "", errorCode: "", preparation: { ...slot.preparation, phase: "WAITING", ...(slot.analysisRunId ? { replacementSourceAnalysisRunId: slot.analysisRunId } : {}), replacedLandingIds: [...(slot.preparation?.replacedLandingIds || []), slot.landingId], automaticRecovery: { count, at: now().toISOString(), previousError: slot.lastError, previousCode: slot.errorCode, nextRetryAt: new Date(timestamp + Math.min(6 * 3600_000, 15 * 60_000 * 2 ** Math.min(count - 1, 5))).toISOString() } } } });
+              if (claimed.count) {
+                const archived = await tx.landing.updateMany({ where: { id: slot.landingId, clientId: client.id, updatedAt: slot.landing.updatedAt, status: { in: ["DRAFT", "APPROVED"] } }, data: { status: "ARCHIVED", slug: `${slot.landing.slug}-recovered-${slot.landingId}` } });
+                if (!archived.count) throw new Error("El borrador cambió durante la recuperación; se conserva la edición y se reintentará.");
+              }
+            });
+            continue;
+          }
+          if (repaired.changes.length) {
+            const changed = await prisma.landing.updateMany({ where: { id: slot.landingId, clientId: client.id, updatedAt: slot.landing.updatedAt, status: { in: ["DRAFT", "APPROVED"] } }, data: { htmlContent: JSON.stringify(repaired.content) } });
+            if (!changed.count) continue;
+            log.log(`[blog] Reparación automática ${slot.id}: ${repaired.changes.join(", ")}`);
+          }
           const siblings = await prisma.landing.findMany({ where: { clientId: client.id, ...translationWhere(slot.landingId) } });
           let valid = true;
           for (const sibling of siblings) if (!(await validate(client, sibling, parseContent(sibling))).publishable) { valid = false; break; }
@@ -448,6 +471,7 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
     const intent = intentForSlot(empty);
     const comparison = !!plan.competitor || (!brief && intent === "decision" && (typeof empty.preparation?.comparison === "boolean" ? empty.preparation.comparison : client.responsePolicy?.blog?.comparisons === true));
     const metadata = carryIntent(empty.preparation, { ...empty.preparation, ...newPreparation(now(), 240_000), language, comparison, ...(brief ? { brief } : {}), ...plan.metadata });
+    delete metadata.finishedAt;
     const generationClaim = await prisma.blogPublication.updateMany({ where: { id: empty.id, updatedAt: empty.updatedAt, landingId: null, attempts: empty.attempts, status: { in: ["PLANNED", "FAILED"] } }, data: { attempts: { increment: 1 }, status: "PLANNED", lastError: "", errorCode: "", preparation: metadata } });
     if (!generationClaim.count) { generationClients.delete(targetClientSlug); return; }
     try {
@@ -471,7 +495,7 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
     running = true;
     lastStartedAt = now().toISOString(); lastFailure = false;
     try {
-      const client = await prisma.client.findUnique({ where: { slug: targetClientSlug }, select: { id: true, active: true, blogBaseUrl: true, responsePolicy: true } });
+      const client = await prisma.client.findUnique({ where: { slug: targetClientSlug }, select: { id: true, name: true, active: true, blogBaseUrl: true, responsePolicy: true } });
       if (!client?.active) return;
       const key = `blog_daily_schedule:${client.id}`;
       const setting = await prisma.appSetting.findUnique({ where: { key } });

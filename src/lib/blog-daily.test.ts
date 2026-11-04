@@ -44,7 +44,9 @@ function withLanding(item: Row, include: any) {
 
 const prisma = {
   $transaction: async (callback: any) => callback(prisma),
-  client: { findUnique: async () => ({ id: "c1", active: true, blogBaseUrl: "https://blog.test", responsePolicy: clientPolicy }) },
+  client: { findUnique: async () => ({ id: "c1", name: "PC MIDI", active: true, blogBaseUrl: "https://blog.test", responsePolicy: clientPolicy }) },
+  landingProduct: { findMany: async () => [] },
+  landingCategory: { findMany: async () => [] },
   appSetting: {
     findUnique: async ({ where }: any) => (settings[where.key] ? { value: settings[where.key] } : null),
     upsert: async ({ where, create, update }: any) => { settings[where.key] = settings[where.key] === undefined ? create.value : update.value; },
@@ -55,7 +57,7 @@ const prisma = {
     findUnique: async ({ where }: any) => ({ ...landings[where.id] }),
     update: async ({ where, data }: any) => { apply(landings[where.id], data); },
     updateMany: async ({ where, data }: any) => {
-      const found = Object.values(landings).filter((l) => matches(l, where));
+      const found = Object.values(landings).filter((l) => matches({ clientId: "c1", ...l }, where));
       found.forEach((l) => apply(l, data)); return { count: found.length };
     },
   },
@@ -167,12 +169,15 @@ describe("rutina diaria del blog", () => {
     expect(runBlogPython).toHaveBeenCalledWith(["translate", "--landing-id", "l-2026-10-01", "--language", "en"], "c1", 300_000);
   });
 
-  it("conserva los bloqueos reales y la aprobación humana al recuperar", async () => {
+  it("regenera el contenido rechazado sin publicarlo y conserva la aprobación humana", async () => {
     addReady("2026-10-01"); Object.assign(row("2026-10-01"), { status: "FAILED", attempts: 3, errorCode: "QUALITY_BLOCKED" });
     const { daily, runBlogPython } = build({ inspect: async () => ({ publishable: false, checks: [{ level: "error", message: "Dato inválido" }] }), generationClients: new Set(["pcmidi"]) });
     await daily.runDailyBlogCalendar();
-    expect(row("2026-10-01").status).toBe("FAILED");
-    expect(row("2026-10-01").attempts).toBe(3);
+    expect(row("2026-10-01").status).toBe("PLANNED");
+    expect(row("2026-10-01").attempts).toBe(0);
+    expect(row("2026-10-01").landingId).toBeNull();
+    expect(landings["l-2026-10-01"].status).toBe("ARCHIVED");
+    expect(landings["l-2026-10-01"].slug).toContain("-recovered-l-2026-10-01");
     expect(deploys(runBlogPython)).toBe(0);
     row("2026-10-01").requiresApproval = true; row("2026-10-01").errorCode = "DEPLOYMENT_FAILED";
     clock = new Date(clock.getTime() + 16 * 60_000);

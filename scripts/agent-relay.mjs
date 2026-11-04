@@ -10,6 +10,7 @@ import { createBlogDaily } from "./blog-daily.mjs";
 import { blogCodeStatus, restartOnBlogCodeChange } from "./blog-code-version.mjs";
 import { terminateChild } from "./terminate-child.mjs";
 import { withBlogLease } from "./blog-lease.mjs";
+import { catalogSyncBlocksBlog } from "../src/lib/blog-auto-repair.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -41,16 +42,8 @@ const blogDaily = createBlogDaily({ prisma, runBlogPython, generationClients: la
 const runDailyBlogCalendar = blogDaily.runDailyBlogCalendar;
 
 async function catalogIsDue(clientId) {
-  const active = await prisma.catalogSyncRun.findFirst({ where: { clientId, status: { in: ["QUEUED","RUNNING","PENDING_DEPLOY","DEPLOYING"] }, deploymentAttempts: { lt:3 } }, select:{id:true} });
-  if(active)return true;
-  const setting=await prisma.appSetting.findUnique({where:{key:`blog_catalog_sync:${clientId}`}});
-  let config;try{config=JSON.parse(setting?.value||"{}");}catch{return false;}
-  if(!config.enabled)return false;
-  const latest=await prisma.catalogSyncRun.findFirst({where:{clientId},orderBy:{startedAt:"desc"},select:{startedAt:true}});
-  if(!latest)return true;
-  const format=new Intl.DateTimeFormat("en-CA",{timeZone:"America/Argentina/Buenos_Aires",year:"numeric",month:"2-digit",day:"2-digit"});
-  const hour=Number(new Intl.DateTimeFormat("en-US",{timeZone:"America/Argentina/Buenos_Aires",hour:"2-digit",hourCycle:"h23"}).format(new Date()));
-  return hour>=6&&format.format(latest.startedAt)!==format.format(new Date());
+  const active = await prisma.catalogSyncRun.findFirst({ where: { clientId, status: { in: ["QUEUED","RUNNING","PENDING_DEPLOY","DEPLOYING"] }, deploymentAttempts: { lt:3 } }, orderBy: { updatedAt: "desc" }, select:{status:true,updatedAt:true} });
+  return catalogSyncBlocksBlog(active);
 }
 
 async function runBlogPython(args, clientId, timeoutMs = 300_000, progress) {

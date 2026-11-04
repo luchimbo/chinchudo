@@ -8,6 +8,7 @@ import { createBlogDaily } from "./blog-daily.mjs";
 import { withBlogLease } from "./blog-lease.mjs";
 import { blogCodeStatus, restartOnBlogCodeChange } from "./blog-code-version.mjs";
 import { terminateChild } from "./terminate-child.mjs";
+import { shouldRunBlogCalendar } from "../src/lib/blog-auto-repair.mjs";
 
 const root = resolve(import.meta.dirname, ".."), port = 3102;
 const db = new PrismaClient(), workers = new Map();
@@ -45,14 +46,17 @@ function worker(client) {
 }
 let ticking = false;
 async function tick() {
-  if (ticking) return;
+  // Drain the current cycle after a deployment so the restart watcher cannot
+  // be starved by a new calendar cycle starting at the same interval.
+  if (ticking || blogCodeStatus().stale) return;
   ticking = true;
   try {
     const clients = await db.client.findMany({ where: { active: true }, select: { id: true, slug: true, responsePolicy: true } });
     for (const client of clients) {
-      if (client.responsePolicy?.blog?.calendar !== true) continue;
-      // PC MIDI ya corre en el relay principal; este servicio atiende los otros calendarios.
-      if (secondaryCalendars && client.slug === "pcmidi") continue;
+      if (blogCodeStatus().stale) break;
+      // PC MIDI predates the explicit calendar flag. Its persisted schedule is
+      // still checked by createBlogDaily; an absent newer flag must not stop it.
+      if (!shouldRunBlogCalendar(client, secondaryCalendars)) continue;
       await worker(client).runDailyBlogCalendar();
     }
   } catch (error) { console.error("[blog-runtime]", error.message); }

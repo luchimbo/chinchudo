@@ -700,3 +700,62 @@ def test_legacy_still_requires_commercial_landing_blocks():
     candidate = legacy("landing-incompleta")
     candidate.pop("components", None)
     assert any("falta bloque components" in error for error in bl.validate_landings([candidate], CATEGORIES, PRODUCTS))
+
+
+def test_verified_catalog_fallback_has_no_other_tenant_copy(monkeypatch):
+    monkeypatch.setattr(bl, "_CLIENT_CONFIG", {"slug": "pcmidi", "name": "PC MIDI Center", "storeUrl": STORE})
+    candidate = bl.normalize_generated_landing(bl.verified_catalog_fallback({"keyword": "controlador midi", "categorias_sugeridas": "controladores-midi;interfaces"}, CATEGORIES, PRODUCTS))
+    candidate.update({"content_type": "GUIDE", "cluster_slug": "controladores-midi"})
+    assert bl.validate_landings([candidate], CATEGORIES, PRODUCTS) == []
+    assert bl.validate_editorial_candidate(candidate, [], [{"slug": "controladores-midi"}], {"controladores-midi"}, CATEGORIES, PRODUCTS) == []
+    assert not re.search(r"entrenamiento|medias|calzado|running", json.dumps(candidate, ensure_ascii=False), re.I)
+    assert set(candidate["product_ids"]).issubset(PRODUCTS)
+    assert candidate["generation_method"] == "verified_catalog_fallback"
+
+
+def test_provider_credit_failure_is_scoped_and_does_not_log_account_data(monkeypatch):
+    monkeypatch.setattr(bl, "load_env", lambda: None)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    calls = []
+    def reject(request, timeout):
+        calls.append(request)
+        raise bl.urllib.error.HTTPError("https://provider.invalid", 402, "Payment Required", {}, io.BytesIO(b'{"user_id":"private-account"}'))
+    monkeypatch.setattr(bl.urllib.request, "urlopen", reject)
+    @bl.provider_session
+    def attempt():
+        for _ in range(2):
+            with pytest.raises(bl.BlogProviderUnavailable) as failure:
+                bl.chat_json("brief", "private draft", "unchanged-model")
+            assert failure.value.status == 402
+            assert "private-account" not in str(failure.value)
+    attempt()
+    assert len(calls) == 1
+    attempt()  # A later operation can test the provider again after credits return.
+    assert len(calls) == 2
+
+
+def test_scheduled_article_finishes_with_verified_catalog_when_provider_has_no_credit(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://test")
+    monkeypatch.setattr(bl, "_CLIENT_CONFIG", {"id": "c1", "slug": "pcmidi", "name": "PC MIDI Center", "storeUrl": STORE, "blogBaseUrl": BASE})
+    monkeypatch.setattr(bl, "_GENERATION_COMPARISON", False)
+    monkeypatch.setattr(bl, "REPORTS_DIR", tmp_path / "reports")
+    monkeypatch.setattr(bl, "GENERATION_EVENTS_PATH", tmp_path / "events.jsonl")
+    monkeypatch.setattr(bl, "load_categories", lambda: CATEGORIES)
+    monkeypatch.setattr(bl, "load_products", lambda: PRODUCTS)
+    monkeypatch.setattr(bl, "load_content_clusters", lambda: [{"slug": "controladores-midi", "name": "Controladores MIDI y DAW", "description": ""}])
+    monkeypatch.setattr(bl, "load_seed_topics", lambda: [{"keyword": "controlador midi para ableton", "source": "seed"}])
+    monkeypatch.setattr(bl, "_opportunities_path", lambda: tmp_path / "none.jsonl")
+    monkeypatch.setattr(bl, "load_landings", lambda include_drafts=False: [article("guia-completa-controladores", "controladores-midi", "PILLAR", days_ago=30)])
+    monkeypatch.setattr(bl, "load_editorial_source_bank", lambda: [])
+    monkeypatch.setattr(bl, "make_editorial_brief", lambda *args: {"allowedProductIds": list(PRODUCTS)})
+    monkeypatch.setattr(bl, "review_generated_editorial", lambda landing, *args: {**landing, "editorial_quality": {"publishable": True, "checks": []}})
+    def no_credit(*args, **kwargs):
+        raise bl.BlogProviderUnavailable(402)
+    monkeypatch.setattr(bl, "chat_json", no_credit)
+    saved = []
+    monkeypatch.setattr(bl, "append_landing", lambda content, schedule_date="": saved.append((content, schedule_date)) or {})
+    result = bl.generate_landings(limit=1, model="unchanged-model", schedule_date="2026-11-08")
+    assert result["created_count"] == 1
+    assert saved[0][1] == "2026-11-08"
+    assert saved[0][0]["generation_fallback_reason"] == "provider_http_402"
+    assert not saved[0][0].get("published_at")

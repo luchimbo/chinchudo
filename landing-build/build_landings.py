@@ -12,6 +12,8 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from contextvars import ContextVar
+from functools import wraps
 from performance_events import timed_stage
 from blog_languages import language as valid_blog_language, prefix as language_prefix, localize_html, apply_blog_theme
 from editorial_quality import quality_bridge, intent_for_date
@@ -47,6 +49,25 @@ OPERATOR_BRIEF_MAX = 500
 COMPETITOR_MAX = 60
 COMPETITOR_NOTES_MAX = 300
 _RENDER_LANGUAGE = "es"
+_PROVIDER_OUTAGE = ContextVar("blog_provider_outage", default=None)
+
+
+class BlogProviderUnavailable(RuntimeError):
+    def __init__(self, status: int = 0):
+        self.status = status
+        reason = "sin crédito" if status == 402 else "autorización rechazada" if status in (401, 403) else "no disponible"
+        super().__init__(f"Proveedor de IA {reason} (HTTP {status or 'network'}).")
+
+
+def provider_session(work):
+    @wraps(work)
+    def scoped(*args, **kwargs):
+        token = _PROVIDER_OUTAGE.set(None)
+        try:
+            return work(*args, **kwargs)
+        finally:
+            _PROVIDER_OUTAGE.reset(token)
+    return scoped
 
 
 def blog_config() -> dict:
@@ -1153,10 +1174,14 @@ def extract_json_object(raw: str) -> dict:
 
 @timed_stage("ai")
 def chat_json(system: str, user: str, model: str, temperature: float = 0.35, max_tokens: int = 0, timeout: int = 90, reasoning_off: bool = False) -> dict:
+    unavailable = _PROVIDER_OUTAGE.get()
+    if unavailable is not None:
+        raise BlogProviderUnavailable(unavailable)
     load_env()
     api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
-        raise RuntimeError("Falta OPENROUTER_API_KEY en .env o variables de entorno")
+        _PROVIDER_OUTAGE.set(401)
+        raise BlogProviderUnavailable(401)
     payload = {
         "model": model,
         "temperature": temperature,
@@ -1189,9 +1214,16 @@ def chat_json(system: str, user: str, model: str, temperature: float = 0.35, max
         with urllib.request.urlopen(request, timeout=timeout) as response:
             data = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Error OpenRouter {exc.code}: {detail}") from exc
-    content = data["choices"][0]["message"]["content"]
+        # The response can contain account identifiers. Log only the status.
+        _PROVIDER_OUTAGE.set(exc.code)
+        raise BlogProviderUnavailable(exc.code) from exc
+    except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+        _PROVIDER_OUTAGE.set(0)
+        raise BlogProviderUnavailable() from exc
+    try:
+        content = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise ValueError("El modelo no devolvió texto válido.") from exc
     return extract_json_object(content)
 
 
@@ -1898,6 +1930,40 @@ def validate_rendered_article(html_text: str, expected_canonical: str) -> list[s
     if "{{ " in html_text:
         errors.append("quedaron placeholders sin reemplazar")
     return errors
+
+
+def verified_catalog_fallback(topic: dict, categories: dict[str, dict], products: dict[str, dict]) -> dict:
+    """A complete selection guide from actual catalog entries, without external claims.
+
+    This is distinct from the existing running-specific template. It must never
+    introduce another tenant's vocabulary or pretend to know a rival's specs.
+    """
+    result = catalogue_fallback_landing(topic, categories, products)
+    keyword = result["keyword"]
+    selected = result["product_ids"][:4]
+    refs = [f"[[p:{pid}|{products[pid]['nombre']}]]" for pid in selected]
+    category_ids = [result["primary_category_id"], *result["secondary_category_ids"]]
+    categories_text = ", ".join(f"[[c:{cid}|{categories[cid]['nombre']}]]" for cid in category_ids)
+    result.update({
+        "h1": f"{keyword[:85].capitalize()}: qué revisar antes de elegir",
+        "seo_title": f"{keyword[:42].capitalize()}: criterios de elección"[:70],
+        "meta_description": f"Criterios para evaluar {keyword.lower()}: definí el uso, revisá las fichas y compará opciones del catálogo sin dar por supuestas sus características."[:180],
+        "hero_lede": f"Una guía para ordenar la elección sobre {keyword.lower()} a partir de categorías y productos del catálogo de {client_name()}.",
+        "direct_answer": f"Para decidir sobre {keyword.lower()}, definí primero qué necesitás resolver y qué condiciones debe cumplir la opción elegida. Compará las fichas de alternativas del mismo tipo: no des por supuesta la compatibilidad, las conexiones ni los accesorios incluidos. Si un dato no figura en la ficha, confirmalo antes de comprar.",
+        "sections": [
+            {"h2": f"Cómo ordenar la elección sobre {keyword.lower()}", "body": f"Anotá el uso principal, el espacio disponible y los requisitos de lo que ya utilizás. Separá lo imprescindible de lo opcional: dos modelos con nombres parecidos pueden responder a necesidades diferentes. Las categorías {categories_text} permiten ubicar las opciones sin elegir solamente por el nombre."},
+            {"h2": "Opciones del catálogo para revisar", "body": "\n\n".join(f"{ref}: abrí su ficha y verificá la función, las conexiones y los requisitos que necesitás. La presencia de este modelo en la selección no implica que sea compatible con cualquier configuración; esa decisión depende de los datos de la ficha y de tu uso." for ref in refs)},
+            {"h2": "Qué confirmar antes de decidir", "body": "Compará las opciones con la misma lista: función principal, requisitos, conexiones, dimensiones y accesorios incluidos. No confundas un nombre similar con prestaciones equivalentes. Si falta un dato relevante, consultá por el modelo exacto. Las condiciones comerciales se confirman por separado; esta guía no las da por supuestas."},
+        ],
+        "brand_solution": {"title": f"Revisá las opciones con {client_name()}", "body": f"En {client_name()} podés consultar {categories_text} y revisar las fichas de los modelos citados. Si necesitás confirmar un requisito concreto, preguntá por el modelo y explicá para qué lo vas a usar."},
+        "components_title": "Una lista común para comparar",
+        "components_subtitle": "Aplicá los mismos criterios a las opciones del catálogo.",
+        "components": [{"cat": categories[cid]["nombre"], "shortCat": categories[cid]["nombre"][:12].upper(), "why": "Ubicar opciones de la misma categoría.", "look": "Revisá función, requisitos y conexiones en cada ficha."} for cid in category_ids],
+        "steps": [{"n": "01", "t": "Definí el uso", "b": "Escribí qué necesitás resolver y qué requisitos son imprescindibles."}, {"n": "02", "t": "Contrastá las fichas", "b": "Compará alternativas de la misma categoría con los mismos criterios."}, {"n": "03", "t": "Confirmá lo que falta", "b": "Consultá los datos que no figuren antes de tomar una decisión."}],
+        "faqs": [{"q": "¿Alcanza con que los modelos tengan nombres parecidos?", "a": "No. Revisá los datos de cada ficha y contrastalos con los requisitos de tu uso."}, {"q": "¿Qué hago si una característica no está informada?", "a": "Consultá por el modelo exacto. No conviene deducir compatibilidad o accesorios a partir del nombre."}, {"q": "¿La guía confirma disponibilidad y condiciones de compra?", "a": "No. Esos datos se consultan por separado al momento de elegir."}],
+        "generation_method": "verified_catalog_fallback",
+    })
+    return result
 
 
 def catalogue_fallback_landing(topic: dict, categories: dict[str, dict], products: dict[str, dict]) -> dict:
@@ -2653,6 +2719,7 @@ def apply_day_plan_checks(landing: dict, topic: dict) -> dict:
     return landing
 
 
+@provider_session
 @timed_stage("generation")
 def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds: int = 0, research_first: bool = False, schedule_date: str = "", brief: str = "", product_id: str = "", exclude_products: list[str] | None = None, competitor: str = "", competitor_notes: str = "", intent: str = "") -> dict:
     if client_slug_active() == "pcmidi" and _CLIENT_CONFIG.get("id") and os.environ.get("DATABASE_URL") and not schedule_date and not dry_run:
@@ -2848,6 +2915,7 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
             if compared and compared not in topic["_editorial_brief"].setdefault("allowedProductIds", []):
                 topic["_editorial_brief"]["allowedProductIds"].append(compared)
         system = user = None
+        allowed_products = products
         try:
             if client_slug_active() == "prestige-running":
                 landing = normalize_generated_landing(catalogue_fallback_landing(topic, categories, products))
@@ -2858,10 +2926,17 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
                 preparation_progress("GENERATING")
                 landing = normalize_generated_landing(chat_json(system, user, model=model))
         except Exception as exc:
-            blocked = {"keyword": topic.get("keyword") or topic.get("busqueda_objetivo"), "reason": "generation_error", "error": str(exc)}
-            blocked_items.append(blocked)
-            append_generation_event(run_id, {"command": "generate", "event": "blocked", "dry_run": dry_run, **blocked})
-            continue
+            if editorial_mode and categories and allowed_products and generation_language() == "es" and isinstance(exc, (BlogProviderUnavailable, ValueError)) and not topic.get("comparison"):
+                landing = normalize_generated_landing(verified_catalog_fallback(topic, categories, allowed_products))
+                landing["generation_fallback_reason"] = f"provider_http_{exc.status}" if isinstance(exc, BlogProviderUnavailable) else "invalid_model_output"
+                system = user = None
+                append_generation_event(run_id, {"command": "generate", "event": "catalog_fallback", "keyword": topic_label, "reason": landing["generation_fallback_reason"], "dry_run": dry_run})
+                print("[build_landings] IA no disponible; se prepara una guía con el catálogo verificado.", flush=True)
+            else:
+                blocked = {"keyword": topic.get("keyword") or topic.get("busqueda_objetivo"), "reason": "generation_error", "error": str(exc)}
+                blocked_items.append(blocked)
+                append_generation_event(run_id, {"command": "generate", "event": "blocked", "dry_run": dry_run, **blocked})
+                continue
         if (client_slug_active() == "prestige-running" or os.environ.get("PRESTIGE_TOPIC_GUARD") == "1"):
             output_text = " ".join(str(landing.get(key) or "") for key in ("keyword", "titulo", "seo_title", "h1")).lower()
             if not any(term in output_text for term in prestige_terms):
@@ -2875,7 +2950,7 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
             issues = [c["message"] for c in landing["editorial_quality"]["checks"] if c["level"] == "error"]
             # Una corrección acotada usa la misma evidencia; nunca levanta un
             # bloqueo ni agrega datos para justificar lo que inventó el modelo.
-            if issues and (not max_seconds or max_seconds - (time.monotonic() - started_at) > 100):
+            if issues and system is not None and user is not None and (not max_seconds or max_seconds - (time.monotonic() - started_at) > 100):
                 try:
                     preparation_progress("GENERATING")
                     revision_user = user + "\nCORRECCIÓN EDITORIAL: Devolvé el artículo JSON completo corregido. Conservá la búsqueda. Eliminá afirmaciones sin evidencia; no agregues nuevas fuentes. Los criterios generales no requieren prometer características del producto.\n" + json.dumps({"errors": issues, "article": {k: v for k, v in landing.items() if k not in ("editorial_quality", "editorial_brief", "source_refs")}}, ensure_ascii=False)
@@ -2965,6 +3040,7 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
             "url": landing_url(landing, client_blog_url().rstrip("/")) if is_editorial(landing) else "",
             "links": persisted.get("links", {}),
             "validation": "needs_review" if errors else "ok",
+            **({"generationMethod": landing["generation_method"]} if landing.get("generation_method") else {}),
         }
         created_items.append(created_item)
         print("@@landing-progress " + json.dumps({"event": "created", **created_item}, ensure_ascii=False), flush=True)
