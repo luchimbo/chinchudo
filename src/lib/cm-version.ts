@@ -23,7 +23,7 @@ function contentRows<T extends object>(rows: T[]) {
 }
 
 /** Client-scoped content only: credentials, listening counters and UI settings never enter the hash. */
-export async function loadCMVersion(db: PrismaClient, clientId: string): Promise<string> {
+export async function loadCMVersion(db: PrismaClient, clientId: string, options?: { excludeFeedbackFromResponseId: string }): Promise<string> {
   const [client, prompts, brands, products, services, personas, personaRules, rules, knowledge, objections, memories, examples, channels] = await Promise.all([
     db.client.findUniqueOrThrow({ where: { id: clientId }, select: {
       id: true, slug: true, name: true, description: true, responsePolicy: true, domainKeywords: true,
@@ -45,7 +45,9 @@ export async function loadCMVersion(db: PrismaClient, clientId: string): Promise
   ]);
   return cmHash({ rulesVersion: cmRulesVersion(), client, prompts: contentRows(prompts), brands: contentRows(brands),
     products: contentRows(products), services: contentRows(services), personas: contentRows(personas), personaRules: contentRows(personaRules), rules: contentRows(rules),
-    knowledge: contentRows(knowledge), objections: contentRows(objections), memories, examples, channels,
+    knowledge: contentRows(knowledge), objections: contentRows(objections),
+    memories: options ? memories.filter(row => row.responseId !== options.excludeFeedbackFromResponseId) : memories,
+    examples: options ? examples.filter(row => row.id !== options.excludeFeedbackFromResponseId) : examples, channels,
     modelConfig: {
       provider: process.env.LLM_PROVIDER || "schedule",
       localModel: process.env.LLM_LOCAL_MODEL || process.env.LLM_MODEL || "qwen3.8:latest",

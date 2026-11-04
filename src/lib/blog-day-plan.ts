@@ -1,3 +1,4 @@
+import { optimizedLoading } from "./performance-flags";
 import type { Prisma, PrismaClient } from "@prisma/client";
 
 /** Producto propio que puede protagonizar o quedar fuera de un artículo. */
@@ -50,10 +51,17 @@ export function parsePriorityCompetitors(value: string | null | undefined): stri
   } catch { return []; }
 }
 
-type CatalogDb = Pick<PrismaClient, "landingProduct" | "appSetting"> | Prisma.TransactionClient;
+type CatalogDb = Pick<PrismaClient, "landingProduct" | "appSetting"> & Partial<Pick<PrismaClient, "$queryRaw">> | Prisma.TransactionClient;
 
 /** Catálogo elegible para el blog (mismo criterio que el generador) y exclusiones globales. */
 export async function loadBlogCatalog(db: CatalogDb, clientId: string): Promise<{ products: BlogCatalogProduct[]; excluded: string[] }> {
+  if (optimizedLoading() && db.$queryRaw) {
+    const [products, setting] = await Promise.all([
+      db.$queryRaw<BlogCatalogProduct[]>`SELECT "externalId" AS id, name, brand, "categoryKey" AS category FROM "LandingProduct" WHERE "clientId" = ${clientId} AND "linkStatus" != 'missing' AND ("sourceSnapshot"->'editorialEligible') IS DISTINCT FROM 'false'::jsonb ORDER BY name, id`,
+      db.appSetting.findUnique({ where: { key: excludedProductsKey(clientId) }, select: { value: true } }),
+    ]);
+    return { products, excluded: parseExcludedList(setting?.value) };
+  }
   const [rows, setting] = await Promise.all([
     db.landingProduct.findMany({ where: { clientId, linkStatus: { not: "missing" } }, select: { externalId: true, name: true, brand: true, categoryKey: true, sourceSnapshot: true }, orderBy: { name: "asc" } }),
     db.appSetting.findUnique({ where: { key: excludedProductsKey(clientId) }, select: { value: true } }),

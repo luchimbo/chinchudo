@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { PendingNavigationLink as Link } from "@/components/pending-navigation-link";
+import { useVisiblePoll } from "@/lib/use-visible-poll";
 import { useRouter } from "next/navigation";
 import { LoadingSpinner } from "@/components/loading-ui";
 
@@ -19,18 +20,7 @@ export function GenerateLandingsButton({
   const [job, setJob] = useState<any>(null);
   const completedJobRef = useRef("");
 
-  useEffect(() => {
-    if (clientSlug === "pcmidi") return;
-    if (clientSlug === "pcmidi") return;
-    const refresh = async () => {
-      let data;
-      try {
-        const response = await fetch(`/api/landings/generation-status?client=${encodeURIComponent(clientSlug)}`);
-        if (!response.ok) return;
-        data = await response.json();
-      } catch {
-        return;
-      }
+  useVisiblePoll<{ job: any }>(clientSlug === "pcmidi" ? null : `/api/landings/generation-status?client=${encodeURIComponent(clientSlug)}`, data => {
       const nextJob = data.job;
       if (nextJob?.state === "running") {
         completedJobRef.current = "";
@@ -57,9 +47,7 @@ export function GenerateLandingsButton({
         setState("idle");
         setMessage("");
       }
-    };
-    void refresh(); const timer = window.setInterval(() => void refresh(), 3000); return () => window.clearInterval(timer);
-  }, [clientSlug, router]);
+  }, state === "running" || state === "starting");
 
   if (clientSlug === "pcmidi") return <Link href="/blog/calendario?client=pcmidi" className="inline-block rounded-lg bg-ink px-4 py-2 text-sm font-semibold text-paper">Preparar artículos en el calendario</Link>;
 
@@ -79,7 +67,7 @@ export function GenerateLandingsButton({
       setState("running");
       setJob({ state: "running", requested: limit, completed: 0, currentTopic: "Preparando temas…", created: [] });
       setMessage("Generando borradores de artículos. El archivo se actualizará automáticamente.");
-      window.setTimeout(() => router.refresh(), 12_000);
+
     } catch (error) {
       setState("error");
       setMessage(error instanceof Error ? error.message : "No se pudo iniciar la generación.");

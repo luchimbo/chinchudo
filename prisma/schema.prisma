@@ -53,6 +53,8 @@ enum IssueReportStatus {
 // ─── Multi-Cliente ─────────────────────────────────────────────────────────────
 
 model Client {
+  manualCMJobs CMManualJob[]
+  cmCoverage CMCoverageSnapshot?
   id                     String               @id @default(cuid())
   name                   String               @unique
   slug                   String               @unique
@@ -394,6 +396,7 @@ model Channel {
 }
 
 model Opportunity {
+  manualCMJobs CMManualJob[]
   id                     String              @id @default(cuid())
   channelId              String
   sourceUrl              String
@@ -966,6 +969,9 @@ model LeadMagnet {
 }
 
 model Landing {
+  language           String?
+  translationOfId    String?
+
   id                 String              @id @default(cuid())
   clientId           String
   slug               String
@@ -1001,6 +1007,8 @@ model Landing {
   blogPublication    BlogPublication?
 
   @@unique([clientId, slug])
+  @@index([clientId, language])
+  @@index([clientId, translationOfId])
   @@index([clientId])
   @@index([status])
   @@index([createdAt])
@@ -1467,4 +1475,41 @@ model ContentIdea {
   @@index([productId])
   @@index([trendId])
   @@index([createdAt])
+}
+
+// UI summaries are never used to authorize generation or publication.
+model CMCoverageSnapshot {
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "CMCoverageSnapshot_client_fk")
+  clientId      String   @id
+  version       String   @default("")
+  rows          Json     @default("[]")
+  counts        Json     @default("{}")
+  calculatedAt  DateTime @default(now())
+  invalidatedAt DateTime @default(now())
+  requestedAt   DateTime @default(now())
+}
+
+model CMManualJob {
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "CMManualJob_client_fk")
+  opportunity Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "CMManualJob_opportunity_fk")
+  id             String   @id @default(cuid())
+  clientId       String
+  requestedBy    String
+  opportunityId  String
+  action         String
+  parameters     Json
+  idempotencyKey String
+  inputVersion   String
+  status         String   @default("QUEUED")
+  attempts       Int      @default(0)
+  lockedBy       String   @default("")
+  leaseUntil     DateTime?
+  availableAt    DateTime @default(now())
+  result         Json?
+  error          String   @default("")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  @@unique([clientId, idempotencyKey])
+  @@index([status, availableAt])
+  @@index([clientId, createdAt])
 }

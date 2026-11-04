@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { BLOG_PUBLICATION_STARTED, type PublicationStarted } from "@/lib/blog-publications";
 import { BLOG_GENERATION_STARTED, taskIsTerminal, type GenerationStarted, type BlogTaskJob } from "@/lib/blog-tasks";
 import { PendingNavigationLink as Link } from "./pending-navigation-link";
@@ -11,7 +10,6 @@ import { PublishArticleButton } from "@/app/(app)/(creador)/blog/calendario/publ
 import { argentinaDate } from "@/lib/blog-calendar";
 
 export function BlogPublicationProgress({ client, raised = false }: { client: string; raised?: boolean }) {
-  const router = useRouter();
   const [jobs, setJobs] = useState<BlogTaskJob[]>([]);
   const [offline, setOffline] = useState(false);
   const tracked = useRef<string[]>([]);
@@ -22,12 +20,12 @@ export function BlogPublicationProgress({ client, raised = false }: { client: st
   const persist = useCallback(() => { try { sessionStorage.setItem(storageKey, JSON.stringify(tracked.current)); } catch { /* Storage may be unavailable; server jobs remain discoverable. */ } }, [storageKey]);
 
   useEffect(() => {
-    let stopped = false, running = false, queued = false;
+    let stopped = false, running = false, queued = false, failures = 0;
     let timer: ReturnType<typeof setTimeout>;
     let controller: AbortController | undefined;
     try { const saved = JSON.parse(sessionStorage.getItem(storageKey) || "[]"); tracked.current = Array.isArray(saved) ? saved.filter(id => typeof id === "string" && /^[a-zA-Z0-9_-]{1,100}$/.test(id)).slice(0, 20) : []; } catch { tracked.current = []; }
     const poll = async () => {
-      if (stopped || running) return;
+      if (stopped || running || document.hidden) return;
       running = true; queued = false; clearTimeout(timer);
       const requestedIds = [...tracked.current];
       const requestedVersions = new Map(versions.current);
@@ -44,14 +42,14 @@ export function BlogPublicationProgress({ client, raised = false }: { client: st
         const next = result.jobs.filter(job => !dismissed.current.has(job.id) && requestedVersions.get(job.id) === versions.current.get(job.id));
         // A publication can be accepted while an older status request is in flight.
         next.push(...jobsRef.current.filter(job => (!requestedIds.includes(job.id) || requestedVersions.get(job.id) !== versions.current.get(job.id)) && !next.some(received => received.id === job.id) && !dismissed.current.has(job.id)));
-        const changed = next.some(job => !jobsRef.current.some(previous => previous.id === job.id && previous.status === job.status && previous.phase === job.phase && previous.requiresApproval === job.requiresApproval));
         tracked.current = [...new Set([...next.map(job => job.id), ...tracked.current])].slice(0, 20);
-        persist(); jobsRef.current = next; setJobs(next); setOffline(false);
-        if (changed) router.refresh();
-      } catch { if (!stopped) setOffline(true); }
+        persist(); jobsRef.current = next; setJobs(next); setOffline(false); failures = 0;
+        window.dispatchEvent(new CustomEvent("blog-jobs-updated", { detail: { client, jobs: next } }));
+
+      } catch { failures++; if (!stopped) setOffline(true); }
       finally {
         clearTimeout(timeout); running = false;
-        if (!stopped) timer = setTimeout(poll, queued ? 0 : jobsRef.current.some(job => !taskIsTerminal(job)) ? 5_000 : 20_000);
+        if (!stopped && !document.hidden) timer = setTimeout(poll, queued ? 0 : Math.min(60_000, (jobsRef.current.some(job => !taskIsTerminal(job)) ? 3_000 : 20_000) * 2 ** Math.min(failures, 4)));
       }
     };
     const started = (event: Event) => {
@@ -75,10 +73,12 @@ export function BlogPublicationProgress({ client, raised = false }: { client: st
       jobsRef.current = next; setJobs(next); setOffline(false); queued = true; void poll();
     };
     window.addEventListener(BLOG_GENERATION_STARTED, generating);
+    const visibility = () => { if (document.hidden) { clearTimeout(timer); controller?.abort(); } else void poll(); };
+    document.addEventListener("visibilitychange", visibility);
     void poll();
-    return () => { stopped = true; clearTimeout(timer); controller?.abort(); window.removeEventListener(BLOG_PUBLICATION_STARTED, started); window.removeEventListener(BLOG_GENERATION_STARTED, generating); };
+    return () => { stopped = true; clearTimeout(timer); controller?.abort(); document.removeEventListener("visibilitychange", visibility); window.removeEventListener(BLOG_PUBLICATION_STARTED, started); window.removeEventListener(BLOG_GENERATION_STARTED, generating); };
   // A keyed mount in AppShell isolates each client's in-flight requests and state.
-  }, [client, router, storageKey, persist]);
+  }, [client, storageKey, persist]);
 
   const dismiss = (id: string) => {
     dismissed.current.add(id); tracked.current = tracked.current.filter(value => value !== id); persist();

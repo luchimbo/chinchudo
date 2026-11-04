@@ -26,7 +26,10 @@ describe("consulta de tareas", () => {
   it("mantiene el descubrimiento de publicaciones para otros clientes", async () => {
     mocks.client.mockResolvedValue({ id: "other", slug: "prestige-running", blogBaseUrl: "" });
     await GET(new Request("https://app.test/api/blog/jobs?client=prestige-running"));
-    expect(mocks.rows.mock.calls[0][0].where).toEqual({ clientId: "other", OR: [{ status: "PUBLISHING" }] });
+    expect(mocks.rows.mock.calls[0][0].where).toEqual({ clientId: "other", OR: [
+      { status: "PUBLISHING" },
+      { status: { in: ["READY", "FAILED", "PUBLISHED"] }, updatedAt: { gte: expect.any(Date) } },
+    ] });
   });
   it("rechaza accesos antes de leer tareas", async () => {
     mocks.client.mockRejectedValue(new ClientResolutionError("Sin acceso", 403));

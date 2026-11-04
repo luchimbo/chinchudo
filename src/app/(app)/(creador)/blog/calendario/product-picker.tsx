@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useMemo, useState } from "react";
+import { useCatalogSearch } from "@/lib/use-catalog-search";
 import type { BlogCatalogProduct } from "@/lib/blog-day-plan";
 
 const normalize = (value: string) => value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -20,7 +21,9 @@ function ProductSearch({ products, skip, blocked, placeholder, onPick, compact }
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const listId = useId();
-  const results = useMemo(() => matches(products, query, skip), [products, query, skip]);
+  const remote = useCatalogSearch("blog-product", query, open);
+  const available = useMemo(() => [...new Map([...products, ...remote.items].map(p => [p.id, p])).values()], [products, remote.items]);
+  const results = useMemo(() => matches(available, query, skip), [available, query, skip]);
   return <div className="relative" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false); }}>
     <input type="search" role="combobox" aria-expanded={open} aria-controls={listId} aria-autocomplete="list" value={query} placeholder={placeholder}
       onFocus={() => setOpen(true)} onChange={event => { setQuery(event.target.value); setOpen(true); }}
@@ -37,13 +40,15 @@ function ProductSearch({ products, skip, blocked, placeholder, onPick, compact }
           </button>
         </li>;
       }) : <li className="px-3 py-2 text-xs text-slate">Sin resultados en el catálogo.</li>}
+      {remote.hasMore ? <li><button type="button" onClick={remote.loadMore} className="p-2 text-xs">Cargar más productos</button></li> : null}
     </ul> : null}
   </div>;
 }
 
 /** Elige un producto protagonista. Vacío = la IA elige según el tema. */
 export function ProductPicker({ products, value, onChange, blocked, name, compact }: { products: BlogCatalogProduct[]; value: string; onChange: (id: string) => void; blocked: Map<string, string>; name?: string; compact?: boolean }) {
-  const selected = products.find(product => product.id === value);
+  const remote = useCatalogSearch("blog-product", "", !!value, undefined, [value]);
+  const selected = [...products, ...remote.items].find(product => product.id === value);
   const empty = useMemo(() => new Set<string>(), []);
   return <div>
     {name ? <input type="hidden" name={name} value={value} /> : null}
@@ -56,7 +61,8 @@ export function ProductPicker({ products, value, onChange, blocked, name, compac
 
 /** Lista de productos que no se pueden nombrar, como chips. */
 export function ProductMultiPicker({ products, value, onChange, blocked, name, compact, placeholder = "Agregar producto a excluir…" }: { products: BlogCatalogProduct[]; value: string[]; onChange: (ids: string[]) => void; blocked?: Map<string, string>; name?: string; compact?: boolean; placeholder?: string }) {
-  const byId = useMemo(() => new Map(products.map(product => [product.id, product])), [products]);
+  const remote = useCatalogSearch("blog-product", "", value.length > 0, undefined, value);
+  const byId = useMemo(() => new Map([...products, ...remote.items].map(product => [product.id, product])), [products, remote.items]);
   const skip = useMemo(() => new Set(value), [value]);
   const none = useMemo(() => new Map<string, string>(), []);
   return <div className="space-y-1.5">

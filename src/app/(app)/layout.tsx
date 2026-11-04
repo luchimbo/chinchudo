@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { getVisibleClients, getCurrentUser, isDefaultIssueReporter } from "@/lib/auth";
 import { AppShell } from "@/components/app-shell";
+import { optimizedLoading } from "@/lib/performance-flags";
 
 // Todo el panel depende de sesion y DB: nunca se prerenderiza en build
 // (los previews de Vercel no tienen DATABASE_URL y los datos quedarian congelados).
@@ -23,8 +24,12 @@ export default async function AppLayout({
   }
 
   if (user.accessType === "tenant_user" && user.clientSlugs.length === 1) {
+    if (optimizedLoading()) {
+      if (user.needsOnboarding) redirect(`/onboarding?client=${encodeURIComponent(user.clientSlugs[0])}`);
+    } else {
     const onboarding = await prisma.clientOnboarding.findFirst({ where: { client: { slug: user.clientSlugs[0] } }, include: { client: { select: { businessProfile: { select: { lastSuccessfulAt: true } } } } } });
     if (onboarding && onboarding.status !== "COMPLETED" && !onboarding.client.businessProfile?.lastSuccessfulAt) redirect(`/onboarding?client=${encodeURIComponent(user.clientSlugs[0])}`);
+    }
   }
   return (
     <AppShell

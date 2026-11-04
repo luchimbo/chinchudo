@@ -75,7 +75,11 @@
     "relay:start": "node scripts/start-relay.mjs",
     "blog:status": "node scripts/blog-status.mjs",
     "llm:tunnel:start": "powershell -ExecutionPolicy Bypass -File scripts/start-local-llm-tunnel.ps1",
-    "test": "vitest run"
+    "test": "vitest run",
+    "agents:cm-manual": "tsx scripts/cm-manual-worker.mts",
+    "agents:cm-manual:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/registrar-cm-manual-worker.ps1",
+    "performance:benchmark": "tsx scripts/performance-benchmark.mts",
+    "blog:backfill-metadata": "tsx scripts/backfill-blog-metadata.mts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

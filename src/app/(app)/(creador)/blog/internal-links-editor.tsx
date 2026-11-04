@@ -1,3 +1,6 @@
+"use client";
+import { useState } from "react";
+import { useCatalogSearch } from "@/lib/use-catalog-search";
 import { PendingSubmitButton } from "@/components/pending-submit-button";
 import { excludeInternalLink, pinInternalLink, resetInternalLink } from "./actions";
 
@@ -31,17 +34,20 @@ const smallButton = "rounded border px-2 py-0.5 text-[11px] font-semibold transi
 export function InternalLinksEditor({
   sourceId,
   links,
-  candidates,
+  candidates, remote = false,
 }: {
   sourceId: string;
   links: EditorialLink[];
-  candidates: LinkCandidate[];
+  candidates: LinkCandidate[]; remote?: boolean;
 }) {
+  const [open, setOpen] = useState(false), [query, setQuery] = useState("");
+  const search = useCatalogSearch("blog-link", query, open && remote);
+  const options = remote ? search.items.map(item => ({ id: item.id, title: item.name, clusterName: item.category })) : candidates;
   const linkedIds = new Set(links.map((link) => link.targetId));
-  const available = candidates.filter((candidate) => candidate.id !== sourceId && !linkedIds.has(candidate.id));
+  const available = options.filter((candidate) => candidate.id !== sourceId && !linkedIds.has(candidate.id));
 
   return (
-    <details className="mt-3 rounded-lg border border-ink/10 bg-white/40 p-3 text-xs">
+    <details onToggle={event => setOpen(event.currentTarget.open)} className="mt-3 rounded-lg border border-ink/10 bg-white/40 p-3 text-xs">
       <summary className="cursor-pointer font-semibold text-ink">Editar enlaces internos ({links.filter((link) => link.mode !== "EXCLUDED").length})</summary>
       <p className="mt-2 text-slate">Los cambios se aplican en el próximo build del blog. Los enlaces fijados o excluidos se respetan en cada recálculo.</p>
       {links.length === 0 ? <p className="mt-2 text-slate">Todavía no tiene enlaces salientes.</p> : null}
@@ -83,6 +89,8 @@ export function InternalLinksEditor({
           </li>
         ))}
       </ul>
+      {remote ? <input type="search" aria-label="Buscar artículos para enlazar" value={query} onChange={event => setQuery(event.target.value)} className="mt-3 rounded border border-ink/15 p-2 text-xs" /> : null}
+      {remote && search.hasMore ? <button type="button" onClick={search.loadMore}>Cargar más artículos</button> : null}
       {available.length ? (
         <form action={pinInternalLink} className="mt-3 flex flex-wrap items-center gap-2 border-t border-ink/10 pt-3">
           <input type="hidden" name="sourceId" value={sourceId} />

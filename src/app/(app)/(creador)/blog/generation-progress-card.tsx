@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useVisiblePoll } from "@/lib/use-visible-poll";
 import { LoadingMessage } from "@/components/loading-ui";
 
 type Job = { state: "running" | "completed" | "failed"; requested: number; completed: number; currentTopic?: string; created?: Array<{ keyword: string; title: string; source?: string }> };
@@ -8,23 +9,7 @@ type Job = { state: "running" | "completed" | "failed"; requested: number; compl
 export function GenerationProgressCard({ clientSlug }: { clientSlug: string }) {
   const [job, setJob] = useState<Job | null>(null);
 
-  useEffect(() => {
-    // PC MIDI usa la cola por fechas del calendario, no la generación de landings.
-    if (clientSlug === "pcmidi") return;
-    const refresh = async () => {
-      try {
-        const response = await fetch(`/api/landings/generation-status?client=${encodeURIComponent(clientSlug)}`);
-        if (!response.ok) return;
-        const data = await response.json();
-        setJob(data.job);
-      } catch {
-        // El sondeo se reintenta sin interrumpir el trabajo en curso.
-      }
-    };
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 3000);
-    return () => window.clearInterval(timer);
-  }, [clientSlug]);
+  useVisiblePoll<{ job: Job | null }>(clientSlug === "pcmidi" ? null : `/api/landings/generation-status?client=${encodeURIComponent(clientSlug)}`, result => setJob(result.job), job?.state === "running");
 
   if (!job || job.state !== "running") return null;
   const percent = Math.min(100, Math.round((job.completed / Math.max(1, job.requested)) * 100));

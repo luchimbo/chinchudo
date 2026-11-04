@@ -1,4 +1,6 @@
 "use server";
+import { optimizedLoading } from "@/lib/performance-flags";
+import { operationTiming } from "@/lib/performance";
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
@@ -14,7 +16,7 @@ import { BLOG_LANGUAGES, type BlogLanguage } from "@/lib/blog-language";
 
 export type SaveArticleResult = { ok: true; updatedAt: string; redeploy: boolean; quality: EditorialQuality; draft: ArticleDraft } | { ok: false; error: string };
 
-export async function saveBlogArticle(input: { id: string; expectedUpdatedAt: string; draft: ArticleDraft }): Promise<SaveArticleResult> {
+async function saveBlogArticleImpl(input: { id: string; expectedUpdatedAt: string; draft: ArticleDraft }): Promise<SaveArticleResult> {
   const landing = await prisma.landing.findUnique({ where: { id: input.id }, include: { client: { select: { slug: true } }, blogPublication: true } });
   if (!landing || (!landing.blogPublication && !["GUIDE", "PILLAR"].includes(landing.contentType))) return { ok: false, error: "Artículo editorial no encontrado." };
   try {
@@ -75,7 +77,7 @@ export async function saveBlogArticle(input: { id: string; expectedUpdatedAt: st
       : { ...(landing.blogPublication.analysisRunId ? { requiresApproval: true, approvedAt: null } : {}), status: quality.publishable ? "READY" : "FAILED", attempts: quality.publishable ? 0 : 3, lastError: errors, errorCode: quality.publishable ? "" : "QUALITY_BLOCKED" } });
     return saved;
   }); } catch (error) { return { ok: false, error: error instanceof Error ? error.message : "No se pudo guardar el artículo." }; }
-  revalidatePath(`/blog/articulos/${landing.id}`);
+  if (!optimizedLoading()) revalidatePath(`/blog/articulos/${landing.id}`);
   revalidatePath("/blog/calendario");
   revalidatePath("/blog/articulos");
   return { ok: true, updatedAt: updated.updatedAt.toISOString(), redeploy, quality, draft: result.draft };
@@ -103,10 +105,14 @@ export async function requestArticleTranslations(landingId: string, languages: s
     const added = wanted.filter(language => !kept.some(item => item.landingId === landing.id && item.language === language)).map(language => ({ landingId: landing.id, language, requestedAt, attempts: 0 }));
     const value = JSON.stringify([...kept, ...added]);
     await prisma.appSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
-    revalidatePath(`/blog/articulos/${landing.id}`);
+    if (!optimizedLoading()) revalidatePath(`/blog/articulos/${landing.id}`);
     return { ok: true };
   } catch (error) {
     if (error instanceof Error && ["No autenticado.", "No tenés acceso a este cliente."].includes(error.message)) return { ok: false, error: error.message };
     return { ok: false, error: "No se pudo pedir la traducción. Reintentá." };
   }
+}
+
+export async function saveBlogArticle(input: Parameters<typeof saveBlogArticleImpl>[0]): Promise<SaveArticleResult> {
+  return operationTiming("blog-save").measure("persist", () => saveBlogArticleImpl(input));
 }

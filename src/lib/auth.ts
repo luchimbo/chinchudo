@@ -1,3 +1,8 @@
+import * as React from "react";
+import { optimizedLoading } from "./performance-flags";
+import { operationTiming } from "./performance";
+// Next supplies request cache in RSC. Standalone workers use no shared cache.
+const requestCache: typeof React.cache = React.cache ?? ((fn) => fn);
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import type { Client, PrismaClient } from "@prisma/client";
@@ -10,9 +15,33 @@ export type AuthUser = {
   clientSlugs: string[];
   accessType: "tenant_user" | "support_session";
   supportSessionId?: string;
+  needsOnboarding?: boolean;
 };
 
-export async function getCurrentUser(): Promise<AuthUser | null> {
+const readTenantRecord = requestCache(async (email: string) => {
+  const { prisma } = await import("./db");
+  const [row] = await prisma.$queryRaw<{ tokenVersion: number; role: string; client: Client; clientCreatedAt: Date; clientUpdatedAt: Date; needsOnboarding: boolean }[]>`
+    SELECT u."tokenVersion", u.role, to_jsonb(c) AS client, c."createdAt" AS "clientCreatedAt", c."updatedAt" AS "clientUpdatedAt",
+      coalesce(o.status::text != 'COMPLETED' AND b."lastSuccessfulAt" IS NULL, false) AS "needsOnboarding"
+    FROM "User" u JOIN "Client" c ON c.id = u."clientId"
+    LEFT JOIN "ClientOnboarding" o ON o."clientId" = c.id
+    LEFT JOIN "BusinessProfile" b ON b."clientId" = c.id
+    WHERE u.email = ${email}`.catch(() => []);
+  return row ? { ...row, client: { ...row.client, createdAt: row.clientCreatedAt, updatedAt: row.clientUpdatedAt } } : null;
+});
+
+/** Signature/expiry only. Callers MUST check current DB membership and tokenVersion
+ * atomically with their mutation (fastManualAdmission), never trust this alone. */
+export async function getSignedTenantClaims(): Promise<{ email: string; tokenVersion: number } | null> {
+  const token = (await cookies()).get("auth_session")?.value, secret = process.env.AUTH_SECRET;
+  if (!token || !secret) return null;
+  const claims = verifyJwt(token, secret);
+  if (claims?.legacy === true || typeof claims?.email !== "string" || !claims.email || !claims.clientSlug || !claims.clientId) return null;
+  if (claims.tv !== undefined && typeof claims.tv !== "number") return null;
+  return { email: claims.email, tokenVersion: claims.tv ?? 0 };
+}
+
+async function readCurrentUser(): Promise<AuthUser | null> {
   const store = await cookies();
   const tenantToken = store.get("auth_session")?.value;
   const tenantSecret = process.env.AUTH_SECRET;
@@ -20,7 +49,7 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
     const decoded = verifyJwt(tenantToken, tenantSecret);
     if (decoded?.email && decoded?.clientSlug && decoded?.clientId && decoded?.legacy !== true) {
       const { prisma } = await import("./db");
-      const current = await prisma.user
+      const current = optimizedLoading() ? await readTenantRecord(decoded.email) : await prisma.user
         .findUnique({
           where: { email: decoded.email },
           select: { tokenVersion: true, role: true, client: { select: { slug: true } } },
@@ -37,6 +66,7 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
         role: current.role === "admin" ? "admin" : "operator",
         clientSlugs: [current.client.slug],
         accessType: "tenant_user",
+        ...("needsOnboarding" in current ? { needsOnboarding: Boolean(current.needsOnboarding) } : {}),
       };
     }
   }
@@ -78,6 +108,8 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   }
 }
 
+export const getCurrentUser = requestCache(() => operationTiming("session").measure("authentication", readCurrentUser));
+
 export async function isDefaultIssueReporter(): Promise<boolean> {
   return isDefaultIssueReporterUser(await getCurrentUser());
 }
@@ -88,14 +120,18 @@ export function isDefaultIssueReporterUser(
   return Boolean(user && "accessType" in user && user.accessType === "support_session");
 }
 
-export async function getVisibleClients(prisma: PrismaClient): Promise<Client[]> {
+export const getVisibleClients = requestCache(async (prisma: PrismaClient): Promise<Client[]> => {
   const user = await getCurrentUser();
   if (!user || user.clientSlugs.length === 0) return [];
+  if (optimizedLoading() && user.accessType === "tenant_user") {
+    const current = await readTenantRecord(user.username);
+    return current?.client.active && user.clientSlugs.includes(current.client.slug) ? [current.client] : [];
+  }
   return prisma.client.findMany({
     where: { active: true, slug: { in: user.clientSlugs } },
     orderBy: { name: "asc" },
   });
-}
+});
 
 export async function assertClientAccess(prisma: PrismaClient, clientId: string): Promise<void> {
   const user = await getCurrentUser();

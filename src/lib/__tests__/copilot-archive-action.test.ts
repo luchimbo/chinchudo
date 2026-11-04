@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   status: "DRAFTED",
@@ -11,6 +11,12 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("@/lib/cm-action-guard", () => ({
+  assertCurrentCMResponse: vi.fn(async () => {}),
+  claimYouTubePublication: vi.fn(async () => { if (state.context.cmPublicationPending) return false; state.context.cmPublicationPending = true; return true; }),
+  clearYouTubePublication: vi.fn(async () => { delete state.context.cmPublicationPending; return true; }),
+  markYouTubePublicationAmbiguous: vi.fn(async () => {}),
+}));
 vi.mock("@/lib/auth-guards", () => ({ requireOwnedClientId: vi.fn(async () => ({ id: "client-1" })) }));
 vi.mock("@/lib/auth", () => ({ assertClientAccess: vi.fn(async () => {}) }));
 vi.mock("@/lib/publish-agent", () => ({
@@ -64,9 +70,11 @@ vi.mock("@/lib/db", () => {
   return { prisma };
 });
 
-import { markCopilotResponse, publishCopilotYouTubeResponse } from "@/app/(app)/opportunities/actions";
+import { confirmYouTubeNotPublished, markCopilotResponse, publishCopilotYouTubeResponse } from "@/app/(app)/opportunities/actions";
+import { assertCurrentCMResponse, clearYouTubePublication } from "@/lib/cm-action-guard";
 import { revalidatePath } from "next/cache";
 import { publishYouTubeComment } from "@/lib/youtube-publisher";
+import { prisma } from "@/lib/db";
 
 function responseForm(responseId = "response-1") {
   const form = new FormData();
@@ -79,6 +87,7 @@ function responseForm(responseId = "response-1") {
 
 describe("Guardar como respondida en Copiloto", () => {
   beforeEach(() => {
+    vi.stubEnv("OPTIMIZED_LOADING", "false");
     state.status = "DRAFTED";
     state.context = { copilot: { goal: "RESPONDER" } };
     state.responses[0] = { id: "response-1", editedText: "", approvedBy: "", isPrimary: false };
@@ -86,6 +95,7 @@ describe("Guardar como respondida en Copiloto", () => {
     state.publications = 0;
     vi.clearAllMocks();
   });
+  afterEach(() => vi.unstubAllEnvs());
 
   it("archiva con el texto final y la respuesta principal, sin registrar publicación", async () => {
     await markCopilotResponse(responseForm());
@@ -108,6 +118,13 @@ describe("Guardar como respondida en Copiloto", () => {
     expect(state.status).toBe("ARCHIVED");
     expect((state.context.copilot as { respondedAt: string }).respondedAt).toBe(archivedAt);
     expect(state.publications).toBe(0);
+  });
+  it("actualiza la tarjeta sin recargar CM cuando la carga optimizada está activa", async () => {
+    vi.stubEnv("OPTIMIZED_LOADING", "true");
+    await markCopilotResponse(responseForm());
+    expect(state.status).toBe("ARCHIVED");
+    expect(revalidatePath).not.toHaveBeenCalledWith("/asistente-cm");
+    expect(revalidatePath).toHaveBeenCalledWith("/historial");
   });
 
   it("rechaza una respuesta de otra oportunidad antes de archivarla", async () => {
@@ -135,6 +152,39 @@ describe("Guardar como respondida en Copiloto", () => {
 
     expect(result).toMatchObject({ success: false, reconnectRequired: true });
     expect(state.status).toBe("DRAFTED");
+    expect(state.publications).toBe(0);
+  });
+  it("bloquea otro envío cuando el resultado remoto quedó ambiguo", async () => {
+    vi.mocked(publishYouTubeComment).mockResolvedValueOnce({ success: false, error: "timeout", ambiguous: true, method: "failed" });
+    const form = responseForm(); form.set("account", "youtube-principal");
+    expect(await publishCopilotYouTubeResponse(form)).toMatchObject({ success: false, verificationRequired: true });
+    expect(await publishCopilotYouTubeResponse(form)).toMatchObject({ success: false, verificationRequired: true });
+    expect(publishYouTubeComment).toHaveBeenCalledTimes(1);
+    expect(state.status).toBe("DRAFTED"); expect(state.publications).toBe(0);
+  });
+  it("una propuesta desactualizada no llega a la API de publicación", async () => {
+    vi.stubEnv("OPTIMIZED_LOADING", "true");
+    vi.mocked(assertCurrentCMResponse).mockRejectedValueOnce(new Error("stale"));
+    const form = responseForm(); form.set("account", "youtube-principal");
+    expect(await publishCopilotYouTubeResponse(form)).toMatchObject({ success: false });
+    expect(publishYouTubeComment).not.toHaveBeenCalled();
+  });
+  it("no habilita un reintento sin la comprobación humana explícita", async () => {
+    const form = responseForm();
+    await expect(confirmYouTubeNotPublished(form)).rejects.toThrow("Revisá primero");
+    expect(clearYouTubePublication).not.toHaveBeenCalled();
+    form.set("verifiedNotPublished", "true");
+    expect(await confirmYouTubeNotPublished(form)).toMatchObject({ success: true });
+    expect(publishYouTubeComment).not.toHaveBeenCalled();
+  });
+  it("si falla la persistencia después de publicar conserva el bloqueo", async () => {
+    vi.mocked(prisma.$transaction).mockRejectedValueOnce(new Error("database unavailable"));
+    vi.mocked(prisma.opportunity.update).mockResolvedValueOnce({} as never);
+    vi.mocked(prisma.publishingLog.upsert).mockResolvedValueOnce({} as never);
+    const form = responseForm(); form.set("account", "youtube-principal");
+    await expect(publishCopilotYouTubeResponse(form)).rejects.toThrow("database unavailable");
+    expect(await publishCopilotYouTubeResponse(form)).toMatchObject({ success: false, verificationRequired: true });
+    expect(publishYouTubeComment).toHaveBeenCalledTimes(1);
     expect(state.publications).toBe(0);
   });
 });

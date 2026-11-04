@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { useVisiblePoll } from "@/lib/use-visible-poll";
 import Link from "next/link";
 import { LoadingMessage } from "@/components/loading-ui";
 import { BLOG_LANGUAGES, type BlogLanguage } from "@/lib/blog-language";
@@ -13,7 +13,7 @@ type Pending = { language: BlogLanguage; error?: string };
 
 const label = (language: BlogLanguage) => BLOG_LANGUAGES.find(item => item.value === language)?.label || language;
 
-export function TranslationsPanel({ articleId, language, original, translations, pending, client, deleteRedirect }: {
+export function TranslationsPanel({ articleId, language, original, translations: initialTranslations, pending: initialPending, client, deleteRedirect }: {
   articleId: string;
   language: BlogLanguage;
   original: { id: string; titulo: string } | null;
@@ -22,14 +22,10 @@ export function TranslationsPanel({ articleId, language, original, translations,
   client: string;
   deleteRedirect: string;
 }) {
-  const router = useRouter();
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
+  const [translations, setTranslations] = useState(initialTranslations), [pending, setPending] = useState(initialPending);
   const waiting = pending.some(item => !item.error);
-  useEffect(() => {
-    if (!waiting) return;
-    const timer = setInterval(() => { if (!document.hidden) router.refresh(); }, 15_000);
-    return () => clearInterval(timer);
-  }, [router, waiting]);
+  useVisiblePoll<{ translations: Translation[]; pending: Pending[] }>(`/api/blog/articles/${articleId}/state?client=${encodeURIComponent(client)}`, result => { setTranslations(result.translations); setPending(result.pending); }, waiting);
   const taken = new Set<BlogLanguage>([language, ...translations.map(item => item.language), ...pending.filter(item => !item.error).map(item => item.language)]);
   const available = BLOG_LANGUAGES.filter(item => !taken.has(item.value));
   const href = (id: string) => `/blog/articulos/${id}?${new URLSearchParams({ client })}`;
@@ -56,7 +52,11 @@ export function TranslationsPanel({ articleId, language, original, translations,
                 setBusy(true); setError("");
                 try {
                   const result = await requestArticleTranslations(articleId, languages);
-                  if (!result.ok) setError(result.error); else router.refresh();
+                  if (!result.ok) setError(result.error); else {
+                    const response = await fetch(`/api/blog/articles/${articleId}/state?client=${encodeURIComponent(client)}`);
+                    if (!response.ok) throw new Error();
+                    const state = await response.json(); setTranslations(state.translations); setPending(state.pending);
+                  }
                 } catch { setError("No se pudo pedir la traducción. Reintentá."); }
                 finally { setBusy(false); }
               }}>

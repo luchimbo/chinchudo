@@ -1,5 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Isolate production performance checks from the working app build.
+  distDir: process.env.NEXT_BUILD_DIR || ".next",
   // La sección del blog vivía en /landings: se conservan los enlaces viejos.
   async redirects() {
     return [

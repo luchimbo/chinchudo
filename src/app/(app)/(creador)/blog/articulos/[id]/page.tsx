@@ -1,3 +1,4 @@
+import { optimizedLoading } from "@/lib/performance-flags";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { assertClientAccess } from "@/lib/auth";
@@ -66,7 +67,7 @@ export default async function BlogArticleEditorPage({ params, searchParams }: { 
 
   return (
     <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6">
-      <ArticleEditor
+      <ArticleEditor optimized={optimizedLoading()}
         articleId={landing.id}
         initialDraft={draftFromContent(content, landing)}
         updatedAt={landing.updatedAt.toISOString()}

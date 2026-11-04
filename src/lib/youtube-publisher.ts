@@ -1,3 +1,4 @@
+import { operationTiming } from "./performance";
 import type { PrismaClient } from "@prisma/client";
 import { decryptSocialToken } from "@/lib/social-token-crypto";
 
@@ -15,7 +16,9 @@ type TokenResponse = {
 
 export type OfficialPublishResult =
   | { success: true; url: string; remoteId: string; method: "youtube_api"; dryRun?: boolean }
-  | { success: false; error: string; method: "failed" };
+  | { success: false; error: string; method: "failed"; ambiguous?: boolean };
+
+class YouTubeRejected extends Error {}
 
 function youtubeConfig() {
   const clientId = process.env.YOUTUBE_OAUTH_CLIENT_ID;
@@ -119,12 +122,14 @@ async function youtubeRequest<T>(accessToken: string, path: string, body?: unkno
   const payload = await response.json().catch(() => ({})) as T & { error?: { message?: string; errors?: Array<{ reason?: string }> } };
   if (!response.ok) {
     const reason = payload.error?.errors?.[0]?.reason;
-    throw new Error(reason || payload.error?.message || `youtube_http_${response.status}`);
+    const message = reason || payload.error?.message || `youtube_http_${response.status}`;
+    if (response.status >= 500 || response.status === 408) throw new Error(message);
+    throw new YouTubeRejected(message);
   }
   return payload;
 }
 
-export async function publishYouTubeComment({
+async function publishYouTubeCommentImpl({
   prisma,
   clientId,
   account,
@@ -143,6 +148,7 @@ export async function publishYouTubeComment({
   if (!videoId) return { success: false, error: "invalid_youtube_url", method: "failed" };
   if (dryRun) return { success: true, url: cleanUrl(sourceUrl), remoteId: "", method: "youtube_api", dryRun: true };
 
+  let sending = false;
   try {
     const connection = await prisma.youTubeConnection.findUnique({
       where: { clientId_account: { clientId, account } },
@@ -153,15 +159,18 @@ export async function publishYouTubeComment({
     const accessToken = await currentAccessToken(prisma, connection);
     const parentId = commentIdFromUrl(sourceUrl);
     if (parentId) {
+      sending = true;
       const created = await youtubeRequest<{ id: string }>(accessToken, "/comments?part=snippet", {
         snippet: { parentId, textOriginal: text },
       });
+      if (typeof created.id !== "string" || !created.id.trim()) throw new Error("youtube_confirmation_missing");
       return { success: true, url: `${cleanUrl(sourceUrl)}${cleanUrl(sourceUrl).includes("?") ? "&" : "?"}lc=${encodeURIComponent(created.id)}`, remoteId: created.id, method: "youtube_api" };
     }
 
     const video = await youtubeRequest<{ items?: Array<{ snippet?: { channelId?: string } }> }>(accessToken, `/videos?part=snippet&id=${encodeURIComponent(videoId)}`);
     const channelId = video.items?.[0]?.snippet?.channelId;
     if (!channelId) return { success: false, error: "youtube_video_not_found", method: "failed" };
+    sending = true;
     const created = await youtubeRequest<{ id: string }>(accessToken, "/commentThreads?part=snippet", {
       snippet: {
         channelId,
@@ -169,9 +178,10 @@ export async function publishYouTubeComment({
         topLevelComment: { snippet: { textOriginal: text } },
       },
     });
+    if (typeof created.id !== "string" || !created.id.trim()) throw new Error("youtube_confirmation_missing");
     return { success: true, url: cleanUrl(sourceUrl), remoteId: created.id, method: "youtube_api" };
   } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : "youtube_publish_failed", method: "failed" };
+    return { success: false, error: error instanceof Error ? error.message : "youtube_publish_failed", method: "failed", ambiguous: sending && !(error instanceof YouTubeRejected) };
   }
 }
 
@@ -191,4 +201,8 @@ export async function getAuthorizedYouTubeChannel(accessToken: string): Promise<
   const channel = result.items?.[0];
   if (!channel) throw new Error("youtube_channel_not_found");
   return { id: channel.id, title: channel.snippet?.title || "Canal de YouTube" };
+}
+
+export async function publishYouTubeComment(input: Parameters<typeof publishYouTubeCommentImpl>[0]): Promise<OfficialPublishResult> {
+  return operationTiming("youtube-publication").measure("publication", () => publishYouTubeCommentImpl(input));
 }

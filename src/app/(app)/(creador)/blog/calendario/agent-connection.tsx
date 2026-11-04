@@ -1,3 +1,5 @@
+import { AgentConnectionStatus } from "./agent-connection-status";
+import { optimizedLoading } from "@/lib/performance-flags";
 import { PendingNavigationLink as Link } from "@/components/pending-navigation-link";
 import { relayFetch } from "@/lib/relay-client";
 
@@ -29,9 +31,14 @@ export function connectionIssues(relay: Health | null, runtime: Health | null): 
   return issues;
 }
 
-export async function AgentConnection({ client }: { client: string }) {
+export async function readAgentConnection() {
   const [relay, runtime] = await Promise.all([health("/health"), health("/blog/health")]);
-  const issues = connectionIssues(relay, runtime);
+  return { issues: connectionIssues(relay, runtime) };
+}
+
+export async function AgentConnection({ client }: { client: string }) {
+  if (optimizedLoading()) return <AgentConnectionStatus client={client} />;
+  const { issues } = await readAgentConnection();
   if (!issues.length) return null;
   return <div role="status" className="mb-3 space-y-1 rounded-lg border border-brass/25 bg-brass/5 px-3 py-2 text-xs text-ink">
     {issues.map(issue => <p key={issue}>{issue}</p>)}

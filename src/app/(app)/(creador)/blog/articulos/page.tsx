@@ -1,3 +1,5 @@
+import { loadBlogArticleSummaries } from "@/lib/blog-article-summary-query";
+import { optimizedLoading } from "@/lib/performance-flags";
 import { PendingSubmitButton } from "@/components/pending-submit-button";
 import { ArticlePreviewButton } from "@/components/article-preview";
 import { PendingNavigationLink as Link } from "@/components/pending-navigation-link";
@@ -38,11 +40,13 @@ function fmt(d: Date | null | string) {
 export default async function LandingsPage({
   searchParams,
 }: {
-  searchParams: { status?: string; client?: string };
+  searchParams: { status?: string; client?: string; page?: string };
 }) {
   const { status = "DRAFT", client: clientSlug } = searchParams;
   const activeClient = await requirePageClient(prisma, clientSlug);
 
+  const page = Math.max(1, Math.min(100000, Math.floor(Number(searchParams.page) || 1)));
+  const optimized = optimizedLoading();
   const clientFilter = { clientId: activeClient.id };
 
   const [counts, landings, candidates] = await Promise.all([
@@ -51,7 +55,7 @@ export default async function LandingsPage({
       where: clientFilter,
       _count: { id: true },
     }),
-    prisma.landing.findMany({
+    optimized ? loadBlogArticleSummaries(prisma, activeClient.id, status, page) : prisma.landing.findMany({
       where: {
         ...clientFilter,
         status: status === "PREVIEW_ONLINE" ? { in: ["APPROVED", "PREVIEW_ONLINE"] } : status as any,
@@ -74,10 +78,11 @@ export default async function LandingsPage({
           },
         },
       },
-      orderBy: { createdAt: "desc" },
-      take: 50,
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+      skip: optimized ? (page - 1) * 20 : 0,
+      take: optimized ? 20 : 50,
     }),
-    prisma.landing.findMany({
+    optimized ? Promise.resolve([]) : prisma.landing.findMany({
       where: { ...clientFilter, status: "PUBLISHED", indexingState: "INDEX", contentType: { in: ["PILLAR", "GUIDE"] } },
       select: { id: true, titulo: true, slug: true, contentCluster: { select: { name: true } } },
       orderBy: [{ contentClusterId: "asc" }, { publishedAt: "desc" }],
@@ -106,6 +111,7 @@ export default async function LandingsPage({
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col px-5 py-8">
+      {optimized ? <nav aria-label="Páginas de artículos" className="mb-4 flex justify-between text-sm">{page > 1 ? <Link href={`/blog/articulos?client=${activeClient.slug}&status=${status}&page=${page-1}`}>← Anterior</Link> : <span/>}<span>Página {page}</span>{landings.length === 20 ? <Link href={`/blog/articulos?client=${activeClient.slug}&status=${status}&page=${page+1}`}>Siguiente →</Link> : <span/>}</nav> : null}
       <header className="mb-8 flex items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-ink">Artículos del blog</h1>
@@ -199,7 +205,7 @@ export default async function LandingsPage({
                   {landing.contentCluster && landing.status === "PUBLISHED" && landing.indexingState === "INDEX" ? (
                     <InternalLinksEditor
                       sourceId={landing.id}
-                      candidates={linkCandidates}
+                      remote={optimized} candidates={linkCandidates}
                       links={landing.outboundInternalLinks.map<EditorialLink>((link) => ({
                         targetId: link.targetLandingId,
                         targetTitle: link.targetLanding.titulo || link.targetLanding.slug,

@@ -1,3 +1,6 @@
+import { LiveCalendarSlot } from "./live-calendar-slot";
+import { indexedBlogMetadata, optimizedLoading } from "@/lib/performance-flags";
+import { CalendarResults } from "./calendar-results";
 import { FirstUseHint } from "@/components/first-use-hint";
 import { BLOG_LANGUAGES, blogPreferences, editorialCalendarEnabled } from "@/lib/blog-language";
 import { findTranslations } from "@/lib/blog-translations";
@@ -14,7 +17,6 @@ import { addBlogDays, addBlogDayArticles, replaceBlogArticle, restoreBlogDate, s
 import { RescheduleForm } from "./reschedule-form";
 import { editorialIntentForDate } from "@/lib/blog-quality.mjs";
 import { balanceWarnings, intentForSlot, intentModeOf, loadIntentNeighbors } from "@/lib/blog-intent.mjs";
-import { blogReferral } from "@/lib/blog-referrals";
 import { PublishArticleButton } from "./publish-article-button";
 import { DeleteLandingButton } from "../delete-landing-button";
 import { CalendarDetail } from "./calendar-detail";
@@ -68,7 +70,9 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
   const today = localDay(new Date(), businessTimezone(activeClient.responsePolicy));
   const month = /^\d{4}-(0[1-9]|1[0-2])$/.test(searchParams.month || "") ? searchParams.month! : today.slice(0, 7);
   const { start, end } = monthBounds(month);
-  const [slots, setting, lastSlot] = await Promise.all([
+  const tomorrow = shiftDate(today, 1);
+  const balanced = calendarEnabled && intentModeOf(activeClient.responsePolicy) === "balanced";
+  const [slots, setting, lastSlot, futureSlots, neighborsResult, catalog, blogCatalog, competitorSetting, todayResult] = await Promise.all([
     prisma.blogPublication.findMany({
       where: { clientId: activeClient.id, scheduledDate: { gte: start, lt: end } },
       include: { landing: { select: { id: true, titulo: true, slug: true, indexingState: true, publicPreviewUrl: true, contentCluster: { select: { slug: true } } } } },
@@ -76,6 +80,15 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
     }),
     prisma.appSetting.findUnique({ where: { key: `blog_daily_schedule:${activeClient.id}` }, select: { value: true } }),
     prisma.blogPublication.findFirst({ where: { clientId: activeClient.id, status: { not: "SKIPPED" } }, orderBy: { scheduledDate: "desc" }, select: { scheduledDate: true } }),
+    calendarEnabled ? prisma.blogPublication.findMany({ where: { clientId: activeClient.id, scheduledDate: { gte: dateOnly(tomorrow), lt: dateOnly(shiftDate(tomorrow, 120)) } }, select: { scheduledDate: true, status: true, landingId: true, preparation: true } }) : [],
+    balanced ? loadIntentNeighbors(prisma, activeClient.id, today, shiftDate(today, 120)) : Promise.resolve({ neighbors: [] }),
+    activeClient.slug === "pcmidi" ? prisma.catalogSyncRun.findFirst({ where: { clientId: activeClient.id }, orderBy: { startedAt: "desc" }, select: { status: true } }) : Promise.resolve(null),
+    calendarEnabled ? loadBlogCatalog(prisma, activeClient.id) : Promise.resolve({ products: [], excluded: [] }),
+    calendarEnabled ? prisma.appSetting.findUnique({ where: { key: priorityCompetitorsKey(activeClient.id) }, select: { value: true } }) : null,
+    calendarEnabled ? Promise.all([
+    prisma.blogPublication.findUnique({ where: { clientId_scheduledDate: { dailySlot: 0, clientId: activeClient.id, scheduledDate: dateOnly(today) } }, select: { status: true, requiresApproval: true, landingId: true, landing: { select: { titulo: true } } } }),
+    prisma.blogPublication.count({ where: { clientId: activeClient.id, status: "SKIPPED", landingId: { not: null }, scheduledDate: { gte: dateOnly(shiftDate(today, -7)), lt: dateOnly(today) } } }),
+  ]) : [null, 0] as const,
   ]);
   let config: { enabled?: boolean; publishTime?: string; autoApprove?: boolean; firstPublishDate?: string } = {};
   try { config = JSON.parse(setting?.value || "{}"); } catch { /* Se muestra como apagado. */ }
@@ -88,14 +101,17 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
   const selectedDay = validCalendarDay(searchParams.day || rescheduledDate, month);
   const selectedSlots = slots.filter(slot => slot.scheduledDate.toISOString().slice(0, 10) === selectedDay);
   const selected = selectedSlots.find(slot => slot.id === (searchParams.publication || searchParams.rescheduled)) || selectedSlots[0];
-  const selectedTranslations = selected?.landingId ? await findTranslations(prisma, activeClient.id, selected.landingId) : [];
+  const selectedTranslationsPromise = selected?.landingId ? findTranslations(prisma, activeClient.id, selected.landingId) : Promise.resolve([]);
 
+  const firstDate = config.firstPublishDate && config.firstPublishDate > today ? config.firstPublishDate : today;
+  const upcomingPromise = prisma.blogPublication.findFirst({ where: { clientId: activeClient.id, scheduledDate: { gte: dateOnly(firstDate) }, status: "READY", ...(config.autoApprove ? {} : { requiresApproval: false }) }, orderBy: { scheduledDate: "asc" }, include: { landing: { select: { titulo: true } } } });
   // El idioma vive dentro del contenido del artículo: se extrae en la base sin traer todo el texto.
   const articleIds = slots.flatMap(slot => slot.landingId ? [slot.landingId] : []);
-  const languageRows = articleIds.length ? await prisma.$queryRaw<{ id: string; lang: string | null }[]>`SELECT id, substring("htmlContent" from '"language"[[:space:]]*:[[:space:]]*"([a-z]{2})"') AS lang FROM "Landing" WHERE id = ANY(${articleIds})` : [];
-  const languageOf = new Map(languageRows.map(row => [row.id, row.lang || "es"]));
+  const languageRowsPromise = indexedBlogMetadata() ? (prisma.landing.findMany({ where: { clientId: activeClient.id, id: { in: articleIds } }, select: { id: true, language: true } })).then(rows => rows.map(row => ({ id: row.id, lang: row.language }))) : articleIds.length ? prisma.$queryRaw<{ id: string; lang: string | null }[]>`SELECT id, substring("htmlContent" from '"language"[[:space:]]*:[[:space:]]*"([a-z]{2})"') AS lang FROM "Landing" WHERE id = ANY(${articleIds})` : [];
   // Versiones por idioma de cada artículo (el original más sus traducciones), para mostrarlas juntas en la grilla.
-  const versionRows = articleIds.length ? await prisma.$queryRaw<{ titulo: string; lang: string | null; parent: string | null }[]>`SELECT titulo, substring("htmlContent" from '"language"[[:space:]]*:[[:space:]]*"([a-z]{2})"') AS lang, substring("htmlContent" from '"translation_of"[[:space:]]*:[[:space:]]*"([^"]+)"') AS parent FROM "Landing" WHERE "clientId" = ${activeClient.id} AND status::text != 'ARCHIVED' AND "htmlContent" LIKE '%"translation_of"%'` : [];
+  const versionRowsPromise = indexedBlogMetadata() ? (prisma.landing.findMany({ where: { clientId: activeClient.id, translationOfId: { in: articleIds }, status: { not: "ARCHIVED" } }, select: { titulo: true, language: true, translationOfId: true } })).then(rows => rows.map(row => ({ titulo: row.titulo, lang: row.language, parent: row.translationOfId }))) : articleIds.length ? prisma.$queryRaw<{ titulo: string; lang: string | null; parent: string | null }[]>`SELECT titulo, substring("htmlContent" from '"language"[[:space:]]*:[[:space:]]*"([a-z]{2})"') AS lang, substring("htmlContent" from '"translation_of"[[:space:]]*:[[:space:]]*"([^"]+)"') AS parent FROM "Landing" WHERE "clientId" = ${activeClient.id} AND status::text != 'ARCHIVED' AND "htmlContent" LIKE '%"translation_of"%'` : [];
+  const [languageRows, versionRows] = await Promise.all([languageRowsPromise, versionRowsPromise]);
+  const languageOf = new Map(languageRows.map(row => [row.id, row.lang || "es"]));
   const versionsOf = new Map<string, Map<string, string>>();
   for (const slot of slots) {
     if (!slot.landingId) continue;
@@ -106,44 +122,6 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
   const versionLanguages = (landingId: string | null | undefined) => (["es", "de", "en"] as const).filter(language => landingId && versionsOf.get(landingId)?.has(language));
   const displayTitle = (slot: (typeof slots)[number]) => (slot.landingId && versionsOf.get(slot.landingId)?.get("es")) || slot.landing?.titulo || "";
 
-  const landingIds = selected?.status === "PUBLISHED" && selected.landingId ? [selected.landingId] : [];
-  const [events, leads] = landingIds.length ? await Promise.all([
-    prisma.trackingEvent.groupBy({
-      by: ["landingId", "eventType"], _count: { id: true },
-      where: { clientId: activeClient.id, landingId: { in: landingIds }, eventType: { in: ["page_view", "store_click"] } },
-    }),
-    prisma.lead.groupBy({ by: ["landingId"], _count: { id: true }, where: { clientId: activeClient.id, landingId: { in: landingIds } } }),
-  ]) : [[], []];
-  const metrics = new Map<string, { views: number; clicks: number; leads: number }>();
-  for (const id of landingIds) metrics.set(id, { views: 0, clicks: 0, leads: 0 });
-  for (const event of events) {
-    if (!event.landingId) continue;
-    const value = metrics.get(event.landingId);
-    if (value) value[event.eventType === "page_view" ? "views" : "clicks"] = event._count.id;
-  }
-  for (const lead of leads) if (lead.landingId) {
-    const value = metrics.get(lead.landingId);
-    if (value) value.leads = lead._count.id;
-  }
-  // Contexto para leer las visitas: promedio de los demás artículos publicados del cliente.
-  let peerAverage: number | null = null;
-  if (selected?.status === "PUBLISHED" && selected.landingId) {
-    const [peerCount, peerViews] = await Promise.all([
-      prisma.blogPublication.count({ where: { clientId: activeClient.id, status: "PUBLISHED", landingId: { not: selected.landingId } } }),
-      prisma.trackingEvent.count({ where: { clientId: activeClient.id, eventType: "page_view", landingId: { not: selected.landingId }, landing: { blogPublication: { is: { status: "PUBLISHED" } } } } }),
-    ]);
-    if (peerCount >= 3) peerAverage = Math.round(peerViews / peerCount);
-  }
-  const referrals = landingIds.length ? await prisma.trackingEvent.groupBy({ by: ["landingId", "referrer"], _count: { id: true }, where: { clientId: activeClient.id, landingId: { in: landingIds }, eventType: "page_view" } }) : [];
-  const referralStats = new Map<string, Map<string, number>>();
-  for (const row of referrals) {
-    if (!row.landingId) continue;
-    const entries = referralStats.get(row.landingId) || new Map<string, number>();
-    const label = blogReferral(row.referrer);
-    entries.set(label, (entries.get(label) || 0) + row._count.id);
-    referralStats.set(row.landingId, entries);
-  }
-
   const byDay = new Map([...slots].reverse().map((slot) => [slot.scheduledDate.toISOString().slice(0, 10), slot]));
   const leading = (start.getUTCDay() + 6) % 7;
   const daysInMonth = Math.round((end.getTime() - start.getTime()) / 86_400_000);
@@ -153,40 +131,29 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
   const next = end.toISOString().slice(0, 7);
   const monthLabel = new Intl.DateTimeFormat("es-AR", { month: "long", year: "numeric", timeZone: "UTC" }).format(start);
   const blogBase = (activeClient.blogBaseUrl || (activeClient.slug === "pcmidi" ? "https://blog.pcmidicenter.com" : "")).replace(/\/$/, "");
-  const firstDate = config.firstPublishDate && config.firstPublishDate > today ? config.firstPublishDate : today;
   // Primer día libre para «Nuevo artículo»: sin reserva o reservado y todavía sin empezar.
-  const tomorrow = shiftDate(today, 1);
-  const futureSlots = calendarEnabled ? await prisma.blogPublication.findMany({ where: { clientId: activeClient.id, scheduledDate: { gte: dateOnly(tomorrow), lt: dateOnly(shiftDate(tomorrow, 120)) } }, select: { scheduledDate: true, status: true, landingId: true, preparation: true } }) : [];
   const takenDays = new Set(futureSlots.filter(slot => slot.landingId || slot.status !== "PLANNED" || !["", "WAITING"].includes(preparationPhase(slot.preparation))).map(slot => slot.scheduledDate.toISOString().slice(0, 10)));
   // Modo balanced: tipo sugerido por cuota y avisos de equilibrio calculados sobre los próximos meses.
-  const balanced = calendarEnabled && intentModeOf(activeClient.responsePolicy) === "balanced";
-  const intentNeighbors = balanced ? (await loadIntentNeighbors(prisma, activeClient.id, today, shiftDate(today, 120))).neighbors : [];
+  const intentNeighbors = neighborsResult.neighbors;
   const balanceNotes = balanced ? balanceWarnings(intentNeighbors.filter(item => item.day >= today)) : [];
   let nextFreeDay = tomorrow;
   while (takenDays.has(nextFreeDay)) nextFreeDay = shiftDate(nextFreeDay, 1);
-  const [upcoming, catalog, blogCatalog] = await Promise.all([
-    prisma.blogPublication.findFirst({ where: { clientId: activeClient.id, scheduledDate: { gte: dateOnly(firstDate) }, status: "READY", ...(config.autoApprove ? {} : { requiresApproval: false }) }, orderBy: { scheduledDate: "asc" }, include: { landing: { select: { titulo: true } } } }),
-    activeClient.slug === "pcmidi" ? prisma.catalogSyncRun.findFirst({ where: { clientId: activeClient.id }, orderBy: { startedAt: "desc" }, select: { status: true } }) : Promise.resolve(null),
-    calendarEnabled ? loadBlogCatalog(prisma, activeClient.id) : Promise.resolve({ products: [], excluded: [] }),
-  ]);
-  const competitorSetting = calendarEnabled ? await prisma.appSetting.findUnique({ where: { key: priorityCompetitorsKey(activeClient.id) }, select: { value: true } }) : null;
+  const upcoming = await upcomingPromise;
   const priorityCompetitors = parsePriorityCompetitors(competitorSetting?.value);
   const productName = new Map(blogCatalog.products.map(product => [product.id, product.name]));
+  const catalogIds = new Set(slots.flatMap(slot => { const plan = dayPlanFrom(slot.preparation); return [plan.productId || "", ...(plan.excludedProductIds || [])]; }).concat(blogCatalog.excluded));
+  const pickerProducts = optimizedLoading() ? blogCatalog.products.filter(product => catalogIds.has(product.id)) : blogCatalog.products;
   const selectedPlan = selected ? dayPlanFrom(selected.preparation) : {};
   const selectedHistory = selected ? dateHistory(selected.preparation) : [];
   const preferences = blogPreferences(activeClient.responsePolicy);
   // Aviso de día sin publicar: hoy no salió nada y ya pasó el horario (o no hay publicación automática).
-  const [todaySlot, missedRecent] = calendarEnabled ? await Promise.all([
-    prisma.blogPublication.findUnique({ where: { clientId_scheduledDate: { dailySlot: 0, clientId: activeClient.id, scheduledDate: dateOnly(today) } }, select: { status: true, requiresApproval: true, landingId: true, landing: { select: { titulo: true } } } }),
-    prisma.blogPublication.count({ where: { clientId: activeClient.id, status: "SKIPPED", landingId: { not: null }, scheduledDate: { gte: dateOnly(shiftDate(today, -7)), lt: dateOnly(today) } } }),
-  ]) : [null, 0];
+  const [todaySlot, missedRecent] = todayResult;
   const localTime = new Intl.DateTimeFormat("en-GB", { timeZone: businessTimezone(activeClient.responsePolicy), hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date());
   const publishPending = calendarEnabled && !["PUBLISHED", "PUBLISHING"].includes(todaySlot?.status || "") && (!config.enabled || (!!config.publishTime && localTime >= config.publishTime));
   const stateFor = (slot: typeof slots[number]) => slot.status === "PLANNED" ? { ...STATUS.PLANNED, label: preparationLabel(slot.preparation) } : slot.status === "FAILED" ? STATUS.FAILED : slot.requiresApproval ? { label: slot.landingId ? "Por aprobar" : "En espera", style: "border-brass/30 bg-brass/10 text-brass" } : STATUS[slot.status];
   const failedSlots = slots.filter(slot => slot.status === "FAILED");
   const selectedState = selected ? stateFor(selected) : null;
   const selectedIssue = selected ? blogTaskError(selected.errorCode, selected.lastError, !!selected.landingId) : null;
-  const selectedStats = selected?.landingId ? metrics.get(selected.landingId) : null;
   const selectedLiveUrl = selected?.landing?.publicPreviewUrl?.startsWith(`${blogBase}/`) ? selected.landing.publicPreviewUrl : selected?.landing?.contentCluster && blogBase ? `${blogBase}/guias/${selected.landing.contentCluster.slug}/${selected.landing.slug}/` : "";
 
   return (
@@ -200,10 +167,10 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
             <summary className="cursor-pointer list-none rounded-lg bg-ink px-3 py-2 text-xs font-semibold text-paper hover:bg-ink/90">+ Nuevo artículo</summary>
             <div className="absolute right-0 top-full z-20 mt-2 w-96 max-w-[90vw] rounded-xl border border-ink/10 bg-paper p-4 shadow-lg">
               <p className="mb-3 text-xs text-slate">Elegí la fecha y, si querés, contá de qué tiene que tratar. Queda como borrador para revisar antes de publicar.</p>
-              <GenerateDateForm competitors={priorityCompetitors} clientId={activeClient.id} day={nextFreeDay} minDate={tomorrow} clientSlug={activeClient.slug} language={preferences.language} comparison={preferences.comparisons} products={blogCatalog.products} globalExcluded={blogCatalog.excluded} balanced={balanced} neighbors={intentNeighbors} />
+              <GenerateDateForm competitors={priorityCompetitors} clientId={activeClient.id} day={nextFreeDay} minDate={tomorrow} clientSlug={activeClient.slug} language={preferences.language} comparison={preferences.comparisons} products={pickerProducts} globalExcluded={blogCatalog.excluded} balanced={balanced} neighbors={intentNeighbors} />
             </div>
           </details>
-          <WeekPlanner competitors={priorityCompetitors} clientId={activeClient.id} products={blogCatalog.products} globalExcluded={blogCatalog.excluded} startDay={nextFreeDay} minDate={tomorrow} takenDays={[...takenDays]} language={preferences.language} comparisons={preferences.comparisons} balanced={balanced} neighbors={intentNeighbors} />
+          <WeekPlanner competitors={priorityCompetitors} clientId={activeClient.id} products={pickerProducts} globalExcluded={blogCatalog.excluded} startDay={nextFreeDay} minDate={tomorrow} takenDays={[...takenDays]} language={preferences.language} comparisons={preferences.comparisons} balanced={balanced} neighbors={intentNeighbors} />
           <details className="relative">
             <summary className="cursor-pointer list-none rounded-lg px-3 py-2 text-xs font-semibold text-slate underline underline-offset-2 hover:text-ink">Días automáticos</summary>
             <div className="absolute right-0 top-full z-20 mt-2 w-80 max-w-[85vw] rounded-xl border border-ink/10 bg-paper p-4 shadow-lg">
@@ -258,7 +225,10 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
           return day ? <Link prefetch={false} key={day} href={calendarHref(activeClient.slug, month, day)} scroll={false} data-calendar-day={day} aria-haspopup="dialog" aria-expanded={selectedDay === day} aria-label={`${formatDay(day)}: ${(slot && displayTitle(slot)) || (slot ? "Artículo en preparación" : "Sin artículo")}${state ? `, ${state.label}` : ""}`} title={(slot && displayTitle(slot)) || undefined} className={`flex min-h-28 min-w-0 flex-col border-b border-r border-ink/10 p-1.5 outline-offset-[-3px] hover:bg-ink/[0.035] focus-visible:outline focus-visible:outline-2 focus-visible:outline-moss sm:min-h-36 sm:p-3 ${day === today ? "bg-brass/[0.07]" : ""} ${selectedDay === day ? "ring-2 ring-inset ring-moss" : ""}`}>
             {daySlots.length > 1 ? <span className="mb-1 text-[10px] text-slate">{daySlots.length} temas</span> : null}<span className={`mb-2 inline-flex h-6 w-6 shrink-0 items-center justify-center self-start rounded-full text-[11px] font-semibold sm:text-xs ${day === today ? "bg-ink text-paper" : "text-slate"}`}>{Number(day.slice(-2))}</span>
             {slot?.status === "FAILED" ? <span className="mb-1 line-clamp-3 text-[9px] text-rose-800 sm:text-[10px]">{blogTaskError(slot.errorCode, slot.lastError, !!slot.landingId)?.message || "La tarea falló. Abrí el detalle para revisarla."}</span> : null}
-            {slot ? <><p className="line-clamp-2 break-words text-[10px] font-semibold leading-snug text-ink sm:line-clamp-3 sm:text-xs">{displayTitle(slot) || (slot.status === "SKIPPED" ? "Sin publicación" : "Preparando artículo")}</p><PlanChips plan={dayPlanFrom(slot.preparation)} productName={productName} />{state ? <span className={`mt-2 flex max-w-full items-center gap-1 self-start`}><span className={`block min-w-0 truncate rounded border px-1 py-0.5 text-[9px] font-medium sm:px-1.5 sm:text-[10px] ${state.style}`}>{state.label}</span>{versionLanguages(slot.landingId).map(language => <span key={language} title={LANGUAGE_NAMES[language]} className="shrink-0 rounded bg-ink/10 px-1 py-0.5 text-[9px] font-semibold uppercase text-ink sm:text-[10px]">{language}</span>)}</span> : null}</> : null}
+            <LiveCalendarSlot client={activeClient.slug} day={day} id={slot?.id} title={slot ? displayTitle(slot) || (slot.status === "SKIPPED" ? "Sin publicación" : "Preparando artículo") : ""} label={state?.label || ""} style={state?.style || ""}>
+              {slot ? <PlanChips plan={dayPlanFrom(slot.preparation)} productName={productName} /> : null}
+              {slot ? <span className="flex gap-1">{versionLanguages(slot.landingId).map(language => <span key={language} title={LANGUAGE_NAMES[language]} className="text-[9px] uppercase">{language}</span>)}</span> : null}
+            </LiveCalendarSlot>
           </Link> : <div key={`empty-${index}`} aria-hidden="true" className="min-h-28 border-b border-r border-ink/10 bg-ink/[0.015] sm:min-h-36" />;
         })}</div>
       </section>
@@ -266,7 +236,7 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
       {selectedDay ? <CalendarDetail key={selectedDay} client={activeClient.slug} day={selectedDay} dateLabel={formatDay(selectedDay)} closeHref={calendarHref(activeClient.slug, month)} publicationId={selected?.id} publishing={selected?.status === "PUBLISHING"}>
         {selectedSlots.length > 1 ? <nav aria-label="Temas del día" className="flex flex-wrap gap-2">{selectedSlots.map((slot, index) => <Link key={slot.id} prefetch={false} href={`${calendarHref(activeClient.slug, month, selectedDay)}&publication=${encodeURIComponent(slot.id)}`} aria-current={slot.id === selected?.id ? "page" : undefined} className={`rounded-lg border px-3 py-2 text-xs ${slot.id === selected?.id ? "bg-ink text-paper" : "border-ink/20 text-ink"}`}>Tema {index + 1}</Link>)}</nav> : null}
         {selected ? <>
-          {selectedTranslations.length ? <nav aria-label="Versiones por idioma" className="flex flex-wrap gap-3">{selectedTranslations.map(article => <Link key={article.id} prefetch={false} className="text-sm font-semibold text-moss underline" href={`/blog/articulos/${article.id}?client=${encodeURIComponent(activeClient.slug)}`}>Editar {LANGUAGE_NAMES[article.language]}</Link>)}</nav> : null}
+          <Suspense fallback={<p role="status" className="text-xs text-slate">Cargando idiomas…</p>}><CalendarTranslations translations={selectedTranslationsPromise} client={activeClient.slug} /></Suspense>
           {selected.lastError && selected.status !== "FAILED" ? <p role="alert" className="text-sm text-signal">{selected.lastError}</p> : null}
           {selectedState ? <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${selectedState.style}`}>{selected.status === "PUBLISHING" ? <LoadingSpinner className="mr-1" /> : null}{selectedState.label}</span> : null}
           <h3 className="font-display text-2xl leading-tight text-ink">{selected.landing?.titulo || (selected.status === "SKIPPED" ? "Sin publicación" : "Preparando artículo")}</h3>
@@ -293,10 +263,8 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
           {selected.status === "PUBLISHED" && selected.needsDeploy && selected.errorCode === "DEPLOYMENT_FAILED" ? <PublishArticleButton id={selected.id} publishing={false} client={activeClient.slug} title={selected.landing?.titulo} retry revision /> : null}
           {selected.status === "PUBLISHED" ? <section className="space-y-3 border-t border-ink/10 pt-4">
             <h4 className="text-sm font-semibold">Resultados</h4>
-            {selectedStats ? <p className="text-sm text-slate">{selectedStats.views} visitas · {selectedStats.clicks} clics · {selectedStats.leads} contactos</p> : null}
-            {peerAverage !== null && selectedStats ? <p className="text-xs text-slate">Promedio de los demás artículos publicados: {peerAverage} visitas{selectedStats.views >= peerAverage ? " (este va igual o mejor)" : ""}.</p> : null}
             <p className="text-xs text-slate">{selected.landing?.indexingState === "INDEX" ? "Apto para indexación" : "Excluido de indexación"}{selected.needsDeploy ? " · Actualización pendiente" : ""}</p>
-            {selected.landingId && referralStats.has(selected.landingId) ? <details className="text-xs text-slate"><summary className="cursor-pointer font-semibold">Procedencia de visitas</summary>{[...referralStats.get(selected.landingId)!].map(([label, n]) => <p key={label} className="mt-1">{label}: {n}</p>)}</details> : null}
+            {selected.landingId ? <Suspense fallback={<p role="status" className="text-xs text-slate">Cargando resultados…</p>}><CalendarResults clientId={activeClient.id} landingId={selected.landingId} /></Suspense> : null}
           </section> : null}
           {selected.landingId && !["PUBLISHED", "PUBLISHING"].includes(selected.status) && (selectedDay > today || ["SKIPPED", "FAILED"].includes(selected.status) || selected.requiresApproval) ? <section id="reprogramar" className="space-y-3 border-t border-ink/10 pt-4"><h4 className="text-sm font-semibold">Reprogramar</h4><RescheduleForm id={selected.id} minDate={shiftDate(today, 1)} label="Reprogramar artículo" /></section> : null}
           {selectedDay > today && selected.landingId && !["PUBLISHED", "PUBLISHING"].includes(selected.status) ? <GenerationActionButton id={selected.id} day={selectedDay} client={activeClient.slug} label="Generar otro artículo" action={replaceBlogArticle} kind="replace" /> : null}
@@ -304,8 +272,13 @@ export default async function BlogCalendarPage({ searchParams }: { searchParams:
           {selectedDay > today && selected.status === "SKIPPED" && !selected.landingId ? <GenerationActionButton id={selected.id} day={selectedDay} client={activeClient.slug} label="Volver a planificar" action={restoreBlogDate} kind="restore" /> : null}
           {selectedDay > today && calendarEnabled && selectedSlots.length < 10 ? <form action={addBlogDayArticles} className="flex flex-wrap items-end gap-2 border-t border-ink/10 pt-4"><input type="hidden" name="clientId" value={activeClient.id} /><input type="hidden" name="day" value={selectedDay} /><label className="text-sm font-medium text-ink">Sumar artículos a este día<select name="count" defaultValue="1" className="ml-2 rounded-lg border border-ink/20 bg-paper px-2 py-1.5 font-normal">{Array.from({ length: 10 - selectedSlots.length }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}</option>)}</select></label><PendingSubmitButton loadingText="Sumando…" className="rounded-lg border border-ink/15 px-3 py-1.5 text-sm font-semibold hover:bg-ink/5">Sumar</PendingSubmitButton></form> : null}
           {selectedDay > today && !["SKIPPED", "PUBLISHING", "PUBLISHED"].includes(selected.status) ? <form action={skipBlogDate} className="border-t border-ink/10 pt-4"><input type="hidden" name="id" value={selected.id} /><PendingSubmitButton loadingText="Omitiendo…" className="text-sm text-slate underline">Omitir fecha</PendingSubmitButton></form> : null}
-        </> : <><h3 className="font-display text-xl">Sin artículo programado</h3>{selectedDay > today && calendarEnabled ? <GenerateDateForm competitors={priorityCompetitors} clientId={activeClient.id} day={selectedDay} language={preferences.language} comparison={balanced || editorialIntentForDate(selectedDay) === "decision" ? preferences.comparisons : undefined} products={blogCatalog.products} globalExcluded={blogCatalog.excluded} balanced={balanced} neighbors={intentNeighbors} /> : <p className="text-sm text-slate">No hay una publicación preparada para este día.</p>}</>}
+        </> : <><h3 className="font-display text-xl">Sin artículo programado</h3>{selectedDay > today && calendarEnabled ? <GenerateDateForm competitors={priorityCompetitors} clientId={activeClient.id} day={selectedDay} language={preferences.language} comparison={balanced || editorialIntentForDate(selectedDay) === "decision" ? preferences.comparisons : undefined} products={pickerProducts} globalExcluded={blogCatalog.excluded} balanced={balanced} neighbors={intentNeighbors} /> : <p className="text-sm text-slate">No hay una publicación preparada para este día.</p>}</>}
       </CalendarDetail> : null}
     </main>
   );
+}
+
+async function CalendarTranslations({ translations, client }: { translations: ReturnType<typeof findTranslations>; client: string }) {
+  const rows = await translations;
+  return rows.length ? <nav aria-label="Versiones por idioma" className="flex flex-wrap gap-3">{rows.map(article => <Link key={article.id} prefetch={false} className="text-sm font-semibold text-moss underline" href={`/blog/articulos/${article.id}?client=${encodeURIComponent(client)}`}>Editar {LANGUAGE_NAMES[article.language]}</Link>)}</nav> : null;
 }

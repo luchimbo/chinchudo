@@ -7,7 +7,8 @@ import { articleChecks, changedBlocks, draftFromContent, mergeDraft, type Articl
 import { completeArticle } from "@/lib/article-completion.mjs";
 import type { ArticleCatalog } from "@/lib/article-markers";
 import { parseMarkers } from "@/lib/article-markers";
-import { BodyEditor } from "./body-editor";
+import dynamic from "next/dynamic";
+const BodyEditor = dynamic(() => import("./body-editor").then(module => module.BodyEditor), { loading: () => <p role="status">Cargando editor…</p>, ssr: false });
 import { SeoPanel } from "./seo-panel";
 import { ChangesDialog } from "./editor-dialogs";
 import { PreviewDialog } from "@/components/article-preview";
@@ -17,6 +18,7 @@ import { reviewArticle, type EditorialQuality, type EditorialSource } from "@/li
 import { EvidenceEditor } from "./evidence-editor";
 
 type Props = {
+  optimized?: boolean;
   articleId: string;
   initialDraft: ArticleDraft;
   updatedAt: string;
@@ -89,7 +91,7 @@ function readStored(key: string): ArticleDraft | null {
   try { const raw = window.localStorage.getItem(key); return raw ? (JSON.parse(raw) as ArticleDraft) : null; } catch { return null; }
 }
 
-export function ArticleEditor({ articleId, initialDraft, updatedAt: initialUpdatedAt, catalog, content, evidence, published, publicUrl, backHref, clusterName, status, save }: Props) {
+export function ArticleEditor({ articleId, initialDraft, updatedAt: initialUpdatedAt, catalog, content, evidence, published, publicUrl, backHref, clusterName, status, save, optimized = false }: Props) {
   const router = useRouter();
   const [saved, setSaved] = useState(initialDraft);
   const [draft, setDraft] = useState(initialDraft);
@@ -162,7 +164,7 @@ export function ArticleEditor({ articleId, initialDraft, updatedAt: initialUpdat
       setRecoverable(null);
       setServerQuality(result.quality);
       setMessage({ tone: "ok", text: !result.quality.publishable ? published ? "Revisión guardada con errores. Corregilos para desplegar." : "Guardado para revisar. La publicación está suspendida." : result.redeploy ? "Guardado. Actualización pendiente de despliegue." : "Cambios guardados." });
-      router.refresh();
+      if (!optimized) router.refresh();
     } catch {
       setMessage({ tone: "error", text: "No se pudieron guardar los cambios. Revisá la conexión y probá de nuevo." });
     } finally {

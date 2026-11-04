@@ -21,7 +21,7 @@ vi.mock("../competitor-evidence", () => ({ loadRelevantCompetitorEvidence: vi.fn
 vi.mock("../guardrails", () => ({ validateClientScopedActors: () => ({ ok: true }), detectCrossClientTerms: vi.fn(async () => []) }));
 
 import { cmCanRetry, cmDay, cmState, loadCMCoverage, refreshCMOpportunity, runCMMaintenance } from "../cm-maintenance";
-import { cmCoverageStatus, cmStamp } from "../cm-freshness";
+import { cmCoverageStatus, cmStamp, cmManualInputHash } from "../cm-freshness";
 import { generateAICopilotDraft } from "../ai-draft-generator";
 
 function fixture() {
@@ -37,7 +37,7 @@ function fixture() {
       update: vi.fn(async ({ data }) => Object.assign(opportunity, data)),
     },
     response: {
-      create: vi.fn(async ({ data }) => { opportunity.responses.unshift({ ...response, ...data, id: "new" }); }),
+      create: vi.fn(async ({ data }) => { opportunity.responses.unshift({ ...response, ...data, id: "new" }); return opportunity.responses[0]; }),
       update: vi.fn(async ({ where, data }) => Object.assign(opportunity.responses.find((row) => row.id === where.id)!, data)),
       updateMany: vi.fn(async ({ data }) => opportunity.responses.forEach((row) => Object.assign(row, data))),
     },
@@ -50,6 +50,7 @@ function fixture() {
       findMany: vi.fn(async () => []),
       upsert: vi.fn(async ({ create, update }) => settings.set(create.key, settings.has(create.key) ? update.value : create.value)),
     },
+    cMManualJob: { findUnique: vi.fn(async () => ({ status: "RUNNING", lockedBy: "owner", leaseUntil: new Date(Date.now() + 120_000) })), update: vi.fn(async () => ({})) },
     client: { findMany: vi.fn(async () => [{ id: "client", slug: "pcmidi" }]) },
     $transaction: vi.fn(async (callback) => callback(db)),
   };
@@ -83,6 +84,33 @@ describe("actualización automática del CM", () => {
     const f = fixture(); f.response.evidence = [cmStamp("v1", f.opportunity, "ai")];
     expect(await refreshCMOpportunity(f.db, "client", "op")).toBe("skipped");
     expect(generateAICopilotDraft).not.toHaveBeenCalled();
+  });
+  it("una entrada cambiada en la cola no alcanza la IA", async () => {
+    const f = fixture();
+    expect(await refreshCMOpportunity(f.db, "client", "op", "owner", { jobId: "job", expectedHash: "old" })).toBe("changed");
+    expect(generateAICopilotDraft).not.toHaveBeenCalled();
+  });
+  it("un contexto cambiado mientras esperaba no alcanza la IA", async () => {
+    const f = fixture();
+    expect(await refreshCMOpportunity(f.db, "client", "op", "owner", { jobId: "job", expectedHash: cmManualInputHash(f.opportunity), inputVersion: "context-before-queue" })).toBe("changed");
+    expect(generateAICopilotDraft).not.toHaveBeenCalled();
+    expect(f.mock.response.create).not.toHaveBeenCalled();
+  });
+  it("una solicitud manual fuerza la generación y confirma tarea y propuesta juntas", async () => {
+    const f = fixture(); f.response.evidence = [cmStamp("v1", f.opportunity, "ai")];
+    expect(await refreshCMOpportunity(f.db, "client", "op", "owner", { jobId: "job", expectedHash: cmManualInputHash(f.opportunity) })).toBe("generated");
+    expect(generateAICopilotDraft).toHaveBeenCalledTimes(1);
+    expect(f.mock.cMManualJob.update).toHaveBeenCalledWith({ where: { id: "job" }, data: { status: "SUCCEEDED", leaseUntil: null, result: { responseId: "new", review: false } } });
+  });
+  it("una solicitud manual conserva aprobación y edición humana como primaria", async () => {
+    const f = fixture(); f.response.editedText = "Edición aprobada"; f.response.approvedBy = "Fede";
+    expect(await refreshCMOpportunity(f.db, "client", "op", "owner", { jobId: "job", expectedHash: cmManualInputHash(f.opportunity) })).toBe("review");
+    expect(f.response).toMatchObject({ editedText: "Edición aprobada", approvedBy: "Fede", isPrimary: true });
+  });
+  it("un worker que perdió su lease no guarda un resultado", async () => {
+    const f = fixture(); f.mock.cMManualJob.findUnique.mockResolvedValue({ status: "RUNNING", lockedBy: "another-worker", leaseUntil: new Date(Date.now() + 120_000) });
+    expect(await refreshCMOpportunity(f.db, "client", "op", "owner", { jobId: "job", expectedHash: cmManualInputHash(f.opportunity) })).toBe("changed");
+    expect(f.mock.response.create).not.toHaveBeenCalled();
   });
   it("no genera cuando otro proceso tiene la oportunidad reservada", async () => {
     const f = fixture(); f.mock.draftJob.updateMany.mockResolvedValueOnce({ count: 0 });

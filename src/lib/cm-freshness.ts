@@ -39,6 +39,12 @@ export type CMInput = {
   contextAssessment: unknown;
 };
 
+/** Enqueue projection avoids loading every draft and its conversation. */
+export function cmManualInputHash(opportunity: CMInput & { id: string; status: string; updatedAt: Date; responses: { id: string; updatedAt: Date; publishingLog?: { id: string } | null }[] }) {
+  return cmHash({ id: opportunity.id, status: opportunity.status, input: cmInputHash(opportunity), updatedAt: opportunity.updatedAt,
+    responses: opportunity.responses.map(r => ({ id: r.id, updatedAt: r.updatedAt, published: r.publishingLog?.id || null })).sort((a, b) => a.id.localeCompare(b.id)) });
+}
+
 export function cmInputHash(opportunity: CMInput): string {
   const context = cmObject(opportunity.contextAssessment);
   const copilot = cmObject(context.copilot);

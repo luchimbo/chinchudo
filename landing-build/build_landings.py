@@ -12,6 +12,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from performance_events import timed_stage
 from blog_languages import language as valid_blog_language, prefix as language_prefix, localize_html, apply_blog_theme
 from editorial_quality import quality_bridge, intent_for_date
 from datetime import datetime, timedelta, timezone
@@ -334,6 +335,7 @@ def load_products(include_inactive: bool = True) -> dict[str, dict]:
     return eligible_catalog_products({item["id"]: item for item in products}, include_inactive)
 
 
+@timed_stage("queries")
 def _load_catalog_from_db(slug: str) -> tuple[dict, dict]:
     sys.path.insert(0, str(ROOT.parent / "agents"))
     import db_pg  # type: ignore
@@ -462,6 +464,7 @@ def normalize_pg_landing(row: dict) -> dict:
     }
 
 
+@timed_stage("queries")
 def load_preview_landing(landing_id: str = "") -> dict | None:
     # El relay ya leyó el artículo y verificó su pertenencia al cliente.
     # Reutilizar esa instantánea evita otra conexión durante el renderizado.
@@ -587,6 +590,7 @@ def placeholder_preview_landing() -> tuple[dict[str, dict], dict[str, dict], dic
     return categories, {}, landing
 
 
+@timed_stage("preview")
 def preview_command(landing_id: str = "", base_url: str = "", content_override: dict | None = None) -> None:
     categories = load_categories()
     products = load_products()
@@ -684,6 +688,7 @@ def load_jsonl(path: Path) -> list[dict]:
     return rows
 
 
+@timed_stage("persist")
 def append_landing(landing: dict, schedule_date: str = "") -> dict:
     """Persiste la landing. Un artículo editorial se publica y recalcula el
     grafo; si el grafo falla, el artículo vuelve a borrador (nunca queda
@@ -958,6 +963,7 @@ def parse_vercel_deploy_url(stdout_lines: list[str], stderr_lines: list[str]) ->
     return ""
 
 
+@timed_stage("publication")
 def deploy_with_vercel(base_url: str, build_summary: dict | None = None) -> dict:
     project = load_vercel_project()
     if not project.get("projectId"):
@@ -1145,6 +1151,7 @@ def extract_json_object(raw: str) -> dict:
     return json.loads(text[start : end + 1])
 
 
+@timed_stage("ai")
 def chat_json(system: str, user: str, model: str, temperature: float = 0.35, max_tokens: int = 0, timeout: int = 90, reasoning_off: bool = False) -> dict:
     load_env()
     api_key = os.environ.get("OPENROUTER_API_KEY")
@@ -1204,6 +1211,7 @@ def rank_linkable_articles(topic: dict, articles: list[dict]) -> list[dict]:
     return [entry[-1] for entry in sorted(scored, key=lambda entry: entry[:3])]
 
 
+@timed_stage("context")
 def generation_prompt(topic: dict, categories: dict[str, dict], products: dict[str, dict], articles: list[dict] | None = None) -> tuple[str, str]:
     catalog = compact_catalog(categories, products)
     brief = topic.get("_editorial_brief")
@@ -2645,6 +2653,7 @@ def apply_day_plan_checks(landing: dict, topic: dict) -> dict:
     return landing
 
 
+@timed_stage("generation")
 def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds: int = 0, research_first: bool = False, schedule_date: str = "", brief: str = "", product_id: str = "", exclude_products: list[str] | None = None, competitor: str = "", competitor_notes: str = "", intent: str = "") -> dict:
     if client_slug_active() == "pcmidi" and _CLIENT_CONFIG.get("id") and os.environ.get("DATABASE_URL") and not schedule_date and not dry_run:
         raise RuntimeError("Para PC MIDI, prepará artículos privados desde el calendario con --schedule-date.")
@@ -3003,6 +3012,7 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
 REGENERATION_KEPT_FIELDS = ("id", "slug", "content_type", "indexing_state", "cluster_slug", "cluster_name", "author_name", "published_at", "created_at", "source_refs")
 
 
+@timed_stage("persist")
 def persist_regenerated_landing(landing: dict) -> None:
     """Actualiza en su lugar un artículo existente (Postgres y respaldo jsonl)."""
     public = {key: value for key, value in landing.items() if not str(key).startswith("_")}
@@ -3053,6 +3063,7 @@ def assign_language_alternates(landings: list[dict], base_url: str) -> None:
                 landing["_language_alternates"] = alternates
 
 
+@timed_stage("translation")
 def translate_article(landing_id: str, language: str, model: str) -> dict:
     """Crea una traducción del artículo como página hermana (`translation_of`).
     El original no se modifica; la traducción hereda su estado público."""
@@ -4334,6 +4345,7 @@ def graph_rule_warnings(landings: list[dict]) -> dict[str, list[str]]:
     return {unquote(landing_path(by_slug[slug])): problems for slug, problems in audit_article_links(articles, links).items()}
 
 
+@timed_stage("build")
 def build(base_url: str = "") -> dict:
     global _RENDER_LANGUAGE
     from site_audit import audit_site  # type: ignore

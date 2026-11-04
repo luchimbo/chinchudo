@@ -12,7 +12,7 @@ export async function GET(request: Request) {
     const query = new URL(request.url).searchParams;
     const client = await resolveClientForSlug(prisma, query.get("client"));
     const ids = [...new Set((query.get("ids") || "").split(",").filter(id => /^[a-zA-Z0-9_-]{1,100}$/.test(id)))].slice(0, 20);
-    const active: Prisma.BlogPublicationWhereInput[] = [{ status: "PUBLISHING" }];
+    const active: Prisma.BlogPublicationWhereInput[] = [{ status: "PUBLISHING" }, { status: { in: ["READY", "FAILED", "PUBLISHED"] }, updatedAt: { gte: new Date(Date.now() - 60_000) } }];
     if (editorialCalendarEnabled(client)) for (const phase of ["GENERATING", "REVIEWING"]) active.push({ status: "PLANNED", preparation: { path: ["phase"], equals: phase } });
     if (ids.length) active.push({ id: { in: ids } });
     const rows = await prisma.blogPublication.findMany({

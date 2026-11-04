@@ -1,3 +1,5 @@
+import { optimizedLoading, manualCMQueue } from "@/lib/performance-flags";
+import OptimizedCopilot from "./optimized-page";
 import { FirstUseHint } from "@/components/first-use-hint";
 import { OpportunityStatus, Prisma } from "@prisma/client";
 import { requirePageClient } from "@/lib/auth";
@@ -28,10 +30,11 @@ function parseChatHistory(value: Prisma.JsonValue): ChatMessage[] {
   });
 }
 type PageProps = {
-  searchParams: { firstUse?: string; client?: string; brand?: string; channel?: string; response?: string; sort?: string };
+  searchParams: { firstUse?: string; client?: string; brand?: string; channel?: string; response?: string; sort?: string; page?: string };
 };
 
 export default async function CopilotoPage({ searchParams }: PageProps) {
+  if (optimizedLoading()) return <OptimizedCopilot searchParams={searchParams} />;
   const [activeClient, channels] = await Promise.all([
     requirePageClient(prisma, searchParams.client),
     prisma.channel.findMany({
@@ -93,7 +96,7 @@ export default async function CopilotoPage({ searchParams }: PageProps) {
   return (
     <>
     {searchParams.firstUse === "opportunities" || searchParams.firstUse === "responses" ? <FirstUseHint goal={searchParams.firstUse} clientSlug={activeClient.slug} clientId={activeClient.id} /> : null}
-    <CopilotWorkspace
+    <CopilotWorkspace queueEnabled={manualCMQueue()}
       activeClient={activeClient ? { slug: activeClient.slug, name: activeClient.name } : null}
       coverage={coverage.counts}
       youtube={activeClient ? {

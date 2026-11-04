@@ -1,4 +1,6 @@
 "use server";
+import { optimizedLoading, manualCMQueue } from "@/lib/performance-flags";
+import { assertCurrentCMResponse, claimYouTubePublication, clearYouTubePublication, markYouTubePublicationAmbiguous } from "@/lib/cm-action-guard";
 
 import { checkPublishRateLimits, closeSiblingOpportunities, runPublisher } from "@/lib/publish-agent";
 import { execFileSync } from "child_process";
@@ -200,7 +202,7 @@ export async function generateCopilotDrafts(formData: FormData) {
   });
   await generateResponseDrafts(delegatedFormData);
 
-  revalidatePath("/asistente-cm");
+  if (!optimizedLoading()) revalidatePath("/asistente-cm");
 }
 
 const regenerateCopilotSchema = z.object({
@@ -260,7 +262,7 @@ export async function regenerateCopilotResponse(formData: FormData) {
     prisma.response.update({ where: { id: created.id }, data: { isPrimary: true, chatHistory: previousChat } }),
   ]);
 
-  revalidatePath("/asistente-cm");
+  if (!optimizedLoading()) revalidatePath("/asistente-cm");
   revalidatePath(`/opportunities/${parsed.opportunityId}`);
 }
 
@@ -328,7 +330,7 @@ export async function markCopilotResponse(formData: FormData) {
       data: { editedText: parsed.editedText, approvedBy: "CM", isPrimary: true, ...(chatHistory ? { chatHistory } : {}) },
     });
   });
-  revalidatePath("/asistente-cm");
+  if (!optimizedLoading()) revalidatePath("/asistente-cm");
   revalidatePath("/historial");
   revalidatePath(`/opportunities/${parsed.opportunityId}`);
   try {
@@ -380,9 +382,21 @@ export async function publishCopilotYouTubeResponse(formData: FormData) {
     return { success: false as const, message: "Esta oportunidad ya fue respondida.", reconnectRequired: false };
   }
 
+  if (opportunity.contextAssessment && typeof opportunity.contextAssessment === "object" && !Array.isArray(opportunity.contextAssessment) && opportunity.contextAssessment.cmPublicationPending === true) {
+    return { success: false as const, message: "Hay un envío pendiente de comprobación. Revisá el comentario en YouTube antes de volver a intentar.", reconnectRequired: false, verificationRequired: true };
+  }
+  if (optimizedLoading() || manualCMQueue()) {
+    try { await assertCurrentCMResponse(prisma, opportunity.clientId, response.id, opportunity.id); }
+    catch { return { success: false as const, message: "No se pudo verificar que la propuesta esté vigente. Revisá el contexto y generá una propuesta actualizada antes de publicar. Tu edición se conserva.", reconnectRequired: false }; }
+  }
+
   const rateLimit = await checkPublishRateLimits(prisma, parsed.account, opportunity.channel.name);
   if (!rateLimit.ok) {
     return { success: false as const, message: rateLimit.error === "rate_limited_daily" ? "Límite diario alcanzado para esta cuenta." : "Esperá antes de volver a publicar con esta cuenta.", reconnectRequired: false };
+  }
+  const publicationAttempt = await claimYouTubePublication(prisma, opportunity.clientId, opportunity.id);
+  if (!publicationAttempt) {
+    return { success: false as const, message: "Hay un envío pendiente de comprobación. Revisá el comentario en YouTube antes de volver a intentar.", reconnectRequired: false, verificationRequired: true };
   }
   const result = await publishYouTubeComment({
     prisma,
@@ -392,10 +406,13 @@ export async function publishCopilotYouTubeResponse(formData: FormData) {
     text: parsed.editedText,
   });
   if (!result.success) {
+    if (result.ambiguous) await markYouTubePublicationAmbiguous(prisma, opportunity.clientId, opportunity.id, publicationAttempt);
+    else await clearYouTubePublication(prisma, opportunity.clientId, opportunity.id, publicationAttempt);
     const reconnectRequired = needsYouTubeReconnect(result.error);
     return {
       success: false as const,
-      message: reconnectRequired
+      verificationRequired: Boolean(result.ambiguous),
+      message: result.ambiguous ? "YouTube no confirmó el resultado. Revisá si el comentario se publicó antes de volver a intentar." : reconnectRequired
         ? "La conexión de YouTube venció o fue revocada. Reconectá la cuenta y volvé a publicar este comentario."
         : `No se pudo publicar en YouTube: ${result.error}`,
       reconnectRequired,
@@ -433,10 +450,22 @@ export async function publishCopilotYouTubeResponse(formData: FormData) {
   } catch (error) {
     logger.error("copilot_publish_learning_failed", "No se pudo extraer el aprendizaje del chat", error).catch(() => { });
   }
-  revalidatePath("/asistente-cm");
+  if (!optimizedLoading()) revalidatePath("/asistente-cm");
   revalidatePath("/historial");
   revalidatePath(`/opportunities/${opportunity.id}`);
   return { success: true as const };
+}
+
+/** The operator must inspect YouTube; this action never sends a comment. */
+export async function confirmYouTubeNotPublished(formData: FormData) {
+  if (formData.get("verifiedNotPublished") !== "true") throw new Error("Revisá primero el comentario en YouTube.");
+  const id = z.string().min(1).parse(formData.get("opportunityId"));
+  const opportunity = await prisma.opportunity.findUniqueOrThrow({ where: { id }, select: { clientId: true, status: true } });
+  const client = await requireOwnedClientId(opportunity.clientId);
+  if (!["NEW", "NEEDS_REVIEW", "DRAFTED", "APPROVED"].includes(opportunity.status)) throw new Error("La oportunidad ya no está abierta.");
+  if (!await clearYouTubePublication(prisma, client.id, id)) return { success: false, message: "El envío todavía puede estar en curso. Esperá dos minutos y volvé a comprobarlo." };
+  revalidatePath(`/opportunities/${id}`);
+  return { success: true, message: "Comprobación guardada." };
 }
 
 const copilotDiscardSchema = z.object({
@@ -498,7 +527,7 @@ export async function teachCopilotFromResponse(formData: FormData) {
       responseId: parsed.responseId,
     });
   }
-  revalidatePath("/asistente-cm");
+  if (!optimizedLoading()) revalidatePath("/asistente-cm");
   revalidatePath("/aprendizaje");
 }
 
@@ -531,7 +560,7 @@ export async function discardCopilotOpportunity(formData: FormData) {
     },
   });
   if (discarded.count !== 1) throw new Error("Esta oportunidad ya no está abierta.");
-  revalidatePath("/asistente-cm");
+  if (!optimizedLoading()) revalidatePath("/asistente-cm");
 }
 
 export async function generateResponseDrafts(formData: FormData) {
@@ -1659,6 +1688,7 @@ export async function applyRefinedResponseAction(formData: FormData) {
 
   const resolution = await resolveOpportunityClient(prisma, response.opportunity);
   await assertClientAccess(prisma, resolution.client.id);
+  if (optimizedLoading() || manualCMQueue()) await assertCurrentCMResponse(prisma, resolution.client.id, parsed.responseId);
   const [clientMemories, acceptedExamples] = await Promise.all([
     getClientMemories(prisma, resolution.client.id, { brandId: response.brandId, productId: response.opportunity.detectedProductId }),
     getAcceptedExamples(prisma, { clientId: resolution.client.id, brandId: response.brandId, limit: 5 }),
@@ -1690,6 +1720,7 @@ export async function applyRefinedResponseAction(formData: FormData) {
     ? shortenCopilotText(sanitizeCopilotDraft(normalizedDraft, resolution.client.slug))
     : normalizedDraft;
 
+  if (optimizedLoading() || manualCMQueue()) await assertCurrentCMResponse(prisma, resolution.client.id, parsed.responseId);
   await prisma.$transaction([
     prisma.response.updateMany({
       where: { opportunityId: response.opportunityId, id: { not: parsed.responseId } },
@@ -1706,7 +1737,7 @@ export async function applyRefinedResponseAction(formData: FormData) {
   ]);
 
   revalidatePath(`/opportunities/${response.opportunityId}`);
-  revalidatePath("/asistente-cm");
+  if (!optimizedLoading()) revalidatePath("/asistente-cm");
   return { success: true, compiledText };
 }
 
@@ -1734,7 +1765,8 @@ export async function applyChatSuggestionAction(formData: FormData) {
     where: { id: parsed.responseId },
     select: { opportunityId: true, opportunity: { select: { clientId: true, contextAssessment: true } } },
   });
-  await requireOwnedClientId(response.opportunity.clientId);
+  const actionClientId = await requireOwnedClientId(response.opportunity.clientId);
+  if (optimizedLoading() || manualCMQueue()) await assertCurrentCMResponse(prisma, actionClientId.id, parsed.responseId);
   const maxCharacters = refinementMaxCharacters(response.opportunity.contextAssessment);
   if (maxCharacters && parsed.text.length > maxCharacters) {
     throw new Error(`La propuesta supera los ${maxCharacters} caracteres. Acortala antes de usarla.`);
@@ -1758,7 +1790,7 @@ export async function applyChatSuggestionAction(formData: FormData) {
     logger.error("copilot_use_learning_failed", "No se pudo extraer el aprendizaje de la respuesta elegida", error).catch(() => { });
   }
   revalidatePath(`/opportunities/${response.opportunityId}`);
-  revalidatePath("/asistente-cm");
+  if (!optimizedLoading()) revalidatePath("/asistente-cm");
   revalidatePath("/aprendizaje");
   return { success: true, learnedRules };
 }
@@ -1818,7 +1850,8 @@ export async function acceptCopilotRefinementAction(formData: FormData) {
     select: { opportunityId: true, opportunity: { select: { clientId: true } } },
   });
   if (response.opportunityId !== parsed.opportunityId) throw new Error("La respuesta no corresponde a esta oportunidad.");
-  await requireOwnedClientId(response.opportunity.clientId);
+  const reviewClient = await requireOwnedClientId(response.opportunity.clientId);
+  if (optimizedLoading() || manualCMQueue()) await assertCurrentCMResponse(prisma, reviewClient.id, parsed.responseId, parsed.opportunityId);
 
   await prisma.$transaction([
     prisma.response.updateMany({
@@ -1839,7 +1872,7 @@ export async function acceptCopilotRefinementAction(formData: FormData) {
     logger.error("copilot_accept_learning_failed", "No se pudo extraer el aprendizaje del chat", error).catch(() => { });
   }
 
-  revalidatePath("/asistente-cm");
+  if (!optimizedLoading()) revalidatePath("/asistente-cm");
   revalidatePath("/aprendizaje");
   return { success: true, learnedRules };
 }

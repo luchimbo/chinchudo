@@ -1,3 +1,4 @@
+import { operationTiming } from "./performance";
 import { randomUUID } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { generateAICopilotDraft, shortenCopilotText } from "./ai-draft-generator";
@@ -13,8 +14,9 @@ import { validateClientScopedActors, detectCrossClientTerms } from "./guardrails
 import { operationalOpportunityWhere } from "./opportunity-channels";
 import { classifyJurispediaSafety } from "./jurispedia-policy";
 import { deriveCopilotApproach, pickCopilotPersona, copilotGuidance } from "./cm-editorial";
-import { cmCoverageStatus, cmHasHumanWork, cmHash, cmInputHash, cmIsFresh, cmObject, cmSelectBatch, cmStamp } from "./cm-freshness";
+import { cmCoverageStatus, cmHasHumanWork, cmHash, cmInputHash, cmManualInputHash, cmIsFresh, cmObject, cmSelectBatch, cmStamp } from "./cm-freshness";
 import { loadCMVersion } from "./cm-version";
+import { currentManualFingerprint } from "./cm-fast-admission";
 
 export const CM_ACTIVE_STATUSES = ["NEW", "NEEDS_REVIEW", "DRAFTED", "APPROVED"] as const;
 const LEASE_MS = 15 * 60_000;
@@ -45,7 +47,7 @@ export async function loadCMCoverage(db: PrismaClient, clientId: string, version
       where: { clientId, ...operationalOpportunityWhere(), status: { in: [...CM_ACTIVE_STATUSES] }, publishingLogs: { none: {} } },
       select: { id: true, sourceText: true, sourceTitle: true, channelId: true, detectedIntent: true, detectedProductId: true, detectedBrandId: true,
         contextAssessment: true, priority: true, createdAt: true,
-        responses: { orderBy: { createdAt: "desc" }, select: { id: true, evidence: true, editedText: true, approvedBy: true,
+        responses: { orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: { id: true, evidence: true, editedText: true, approvedBy: true,
           acceptedAsCorrectAt: true, isPrimary: true, chatHistory: true, publishingLog: { select: { id: true } } } } },
     }),
     db.appSetting.findMany({ where: { key: { startsWith: `cm.maintenance.error.${clientId}.` } } }),
@@ -69,31 +71,37 @@ const include = {
 } satisfies Prisma.OpportunityInclude;
 
 /** No public publishing call is reachable from this maintenance path. */
-export async function refreshCMOpportunity(db: PrismaClient, clientId: string, id: string, owner: string = randomUUID()) {
+export async function refreshCMOpportunity(db: PrismaClient, clientId: string, id: string, owner: string = randomUUID(), manual?: { responseId?: string; productId?: string; chatHistory?: Prisma.JsonArray; expectedHash: string; inputVersion?: string; jobId: string }) {
   const before = await db.opportunity.findUniqueOrThrow({ where: { id }, include });
   if (before.clientId !== clientId || !CM_ACTIVE_STATUSES.includes(before.status as typeof CM_ACTIVE_STATUSES[number])
     || before.responses.some((response) => response.publishingLog)) return "skipped";
-  const version = await loadCMVersion(db, clientId);
-  if (before.responses.some((response) => cmIsFresh(response.evidence, version, before))) return "skipped";
+  const timing = operationTiming("cm-generation", manual?.jobId);
+  const version = await timing.measure("context-version", () => loadCMVersion(db, clientId));
+  if (manual) {
+    const fingerprint = manual.expectedHash.startsWith("db-v1:") ? await currentManualFingerprint(db, id, clientId) : cmManualInputHash(before);
+    if (fingerprint !== manual.expectedHash || (manual.inputVersion && version !== manual.inputVersion)) return "changed";
+  }
+  if (!manual && before.responses.some((response) => cmIsFresh(response.evidence, version, before))) return "skipped";
   const input = cmInputHash(before);
   const stateKey = `cm.maintenance.error.${clientId}.${id}`;
   const previousState = cmState((await db.appSetting.findUnique({ where: { key: stateKey } }))?.value);
-  if (!cmCanRetry(previousState, version, input)) return "skipped";
+  if (!manual && !cmCanRetry(previousState, version, input)) return "skipped";
   await db.draftJob.upsert({ where: { opportunityId: id }, create: { opportunityId: id, clientId }, update: {} });
+  const leaseMs = manual ? 120_000 : LEASE_MS;
   const claim = await db.draftJob.updateMany({ where: { opportunityId: id, clientId,
     OR: [{ status: { not: "PROCESSING" } }, { leaseUntil: { lt: new Date() } }] },
-    data: { status: "PROCESSING", lockedBy: owner, leaseUntil: new Date(Date.now() + LEASE_MS), attempts: { increment: 1 }, lastError: "" } });
-  if (!claim.count) return "skipped";
+    data: { status: "PROCESSING", lockedBy: owner, leaseUntil: new Date(Date.now() + leaseMs), attempts: { increment: 1 }, lastError: "" } });
+  if (!claim.count) return manual ? "busy" : "skipped";
 
   const heartbeat = setInterval(() => {
     db.draftJob.updateMany({ where: { opportunityId: id, lockedBy: owner, status: "PROCESSING" },
-      data: { leaseUntil: new Date(Date.now() + LEASE_MS) } }).catch(() => {});
-  }, 30_000);
+      data: { leaseUntil: new Date(Date.now() + leaseMs) } }).catch(() => {});
+  }, manual ? 20_000 : 30_000);
   try {
     const context = await loadClientContext(db, clientId, before);
-    const selected = before.responses.find((response) => response.isPrimary) ?? before.responses[0];
+    const selected = (manual?.responseId ? before.responses.find(response => response.id === manual.responseId) : undefined) ?? before.responses.find((response) => response.isPrimary) ?? before.responses[0];
     const copilot = cmObject(cmObject(before.contextAssessment).copilot);
-    const choice = cmObject(copilot.productChoice);
+    const choice = manual?.productId !== undefined ? { productId: manual.productId || null } : cmObject(copilot.productChoice);
     const hasChoice = choice.productId === null || typeof choice.productId === "string";
     const product = hasChoice
       ? context.catalogProducts.find((entry) => entry.id === choice.productId) ?? null
@@ -119,7 +127,7 @@ export async function refreshCMOpportunity(db: PrismaClient, clientId: string, i
       getAcceptedExamples(db, { clientId, brandId: brand.id, limit: 5 }), loadObservedProfileContext(db, id),
       loadRelevantCompetitorEvidence(db, clientId, before.sourceText),
     ]);
-    const history = Array.isArray(selected?.chatHistory) ? selected.chatHistory : [];
+    const history = manual?.chatHistory ?? (Array.isArray(selected?.chatHistory) ? selected.chatHistory : []);
     const refinementGuidance = history.map(cmObject).filter((message) => message.sender === "user" && typeof message.text === "string")
       .map((message) => String(message.text)).slice(-20);
     if (selected && cmHasHumanWork(selected)) refinementGuidance.push(`Conservá el criterio de esta respuesta revisada por el operador y actualizá solo lo necesario: ${selected.editedText || selected.draftText}`);
@@ -131,7 +139,7 @@ export async function refreshCMOpportunity(db: PrismaClient, clientId: string, i
       acceptedExamples, observedProfile, competitorEvidence, refinementGuidance,
       editorialGuidance: copilotGuidance({ copilot: { goal, style } }), productChosenByCm: hasChoice && Boolean(product),
     };
-    const ai = context.client.slug === "jurispedia" ? null : await generateAICopilotDraft(ctx);
+    const ai = !manual && context.client.slug === "jurispedia" ? null : await timing.measure("ai", () => generateAICopilotDraft(ctx));
     // Maintenance retries outages instead of replacing a human draft with a local template.
     if (!ai && context.client.slug !== "jurispedia") throw new Error("La IA no devolvió una propuesta válida. Se conserva la respuesta anterior.");
     const draft = ai ?? generateLocalDrafts(ctx).find((variant) => variant.variantType === "SHORT");
@@ -141,27 +149,34 @@ export async function refreshCMOpportunity(db: PrismaClient, clientId: string, i
     if (crossClient.length) throw new Error(`La propuesta mezcla datos de otro cliente: ${crossClient.join("; ")}`);
     // Prompt/catalog may have changed while the model was thinking.
     if (await loadCMVersion(db, clientId) !== version) return "changed";
-    const result = await db.$transaction(async (tx) => {
+    const result = await timing.measure("persist", () => db.$transaction(async (tx) => {
       const current = await tx.opportunity.findUniqueOrThrow({ where: { id }, include });
       const lease = await tx.draftJob.findUnique({ where: { opportunityId: id } });
       if (lease?.lockedBy !== owner || !lease.leaseUntil || lease.leaseUntil < new Date()
         || current.clientId !== clientId || !CM_ACTIVE_STATUSES.includes(current.status as typeof CM_ACTIVE_STATUSES[number])
         || cmInputHash(current) !== input || current.updatedAt.getTime() !== before.updatedAt.getTime()
         || cmHash(current.responses) !== cmHash(before.responses)) return "changed";
+      if (manual) {
+        const job = await tx.cMManualJob.findUnique({ where: { id: manual.jobId } });
+        if (job?.status !== "RUNNING" || job.lockedBy !== owner || !job.leaseUntil || job.leaseUntil < new Date()) return "changed";
+      }
       const protectedResponse = selected && cmHasHumanWork(selected);
       // Keep every prior response and chat in Postgres. The new proposal requires human review.
       if (!protectedResponse) await tx.response.updateMany({ where: { opportunityId: id }, data: { isPrimary: false } });
       else await tx.response.update({ where: { id: selected.id }, data: { isPrimary: true } });
-      await tx.response.create({ data: {
+      const created = await tx.response.create({ data: {
         opportunityId: id, brandId: brand.id, personaId: persona.id, variantType: "SHORT", draftText: text,
-        riskNotes: draft.riskNotes, isPrimary: !protectedResponse, evidence: [cmStamp(version, current, ai ? "ai" : "local")],
+        riskNotes: draft.riskNotes, isPrimary: !protectedResponse, evidence: [cmStamp(version, manual?.productId !== undefined && !protectedResponse ? { ...current, detectedProductId: product?.id ?? null, detectedBrandId: brand.id, contextAssessment: { ...cmObject(current.contextAssessment), copilot: { ...copilot, productChoice: { productId: product?.id ?? null } } } } : current, ai ? "ai" : "local")],
         // Corrections inform generation; the original chat remains attached to its original response.
-        chatHistory: selected?.chatHistory ?? [],
+        chatHistory: history,
       } });
-      await tx.opportunity.update({ where: { id }, data: { status: protectedResponse ? current.status : "DRAFTED" } });
+      await tx.opportunity.update({ where: { id }, data: { status: protectedResponse ? current.status : "DRAFTED",
+        ...(manual?.productId !== undefined && !protectedResponse ? { detectedProductId: product?.id ?? null, detectedBrandId: brand.id,
+          contextAssessment: { ...cmObject(before.contextAssessment), copilot: { ...copilot, productChoice: { productId: product?.id ?? null } } } as Prisma.InputJsonValue } : {}) } });
+      if (manual) await tx.cMManualJob.update({ where: { id: manual.jobId }, data: { status: "SUCCEEDED", leaseUntil: null, result: { responseId: created.id, review: Boolean(protectedResponse) } } });
       await tx.appSetting.upsert({ where: { key: stateKey }, create: { key: stateKey, value: "null" }, update: { value: "null" } });
       return protectedResponse ? "review" : "generated";
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
     return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

@@ -12,6 +12,7 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("@/lib/cm-action-guard", () => ({ assertCurrentCMResponse: vi.fn(async () => {}) }));
 vi.mock("@/lib/auth-guards", () => ({
   requireOwnedClientId: vi.fn(async (clientId: string) => {
     if (clientId !== "client-1") throw new Error("Sin acceso a este cliente.");

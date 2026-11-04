@@ -39,4 +39,13 @@ describe("versionado de reglas y contenido por cliente", () => {
     expect(selection[0]).toMatchObject({ select: { responsePolicy: true } });
     expect(JSON.stringify(selection)).not.toContain("ApiKey");
   });
+  it("excluye únicamente el aprendizaje de la propia revisión al verificarla", async () => {
+    const f = fixture(); const original = await loadCMVersion(f.db, "client");
+    f.mock.clientMemory.findMany.mockResolvedValue([{ id: "memory", responseId: "own", rule: "Corrección propia" }] as never);
+    f.mock.response.findMany.mockResolvedValue([{ id: "own", editedText: "Respuesta aceptada" }] as never);
+    expect(await loadCMVersion(f.db, "client")).not.toBe(original);
+    expect(await loadCMVersion(f.db, "client", { excludeFeedbackFromResponseId: "own" })).toBe(original);
+    f.product.stockStatus = "Sin stock";
+    expect(await loadCMVersion(f.db, "client", { excludeFeedbackFromResponseId: "own" })).not.toBe(original);
+  });
 });

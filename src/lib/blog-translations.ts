@@ -1,3 +1,4 @@
+import { indexedBlogMetadata } from "./performance-flags";
 import type { Prisma, PrismaClient } from "@prisma/client";
 import { BLOG_LANGUAGES, blogLanguage, type BlogLanguage } from "@/lib/blog-language";
 
@@ -33,6 +34,10 @@ export function articleLanguageInfo(htmlContent: string): { language: BlogLangua
 }
 
 export async function findTranslations(db: Db, clientId: string, landingId: string, { includeArchived = false } = {}) {
+  if (indexedBlogMetadata()) {
+    const rows = await db.landing.findMany({ where: { clientId, translationOfId: landingId, ...(!includeArchived ? { status: { not: "ARCHIVED" as const } } : {}) }, select: { id: true, titulo: true, status: true, slug: true, language: true } });
+    return rows.map(row => ({ ...row, language: blogLanguage(row.language) }));
+  }
   const rows = await db.landing.findMany({ where: { clientId, ...(!includeArchived ? { status: { not: "ARCHIVED" } } : {}), ...translationOfFilter(landingId) }, select: { id: true, titulo: true, status: true, slug: true, htmlContent: true } });
   // `contains` es una búsqueda de texto: se confirma con el JSON real.
   return rows.flatMap(row => { const info = articleLanguageInfo(row.htmlContent); return info.translationOf === landingId ? [{ id: row.id, titulo: row.titulo, status: row.status, slug: row.slug, language: info.language }] : []; });
