@@ -1529,8 +1529,6 @@ def apply_editorial_metadata(topic: dict, landing: dict, cluster: dict | None) -
     focus_id = comparison["product_id"] if comparison else topic.get("focus_product_id")
     if comparison:
         landing["comparison"] = dict(comparison)
-        if comparison.get("mode") in ("free", "priority"):
-            landing["requires_manual_approval"] = True
     if focus_id:
         ids = [pid for pid in landing.get("product_ids") or [] if pid != focus_id]
         landing["product_ids"] = [focus_id, *ids]
@@ -2715,7 +2713,6 @@ def apply_day_plan_checks(landing: dict, topic: dict) -> dict:
     if comparison_mode in ("free", "priority"):
         message = "Datos del rival escritos por la IA: verificalos antes de publicar." if comparison_mode == "free" else "Comparativa con un rival prioritario: verificá el contenido antes de publicar."
         checks.append({"id": "competitor-claims", "group": "Comparativa", "level": "warning", "message": message})
-        landing["requires_manual_approval"] = True
     return landing
 
 

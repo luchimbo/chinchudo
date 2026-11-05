@@ -483,7 +483,6 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
       const result = await prisma.blogPublication.findUnique({ where: { id: empty.id } });
       if (result?.status === "FAILED" && result.landingId) return;
       if (result?.status !== "READY") throw new Error("El generador no produjo un artículo válido para esta fecha.");
-      if (plan.competitor && !result.requiresApproval) await prisma.blogPublication.updateMany({ where: { id: empty.id, status: "READY", landingId: result.landingId }, data: { requiresApproval: true, approvedAt: null } });
       log.log(`[blog] Artículo preparado para ${day}`);
     } catch (error) {
       await failPreparation(prisma, empty.id, client.id, metadata, error, now());
@@ -537,10 +536,7 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
       if (active && config.autoApprove === true) {
         const pending = await prisma.blogPublication.findMany({ where: { clientId: client.id, requiresApproval: true, scheduledDate: { gte: dateValue(local.date) }, status: { in: ["READY", "FAILED"] }, attempts: { lt: 3 }, landing: { isNot: null } }, include: { landing: true }, orderBy: { scheduledDate: "asc" } });
         for (const slot of pending) {
-          // Los datos del rival los escribe la IA: siempre los revisa una persona.
-          if (dayPlanArgs(slot.preparation).competitor) continue;
           try {
-            if (JSON.parse(slot.landing.htmlContent || "{}").comparison?.mode === "priority") continue;
             await autoApproveArticle(client, slot);
           }
           catch (error) {

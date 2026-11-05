@@ -137,7 +137,7 @@ def test_operator_competitor_builds_free_comparison_without_asking_the_ai(schedu
     assert "Arturia MiniLab 3 vs Novation Launchkey 25" in user and "Para quien arranca a producir" in user
     landing = saved[0][0]
     assert landing["comparison"] == {"product_id": "minilab-3", "competitor": "Novation Launchkey 25", "competitor_brand": "Novation", "mode": "free", "notes": "Tiene modo Scale."}
-    assert landing["requires_manual_approval"] is True
+    assert not landing.get("requires_manual_approval")
     checks = {check["id"]: check for check in landing["editorial_quality"]["checks"]}
     assert checks["competitor-claims"]["level"] == "warning"
     assert checks["competitor-claims"]["message"] == "Datos del rival escritos por la IA: verificalos antes de publicar."
@@ -159,14 +159,14 @@ def test_priority_competitors_are_selected_and_require_review(scheduled, monkeyp
     bl.generate_landings(limit=1, model="test", schedule_date="2026-10-01", intent="decision")
     assert saved[0][0]["comparison"]["competitor"] == "Roland FP-10"
     assert saved[0][0]["comparison"]["mode"] == "priority"
-    assert saved[0][0]["requires_manual_approval"] is True
+    assert not saved[0][0].get("requires_manual_approval")
     assert "COMPARATIVA:" in prompts[-1][0]
     assert "COMPARATIVA ELEGIDA POR EL EQUIPO" not in prompts[-1][0]
     prior = [{"comparison": {"competitor": "Roland FP-10"}}]
     choice = bl.choose_comparison(CATEGORIES, {"minilab-3": PRODUCTS["minilab-3"]}, prior, "test", ["Roland FP-10", "Yamaha P-225"])
     assert choice == {"product_id": "minilab-3", "competitor": "Yamaha P-225", "competitor_brand": "Yamaha", "mode": "priority"}
     landing = bl.apply_editorial_metadata({"comparison": choice}, {"product_ids": []}, CLUSTERS[0])
-    assert landing["requires_manual_approval"] is True
+    assert not landing.get("requires_manual_approval")
 
 
 def test_excluded_product_named_in_text_is_an_error():
