@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { confirmYouTubeNotPublished, discardCopilotOpportunity, generateCopilotDrafts, markCopilotResponse, publishCopilotYouTubeResponse, regenerateCopilotResponse } from "@/app/(app)/opportunities/actions";
@@ -17,15 +17,45 @@ import { LoadingSpinner } from "@/components/loading-ui";
 import { COPILOT_MAX_CHARACTERS, COPILOT_TARGET_CHARACTERS } from "@/lib/copilot-limits";
 
 type Response = { id: string; text: string; variantType: string; isPrimary: boolean; persona: string; acceptedAsCorrect: boolean; chatHistory: ChatMessage[]; fresh: boolean };
-type Opportunity = { coverageRevision?: string; id: string; text: string; title: string; notes: string; author: string; sourceUrl: string; channel: string; brand: string; product: string; productId: string; createdAt: string; status: string; responses: Response[]; freshness: string; refreshError: string };
+type Opportunity = { priorityReasons?: string[]; coverageRevision?: string; id: string; text: string; title: string; notes: string; author: string; sourceUrl: string; channel: string; brand: string; product: string; productId: string; createdAt: string; status: string; responses: Response[]; freshness: string; refreshError: string };
 type Coverage = { missing: number; stale: number; fresh: number; review: number; error: number; total: number };
 type ProductOption = { id: string; name: string; brand: string };
 type ProductChoice = { id: string; name: string };
 type CompletionKind = "youtube" | "manual" | "discarded";
-type CompletedOpportunity = { id: string; kind: CompletionKind; position: number; visible: boolean; moveFocus: boolean };
+type ReceiptKind = CompletionKind | "saved";
+type CompletedOpportunity = { id: string; kind: ReceiptKind; position: number; visible: boolean; moveFocus: boolean; nextIds: string[] };
+type QueuePage = { page: number; nextId?: string; focusId?: string; targetMissing: boolean; pendingFilter?: boolean };
 type WorkspaceItem = { type: "opportunity"; opportunity: Opportunity; position: number } | { type: "completed"; completion: CompletedOpportunity };
 
 const NO_PRODUCT_LABEL = "Sin producto específico";
+const EMPTY_COMPLETIONS: CompletedOpportunity[] = [];
+const completionListeners = new Set<() => void>();
+let completionScope = "";
+let completionSnapshot = EMPTY_COMPLETIONS;
+
+function subscribeToCompletions(listener: () => void) {
+  completionListeners.add(listener);
+  return () => { completionListeners.delete(listener); };
+}
+
+function updateCompletions(scope: string, update: (current: CompletedOpportunity[]) => CompletedOpportunity[]) {
+  if (completionScope !== scope) return;
+  completionSnapshot = update(completionSnapshot);
+  completionListeners.forEach(listener => listener());
+}
+
+function useQueueCompletions(scope: string) {
+  // Las Server Actions pueden remontar la cola al revalidar la página.
+  const completed = useSyncExternalStore(subscribeToCompletions,
+    () => completionScope === scope ? completionSnapshot : EMPTY_COMPLETIONS,
+    () => EMPTY_COMPLETIONS);
+  useEffect(() => {
+    if (completionScope === scope) return;
+    completionScope = scope;
+    updateCompletions(scope, () => EMPTY_COMPLETIONS);
+  }, [scope]);
+  return completed;
+}
 
 function normalizeSearch(text: string) {
   return text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -369,7 +399,7 @@ function ResponseCard({ response, text, setText, chatHistory, opportunityId, sou
   </div>;
 }
 
-function ResponseWithChat({ response, opportunityId, sourceUrl, channel, clientSlug, youtube, productPicker, onCompleted, onDirtyChange }: { response: Response; opportunityId: string; sourceUrl: string; channel: string; clientSlug: string; youtube: { account: string; connected: boolean; channelTitle: string } | null; productPicker: React.ReactNode; onCompleted: (kind: CompletionKind, moveFocus: boolean) => void; onDirtyChange?: (dirty: boolean) => void }) {
+function ResponseWithChat({ response, opportunityId, sourceUrl, channel, clientSlug, youtube, productPicker, onCompleted, onDirtyChange, onSaved }: { response: Response; opportunityId: string; sourceUrl: string; channel: string; clientSlug: string; youtube: { account: string; connected: boolean; channelTitle: string } | null; productPicker: React.ReactNode; onCompleted: (kind: CompletionKind, moveFocus: boolean) => void; onDirtyChange?: (dirty: boolean) => void; onSaved: () => void }) {
   // El texto vive acá para que el chat pueda reemplazar la versión editable.
   const runtime = useCMRuntime();
   const [chatOpen, setChatOpen] = useState(!runtime.optimized);
@@ -389,7 +419,7 @@ function ResponseWithChat({ response, opportunityId, sourceUrl, channel, clientS
   const [chatHistory, setChatHistory] = useState(response.chatHistory);
   return <div className="grid gap-4 lg:grid-cols-2">
     <ResponseCard response={response} text={text} setText={setText} chatHistory={chatOpen ? chatHistory : undefined} opportunityId={opportunityId} sourceUrl={sourceUrl} channel={channel} clientSlug={clientSlug} youtube={youtube} productPicker={productPicker} onCompleted={onCompleted} />
-    {chatOpen ? <div><RefinementChat responseId={response.id} clientSlug={clientSlug} currentText={text} initialHistory={chatHistory} acceptedAsCorrect={response.acceptedAsCorrect} onApplyResponse={setText} onHistoryChange={setChatHistory} />{variants.length ? <details className="mt-4"><summary className="cursor-pointer text-sm font-semibold">Otras propuestas ({variants.length})</summary>{variants.map(variant => <article key={variant.id} className="mt-3 rounded-lg border border-ink/10 p-3"><p className="whitespace-pre-wrap text-sm">{variant.text}</p><button type="button" onClick={() => setText(variant.text)} className="mt-2 text-xs font-bold text-moss">Usar este texto como edición</button></article>)}</details> : null}</div> : <div><button type="button" disabled={chatLoading} onClick={openChat} className="rounded-lg border border-ink/15 p-3 text-sm">{chatLoading ? "Cargando conversación…" : "Abrir conversación y variantes"}</button>{chatError ? <p role="alert">{chatError}</p> : null}</div>}
+    {chatOpen ? <div><RefinementChat responseId={response.id} clientSlug={clientSlug} currentText={text} initialHistory={chatHistory} acceptedAsCorrect={response.acceptedAsCorrect} onApplyResponse={setText} onHistoryChange={setChatHistory} onSaved={onSaved} />{variants.length ? <details className="mt-4"><summary className="cursor-pointer text-sm font-semibold">Otras propuestas ({variants.length})</summary>{variants.map(variant => <article key={variant.id} className="mt-3 rounded-lg border border-ink/10 p-3"><p className="whitespace-pre-wrap text-sm">{variant.text}</p><button type="button" onClick={() => setText(variant.text)} className="mt-2 text-xs font-bold text-moss">Usar este texto como edición</button></article>)}</details> : null}</div> : <div><button type="button" disabled={chatLoading} onClick={openChat} className="rounded-lg border border-ink/15 p-3 text-sm">{chatLoading ? "Cargando conversación…" : "Abrir conversación y variantes"}</button>{chatError ? <p role="alert">{chatError}</p> : null}</div>}
   </div>;
 }
 
@@ -409,68 +439,46 @@ function AuthorLine({ author, channel, sourceUrl }: { author: string; channel: s
   </div>;
 }
 
-function CompletedOpportunityCard({ completion, clientSlug, onDismiss }: { completion: CompletedOpportunity; clientSlug: string; onDismiss: (id: string) => void }) {
-  const remainingMs = useRef(8_000);
-  const startedAt = useRef(0);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hovered = useRef(false);
-  const focused = useRef(false);
+function NextOpportunity({ href, onNavigate }: { href?: string; onNavigate?: () => void }) {
+  return href ? <Link href={href} prefetch={false} scroll={false} onClick={event => {
+      if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) onNavigate?.();
+    }}
+    className="inline-flex min-h-11 items-center rounded-full bg-moss px-4 text-sm font-bold text-white hover:bg-moss/85">
+    Ir a la siguiente <span aria-hidden="true" className="ml-2">→</span>
+  </Link> : <p className="text-sm text-slate">No hay otra oportunidad para revisar.</p>;
+}
+
+function CompletedOpportunityCard({ completion, clientSlug, nextHref, onDismiss }: {
+  completion: CompletedOpportunity; clientSlug: string; nextHref?: string; onDismiss: (id: string) => void;
+}) {
   const cardRef = useRef<HTMLElement>(null);
   const titleId = useId();
 
-  const pauseTimer = useCallback(() => {
-    if (!timer.current) return;
-    clearTimeout(timer.current);
-    timer.current = null;
-    remainingMs.current = Math.max(0, remainingMs.current - (Date.now() - startedAt.current));
-  }, []);
-
   useEffect(() => {
-    startedAt.current = Date.now();
-    timer.current = setTimeout(() => onDismiss(completion.id), remainingMs.current);
-    if (completion.moveFocus) {
-      // Quien envió con teclado perdió el botón que tenía el foco: lo llevamos a la confirmación (pausa el temporizador mientras lo tenga).
-      cardRef.current?.focus();
-      if (focused.current) pauseTimer();
-    }
-    return () => {
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = null;
-    };
-  }, [completion.id, completion.moveFocus, onDismiss, pauseTimer]);
-
-  function resumeTimer() {
-    if (hovered.current || focused.current || timer.current) return;
-    startedAt.current = Date.now();
-    timer.current = setTimeout(() => onDismiss(completion.id), remainingMs.current);
-  }
+    if (completion.moveFocus) cardRef.current?.focus();
+  }, [completion.moveFocus]);
 
   return <article
     ref={cardRef}
     tabIndex={-1}
-    role="status"
-    aria-live="polite"
     aria-labelledby={titleId}
-    onMouseEnter={() => { hovered.current = true; pauseTimer(); }}
-    onMouseLeave={() => { hovered.current = false; resumeTimer(); }}
-    onFocusCapture={() => { focused.current = true; pauseTimer(); }}
-    onBlurCapture={(event) => {
-      if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-      focused.current = false;
-      resumeTimer();
-    }}
     className="flex flex-wrap items-start justify-between gap-4 rounded-2xl border border-moss/35 bg-moss/[0.08] px-5 py-5 shadow-panel focus:outline-none focus-visible:ring-2 focus-visible:ring-moss/60 focus-visible:ring-offset-2"
   >
     <div>
-      <p id={titleId} className="text-base font-bold text-moss">✓{completion.kind === "youtube" ? "Comentario publicado en YouTube" : completion.kind === "discarded" ? "Oportunidad descartada" : "Respuesta registrada"}</p>
-      <p className="mt-1 text-sm text-ink/75">La oportunidad salió de la bandeja y quedó en Historial.</p>
-      <Link href={clientSlug ? `/historial?client=${encodeURIComponent(clientSlug)}` : "/historial"} className="mt-3 inline-block text-sm font-bold text-moss underline underline-offset-4 hover:text-ink">Ver en Historial →</Link>
+      <p id={titleId} role="status" className="text-base font-bold text-moss">✓{completion.kind === "youtube" ? "Comentario publicado en YouTube" : completion.kind === "discarded" ? "Oportunidad descartada" : completion.kind === "saved" ? "Respuesta guardada" : "Respuesta registrada"}</p>
+      {completion.kind !== "saved" ? <>
+        <p className="mt-1 text-sm text-ink/75">La oportunidad salió de la bandeja y quedó en Historial.</p>
+        <Link href={clientSlug ? `/historial?client=${encodeURIComponent(clientSlug)}` : "/historial"} className="mt-3 inline-block text-sm font-bold text-moss underline underline-offset-4 hover:text-ink">Ver en Historial →</Link>
+      </> : null}
     </div>
-    <button type="button" onClick={() => onDismiss(completion.id)} className="rounded-full border border-moss/30 px-3 py-1.5 text-xs font-bold text-moss transition hover:bg-moss/10">Cerrar</button>
+    <div className="flex flex-wrap items-center gap-3">
+      <NextOpportunity href={nextHref} onNavigate={() => onDismiss(completion.id)} />
+      <button type="button" onClick={() => onDismiss(completion.id)} className="rounded-full border border-moss/30 px-3 py-1.5 text-xs font-bold text-moss transition hover:bg-moss/10">Cerrar</button>
+    </div>
   </article>;
 }
 
-function OpportunityCard({ opportunity: initialOpportunity, clientSlug, youtube, products, onCompleted }: { opportunity: Opportunity; clientSlug: string; youtube: { account: string; connected: boolean; channelTitle: string } | null; products: ProductOption[]; onCompleted: (kind: CompletionKind, moveFocus: boolean) => void }) {
+function OpportunityCard({ opportunity: initialOpportunity, clientSlug, youtube, products, onCompleted, onSaved, savedAction }: { opportunity: Opportunity; clientSlug: string; youtube: { account: string; connected: boolean; channelTitle: string } | null; products: ProductOption[]; onCompleted: (kind: CompletionKind, moveFocus: boolean) => void; onSaved: () => void; savedAction?: React.ReactNode }) {
   const runtime = useCMRuntime();
   const dirty = useRef(false);
   const [updatePending, setUpdatePending] = useState(false);
@@ -514,6 +522,20 @@ function OpportunityCard({ opportunity: initialOpportunity, clientSlug, youtube,
     return () => { stopped = true; controller?.abort(); window.removeEventListener("cm-opportunity-changed", changed); window.removeEventListener("cm-coverage-updated", covered); };
   }, [clientSlug, initialOpportunity.id, runtime.optimized, runtime.queue]);
   const [discardOpen, setDiscardOpen] = useState(false);
+  const [discardError, setDiscardError] = useState("");
+
+  async function discard(data: FormData) {
+    const active = document.activeElement;
+    const keyboardSubmit = active instanceof HTMLElement && active.matches(":focus-visible");
+    setDiscardError("");
+    try {
+      await discardCopilotOpportunity(data);
+      const focusStayedHere = document.activeElement === active || document.activeElement === document.body;
+      onCompleted("discarded", keyboardSubmit && focusStayedHere);
+    } catch {
+      setDiscardError("No se pudo descartar la oportunidad. Actualizá la cola antes de volver a intentar.");
+    }
+  }
   const [generateChoice, setGenerateChoice] = useState<ProductChoice | null>(null);
   const currentProduct = { id: opportunity.productId, name: opportunity.product || NO_PRODUCT_LABEL };
   const date = new Date(opportunity.createdAt).toLocaleDateString("es-AR", { day: "numeric", month: "short" });
@@ -529,10 +551,13 @@ function OpportunityCard({ opportunity: initialOpportunity, clientSlug, youtube,
   const [reasonOpen, setReasonOpen] = useState(false);
 
   // Sin overflow-hidden: el desplegable de productos tiene que poder salir de la tarjeta.
-  return <article id={`op-${opportunity.id}`} className="scroll-mt-6 break-words rounded-2xl border border-ink/10 bg-white/85 shadow-panel">
+  return <article id={`op-${opportunity.id}`} tabIndex={-1} aria-label={opportunity.title || opportunity.author || "Oportunidad para revisar"} className="scroll-mt-6 focus-visible:ring-2 focus-visible:ring-moss break-words rounded-2xl border border-ink/10 bg-white/85 shadow-panel">
     <div className="border-b border-ink/10 px-5 py-4"><div className="flex flex-wrap items-center justify-between gap-3 text-xs font-semibold text-slate/70"><div className="flex flex-wrap items-center gap-2"><span className="rounded-full bg-ink/7 px-2.5 py-1 text-ink">{opportunity.channel}</span>{opportunity.product ? <span className="text-slate/50">{opportunity.product}</span> : null}</div><span>{date}</span></div><AuthorLine author={opportunity.author} channel={opportunity.channel} sourceUrl={opportunity.sourceUrl} /><div className="mt-3 max-w-3xl">{videoTitle ? <p className="font-display text-lg font-bold leading-6 text-ink">{videoTitle}</p> : <ExpandableText text={cleanPreview(opportunity.text)} limit={240} className="whitespace-pre-wrap text-[15px] leading-7 text-slate/80" />}</div><div className="mt-4 flex flex-wrap items-center gap-2"><a href={opportunity.sourceUrl} target="_blank" rel="noreferrer" className="rounded-full border border-ink/15 px-3 py-1.5 text-xs font-bold text-ink transition hover:border-ink/40">Abrir fuente</a>{aiReason ? <button type="button" onClick={() => setReasonOpen((value) => !value)} className="flex items-center gap-1 px-2 py-1.5 text-xs font-semibold text-slate/65 underline decoration-slate/25 underline-offset-4 hover:text-ink">Razón IA<span aria-hidden="true" className={`transition-transform ${reasonOpen ? "rotate-180" : ""}`}>▾</span></button> : null}</div>{aiReason && reasonOpen ? <div className="mt-3 max-w-3xl rounded-md bg-paper p-3 text-sm leading-6 text-slate">{aiReason}</div> : null}</div>
     <div className="px-5 py-5">
       <CMJobStatus opportunityId={opportunity.id} />
+      {initialOpportunity.priorityReasons?.length ? <ul aria-label="Motivos de prioridad" className="mb-3 flex flex-wrap gap-2">
+        {initialOpportunity.priorityReasons.map(reason => <li key={reason} className="rounded-full bg-moss/10 px-3 py-1 text-xs font-semibold text-ink">{reason}</li>)}
+      </ul> : null}
       {updatePending ? <p role="status" className="mb-3 text-xs text-moss">La oportunidad cambió. Tu edición se conserva. Podés revisar las propuestas guardadas abajo.</p> : null}
       <p className={`mb-3 text-xs font-semibold ${opportunity.freshness === "fresh" ? "text-moss" : "text-slate"}`}>
         {opportunity.freshness === "fresh" ? "Respuesta actualizada" : opportunity.freshness === "review" ? "Hay una propuesta actualizada para revisar. Tu respuesta anterior se conserva." : opportunity.freshness === "error" ? "No se pudo actualizar. Se volverá a intentar; podés regenerar manualmente." : opportunity.freshness === "stale" ? "Pendiente de actualización con las reglas actuales" : "Pendiente de generación automática"}
@@ -544,40 +569,66 @@ function OpportunityCard({ opportunity: initialOpportunity, clientSlug, youtube,
         {generateChoice ? <input type="hidden" name="productId" value={generateChoice.id} /> : null}
         <PendingSubmit pendingLabel="Generando respuesta..." className="rounded-full bg-ink px-4 py-2.5 text-sm font-bold text-paper transition hover:bg-slate">Generar respuesta</PendingSubmit>
         <p className="mt-2 text-xs text-slate/70">{generateChoice ? `Se genera con ${generateChoice.id ? `las características de ${generateChoice.name}` : "ningún producto específico"}, además de lo que la IA aprendió de los chats.` : "Se genera con las reglas y respuestas correctas que la IA aprendió de los chats. Después la podés ajustar acá mismo."}</p>
-      </form> : <ResponseWithChat onDirtyChange={onDirtyChange} key={`${response.id}:${response.text}`} response={response} opportunityId={opportunity.id} sourceUrl={opportunity.sourceUrl} channel={opportunity.channel} clientSlug={clientSlug} youtube={youtube} productPicker={(runtime.optimized || products.length > 0) ? <ProposalProductPicker opportunityId={opportunity.id} responseId={response.id} products={products} current={currentProduct} /> : null} onCompleted={onCompleted} />}
+      </form> : <ResponseWithChat onDirtyChange={onDirtyChange} key={`${response.id}:${response.text}`} response={response} opportunityId={opportunity.id} sourceUrl={opportunity.sourceUrl} channel={opportunity.channel} clientSlug={clientSlug} youtube={youtube} productPicker={(runtime.optimized || products.length > 0) ? <ProposalProductPicker opportunityId={opportunity.id} responseId={response.id} products={products} current={currentProduct} /> : null} onCompleted={onCompleted} onSaved={onSaved} />}
       {updatePending ? <details className="mt-4 rounded-lg border border-moss/20 bg-paper p-3"><summary className="cursor-pointer text-sm font-semibold text-moss">Ver propuestas guardadas</summary>
         {pendingResponses.length ? pendingResponses.map(saved => <section key={saved.id} className="mt-3 rounded-lg border border-ink/10 bg-white p-3"><p className="whitespace-pre-wrap text-sm text-ink">{saved.text}</p><button type="button" className="mt-2 text-xs font-semibold text-moss" onClick={async () => { await copyToClipboard(saved.text); setCopiedProposal(saved.id); }}>{copiedProposal === saved.id ? "Copiado" : "Copiar texto"}</button></section>) : <p className="mt-2 text-xs text-slate">Ya no hay propuestas guardadas para esta oportunidad.</p>}
       </details> : null}
-      {updatedProposal ? <div className="mt-6 rounded-xl border border-moss/25 bg-moss/[0.04] p-4"><h3 className="mb-3 text-sm font-bold text-moss">Propuesta actualizada para revisar</h3><ResponseWithChat key={updatedProposal.id} response={updatedProposal} opportunityId={opportunity.id} sourceUrl={opportunity.sourceUrl} channel={opportunity.channel} clientSlug={clientSlug} youtube={youtube} productPicker={null} onCompleted={onCompleted} /></div> : null}
-      <div className="mt-4">{discardOpen ? <form action={async data => { await discardCopilotOpportunity(data); onCompleted("discarded", false); }} className="flex flex-wrap items-center gap-2 rounded-xl border border-signal/20 bg-signal/[0.04] p-3"><input type="hidden" name="opportunityId" value={opportunity.id} /><select name="reason" defaultValue="NO_RELEVANTE" className="rounded-lg border border-ink/15 bg-white px-2 py-2 text-xs text-ink"><option value="NO_RELEVANTE">No era relevante</option><option value="NO_ES_EL_TONO">No era el tono</option><option value="FALTA_INFO">Faltaba información</option><option value="NO_CONVIENE">No conviene responder</option></select><PendingSubmit pendingLabel="Descartando..." className="rounded-full bg-signal px-3 py-2 text-xs font-bold text-white">Confirmar descarte</PendingSubmit><button type="button" onClick={() => setDiscardOpen(false)} className="px-2 py-2 text-xs font-semibold text-slate">Cancelar</button></form> : <button type="button" onClick={() => setDiscardOpen(true)} className="text-xs font-semibold text-slate/65 underline decoration-slate/30 underline-offset-4 hover:text-signal">Descartar oportunidad</button>}</div>
+      {updatedProposal ? <div className="mt-6 rounded-xl border border-moss/25 bg-moss/[0.04] p-4"><h3 className="mb-3 text-sm font-bold text-moss">Propuesta actualizada para revisar</h3><ResponseWithChat key={updatedProposal.id} response={updatedProposal} opportunityId={opportunity.id} sourceUrl={opportunity.sourceUrl} channel={opportunity.channel} clientSlug={clientSlug} youtube={youtube} productPicker={null} onCompleted={onCompleted} onSaved={onSaved} /></div> : null}
+      {savedAction}
+      {discardError ? <p role="alert" className="mt-3 text-sm text-red-700">{discardError}</p> : null}
+      <div className="mt-4">{discardOpen ? <form action={discard} className="flex flex-wrap items-center gap-2 rounded-xl border border-signal/20 bg-signal/[0.04] p-3"><input type="hidden" name="opportunityId" value={opportunity.id} /><select name="reason" defaultValue="NO_RELEVANTE" className="rounded-lg border border-ink/15 bg-white px-2 py-2 text-xs text-ink"><option value="NO_RELEVANTE">No era relevante</option><option value="NO_ES_EL_TONO">No era el tono</option><option value="FALTA_INFO">Faltaba información</option><option value="NO_CONVIENE">No conviene responder</option></select><PendingSubmit pendingLabel="Descartando..." className="rounded-full bg-signal px-3 py-2 text-xs font-bold text-white">Confirmar descarte</PendingSubmit><button type="button" onClick={() => setDiscardOpen(false)} className="px-2 py-2 text-xs font-semibold text-slate">Cancelar</button></form> : <button type="button" onClick={() => setDiscardOpen(true)} className="text-xs font-semibold text-slate/65 underline decoration-slate/30 underline-offset-4 hover:text-signal">Descartar oportunidad</button>}</div>
     </div>
   </article>;
 }
 
-function Workspace({ activeClient, youtube, filters, products, opportunities, coverage, optimized = false, coveragePending = false }: { optimized?: boolean; queueEnabled?: boolean; coveragePending?: boolean; coverage: Coverage; activeClient: { slug: string; name: string } | null; youtube: { account: string; connected: boolean; channelTitle: string } | null; filters: { brands: { id: string; name: string }[]; channels: { id: string; name: string }[]; selectedBrand: string; selectedChannel: string; selectedResponse: string; selectedSort: string }; products: ProductOption[]; opportunities: Opportunity[] }) {
+function Workspace({ activeClient, youtube, filters, products, opportunities, coverage, queuePage, optimized = false, coveragePending = false }: { queuePage: QueuePage; optimized?: boolean; queueEnabled?: boolean; coveragePending?: boolean; coverage: Coverage; activeClient: { slug: string; name: string } | null; youtube: { account: string; connected: boolean; channelTitle: string } | null; filters: { brands: { id: string; name: string }[]; channels: { id: string; name: string }[]; selectedBrand: string; selectedChannel: string; selectedResponse: string; selectedSort: string }; products: ProductOption[]; opportunities: Opportunity[] }) {
   const pathname = usePathname();
   const router = useRouter();
   const params = useSearchParams();
   const [disconnectingYouTube, setDisconnectingYouTube] = useState(false);
   const [youtubeDisconnectError, setYoutubeDisconnectError] = useState("");
-  const [completed, setCompleted] = useState<CompletedOpportunity[]>([]);
-  const filterKey = [activeClient?.slug, filters.selectedBrand, filters.selectedChannel, filters.selectedResponse, filters.selectedSort].join("|");
-  useEffect(() => { setCompleted([]); }, [filterKey]);
+  const filterKey = [activeClient?.slug, filters.selectedBrand, filters.selectedChannel, filters.selectedResponse, filters.selectedSort, queuePage.page].join("|");
+  const completed = useQueueCompletions(filterKey);
   const dismissCompletion = useCallback((id: string) => {
-    setCompleted((current) => current.map((item) => item.id === id ? { ...item, visible: false } : item));
-  }, []);
-  const completedIds = new Set(completed.map((item) => item.id));
+    updateCompletions(filterKey, current => current.map(item => item.id === id ? { ...item, visible: false } : item));
+  }, [filterKey]);
+  const completedIds = new Set(completed.filter(item => item.kind !== "saved").map(item => item.id));
+  const savedById = new Map(completed.filter(item => item.kind === "saved" && item.visible).map(item => [item.id, item]));
+  const opportunityIds = new Set(opportunities.map(opportunity => opportunity.id));
+  const { focusId, targetMissing, pendingFilter } = queuePage;
+  const hasFocusTarget = !!focusId && opportunityIds.has(focusId);
+  useEffect(() => {
+    if (!focusId || pendingFilter) return;
+    const target = document.getElementById(hasFocusTarget ? `op-${focusId}` : "cm-queue-target-missing");
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView({ block: "start" });
+  }, [focusId, hasFocusTarget, pendingFilter]);
+
+  const queueHref = (page: number, targetId?: string) => {
+    const next = new URLSearchParams(params.toString());
+    next.delete("focus");
+    next.delete("page");
+    if (activeClient) next.set("client", activeClient.slug);
+    if (targetId) next.set("focus", targetId);
+    else if (page > 1) next.set("page", String(page));
+    return `${pathname}?${next.toString()}`;
+  };
+
+  const getNextHref = (ids: string[]) => {
+    const target = ids.find(id => !completedIds.has(id));
+    return target ? queueHref(queuePage.page, target) : undefined;
+  };
   const visibleItems: WorkspaceItem[] = opportunities.flatMap((opportunity, position) =>
     completedIds.has(opportunity.id) ? [] : [{ type: "opportunity", opportunity, position }],
   );
   let lastPosition = -1;
   let samePositionOffset = 0;
-  for (const completion of [...completed].filter((item) => item.visible).sort((a, b) => a.position - b.position)) {
+  for (const completion of [...completed].filter(item => item.visible && (item.kind !== "saved" || !opportunityIds.has(item.id))).sort((a, b) => a.position - b.position)) {
     samePositionOffset = completion.position === lastPosition ? samePositionOffset + 1 : 0;
     visibleItems.splice(Math.min(completion.position + samePositionOffset, visibleItems.length), 0, { type: "completed", completion });
     lastPosition = completion.position;
   }
-  const setParam = (key: string, value: string) => { const next = new URLSearchParams(params.toString()); next.delete("page"); value ? next.set(key, value) : next.delete(key); if (activeClient) next.set("client", activeClient.slug); router.push(`${pathname}?${next.toString()}`); };
+  const setParam = (key: string, value: string) => { const next = new URLSearchParams(params.toString()); next.delete("page"); next.delete("focus"); value ? next.set(key, value) : next.delete(key); if (activeClient) next.set("client", activeClient.slug); router.push(`${pathname}?${next.toString()}`); };
   async function disconnectYouTube() {
     if (!activeClient || !youtube?.connected || !window.confirm("¿Desconectar esta cuenta de YouTube? No se podrá publicar hasta volver a conectarla.")) return;
     setDisconnectingYouTube(true);
@@ -595,17 +646,41 @@ function Workspace({ activeClient, youtube, filters, products, opportunities, co
 
   return <div className="mx-auto w-full max-w-6xl px-5 py-8 lg:px-8"><header className="grid gap-5 border-b border-ink/10 pb-7 md:grid-cols-[1fr_auto] md:items-end"><div><h1 className="font-display text-4xl leading-none text-ink md:text-5xl">Asistente CM</h1><Link href={activeClient ? `/historial?client=${encodeURIComponent(activeClient.slug)}` : "/historial"} className="mt-3 inline-flex rounded-full border border-ink/15 px-3 py-1.5 text-xs font-bold text-ink transition hover:border-ink/40 hover:bg-white">Ver respuestas enviadas →</Link></div><div className="rounded-2xl border border-moss/20 bg-moss/[0.06] px-4 py-3 text-sm text-ink"><span className="font-bold">{activeClient?.name ?? "Sin cliente"}</span><br /><span className="text-xs text-slate">YouTube: {youtube?.connected ? "publicación por API" : "conexión pendiente"}. Meta: publicación manual.</span>{youtube?.connected ? <><button type="button" onClick={disconnectYouTube} disabled={disconnectingYouTube} className="mt-3 block text-xs font-bold text-slate underline decoration-slate/35 underline-offset-4 transition hover:text-ink disabled:cursor-wait disabled:opacity-60">{disconnectingYouTube ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Desconectando…</span> : "Desconectar cuenta de YouTube"}</button>{youtubeDisconnectError ? <p role="alert" className="mt-2 text-xs font-medium text-red-600">{youtubeDisconnectError}</p> : null}</> : null}</div></header>
     <CoveragePanel visibleIds={opportunities.map(opportunity => opportunity.id)} client={activeClient?.slug || ""} initial={coverage} pending={coveragePending} optimized={optimized} />
-    <div className="mt-6 flex flex-wrap gap-3 rounded-2xl border border-ink/10 bg-white/65 p-3"><label className="text-xs font-bold text-slate/70">Marca<select value={filters.selectedBrand} onChange={(event) => setParam("brand", event.target.value)} className="ml-2 rounded-lg border border-ink/10 bg-paper px-2 py-1.5 text-xs text-ink"><option value="">Todas</option>{filters.brands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}</select></label><label className="text-xs font-bold text-slate/70">Red<select value={filters.selectedChannel} onChange={(event) => setParam("channel", event.target.value)} className="ml-2 rounded-lg border border-ink/10 bg-paper px-2 py-1.5 text-xs text-ink"><option value="">Todas</option>{filters.channels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}</select></label><label className="text-xs font-bold text-slate/70">Respuesta<select value={filters.selectedResponse} onChange={(event) => setParam("response", event.target.value)} className="ml-2 rounded-lg border border-ink/10 bg-paper px-2 py-1.5 text-xs text-ink"><option value="">Todas</option><option value="generated">Con respuesta generada</option><option value="missing">Sin respuesta</option><option value="stale">Por actualizar</option><option value="fresh">Actualizadas</option><option value="review">Propuestas para revisar</option><option value="error">Con error</option></select></label><label className="text-xs font-bold text-slate/70">Orden<select value={filters.selectedSort} onChange={(event) => setParam("sort", event.target.value)} className="ml-2 rounded-lg border border-ink/10 bg-paper px-2 py-1.5 text-xs text-ink"><option value="">Relevancia</option><option value="newest">Más recientes</option><option value="oldest">Más antiguas</option></select></label></div>
+    <div className="mt-6 flex flex-wrap gap-3 rounded-2xl border border-ink/10 bg-white/65 p-3"><label className="text-xs font-bold text-slate/70">Marca<select value={filters.selectedBrand} onChange={(event) => setParam("brand", event.target.value)} className="ml-2 rounded-lg border border-ink/10 bg-paper px-2 py-1.5 text-xs text-ink"><option value="">Todas</option>{filters.brands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}</select></label><label className="text-xs font-bold text-slate/70">Red<select value={filters.selectedChannel} onChange={(event) => setParam("channel", event.target.value)} className="ml-2 rounded-lg border border-ink/10 bg-paper px-2 py-1.5 text-xs text-ink"><option value="">Todas</option>{filters.channels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}</select></label><label className="text-xs font-bold text-slate/70">Respuesta<select value={filters.selectedResponse} onChange={(event) => setParam("response", event.target.value)} className="ml-2 rounded-lg border border-ink/10 bg-paper px-2 py-1.5 text-xs text-ink"><option value="">Todas</option><option value="generated">Con respuesta generada</option><option value="missing">Sin respuesta</option><option value="stale">Por actualizar</option><option value="fresh">Actualizadas</option><option value="review">Propuestas para revisar</option><option value="error">Con error</option></select></label><label className="text-xs font-bold text-slate/70">Orden<select value={filters.selectedSort} onChange={(event) => setParam("sort", event.target.value)} className="ml-2 rounded-lg border border-ink/10 bg-paper px-2 py-1.5 text-xs text-ink"><option value="today">Para hoy</option><option value="relevance">Relevancia</option><option value="newest">Más recientes</option><option value="oldest">Más antiguas</option></select></label></div>
     <section className="mt-5 grid gap-4">
-      <div><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-moss">Para revisar hoy</p><h2 className="mt-1 font-display text-2xl text-ink">Oportunidades encontradas</h2></div>
-      {visibleItems.length > 0 ? visibleItems.map((item) => item.type === "completed"
-        ? <CompletedOpportunityCard key={item.completion.id} completion={item.completion} clientSlug={activeClient?.slug ?? ""} onDismiss={dismissCompletion} />
-        : <OpportunityCard key={item.opportunity.id} opportunity={item.opportunity} clientSlug={activeClient?.slug ?? ""} youtube={youtube} products={products} onCompleted={(kind, moveFocus) => {
-          window.dispatchEvent(new CustomEvent("cm-opportunity-completed", { detail: { id: item.opportunity.id, status: item.opportunity.freshness } }));
-          setCompleted((current) => [...current.filter((entry) => entry.id !== item.opportunity.id), { id: item.opportunity.id, kind, position: item.position, visible: true, moveFocus }]);
-        }} />
-      ) : <div className="rounded-2xl border border-dashed border-ink/15 bg-white/55 px-5 py-14 text-center text-sm text-slate">No hay oportunidades para revisar hoy.</div>}
+      <h2 className="font-display text-2xl text-ink">{filters.selectedSort === "today" ? "Para hoy" : "Oportunidades encontradas"}</h2>
+      {pendingFilter ? <p role="status" className="text-sm text-slate">Actualizando el filtro de respuestas…</p> : null}
+      {focusId && !pendingFilter && (targetMissing || !hasFocusTarget) ? <p id="cm-queue-target-missing" tabIndex={-1} role="status" className="scroll-mt-6 text-sm text-slate">La siguiente oportunidad ya no está disponible con estos filtros.</p> : null}
+      {visibleItems.length > 0 ? visibleItems.map(item => {
+        if (item.type === "completed") {
+          return <CompletedOpportunityCard key={item.completion.id} completion={item.completion}
+            clientSlug={activeClient?.slug ?? ""} onDismiss={dismissCompletion} nextHref={getNextHref(item.completion.nextIds)} />;
+        }
+
+        const { opportunity, position } = item;
+        const nextIds = opportunities.slice(position + 1).map(next => next.id);
+        if (queuePage.nextId) nextIds.push(queuePage.nextId);
+        const recordCompletion = (kind: ReceiptKind, moveFocus: boolean) => {
+          if (kind !== "saved") {
+            window.dispatchEvent(new CustomEvent("cm-opportunity-completed", { detail: { id: opportunity.id, status: opportunity.freshness } }));
+          }
+          updateCompletions(filterKey, current => [...current.filter(entry => entry.id !== opportunity.id),
+            { id: opportunity.id, kind, position, visible: true, moveFocus, nextIds }]);
+        };
+        const saved = savedById.get(opportunity.id);
+        return <OpportunityCard key={opportunity.id} opportunity={opportunity} clientSlug={activeClient?.slug ?? ""}
+          youtube={youtube} products={products} onCompleted={recordCompletion} onSaved={() => recordCompletion("saved", false)}
+          savedAction={saved ? <div className="mt-4 flex flex-wrap items-center gap-3">
+            <p role="status" className="text-sm font-semibold text-moss">Respuesta guardada</p>
+            <NextOpportunity href={getNextHref(saved.nextIds)} onNavigate={() => dismissCompletion(saved.id)} />
+          </div> : null} />;
+      }) : !pendingFilter ? <div className="rounded-2xl border border-dashed border-ink/15 bg-white/55 px-5 py-14 text-center text-sm text-slate">No hay oportunidades para revisar.</div> : null}
     </section>
+    {queuePage.page > 1 || queuePage.nextId ? <nav aria-label="Páginas de oportunidades" className="flex justify-between gap-5 py-5">
+      {queuePage.page > 1 ? <Link href={queueHref(queuePage.page - 1)}>← Anterior</Link> : <span />}
+      <span>Página {queuePage.page}</span>
+      {queuePage.nextId ? <Link href={queueHref(queuePage.page + 1)}>Siguiente →</Link> : <span />}
+    </nav> : null}
   </div>;
 }
 

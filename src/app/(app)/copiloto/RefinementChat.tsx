@@ -85,13 +85,14 @@ function SuggestionCard({ suggestion, inProposal, accepted, disabled, applying, 
   </div>;
 }
 
-export function RefinementChat({ responseId, clientSlug, currentText, initialHistory, acceptedAsCorrect, onApplyResponse, onHistoryChange }: {
+export function RefinementChat({ responseId, clientSlug, currentText, initialHistory, acceptedAsCorrect, onApplyResponse, onHistoryChange, onSaved }: {
   responseId: string;
   clientSlug: string;
   currentText: string;
   initialHistory: ChatMessage[];
   acceptedAsCorrect: boolean;
   onApplyResponse: (text: string) => void;
+  onSaved: () => void;
   onHistoryChange: (history: ChatMessage[]) => void;
 }) {
   const [history, setHistory] = useState<ChatMessage[]>(initialHistory);
@@ -165,6 +166,7 @@ export function RefinementChat({ responseId, clientSlug, currentText, initialHis
       onApplyResponse(suggestion.text);
       setAcceptedText(suggestion.text);
       setLearnedRules(result.learnedRules);
+      onSaved();
     } catch {
       // En producción Next oculta el detalle del error del servidor: mensaje propio y claro.
       setError("No se pudo guardar la respuesta. Probá de nuevo en un momento.");
