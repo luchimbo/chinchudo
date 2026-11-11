@@ -163,7 +163,7 @@ export function ArticleEditor({ articleId, initialDraft, updatedAt: initialUpdat
       setUpdatedAt(result.updatedAt);
       setRecoverable(null);
       setServerQuality(result.quality);
-      setMessage({ tone: "ok", text: !result.quality.publishable ? published ? "Revisión guardada con errores. Corregilos para desplegar." : "Guardado para revisar. La publicación está suspendida." : result.redeploy ? "Guardado. Actualización pendiente de despliegue." : "Cambios guardados." });
+      setMessage({ tone: "ok", text: !result.quality.publishable ? published ? "Revisión guardada con errores. Corregilos para desplegar." : "Cambios guardados. El agente intentará corregir las observaciones editoriales al publicar." : result.redeploy ? "Guardado. Actualización pendiente de despliegue." : "Cambios guardados." });
       if (!optimized) router.refresh();
     } catch {
       setMessage({ tone: "error", text: "No se pudieron guardar los cambios. Revisá la conexión y probá de nuevo." });

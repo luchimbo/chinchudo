@@ -256,21 +256,21 @@ function ProposalProductPicker({ opportunityId, responseId, products, current }:
   const queued = runtime.jobs.some(job => job.opportunityId === opportunityId && ["QUEUED", "RUNNING"].includes(job.status));
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const changesProduct = choice !== null && choice.id !== current.id;
+  const productChange = choice && choice.id !== current.id ? choice : null;
 
   async function apply() {
-    if (!choice || !changesProduct) return;
-    if (!window.confirm(`¿Preparar una nueva propuesta con «${choice.name}»? Se conserva el trabajo anterior.`)) return;
+    const prompt = productChange ? `¿Preparar una nueva propuesta con «${productChange.name}»?` : "¿Rehacer la propuesta con el contexto actual?";
+    if (applying || queued || !window.confirm(prompt)) return;
     setApplying(true);
     setError(null);
     try {
       const formData = new FormData();
       formData.set("opportunityId", opportunityId);
       formData.set("responseId", responseId);
-      formData.set("productId", choice.id);
+      if (productChange) formData.set("productId", productChange.id);
       if (runtime.queue) await enqueueCM(formData, runtime.client, "regenerate"); else { await regenerateCopilotResponse(formData); runtime.notify(opportunityId); }
     } catch {
-      setError("No se pudo rehacer la propuesta con ese producto. Probá de nuevo en un momento.");
+      setError("No se pudo rehacer la propuesta. Probá de nuevo en un momento.");
     } finally {
       setApplying(false);
     }
@@ -280,7 +280,7 @@ function ProposalProductPicker({ opportunityId, responseId, products, current }:
     <p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate/70">Producto de la propuesta</p>
     <div className="flex flex-wrap items-center gap-2">
       <div className="min-w-[200px] flex-1"><ProductCombobox products={products} current={current} selected={choice} onSelect={setChoice} disabled={applying || queued} /></div>
-      <button type="button" onClick={apply} disabled={!changesProduct || applying || queued} className="rounded-full bg-ink px-3 py-2 text-xs font-bold text-paper transition hover:bg-slate disabled:cursor-not-allowed disabled:opacity-40">{applying ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Rehaciendo…</span> : "Rehacer propuesta"}</button>
+      <button type="button" onClick={apply} disabled={applying || queued} className="rounded-full bg-ink px-3 py-2 text-xs font-bold text-paper transition hover:bg-slate disabled:cursor-not-allowed disabled:opacity-40">{applying ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Rehaciendo…</span> : "Rehacer propuesta"}</button>
     </div>
     {error ? <p className="mt-1.5 text-[11px] font-medium text-red-600">{error}</p> : null}
   </div>;
@@ -486,7 +486,16 @@ function OpportunityCard({ opportunity: initialOpportunity, clientSlug, youtube,
   const [copiedProposal, setCopiedProposal] = useState("");
   const onDirtyChange = useCallback((value: boolean) => { dirty.current = value; }, []);
   const [opportunity, setOpportunity] = useState(initialOpportunity);
-  useEffect(() => { setOpportunity(initialOpportunity); }, [initialOpportunity]);
+  useEffect(() => {
+    if (dirty.current) {
+      setPendingResponses(initialOpportunity.responses);
+      setUpdatePending(true);
+      return;
+    }
+    setOpportunity(initialOpportunity);
+    setPendingResponses([]);
+    setUpdatePending(false);
+  }, [initialOpportunity]);
   const currentOpportunity = useRef(opportunity);
   currentOpportunity.current = opportunity;
   useEffect(() => {
@@ -541,7 +550,8 @@ function OpportunityCard({ opportunity: initialOpportunity, clientSlug, youtube,
   const date = new Date(opportunity.createdAt).toLocaleDateString("es-AR", { day: "numeric", month: "short" });
   const responses = useMemo(() => [...opportunity.responses].sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary)), [opportunity.responses]);
   const response = responses[0];
-  const updatedProposal = opportunity.freshness === "review" ? responses.find((item) => item.fresh && item.id !== response?.id) : undefined;
+  const refreshedProposal = pendingResponses.find((item) => item.fresh && item.id !== response?.id);
+  const updatedProposal = refreshedProposal ?? (opportunity.freshness === "review" ? responses.find((item) => item.fresh && item.id !== response?.id) : undefined);
   // En videos de YouTube se muestra solo el título, no la descripción.
   const videoTitle = useMemo(
     () => youtubeVideoTitle({ channel: opportunity.channel, sourceText: opportunity.text, sourceTitle: opportunity.title, sourceUrl: opportunity.sourceUrl }),
@@ -569,7 +579,7 @@ function OpportunityCard({ opportunity: initialOpportunity, clientSlug, youtube,
         {generateChoice ? <input type="hidden" name="productId" value={generateChoice.id} /> : null}
         <PendingSubmit pendingLabel="Generando respuesta..." className="rounded-full bg-ink px-4 py-2.5 text-sm font-bold text-paper transition hover:bg-slate">Generar respuesta</PendingSubmit>
         <p className="mt-2 text-xs text-slate/70">{generateChoice ? `Se genera con ${generateChoice.id ? `las características de ${generateChoice.name}` : "ningún producto específico"}, además de lo que la IA aprendió de los chats.` : "Se genera con las reglas y respuestas correctas que la IA aprendió de los chats. Después la podés ajustar acá mismo."}</p>
-      </form> : <ResponseWithChat onDirtyChange={onDirtyChange} key={`${response.id}:${response.text}`} response={response} opportunityId={opportunity.id} sourceUrl={opportunity.sourceUrl} channel={opportunity.channel} clientSlug={clientSlug} youtube={youtube} productPicker={(runtime.optimized || products.length > 0) ? <ProposalProductPicker opportunityId={opportunity.id} responseId={response.id} products={products} current={currentProduct} /> : null} onCompleted={onCompleted} onSaved={onSaved} />}
+      </form> : <ResponseWithChat onDirtyChange={onDirtyChange} key={`${response.id}:${response.text}`} response={response} opportunityId={opportunity.id} sourceUrl={opportunity.sourceUrl} channel={opportunity.channel} clientSlug={clientSlug} youtube={youtube} productPicker={<ProposalProductPicker opportunityId={opportunity.id} responseId={response.id} products={products} current={currentProduct} />} onCompleted={onCompleted} onSaved={onSaved} />}
       {updatePending ? <details className="mt-4 rounded-lg border border-moss/20 bg-paper p-3"><summary className="cursor-pointer text-sm font-semibold text-moss">Ver propuestas guardadas</summary>
         {pendingResponses.length ? pendingResponses.map(saved => <section key={saved.id} className="mt-3 rounded-lg border border-ink/10 bg-white p-3"><p className="whitespace-pre-wrap text-sm text-ink">{saved.text}</p><button type="button" className="mt-2 text-xs font-semibold text-moss" onClick={async () => { await copyToClipboard(saved.text); setCopiedProposal(saved.id); }}>{copiedProposal === saved.id ? "Copiado" : "Copiar texto"}</button></section>) : <p className="mt-2 text-xs text-slate">Ya no hay propuestas guardadas para esta oportunidad.</p>}
       </details> : null}

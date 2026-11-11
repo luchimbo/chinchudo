@@ -16,7 +16,7 @@ vi.mock("@/lib/db", () => ({ prisma: {
   $transaction: mocks.transaction,
 } }));
 
-import { rescheduleBlogArticle } from "@/app/(app)/(creador)/blog/calendario/actions";
+import { approveAnalysisArticle, rescheduleBlogArticle } from "@/app/(app)/(creador)/blog/calendario/actions";
 import { dateOnly } from "@/lib/blog-calendar";
 import { editorialIntentForDate } from "@/lib/blog-quality.mjs";
 
@@ -254,5 +254,35 @@ describe("reprogramación desde el calendario", () => {
     expect(await rescheduleBlogArticle(initialState, form("2026-10-10"))).toEqual(initialState);
     expect(mocks.transaction).not.toHaveBeenCalled();
     expect(mocks.redirect).not.toHaveBeenCalled();
+  });
+});
+
+describe("aprobación desde el calendario", () => {
+  it("aprueba el borrador y deja la revisión editorial al publicador", async () => {
+    mocks.findSlot.mockResolvedValue({ ...slot, requiresApproval: true, landing });
+    mocks.inspect.mockResolvedValue({ publishable: false, checks: [{ level: "error", message: "Falta una fuente verificable." }] });
+
+    await expect(approveAnalysisArticle(initialState, form())).resolves.toEqual({ error: null });
+    expect(mocks.inspect).not.toHaveBeenCalled();
+    expect(mocks.updateLanding).toHaveBeenCalledWith({ where: { id: landing.id }, data: { status: "APPROVED" } });
+  });
+
+  it("aprueba un borrador pendiente y reinicia los intentos de publicación", async () => {
+    mocks.findSlot.mockResolvedValue({ ...slot, status: "FAILED", requiresApproval: true, landing });
+
+    await expect(approveAnalysisArticle(initialState, form())).resolves.toEqual({ error: null });
+    expect(mocks.updateSlot).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: slot.id, clientId: slot.clientId, updatedAt: slot.updatedAt, requiresApproval: true }),
+      data: expect.objectContaining({ status: "READY", requiresApproval: false, attempts: 0 }),
+    }));
+    expect(mocks.updateLanding).toHaveBeenCalledWith({ where: { id: landing.id }, data: { status: "APPROVED" } });
+  });
+
+  it("pide recargar cuando el artículo cambia durante la revisión", async () => {
+    mocks.findSlot.mockResolvedValue({ ...slot, requiresApproval: true, landing });
+    mocks.updateSlot.mockResolvedValue({ count: 0 });
+
+    await expect(approveAnalysisArticle(initialState, form())).resolves.toEqual({ error: "El artículo cambió durante la revisión. Recargá la página." });
+    expect(mocks.updateLanding).not.toHaveBeenCalled();
   });
 });

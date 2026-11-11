@@ -13,6 +13,7 @@ function matches(row: Row, where: Row = {}): boolean {
     const value = key === "dailySlot" ? row[key] ?? 0 : key === "requiresApproval" ? row[key] ?? false : key === "analysisRunId" ? row[key] ?? null : row[key];
     if (cond && typeof cond === "object" && !(cond instanceof Date)) {
       if ("in" in cond) return cond.in.includes(value);
+      if ("not" in cond) return value !== cond.not;
       if ("contains" in cond) return String(value ?? "").includes(cond.contains);
       if ("lt" in cond && !(value < cond.lt)) return false;
       if ("gt" in cond && !(value > cond.gt)) return false;
@@ -169,19 +170,12 @@ describe("rutina diaria del blog", () => {
     expect(runBlogPython).toHaveBeenCalledWith(["translate", "--landing-id", "l-2026-10-01", "--language", "en"], "c1", 300_000);
   });
 
-  it("regenera el contenido rechazado sin publicarlo y conserva la aprobación humana", async () => {
+  it("recupera un borrador antiguo bloqueado y publica sin regenerarlo", async () => {
     addReady("2026-10-01"); Object.assign(row("2026-10-01"), { status: "FAILED", attempts: 3, errorCode: "QUALITY_BLOCKED" });
-    const { daily, runBlogPython } = build({ inspect: async () => ({ publishable: false, checks: [{ level: "error", message: "Dato inválido" }] }), generationClients: new Set(["pcmidi"]) });
+    const { daily, runBlogPython } = build({ inspect: async () => ({ publishable: false, checks: [{ level: "error", message: "Falta una fuente" }] }), generationClients: new Set(["pcmidi"]) });
     await daily.runDailyBlogCalendar();
-    expect(row("2026-10-01").status).toBe("PLANNED");
-    expect(row("2026-10-01").attempts).toBe(0);
-    expect(row("2026-10-01").landingId).toBeNull();
-    expect(landings["l-2026-10-01"].status).toBe("ARCHIVED");
-    expect(landings["l-2026-10-01"].slug).toContain("-recovered-l-2026-10-01");
-    expect(deploys(runBlogPython)).toBe(0);
-    row("2026-10-01").requiresApproval = true; row("2026-10-01").errorCode = "DEPLOYMENT_FAILED";
-    clock = new Date(clock.getTime() + 16 * 60_000);
-    await daily.runDailyBlogCalendar(); expect(row("2026-10-01").requiresApproval).toBe(true);
+    expect(row("2026-10-01")).toMatchObject({ status: "PUBLISHED", attempts: 1, landingId: "l-2026-10-01", errorCode: "" });
+    expect(deploys(runBlogPython)).toBe(1);
   });
 
   it("recupera días vencidos sin cambiar su fecha y no vuelve a publicar al repetir", async () => {
@@ -193,7 +187,7 @@ describe("rutina diaria del blog", () => {
     expect(deploys(runBlogPython)).toBe(3);
   });
 
-  it("aplica los tres idiomas a borradores existentes y conserva el bloqueo editorial", async () => {
+  it("aplica los tres idiomas y prepara las traducciones aunque existan observaciones", async () => {
     settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: true, articlePlan: [["es", "en", "de"]], publishTime: "09:00" });
     addReady("2026-10-01");
     row("2026-10-01").preparation = { language: "es" };
@@ -204,7 +198,7 @@ describe("rutina diaria del blog", () => {
     row("2026-10-01").attempts = 3; row("2026-10-01").status = "FAILED";
     row("2026-10-01").errorCode = "QUALITY_BLOCKED";
     await daily.runDailyBlogCalendar();
-    expect(row("2026-10-01").status).toBe("FAILED");
+    expect(runBlogPython).toHaveBeenCalledWith(["translate", "--landing-id", "l-2026-10-01", "--language", "en"], "c1", 300_000);
   });
 
   it("verifica las tres URLs y mantiene fallida una publicación si falla una traducción pública", async () => {
@@ -221,15 +215,16 @@ describe("rutina diaria del blog", () => {
     expect(JSON.parse(landings.en.htmlContent).editorial_quality.publishable).toBe(true);
   });
 
-  it("no despliega una traducción que no supera la revisión editorial", async () => {
+  it("despliega la traducción con observaciones editoriales", async () => {
     addReady("2026-10-01");
     row("2026-10-01").preparation = { dailyLanguages: ["es", "en"] };
     landings.en = { id: "en", slug: "en", status: "DRAFT", htmlContent: JSON.stringify({ language: "en", translation_of: "l-2026-10-01" }) };
     const { daily, runBlogPython } = build({ inspect: async (_client: string, content: Row) => ({ publishable: content.language !== "en", checks: content.language === "en" ? [{ level: "error", message: "Sin evidencia" }] : [] }) });
     await daily.runDailyBlogCalendar();
-    expect(deploys(runBlogPython)).toBe(0);
-    expect(row("2026-10-01").errorCode).toBe("QUALITY_BLOCKED");
-    expect(landings.en.status).toBe("DRAFT");
+    expect(deploys(runBlogPython)).toBe(1);
+    expect(row("2026-10-01").status).toBe("PUBLISHED");
+    expect(landings.en.status).toBe("PUBLISHED");
+    expect(JSON.parse(landings.en.htmlContent).editorial_quality.checks).toContainEqual({ level: "error", message: "Sin evidencia" });
   });
 
   it("publica lo vencido después de la hora local del cliente", async () => {
@@ -258,14 +253,14 @@ describe("rutina diaria del blog", () => {
     expect(deploys(runBlogPython)).toBe(0);
   });
 
-  it("no aprueba contenido sin evidencia ni repite su validación cada minuto", async () => {
+  it("respeta la aprobación automática aun con observaciones editoriales", async () => {
     settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: true, autoApprove: true, publishTime: "12:00" });
     addReady("2026-10-01"); row("2026-10-01").requiresApproval = true;
     const inspect = vi.fn(async () => ({ publishable: false, checks: [{ level: "error", message: "Sin evidencia" }] }));
     const { daily, runBlogPython } = build({ inspect });
     await daily.runDailyBlogCalendar(); await daily.runDailyBlogCalendar();
-    expect(row("2026-10-01")).toMatchObject({ status: "FAILED", attempts: 3, requiresApproval: true, lastError: "Sin evidencia" });
-    expect(inspect).toHaveBeenCalledOnce(); expect(deploys(runBlogPython)).toBe(0);
+    expect(row("2026-10-01")).toMatchObject({ status: "PUBLISHED", requiresApproval: false, lastError: "" });
+    expect(deploys(runBlogPython)).toBe(1);
   });
 
   it("aprueba antes del horario pero espera hasta las 12 argentinas para publicar", async () => {
@@ -349,24 +344,44 @@ describe("rutina diaria del blog", () => {
     expect(deploys(runBlogPython)).toBe(1);
   });
 
-  it("rechaza cambios posteriores a la revisión y un blog ocupado", async () => {
+  it("rechaza cambios posteriores a la revisión", async () => {
     addReady("2026-10-20");
     const input = manualInput("2026-10-20");
     clock = new Date(clock.getTime() + 1000);
     row("2026-10-20").updatedAt = clock;
     const { daily, runBlogPython } = build();
     await expect(daily.publishBlogArticle(input)).rejects.toThrow("cambió");
-    const busy = build({ withLease: async () => null });
-    await expect(busy.daily.publishBlogArticle(manualInput("2026-10-20"))).rejects.toThrow("ocupado");
     expect(deploys(runBlogPython)).toBe(0);
   });
 
-  it("un pedido manual se detiene mientras se actualiza el catálogo", async () => {
+  it("conserva el pedido sin consumir intentos cuando el blog está ocupado", async () => {
     addReady("2026-10-20");
-    const { daily, runBlogPython } = build({ catalogPending: async () => true });
-    await expect(daily.publishBlogArticle(manualInput("2026-10-20"))).rejects.toThrow("catálogo");
+    const { daily, runBlogPython } = build({ withLease: async () => null });
+    const accepted = vi.fn();
+    await daily.publishBlogArticle(manualInput("2026-10-20"), accepted);
+    expect(accepted).toHaveBeenCalledOnce();
+    expect(row("2026-10-20")).toMatchObject({ status: "PUBLISHING", errorCode: "MANUAL_PUBLICATION_QUEUED", attempts: 0 });
     expect(deploys(runBlogPython)).toBe(0);
-    expect(row("2026-10-20").status).toBe("READY");
+
+    clock = new Date(clock.getTime() + 16 * 60_000);
+    const restarted = build();
+    await restarted.daily.runDailyBlogCalendar();
+    expect(row("2026-10-20")).toMatchObject({ status: "PUBLISHING", errorCode: "MANUAL_PUBLICATION_QUEUED" });
+    await restarted.daily.runQueuedPublications();
+    await restarted.daily.runQueuedPublications();
+    expect(deploys(restarted.runBlogPython)).toBe(1);
+  });
+
+  it("espera a que termine la actualización del catálogo", async () => {
+    addReady("2026-10-20");
+    let syncing = true;
+    const { daily, runBlogPython } = build({ catalogPending: async () => syncing });
+    await daily.publishBlogArticle(manualInput("2026-10-20"));
+    expect(deploys(runBlogPython)).toBe(0);
+    expect(row("2026-10-20").errorCode).toBe("MANUAL_PUBLICATION_QUEUED");
+    syncing = false;
+    await daily.runQueuedPublications();
+    expect(deploys(runBlogPython)).toBe(1);
   });
 
   it("recupera una publicación manual interrumpida de otro cliente después de reiniciar", async () => {
@@ -381,13 +396,15 @@ describe("rutina diaria del blog", () => {
     expect(JSON.parse(landings["l-2026-10-20"].htmlContent).publication_token).toBeUndefined();
   });
 
-  it("un bloqueo de calidad o una URL desactualizada impiden confirmar la publicación manual", async () => {
+  it("la publicación manual admite observaciones y exige verificar la nueva versión pública", async () => {
     addReady("2026-10-20");
-    const blocked = build({ inspect: async () => ({ publishable: false, checks: [{ level: "error", message: "Sin evidencia" }] }) });
-    await blocked.daily.publishBlogArticle(manualInput("2026-10-20"));
-    expect(row("2026-10-20")).toMatchObject({ status: "FAILED", lastError: "Sin evidencia" });
-    expect(deploys(blocked.runBlogPython)).toBe(0);
-    const stale = build({ fetchUrl: async () => ({ ok: true, text: async () => "contenido anterior" }) });
+    const inspect = async () => ({ publishable: false, checks: [{ level: "error", message: "Sin evidencia" }] });
+    addReady("2026-10-21");
+    const { daily } = build({ inspect });
+    await daily.publishBlogArticle(manualInput("2026-10-21"));
+    expect(landings["l-2026-10-21"].status).toBe("PUBLISHED");
+
+    const stale = build({ inspect, fetchUrl: async () => ({ ok: true, text: async () => "contenido anterior" }) });
     await stale.daily.publishBlogArticle(manualInput("2026-10-20"));
     expect(row("2026-10-20").status).toBe("FAILED");
     expect(landings["l-2026-10-20"].status).toBe("DRAFT");
@@ -421,14 +438,22 @@ describe("rutina diaria del blog", () => {
     expect(row("2026-10-01").lastError).toContain("versión desplegada");
     expect(JSON.parse(landings["l-2026-10-01"].htmlContent).published_at).toBeUndefined();
   });
-  it("un bloqueo editorial conserva el borrador y evita despliegues", async () => {
+  it("corrige el borrador antes de desplegar y guarda las observaciones restantes", async () => {
     addReady("2026-10-01");
-    const { daily, runBlogPython } = build({ inspect: async () => ({ publishable: false, checks: [{ group: "GEO", level: "error", message: "Especificación sin evidencia" }] }) });
+    const article = landings["l-2026-10-01"];
+    article.htmlContent = JSON.stringify({ ...JSON.parse(article.htmlContent), sections: [{ body: "Usá [[p:obsoleto|Modelo A]]." }], product_ids: ["obsoleto"] });
+    const checks = [{ group: "GEO", level: "error", message: "Falta una fuente" }];
+    const inspect = vi.fn(async () => ({ publishable: false, checks }));
+    const { daily, runBlogPython } = build({ inspect });
     await daily.runDailyBlogCalendar();
-    expect(deploys(runBlogPython)).toBe(0);
-    expect(row("2026-10-01")).toMatchObject({ status: "FAILED", attempts: 3 });
-    expect(landings["l-2026-10-01"].status).toBe("DRAFT");
+    expect(inspect).toHaveBeenCalledTimes(2);
+    expect(deploys(runBlogPython)).toBe(1);
+    expect(row("2026-10-01").status).toBe("PUBLISHED");
+    expect(JSON.parse(article.htmlContent)).toMatchObject({
+      sections: [{ body: "Usá Modelo A." }], product_ids: [], editorial_quality: { publishable: false, checks },
+    });
   });
+
   it("con la publicación apagada escribe las fechas sumadas desde el calendario, sin publicar", async () => {
     settings["blog_daily_schedule:c1"] = JSON.stringify({ enabled: false });
     rows.push({ id: "extra", clientId: "c1", landingId: null, scheduledDate: new Date("2026-10-20T00:00:00Z"), status: "PLANNED", attempts: 0, needsDeploy: false, revisionAttempts: 0, lastError: "", updatedAt: new Date(clock.getTime()) });

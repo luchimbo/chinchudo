@@ -8,7 +8,7 @@ import { createBlogDaily } from "./blog-daily.mjs";
 import { withBlogLease } from "./blog-lease.mjs";
 import { blogCodeStatus, restartOnBlogCodeChange } from "./blog-code-version.mjs";
 import { terminateChild } from "./terminate-child.mjs";
-import { shouldRunBlogCalendar } from "../src/lib/blog-auto-repair.mjs";
+import { catalogSyncBlocksBlog, shouldRunBlogCalendar } from "../src/lib/blog-auto-repair.mjs";
 
 const root = resolve(import.meta.dirname, ".."), port = 3102;
 const db = new PrismaClient(), workers = new Map();
@@ -38,6 +38,11 @@ async function runPython(args, clientId, timeoutMs = 300_000, progress, stdin) {
       try { await updates; if (code === 0) accept(output); else reject(new Error(output.slice(-1500))); } catch (error) { reject(error); }
     });
   });
+}
+
+async function catalogIsDue(clientId) {
+  const active = await db.catalogSyncRun.findFirst({ where: { clientId, status: { in: ["QUEUED", "RUNNING", "PENDING_DEPLOY", "DEPLOYING"] }, deploymentAttempts: { lt: 3 } }, orderBy: { updatedAt: "desc" }, select: { status: true, updatedAt: true } });
+  return catalogSyncBlocksBlog(active);
 }
 
 function worker(client) {
@@ -72,8 +77,7 @@ const server = http.createServer(async (req, res) => {
     const body = JSON.parse(text || "{}");
     if (req.method === "POST" && req.url === "/blog/publish") {
       if (![body.id, body.clientId, body.expectedUpdatedAt].every(value => typeof value === "string" && value.length > 0)) throw new Error("Faltan los datos de la publicación.");
-      const client = await db.client.findUniqueOrThrow({ where: { id: body.clientId }, select: { id: true, slug: true } });
-      await worker(client).publishBlogArticle(body, () => json(res, 202, { accepted: true }));
+      await manualWorker.publishBlogArticle(body, () => json(res, 202, { accepted: true }));
       return;
     }
     if (req.method === "POST" && req.url === "/landings/preview") {
@@ -132,7 +136,13 @@ const watchdog = setInterval(async () => {
 const previewOnly = process.argv.includes("--preview-only");
 const secondaryCalendars = process.argv.includes("--secondary-calendars");
 if (previewOnly && secondaryCalendars) throw new Error("Elegí un solo modo del servicio del blog.");
+const manualWorker = createBlogDaily({ prisma: db, runBlogPython: runPython, withLease: (id, fn) => withBlogLease(db, id, fn), catalogPending: catalogIsDue });
+const drainPublications = () => {
+  if (!blogCodeStatus().stale) void manualWorker.runQueuedPublications().catch(error => console.error("[blog-runtime] Cola de publicación:", error));
+};
+const publicationTimer = setInterval(drainPublications, 15_000);
+publicationTimer.unref();
 const timer = previewOnly ? undefined : setInterval(tick, 15000);
-server.listen(port, "127.0.0.1", () => { console.log(`Shared blog runtime on ${port}.`); startTunnel(); if (!previewOnly) void tick(); });
-restartOnBlogCodeChange({ label: "blog-runtime", isBusy: () => [...workers.values()].some(worker => { const state = worker.runtimeState(); return state.running || state.generating; }), restart: () => process.kill(process.pid, "SIGTERM") });
-for (const event of ["SIGINT", "SIGTERM"]) process.on(event, () => { stopping = true; clearInterval(timer); clearInterval(watchdog); clearTimeout(restart); tunnel?.kill(); server.close(); void db.$disconnect().finally(() => process.exit(0)); });
+server.listen(port, "127.0.0.1", () => { console.log(`Shared blog runtime on ${port}.`); startTunnel(); drainPublications(); if (!previewOnly) void tick(); });
+restartOnBlogCodeChange({ label: "blog-runtime", isBusy: () => manualWorker.runtimeState().publishing || [...workers.values()].some(worker => { const state = worker.runtimeState(); return state.running || state.generating; }), restart: () => process.kill(process.pid, "SIGTERM") });
+for (const event of ["SIGINT", "SIGTERM"]) process.on(event, () => { stopping = true; clearInterval(timer); clearInterval(publicationTimer); clearInterval(watchdog); clearTimeout(restart); tunnel?.kill(); server.close(); void db.$disconnect().finally(() => process.exit(0)); });

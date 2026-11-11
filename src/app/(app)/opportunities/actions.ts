@@ -387,7 +387,10 @@ export async function publishCopilotYouTubeResponse(formData: FormData) {
   }
   if (optimizedLoading() || manualCMQueue()) {
     try { await assertCurrentCMResponse(prisma, opportunity.clientId, response.id, opportunity.id); }
-    catch { return { success: false as const, message: "No se pudo verificar que la propuesta esté vigente. Revisá el contexto y generá una propuesta actualizada antes de publicar. Tu edición se conserva.", reconnectRequired: false }; }
+    catch (error) {
+      await logger.error("copilot_publish_freshness_failed", "No se pudo verificar la propuesta de YouTube", error).catch(() => {});
+      return { success: false as const, message: "No se pudo verificar la vigencia de esta propuesta. Usá «Rehacer propuesta» y revisá la nueva versión. Tu edición se conserva.", reconnectRequired: false };
+    }
   }
 
   const rateLimit = await checkPublishRateLimits(prisma, parsed.account, opportunity.channel.name);

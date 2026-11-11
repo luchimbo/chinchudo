@@ -194,23 +194,36 @@ export async function retryBlogDeployment(id: string): Promise<{ ok: true } | { 
   } catch { return { ok: false, error: "No se pudo reintentar la actualización. Verificá tu acceso y la conexión." }; }
 }
 
-export async function approveAnalysisArticle(formData: FormData) {
-  const id = z.string().min(1).parse(formData.get("id"));
-  const slot = await prisma.blogPublication.findUnique({ where: { id }, include: { landing: true } });
-  // Requieren aprobación los borradores del análisis comercial y las comparativas con rival elegido.
-  if (!slot?.landing || !(slot.analysisRunId || dayPlanFrom(slot.preparation).competitor) || !slot.requiresApproval) throw new Error("Borrador no encontrado.");
-  await assertClientAccess(prisma, slot.clientId);
-  if (["PUBLISHED", "PUBLISHING"].includes(slot.status)) throw new Error("El artículo ya está en publicación.");
-  const content = JSON.parse(slot.landing.htmlContent);
-  const quality = await inspectBlogArticle(prisma, slot.clientId, content, slot.landing.id);
-  const issues = quality.checks.filter(c => c.level === "error");
-  if (issues.length) throw new Error(`Corregí el artículo antes de aprobarlo: ${issues.map(c => c.message).join(" · ")}`);
-  await prisma.$transaction(async tx => {
-    const updated = await tx.blogPublication.updateMany({ where: { id, requiresApproval: true, status: { in: ["READY", "FAILED"] }, landing: { updatedAt: slot.landing!.updatedAt } }, data: { requiresApproval: false, approvedAt: new Date(), status: "READY", lastError: "", errorCode: "" } });
-    if (!updated.count) throw new Error("El artículo cambió durante la revisión. Recargá la página.");
-    await tx.landing.update({ where: { id: slot.landing!.id }, data: { status: "APPROVED" } });
-  });
-  revalidatePath("/blog"); revalidatePath("/blog/articulos"); revalidatePath("/blog/calendario"); revalidatePath(`/blog/articulos/${slot.landing.id}`);
+export async function approveAnalysisArticle(_state: { error: string | null }, formData: FormData): Promise<{ error: string | null }> {
+  try {
+    const id = z.string().min(1).parse(formData.get("id"));
+    const slot = await prisma.blogPublication.findUnique({ where: { id }, include: { landing: true } });
+    if (!slot?.landing) return { error: "No encontramos el borrador. Recargá el calendario." };
+    await assertClientAccess(prisma, slot.clientId);
+    if (!slot.requiresApproval) return { error: "El borrador ya fue revisado. Recargá el calendario." };
+    if (!["READY", "FAILED"].includes(slot.status)) return { error: "El borrador todavía no está listo para aprobar." };
+
+    const landing = slot.landing;
+    try {
+      const content = JSON.parse(landing.htmlContent);
+      if (!content || typeof content !== "object" || Array.isArray(content)) throw new Error("Formato inválido");
+    } catch { return { error: "No se pudo leer el borrador. Volvé a generar el artículo." }; }
+    const approved = await prisma.$transaction(async tx => {
+      const updated = await tx.blogPublication.updateMany({
+        where: { id, clientId: slot.clientId, updatedAt: slot.updatedAt, requiresApproval: true, status: slot.status, landing: { id: landing.id, updatedAt: landing.updatedAt } },
+        data: { requiresApproval: false, approvedAt: new Date(), status: "READY", attempts: 0, lastError: "", errorCode: "" },
+      });
+      if (!updated.count) return false;
+      await tx.landing.update({ where: { id: landing.id }, data: { status: "APPROVED" } });
+      return true;
+    });
+    if (!approved) return { error: "El artículo cambió durante la revisión. Recargá la página." };
+    revalidatePath("/blog"); revalidatePath("/blog/articulos"); revalidatePath("/blog/calendario"); revalidatePath(`/blog/articulos/${landing.id}`);
+    return { error: null };
+  } catch (error) {
+    console.error("[blog] No se pudo aprobar el borrador", error);
+    return { error: "No se pudo aprobar el borrador. Recargá el calendario y reintentá." };
+  }
 }
 
 async function editorialClient(formData: FormData) {

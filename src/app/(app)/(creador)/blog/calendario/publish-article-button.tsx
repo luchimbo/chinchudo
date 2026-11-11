@@ -37,7 +37,7 @@ export function PublishArticleButton({ id, publishing, title = "Artículo del bl
     <button type="button" disabled={pending || publishing || accepted || asking} aria-busy={pending || publishing || accepted}
       className="w-full rounded-lg bg-moss px-2 py-1.5 text-[11px] font-semibold text-white transition hover:bg-moss/90 disabled:cursor-wait disabled:opacity-60"
       onClick={() => { if (confirmMessage) setAsking(true); else void publish(); }}>
-      {pending || publishing || accepted ? <LoadingMessage>{pending ? "Iniciando…" : "Publicando…"}</LoadingMessage> : retry ? "Reintentar publicación" : "Publicar artículo"}
+      {pending || publishing || accepted ? <LoadingMessage>{pending ? "Solicitando publicación…" : revision ? "Publicando…" : "Publicación solicitada"}</LoadingMessage> : retry ? "Reintentar publicación" : "Publicar artículo"}
     </button>
     {asking && confirmMessage ? <div role="alertdialog" aria-label="Confirmar publicación" className="space-y-2 rounded-lg border border-brass/30 bg-brass/10 p-2 text-xs text-ink">
       <p>{confirmMessage}</p>

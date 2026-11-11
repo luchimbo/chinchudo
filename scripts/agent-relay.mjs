@@ -803,12 +803,17 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, "127.0.0.1", () => {
-  restartOnBlogCodeChange({ label: "agent-relay", isBusy: () => { const state = blogDaily.runtimeState(); return state.running || state.generating; } });
+  restartOnBlogCodeChange({ label: "agent-relay", isBusy: () => { const state = blogDaily.runtimeState(); return state.running || state.generating || state.publishing; } });
   console.log(`[agent-relay] escuchando en http://127.0.0.1:${PORT}`);
   console.log(`[agent-relay] token: ${TOKEN.slice(0, 4)}...${TOKEN.slice(-4)}`);
   console.log(`[agent-relay] para exponer: cloudflared tunnel --url http://127.0.0.1:${PORT}`);
   // Sólo el relay que obtuvo el puerto agenda landings: uno duplicado que
   // falla con EADDRINUSE no debe disparar generaciones antes de morir.
+  const drainPublications = () => {
+    if (!blogCodeStatus().stale) void blogDaily.runQueuedPublications().catch(error => console.error("[blog] Cola de publicación:", error));
+  };
+  setInterval(drainPublications, 15_000).unref();
+  void drainPublications();
   setInterval(runScheduledLandings, 60_000).unref();
   void runScheduledLandings();
   if (blogCalendarEnabled) {
