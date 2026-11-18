@@ -405,6 +405,7 @@ export async function publishCopilotYouTubeResponse(formData: FormData) {
     text: parsed.editedText,
   });
   if (!result.success) {
+    console.error(`[publishCopilotYouTubeResponse] YouTube rechazó la publicación de ${opportunity.id}: ${result.error}`);
     if (result.ambiguous) await markYouTubePublicationAmbiguous(prisma, opportunity.clientId, opportunity.id, publicationAttempt);
     else await clearYouTubePublication(prisma, opportunity.clientId, opportunity.id, publicationAttempt);
     const reconnectRequired = needsYouTubeReconnect(result.error);

@@ -76,7 +76,10 @@ async function requestToken(body: URLSearchParams): Promise<TokenResponse> {
   });
   const payload = await response.json().catch(() => ({})) as TokenResponse;
   if (!response.ok || !payload.access_token) {
-    throw new Error(payload.error_description || payload.error || "youtube_token_exchange_failed");
+    // Google suele responder invalid_grant con la descripción genérica "Bad Request":
+    // sin el código no se distingue una credencial rechazada de un comentario rechazado.
+    const detail = [payload.error, payload.error_description].filter(Boolean).join(": ");
+    throw new Error(detail || "youtube_token_exchange_failed");
   }
   return payload;
 }
@@ -122,7 +125,10 @@ async function youtubeRequest<T>(accessToken: string, path: string, body?: unkno
   const payload = await response.json().catch(() => ({})) as T & { error?: { message?: string; errors?: Array<{ reason?: string }> } };
   if (!response.ok) {
     const reason = payload.error?.errors?.[0]?.reason;
-    const message = reason || payload.error?.message || `youtube_http_${response.status}`;
+    const remoteMessage = payload.error?.message?.replace(/<[^>]+>/g, "").trim();
+    const message = reason
+      ? [reason, remoteMessage].filter(Boolean).join(": ")
+      : [`youtube_http_${response.status}`, remoteMessage].filter(Boolean).join(": ");
     if (response.status >= 500 || response.status === 408) throw new Error(message);
     throw new YouTubeRejected(message);
   }
