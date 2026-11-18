@@ -30,6 +30,7 @@ import { loadClientContext, resolveOpportunityClient } from "@/lib/client-contex
 import { resolveCatalogBrand } from "@/lib/brand-identity";
 import { detectCrossClientTerms, validateClientScopedActors } from "@/lib/guardrails";
 import { triageOpportunity } from "@/lib/opportunity-triage";
+import { isExternalCourseInquiry } from "@/lib/kressmer-radar";
 import { authorFromUrl } from "@/lib/source-author";
 import { loadObservedProfileContext, overrideObservedProfileSignals, recordObservedProfileEvent } from "@/lib/observed-profiles";
 import { loadRelevantCompetitorEvidence } from "@/lib/competitor-evidence";
@@ -603,6 +604,9 @@ export async function generateResponseDrafts(formData: FormData) {
   const resolution = await resolveOpportunityClient(prisma, opportunity);
   await assertClientAccess(prisma, resolution.client.id);
   let refinementGuidance: string[] = [];
+  if (["kressmer", "pcmidi"].includes(resolution.client.slug) && isExternalCourseInquiry(opportunity.sourceText, opportunity.sourceTitle)) {
+    throw new Error("Esta consulta es sobre un curso ajeno. Descartá la oportunidad; no corresponde responder con una recomendación de instrumentos.");
+  }
   let avoidDrafts: string[] = [];
   if (typeof refinementResponseId === "string" && refinementResponseId) {
     const previous = await prisma.response.findUniqueOrThrow({

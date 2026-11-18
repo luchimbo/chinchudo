@@ -204,11 +204,30 @@ const KRESSMER_NEED = new RegExp([
 
 export function kressmerTextReason(text: string, title = ""): string | null {
   const context = `${text} ${title}`.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  if (isExternalCourseInquiry(text, title)) return "external_course_inquiry";
   if (/computer keyboard|gaming keyboard|mechanical keyboard|teclado mecanico|teclado gamer|computertastatur|gaming.tastatur|giveaway|sorteo|link in bio|suscrib|subscribe to|abonnier|vendo |for sale|zu verkaufen/.test(context)) return "spam_or_unrelated";
   if (!/piano|klavier|keyboard|teclado musical|teclado digital|teclado electronico|kressmer/.test(context)) return "outside_pianos_and_keyboards";
   if (detectKressmerLanguage(text) === "other") return "unsupported_or_ambiguous_language";
   if (!KRESSMER_NEED.test(text.normalize("NFD").replace(/[\u0300-\u036f]/g, ""))) return "no_concrete_need";
   return null;
+}
+
+/** A piano lesson's audience is not automatically asking for an instrument.
+ * Inspect the comment itself for equipment needs before using video context. */
+export function isExternalCourseInquiry(text: string, title = ""): boolean {
+  const comment = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const context = `${comment} ${title.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")}`;
+  const course = /\b(?:curso|cursos|reto|clases?|lecciones?|taller|workshop|masterclass|course|courses|challenge|lessons?|kurs|kurse|unterricht)\b/;
+  if (!course.test(context)) return false;
+  // Buying/technical questions about equipment remain useful even in a course.
+  const instrument = "(?:piano|teclado|keyboard|instrumento|instrument|klavier|digitalpiano)";
+  const need = "(?:compr\\w*|recom\\w*|eleg\\w*|necesit\\w*|sirve|compatible|buy\\w*|recommend\\w*|need|suitable|kaufen|empfehl\\w*|brauche)";
+  if (new RegExp(`\\b${instrument}\\b[^.!?]{0,60}\\b${need}\\b|\\b${need}\\b[^.!?]{0,60}\\b${instrument}\\b`).test(comment)
+    || new RegExp(`\\b(?:cuanto (?:cuesta|sale|vale) (?:el|un|este|ese)|precio del|how much is (?:the|this|a)) ${instrument}\\b`).test(comment)
+    || /\b(?:contrapesad\w*|teclas?|pedal|auriculares|midi|weighted keys|headphones|tasten|kopfhorer)\b/.test(comment)) return false;
+  const administration = /\b(?:cupos?|plazas?|vacantes?|inscrib\w*|inscrip\w*|matricul\w*|anotarme|anotarnos|anotarse|horarios?|cuando (?:empieza|comienza|arranca)|a que hora|enrol\w*|register|registration|spots?|seats?|sign up|when (?:does|will|is)|anmeld\w*|teilnehm\w*|platze|wann beginnt)\b/;
+  const coursePrice = course.test(comment) && /\b(?:precio|cuanto (?:cuesta|sale|vale)|costo|cost|price|how much|kostet|preis)\b/.test(comment);
+  return administration.test(comment) || coursePrice;
 }
 
 export function argentinaDayStart(now = new Date()) {

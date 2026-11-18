@@ -9,6 +9,7 @@ const files = [
   "jurispedia-policy.ts", "vidia-policy.ts", "llm-provider.ts", "client-memory.ts",
   "observed-profiles.ts", "competitor-evidence.ts", "product-identity.ts", "cm-maintenance.ts",
   "../app/(app)/opportunities/actions.ts", "cm-freshness.ts", "cm-version.ts", "prompts.ts", "../../scripts/draft-worker.mts",
+  "kressmer-radar.ts", "opportunity-triage.ts",
 ];
 const hash = createHash("sha256");
 for (const file of files) hash.update(file).update(readFileSync(join(process.cwd(), "src/lib", file), "utf8").replace(/\r\n/g, "\n"));

@@ -59,6 +59,14 @@ function fixture() {
 
 describe("actualización automática del CM", () => {
   beforeEach(() => { vi.clearAllMocks(); model.version = "v1"; model.duringGeneration = () => {}; });
+  it("no genera respuestas de instrumentos para cupos de un curso ajeno", async () => {
+    const f = fixture(); f.opportunity.sourceText = "Hermano todavía hay cupo para el reto de 30 días?";
+    f.opportunity.sourceTitle = "Curso de piano de cero";
+    await expect(refreshCMOpportunity(f.db, "client", "op", "owner")).rejects.toThrow("curso ajeno");
+    expect(generateAICopilotDraft).not.toHaveBeenCalled();
+    expect(f.mock.response.create).not.toHaveBeenCalled();
+    expect(f.response.draftText).toBe("Vieja");
+  });
   it("genera faltantes y registra la versión sin borrar historial", async () => {
     const f = fixture(); f.opportunity.responses = [];
     expect(await refreshCMOpportunity(f.db, "client", "op", "owner")).toBe("generated");

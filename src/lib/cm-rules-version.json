@@ -25,7 +25,9 @@
     "cm-freshness.ts",
     "cm-version.ts",
     "prompts.ts",
-    "../../scripts/draft-worker.mts"
+    "../../scripts/draft-worker.mts",
+    "kressmer-radar.ts",
+    "opportunity-triage.ts"
   ],
-  "version": "2778b7312cc1a435be1b231a664345d698968d56be3e0b627165e75b94bf5243"
+  "version": "c53b1162d1b58b967fd0e1b3133fdd878bffc02bd845b648cb7b68fc8d749b10"
 }

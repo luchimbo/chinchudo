@@ -17,6 +17,7 @@ import { deriveCopilotApproach, pickCopilotPersona, copilotGuidance } from "./cm
 import { cmCoverageStatus, cmHasHumanWork, cmHash, cmInputHash, cmManualInputHash, cmIsFresh, cmObject, cmSelectBatch, cmStamp } from "./cm-freshness";
 import { loadCMVersion } from "./cm-version";
 import { currentManualFingerprint } from "./cm-fast-admission";
+import { isExternalCourseInquiry } from "./kressmer-radar";
 
 export const CM_ACTIVE_STATUSES = ["NEW", "NEEDS_REVIEW", "DRAFTED", "APPROVED"] as const;
 const LEASE_MS = 15 * 60_000;
@@ -99,6 +100,9 @@ export async function refreshCMOpportunity(db: PrismaClient, clientId: string, i
   }, manual ? 20_000 : 30_000);
   try {
     const context = await loadClientContext(db, clientId, before);
+    if (["kressmer", "pcmidi"].includes(context.client.slug) && isExternalCourseInquiry(before.sourceText, before.sourceTitle)) {
+      throw new Error("Consulta sobre inscripción, cupos o condiciones de un curso ajeno. Corresponde descartarla, sin generar una respuesta de instrumentos.");
+    }
     const selected = (manual?.responseId ? before.responses.find(response => response.id === manual.responseId) : undefined) ?? before.responses.find((response) => response.isPrimary) ?? before.responses[0];
     const copilot = cmObject(cmObject(before.contextAssessment).copilot);
     const choice = manual?.productId !== undefined ? { productId: manual.productId || null } : cmObject(copilot.productChoice);

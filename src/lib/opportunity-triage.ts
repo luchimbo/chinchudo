@@ -1,5 +1,5 @@
 import type { OpportunityIntent, OpportunityPriority } from "@prisma/client";
-import { kressmerTextReason } from "./kressmer-radar";
+import { isExternalCourseInquiry, kressmerTextReason } from "./kressmer-radar";
 import { classifyJurispediaSafety } from "./jurispedia-policy";
 // @ts-ignore -- operational radar rules are shared with the draft worker.
 import { isPrestigeRadarCandidate, isPrestigeUnsafeContent } from "./prestige-radar.mjs";
@@ -84,6 +84,9 @@ function hasAny(haystack: string, terms: string[]) {
 }
 
 export function triageOpportunity(input: TriageInput): TriageDecision {
+  if (input.clientSlug === "pcmidi" && isExternalCourseInquiry(input.sourceText, input.sourceTitle)) {
+    return { action: "discard", reason: "external_course_inquiry", score: -10 };
+  }
   if (input.clientSlug === "kressmer") {
     const reason = kressmerTextReason(input.sourceText, input.sourceTitle);
     return { action: reason ? "discard" : "keep", reason: reason || "Consulta sobre piano o teclado musical", score: reason ? -10 : 8 };
