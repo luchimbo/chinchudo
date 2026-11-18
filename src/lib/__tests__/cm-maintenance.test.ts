@@ -64,6 +64,7 @@ describe("actualización automática del CM", () => {
     expect(await refreshCMOpportunity(f.db, "client", "op", "owner")).toBe("generated");
     expect(f.opportunity.responses).toHaveLength(1);
     expect(cmCoverageStatus(f.opportunity.responses, "v1", f.opportunity)).toBe("fresh");
+    expect(f.mock.$transaction).toHaveBeenCalledWith(expect.any(Function), { isolationLevel: "Serializable", maxWait: 10_000, timeout: 30_000 });
   });
   it("actualiza una propuesta vieja y conserva su versión anterior", async () => {
     const f = fixture();
@@ -102,15 +103,28 @@ describe("actualización automática del CM", () => {
     expect(generateAICopilotDraft).toHaveBeenCalledTimes(1);
     expect(f.mock.cMManualJob.update).toHaveBeenCalledWith({ where: { id: "job" }, data: { status: "SUCCEEDED", leaseUntil: null, result: { responseId: "new", review: false } } });
   });
-  it("una solicitud manual conserva aprobación y edición humana como primaria", async () => {
+  it("rehacer abre la nueva propuesta y conserva aprobación, edición y chat anteriores", async () => {
     const f = fixture(); f.response.editedText = "Edición aprobada"; f.response.approvedBy = "Fede";
-    expect(await refreshCMOpportunity(f.db, "client", "op", "owner", { jobId: "job", expectedHash: cmManualInputHash(f.opportunity) })).toBe("review");
-    expect(f.response).toMatchObject({ editedText: "Edición aprobada", approvedBy: "Fede", isPrimary: true });
+    f.response.chatHistory = [{ sender: "user", text: "No inventes stock" }];
+    expect(await refreshCMOpportunity(f.db, "client", "op", "owner", { jobId: "job", expectedHash: cmManualInputHash(f.opportunity) })).toBe("generated");
+    expect(f.response).toMatchObject({ editedText: "Edición aprobada", approvedBy: "Fede", isPrimary: false, chatHistory: [{ sender: "user", text: "No inventes stock" }] });
+    expect(f.opportunity.responses[0]).toMatchObject({ id: "new", isPrimary: true });
+    expect(cmCoverageStatus(f.opportunity.responses, "v1", f.opportunity)).toBe("fresh");
+    expect(f.mock.cMManualJob.update).toHaveBeenCalledWith({ where: { id: "job" }, data: { status: "SUCCEEDED", leaseUntil: null, result: { responseId: "new", review: false } } });
   });
   it("un worker que perdió su lease no guarda un resultado", async () => {
     const f = fixture(); f.mock.cMManualJob.findUnique.mockResolvedValue({ status: "RUNNING", lockedBy: "another-worker", leaseUntil: new Date(Date.now() + 120_000) });
     expect(await refreshCMOpportunity(f.db, "client", "op", "owner", { jobId: "job", expectedHash: cmManualInputHash(f.opportunity) })).toBe("changed");
     expect(f.mock.response.create).not.toHaveBeenCalled();
+  });
+  it("rehacer sin producto específico actualiza la selección y deja una propuesta verificable", async () => {
+    const f = fixture(); f.response.editedText = "Edición humana";
+    expect(await refreshCMOpportunity(f.db, "client", "op", "owner", {
+      jobId: "job", responseId: "old", productId: "", expectedHash: cmManualInputHash(f.opportunity),
+    })).toBe("generated");
+    expect(f.opportunity.contextAssessment).toMatchObject({ copilot: { productChoice: { productId: null } } });
+    expect(cmCoverageStatus(f.opportunity.responses, "v1", f.opportunity)).toBe("fresh");
+    expect(f.response.editedText).toBe("Edición humana");
   });
   it("no genera cuando otro proceso tiene la oportunidad reservada", async () => {
     const f = fixture(); f.mock.draftJob.updateMany.mockResolvedValueOnce({ count: 0 });

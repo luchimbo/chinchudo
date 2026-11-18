@@ -1,4 +1,4 @@
-import type { Brand, Client, Persona, PrismaClient } from "@prisma/client";
+import type { Brand, Client, Persona, Prisma, PrismaClient } from "@prisma/client";
 import { normalizeForMatch, parseClientList } from "./client-context";
 
 export type GuardrailResult = {
@@ -21,7 +21,8 @@ export function validateClientScopedActors(args: {
   return { ok: riskNotes.length === 0, riskNotes };
 }
 
-let cachedClients: any = null;
+type ClientWithBrands = Prisma.ClientGetPayload<{ include: { brands: true } }>;
+let cachedClients: ClientWithBrands[] | null = null;
 let lastCacheTime = 0;
 const CACHE_TTL_MS = 10000; // 10 segundos para scripts y respuestas rápidas
 
@@ -41,7 +42,10 @@ export async function detectCrossClientTerms(
     lastCacheTime = now;
   }
 
-  const otherClients = cachedClients.filter((c: any) => c.id !== clientId);
+  const ownClient = cachedClients.find((client) => client.id === clientId);
+  const ownTerms = ownClient ? [ownClient.name, ownClient.slug, ...parseClientList(ownClient.domainKeywords), ...ownClient.brands.map(brand => brand.name)] : [];
+  const ownDomain = normalizeForMatch(ownTerms.join(" | "));
+  const otherClients = cachedClients.filter((client) => client.id !== clientId);
 
   const hits: string[] = [];
   for (const client of otherClients) {
@@ -49,14 +53,19 @@ export async function detectCrossClientTerms(
       client.name,
       client.slug,
       ...parseClientList(client.domainKeywords),
-      ...client.brands.map((brand: any) => brand.name),
+      ...client.brands.map((brand) => brand.name),
     ];
     const matched = keywords
       .filter((kw) => kw.length >= 4)
       .filter((kw) => {
         const normalizedKw = normalizeForMatch(kw);
+        if (!normalizedKw) return false;
         const escaped = normalizedKw.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
         const regex = new RegExp('\\b' + escaped + '\\b', 'i');
+        // A domain keyword is not exclusive to a tenant. "piano" belongs to
+        // both Kressmer and PC MIDI ("piano digital"); PC MIDI also sells
+        // Kressmer. Keep rejecting terms absent from the current client's domain.
+        if (regex.test(ownDomain)) return false;
         return regex.test(norm);
       });
     if (matched.length > 0) hits.push(`${client.slug}:${Array.from(new Set(matched)).join(",")}`);

@@ -11,7 +11,8 @@ const state = vi.hoisted(() => ({
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
-vi.mock("@/lib/cm-action-guard", () => ({
+vi.mock("@/lib/cm-action-guard", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/cm-action-guard")>(),
   assertCurrentCMResponse: vi.fn(async () => {}),
   claimYouTubePublication: vi.fn(async () => { if (state.context.cmPublicationPending) return false; state.context.cmPublicationPending = true; return true; }),
   clearYouTubePublication: vi.fn(async () => { delete state.context.cmPublicationPending; return true; }),

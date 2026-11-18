@@ -3,6 +3,13 @@ import { randomUUID } from "node:crypto";
 import { cmIsFresh } from "./cm-freshness";
 import { loadCMVersion } from "./cm-version";
 
+export class CMStaleResponseError extends Error {
+  constructor() {
+    super("La propuesta quedó desactualizada o no tiene una versión verificable. Generá una propuesta nueva antes de aplicarla o publicarla. Tu edición se conserva.");
+    this.name = "CMStaleResponseError";
+  }
+}
+
 /** Call after authorizing the tenant. Coverage snapshots never authorize actions. */
 export async function assertCurrentCMResponse(db: PrismaClient, clientId: string, responseId: string, opportunityId?: string) {
   const row = await db.response.findFirst({ where: { id: responseId, ...(opportunityId ? { opportunityId } : {}), opportunity: { clientId } },
@@ -19,7 +26,7 @@ export async function assertCurrentCMResponse(db: PrismaClient, clientId: string
     const withoutOwnFeedback = await loadCMVersion(db, clientId, { excludeFeedbackFromResponseId: responseId });
     if (cmIsFresh(row.evidence, withoutOwnFeedback, row.opportunity)) return;
   }
-  throw new Error("La propuesta quedó desactualizada o no tiene una versión verificable. Generá una propuesta nueva antes de aplicarla o publicarla. Tu edición se conserva.");
+  throw new CMStaleResponseError();
 }
 
 export async function claimYouTubePublication(db: PrismaClient, clientId: string, opportunityId: string) {

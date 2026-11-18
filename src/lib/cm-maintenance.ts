@@ -160,7 +160,9 @@ export async function refreshCMOpportunity(db: PrismaClient, clientId: string, i
         const job = await tx.cMManualJob.findUnique({ where: { id: manual.jobId } });
         if (job?.status !== "RUNNING" || job.lockedBy !== owner || !job.leaseUntil || job.leaseUntil < new Date()) return "changed";
       }
-      const protectedResponse = selected && cmHasHumanWork(selected);
+      // Automatic maintenance must not replace human work. A manual regeneration
+      // explicitly asks to open the new proposal; the old row remains intact.
+      const protectedResponse = !manual && selected && cmHasHumanWork(selected);
       // Keep every prior response and chat in Postgres. The new proposal requires human review.
       if (!protectedResponse) await tx.response.updateMany({ where: { opportunityId: id }, data: { isPrimary: false } });
       else await tx.response.update({ where: { id: selected.id }, data: { isPrimary: true } });
@@ -176,7 +178,7 @@ export async function refreshCMOpportunity(db: PrismaClient, clientId: string, i
       if (manual) await tx.cMManualJob.update({ where: { id: manual.jobId }, data: { status: "SUCCEEDED", leaseUntil: null, result: { responseId: created.id, review: Boolean(protectedResponse) } } });
       await tx.appSetting.upsert({ where: { key: stateKey }, create: { key: stateKey, value: "null" }, update: { value: "null" } });
       return protectedResponse ? "review" : "generated";
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }));
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 30_000 }));
     return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

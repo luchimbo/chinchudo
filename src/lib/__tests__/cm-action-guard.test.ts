@@ -3,7 +3,7 @@ import type { PrismaClient } from "@prisma/client";
 vi.mock("../cm-version", () => ({ loadCMVersion: vi.fn(async () => "v1") }));
 import { loadCMVersion } from "../cm-version";
 import { cmStamp } from "../cm-freshness";
-import { assertCurrentCMResponse } from "../cm-action-guard";
+import { assertCurrentCMResponse, CMStaleResponseError } from "../cm-action-guard";
 
 function fixture() {
   const opportunity = { sourceText: "Consulta", sourceTitle: "Video", channelId: "yt", detectedIntent: "TECHNICAL_QUESTION", detectedProductId: "product", detectedBrandId: "brand", contextAssessment: {}, channel: { name: "YouTube" } };
@@ -29,7 +29,13 @@ describe("vigencia exacta al aplicar o publicar CM", () => {
   });
   it("rechaza propuestas sin versión verificable", async () => {
     const f = fixture(); f.row.evidence = [];
-    await expect(assertCurrentCMResponse(f.db, "tenant", "response")).rejects.toThrow("versión verificable");
+    await expect(assertCurrentCMResponse(f.db, "tenant", "response")).rejects.toBeInstanceOf(CMStaleResponseError);
+  });
+  it("una falla de consulta no se confunde con una propuesta desactualizada", async () => {
+    const f = fixture(); const unavailable = new Error("Database timeout");
+    vi.mocked(loadCMVersion).mockRejectedValue(unavailable);
+    await expect(assertCurrentCMResponse(f.db, "tenant", "response")).rejects.toBe(unavailable);
+    expect(unavailable).not.toBeInstanceOf(CMStaleResponseError);
   });
   it("el aprendizaje de la misma revisión no invalida su aprobación", async () => {
     const f = fixture(); f.row.approvedBy = "Fede";

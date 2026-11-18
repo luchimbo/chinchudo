@@ -3,6 +3,13 @@ import { coverageNeedsDetail, type CoverageRow } from "../cm-coverage-view";
 const card = { coverageRevision: "same", responses: [{ id: "primary", isPrimary: true }] };
 const row: CoverageRow = { id: "op", status: "fresh", error: "", revision: "same", primaryResponseId: "primary", latestResponseId: "primary" };
 describe("actualizaciones ligeras de cobertura", () => {
+  it("verifica la propuesta de la carga compacta aunque su ID no haya cambiado", () => {
+    for (const status of ["fresh", "stale", "review", "error"]) {
+      expect(coverageNeedsDetail({ ...card, freshness: "pending" }, { ...row, status })).toBe(true);
+    }
+    expect(coverageNeedsDetail({ ...card, freshness: "pending" }, { ...row, status: "pending" })).toBe(false);
+    expect(coverageNeedsDetail({ ...card, freshness: "pending", responses: [] }, { ...row, primaryResponseId: "" })).toBe(false);
+  });
   it("un cambio de estado o error no vuelve a cargar la conversación", () => {
     expect(coverageNeedsDetail(card, { ...row, status: "stale", error: "temporary" })).toBe(false);
   });

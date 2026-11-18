@@ -86,5 +86,8 @@ describe("cola manual CM", () => {
   it("los errores de validación no se reintentan", () => {
     expect(transientJobError(new Error("Producto inválido"))).toBe(false);
     expect(transientJobError(new Error("503"))).toBe(true);
+    expect(transientJobError(Object.assign(new Error("Transaction not found"), { code: "P2028" }))).toBe(true);
+    expect(transientJobError(Object.assign(new Error("Write conflict"), { code: "P2034" }))).toBe(true);
+    expect(transientJobError(Object.assign(new Error("Missing table"), { code: "P2021" }))).toBe(false);
   });
 });

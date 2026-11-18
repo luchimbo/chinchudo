@@ -42,7 +42,13 @@ export async function enqueueManualJob(db: PrismaClient, clientId: string, reque
     throw error;
   }
 }
-export const transientJobError = (error: unknown) => /timeout|timed out|ECONNRESET|ECONNREFUSED|fetch failed|429|502|503|504|P2034/i.test(error instanceof Error ? error.message : String(error));
+export const transientJobError = (error: unknown) => {
+  const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+  // Draft persistence is atomic. An expired transaction or serialization
+  // conflict can be retried by the bounded job loop; this path never publishes.
+  return ["P2028", "P2034"].includes(code)
+    || /timeout|timed out|ECONNRESET|ECONNREFUSED|fetch failed|429|502|503|504|P2034/i.test(error instanceof Error ? error.message : String(error));
+};
 
 /** Global advisory lock serializes claims across worker processes; DB uniqueness protects tenants. */
 export async function claimManualJob(db: PrismaClient, owner: string) {

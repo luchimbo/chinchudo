@@ -528,6 +528,7 @@ function OpportunityCard({ opportunity: initialOpportunity, clientSlug, youtube,
           { ...current, freshness: row.status, refreshError: row.error, coverageRevision: row.revision });
       }
     };
+    if (currentOpportunity.current.freshness === "pending") refresh();
     window.addEventListener("cm-opportunity-changed", changed);
     window.addEventListener("cm-coverage-updated", covered);
     return () => { stopped = true; controller?.abort(); window.removeEventListener("cm-opportunity-changed", changed); window.removeEventListener("cm-coverage-updated", covered); };
