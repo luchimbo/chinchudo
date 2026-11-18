@@ -507,6 +507,7 @@ export function generateLocalDrafts(ctx: DraftContext): DraftVariant[] {
     catalogProducts: ctx.catalogProducts,
     catalogRules: ctx.catalogRules,
     scoped: !!ctx.client,
+    commentText: opportunity.sourceText,
   });
   const product = products[0];
   const nameContext = { sourceText: opportunity.sourceText, productChosenByCm: ctx.productChosenByCm };

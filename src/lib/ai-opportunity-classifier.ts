@@ -2,6 +2,7 @@ import { detectKressmerLanguage, kressmerTextReason } from "./kressmer-radar";
 import type { Brand, PrismaClient, Service } from "@prisma/client";
 import { logger } from "./logger";
 import { validateClassifiedEntities } from "./brand-identity";
+import { publicProductParts } from "./product-public-name";
 import { fetchChatCompletion, resolveLLMConfig } from "./llm-provider";
 import {
   calculateOpportunityScore,
@@ -246,7 +247,8 @@ Devuelve únicamente un objeto JSON con las siguientes propiedades. No agregues 
     const parsed = JSON.parse(content) as ClassificationResult;
     const entities = validateClassifiedEntities(
       `${candidate.sourceTitle || ""} ${candidate.videoTitle || ""} ${candidate.sourceText}`,
-      parsed.matchedProductId || null, brands, products,
+      parsed.matchedProductId || null, brands,
+      products.map((product) => ({ ...product, publicModel: publicProductParts({ nombre: product.name, marca: product.brand.name }).model })),
     );
     const detectedIntent = parsed.detectedIntent || "GENERAL_DISCUSSION";
     let assessment = normalizeAssessment(parsed.assessment, detectedIntent);

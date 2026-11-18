@@ -40,6 +40,35 @@ describe("regresiones de reportes de julio", () => {
     expect(selectRelevantProducts("Me gusta mucho esta cancion", null, 3, { catalogProducts: catalog, scoped: true })).toEqual([]);
   });
 
+  describe("elige según lo que pide el comentario", () => {
+    const store = [
+      product("organ", "Kit MP809 Combo Organo Teclado Musical Con Banqueta Soporte Funda y Auriculares", "Organos y Pianos", "Teclado para aprender"),
+      product("ed6", "MIDIPLUS Batería Electrónica ED6", "baterias-electronicas", "Batería electrónica compacta"),
+      product("minifuse", "Arturia MiniFuse 2 Placa de Sonido", "Interfaces", "Interfaz de audio USB"),
+      product("bm800", "Midiplus Micrófono Condenser BM800", "microfonos", "Micrófono para voces"),
+      product("bulk", "Pack x5 Unidades Arturia MiniLab 3", "Controladores MIDI", "Controlador MIDI"),
+      product("arm", "Alctron Brazo Articulado para Micrófono de Mesa MA614", "Micrófonos", "Brazo para micrófono"),
+    ];
+    const pick = (title: string, comment: string) => selectRelevantProducts(`${title} ${comment}`, null, 3, { catalogProducts: store, scoped: true, commentText: comment })[0]?.id;
+
+    it("la pregunta del comentario manda sobre el tema del video", () => {
+      expect(pick("Cómo grabar batería electrónica", "En todos los casos necesito la interfaz?")).toBe("minifuse");
+    });
+
+    it("usa el título cuando el comentario no pide nada concreto", () => {
+      expect(pick("La mejor batería electrónica barata", "Muy buen video")).toBe("ed6");
+    });
+
+    it("no confunde condensador con la palabra con ni propone accesorios", () => {
+      expect(pick("Review", "Busco un micrófono condensador barato")).toBe("bm800");
+    });
+
+    it("no recomienda packs mayoristas", () => {
+      const selected = selectRelevantProducts("Busco un controlador MIDI", null, 5, { catalogProducts: store, scoped: true });
+      expect(selected.map((item) => item.id)).not.toContain("bulk");
+    });
+  });
+
   it("elimina instrucciones internas y modismos reportados", () => {
     const clean = sanitizePublicDraft("Conviene compararlo antes de cerrar. Usa frases naturales y especificas, sin modular demasiado. Cierre simple y util.");
     expect(clean).toContain("antes de elegir");

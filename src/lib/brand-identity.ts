@@ -26,17 +26,30 @@ export function mentionedBrandId(text: string, brands: { id: string; name: strin
   return matches.length === 1 ? matches[0].id : null;
 }
 
+const GENERIC_MODEL_WORDS = new Set(["controlador", "midi", "teclado", "musical", "placa", "producto", "pie", "de", "interfaz", "interface", "audio", "kit", "bateria", "electronica", "organo", "piano", "digital", "microfono", "sonido"]);
+
+/** Accepts a short commercial name such as "PolyBrute" without matching generic words. */
+function mentionsPublicModel(text: string, model: string | undefined): boolean {
+  const words = (model ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().split(/[^a-z0-9+]+/).filter(Boolean);
+  if (!words.some((word) => !GENERIC_MODEL_WORDS.has(word))) return false;
+  const joined = words.join("");
+  if (words.length === 1 && !/\d/.test(joined) && joined.length < 7) return false;
+  const pattern = words.map((word) => word.replace(/\+/g, "\\+")).join("[\\s-]*");
+  return new RegExp(`(?<![a-z0-9])${pattern}(?![a-z0-9])`).test(text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase());
+}
+
 export function validateClassifiedEntities(
   text: string,
   proposedProductId: string | null,
   brands: { id: string; name: string }[],
-  products: { id: string; name: string; brandId: string }[],
+  products: { id: string; name: string; brandId: string; publicModel?: string }[],
 ) {
   const explicitBrandId = mentionedBrandId(text, brands);
   const proposed = products.find((product) => product.id === proposedProductId);
   const normalized = text.toLowerCase().replace(/[\s-]+/g, "");
   const codes = proposed?.name.match(/\b[a-z]{1,8}[- ]?\d{1,5}[a-z]*\b/gi) ?? [];
   const mentionedModel = proposed && (text.toLowerCase().includes(proposed.name.toLowerCase())
+    || mentionsPublicModel(text, proposed.publicModel)
     || codes.some((code) => {
       const compact = code.toLowerCase().replace(/[\s-]+/g, "");
       return new RegExp(`(?<![a-z0-9])${compact}(?![a-z0-9])`, "i").test(text.replace(/([a-z])[- ]+(?=\d)/gi, "$1"))

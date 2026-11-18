@@ -46,6 +46,26 @@ describe("identidad de marca y modelo", () => {
     expect(normalizeGeneratedProductMentions("M25", [...publicProducts, { marca: "Otra", nombre: "M25" }])).toBe("M25");
   });
 
+  it("acepta el nombre comercial corto sin aceptar palabras genéricas", () => {
+    const catalog = [
+      { id: "poly", name: "Arturia Polybrute Sintetizador Analógico", brandId: "arturia", publicModel: "Polybrute" },
+      { id: "generic", name: "Controlador MIDI MidiPlus", brandId: "midi", publicModel: "Controlador Midi" },
+    ];
+    const known = [...brands, { id: "arturia", name: "Arturia", clientId: "pcmidi" }];
+    expect(validateClassifiedEntities("Vale la pena el PolyBrute?", "poly", known, catalog).matchedProductId).toBe("poly");
+    expect(validateClassifiedEntities("Busco un controlador MIDI", "generic", known, catalog).matchedProductId).toBeNull();
+  });
+
+  it("sin marca en el comentario, la marca sale del producto que responde a la necesidad", async () => {
+    const arturia = { id: "arturia", name: "Arturia", clientId: "pcmidi" };
+    const minifuse = { id: "minifuse", name: "Placa de sonido Arturia MiniFuse 2", category: "Interfaces", description: "Interfaz de audio", useCases: "", technicalSpecs: "", brandId: "arturia", brand: arturia };
+    const db = database();
+    db.product.findMany = async () => [...products, minifuse];
+    const result = await loadClientContext(db, "pcmidi", { sourceText: "Qué interfaz me conviene para grabar?", detectedBrandId: null, detectedProductId: null });
+    expect(result.brand.id).toBe("arturia");
+    expect(result.detectedBrandId).toBeNull();
+  });
+
   const database = (detectedProductId: string | null = null) => ({
     client: { findUniqueOrThrow: async () => ({ id: "pcmidi", slug: "pcmidi" }) },
     persona: { findMany: async () => [] }, catalogRule: { findMany: async () => [] },

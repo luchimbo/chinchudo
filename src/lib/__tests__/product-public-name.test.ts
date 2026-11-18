@@ -15,6 +15,20 @@ describe("nombres públicos de productos", () => {
       .toBe("Midiplus Studio M");
     expect(formatPublicProductName({ marca: "Kressmer", nombre: "Kressmer LM-281 Piano Digital 88 Teclas con Mueble" }))
       .toBe("Kressmer Lm-281");
+    expect(formatPublicProductName({ marca: "ARTURIA", nombre: "Placa Interfaz de audio Arturia AudioFuse 16Rig USB MIDI" }))
+      .toBe("Arturia Audiofuse 16rig");
+    expect(formatPublicProductName({ marca: "MIDIPLUS", nombre: "Placa Interfaz De audio USB Midiplus M2" }))
+      .toBe("Midiplus M2");
+    expect(formatPublicProductName({ marca: "ALCTRON", nombre: "Pie de micrófono de mesa Alctron SM316" }))
+      .toBe("Alctron Sm316");
+    expect(formatPublicProductName({ marca: "MIDIPLUS", nombre: "Interfaz de audio MIDIPLUS Studio M PRO" }))
+      .toBe("Midiplus Studio M Pro");
+    expect(formatPublicProductName({ marca: "MIDIPLUS", nombre: "Kit Micrófono Condenser BM200 USB Streaming Podcast" }))
+      .toBe("Midiplus Bm200");
+    expect(formatPublicProductName({ marca: "MIDIPLUS", nombre: "TECLADO CONTROLADOR MIDI USB MIDIPLUS AKM320 32 TECLAS SENSITIVAS" }))
+      .toBe("Midiplus Akm320");
+    expect(formatPublicProductName({ marca: "MIDIPLUS", nombre: "ORGANO TECLADO MUSICAL 61 TECLAS MK2113 BLUETOOTH" }))
+      .toBe("Midiplus Mk2113");
     expect(formatPublicProductName({ marca: "Arturia", nombre: "Sintetizador ARTURIA AstroLab 88 Teclas" }))
       .toBe("Arturia Astrolab 88");
   });

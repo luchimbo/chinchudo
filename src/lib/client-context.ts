@@ -1,6 +1,5 @@
 import type {
   Brand,
-  CatalogRule,
   Client,
   MonitoredSource,
   Opportunity,
@@ -8,6 +7,10 @@ import type {
   Product,
 } from "@prisma/client";
 import { mentionsBrand } from "./brand-identity";
+import { selectRelevantProducts } from "./catalog";
+import { catalogRuleMatches, normalizeForMatch, parseClientList } from "./catalog-text";
+
+export { catalogRuleMatches, normalizeForMatch, parseClientList };
 
 type OpportunityLike = Pick<Opportunity, "sourceText" | "detectedBrandId" | "monitoredSourceId"> & {
   clientId?: string | null;
@@ -21,22 +24,8 @@ export type ClientResolution = {
   reason: string;
 };
 
-export function normalizeForMatch(text: string): string {
-  return text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-}
-
 function escapeRegex(str: string): string {
   return str.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-}
-
-function parseList(value: string | null | undefined): string[] {
-  if (!value) return [];
-  try {
-    const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
-  } catch {
-    return value.split(",").map((item) => item.trim()).filter(Boolean);
-  }
 }
 
 function keywordScore(text: string, keywords: string[], exclusions: string[]) {
@@ -94,8 +83,8 @@ export async function resolveOpportunityClient(
     .map((client) => {
       const result = keywordScore(
         opportunity.sourceText,
-        parseList(client.domainKeywords),
-        parseList(client.domainExclusions),
+        parseClientList(client.domainKeywords),
+        parseClientList(client.domainExclusions),
       );
       return { client, ...result };
     })
@@ -140,9 +129,16 @@ export async function loadClientContext(
     ? await prisma.brand.findFirst({ where: { clientId, name: { equals: "MidiPlus", mode: "insensitive" } } })
     : null;
   const detectedBrandIsExplicit = !!detectedBrand && mentionsBrand(sourceText, detectedBrand.name);
+  const evidenceBrand = productBrand ?? (explicitBrands.length === 1 ? explicitBrands[0] : null)
+    ?? (detectedBrand?.clientId === clientId && detectedBrandIsExplicit ? detectedBrand : null);
+  // Sin marca en el comentario, la necesidad elige el producto y el producto define
+  // la marca. Antes el respaldo limitaba la búsqueda al catálogo de MidiPlus.
+  const recommended = evidenceBrand ? undefined : selectRelevantProducts(sourceText, null, 1, {
+    catalogProducts, catalogRules, scoped: true, commentText: opportunity.sourceText,
+  })[0];
+  const recommendedBrand = catalogProducts.find((product) => product.id === recommended?.id)?.brand ?? null;
   // El fabricante del producto y la evidencia textual mandan sobre el respaldo operativo.
-  const brand = productBrand ?? (explicitBrands.length === 1 ? explicitBrands[0] : null)
-    ?? (detectedBrand?.clientId === clientId && detectedBrandIsExplicit ? detectedBrand : null)
+  const brand = evidenceBrand ?? recommendedBrand
     ?? fallbackBrand ?? await prisma.brand.findFirst({ where: { clientId }, orderBy: { name: "asc" } });
   if (!brand) throw new Error(`No hay marca configurada para clientId=${clientId}.`);
 
@@ -166,13 +162,3 @@ export async function loadClientContext(
   };
 }
 
-export function catalogRuleMatches(sourceText: string, rules: Pick<CatalogRule, "category" | "keywords">[]): string[] {
-  const text = normalizeForMatch(sourceText);
-  return rules
-    .filter((rule) => parseList(rule.keywords).some((kw) => text.includes(normalizeForMatch(kw))))
-    .map((rule) => rule.category);
-}
-
-export function parseClientList(value: string | null | undefined): string[] {
-  return parseList(value);
-}

@@ -132,6 +132,7 @@ function productBrandErrors(text: string, ctx: DraftContext): string[] {
     catalogProducts: ctx.catalogProducts,
     catalogRules: ctx.catalogRules,
     scoped: !!ctx.client,
+    commentText: ctx.opportunity.sourceText,
   });
   return validateGeneratedProductBrands(text, products, [ctx.brand.name, ctx.opportunity.detectedBrand?.name ?? ""]);
 }
@@ -141,6 +142,7 @@ function normalizeDraftProductNames(text: string, ctx: DraftContext): string {
     catalogProducts: ctx.catalogProducts,
     catalogRules: ctx.catalogRules,
     scoped: !!ctx.client,
+    commentText: ctx.opportunity.sourceText,
   });
   return normalizeGeneratedProductMentions(text, products, {
     sourceText: ctx.opportunity.sourceText,
@@ -179,6 +181,7 @@ export function buildPrompt(ctx: DraftContext): string {
     catalogProducts: ctx.catalogProducts,
     catalogRules: ctx.catalogRules,
     scoped: !!client,
+    commentText: opportunity.sourceText,
   });
   const prestigeDirectNeed = /\b(?:roce|rozaduras?|ampollas?|humedad|pies? mojados?|pies? secos?|media ca[nñ]a|soquete|trail|cobertura|tobillo|calzado|zapatillas?)\b/i.test(opportunity.sourceText);
   const productChosenByCm = Boolean(ctx.productChosenByCm);
