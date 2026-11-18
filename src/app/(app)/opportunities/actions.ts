@@ -385,13 +385,8 @@ export async function publishCopilotYouTubeResponse(formData: FormData) {
   if (opportunity.contextAssessment && typeof opportunity.contextAssessment === "object" && !Array.isArray(opportunity.contextAssessment) && opportunity.contextAssessment.cmPublicationPending === true) {
     return { success: false as const, message: "Hay un envío pendiente de comprobación. Revisá el comentario en YouTube antes de volver a intentar.", reconnectRequired: false, verificationRequired: true };
   }
-  if (optimizedLoading() || manualCMQueue()) {
-    try { await assertCurrentCMResponse(prisma, opportunity.clientId, response.id, opportunity.id); }
-    catch (error) {
-      await logger.error("copilot_publish_freshness_failed", "No se pudo verificar la propuesta de YouTube", error).catch(() => {});
-      return { success: false as const, message: "No se pudo verificar la vigencia de esta propuesta. Usá «Rehacer propuesta» y revisá la nueva versión. Tu edición se conserva.", reconnectRequired: false };
-    }
-  }
+  // El envío explícito del operador aprueba el texto editado, aunque la propuesta
+  // use reglas o contexto anteriores. Actualizarla es opcional.
 
   const rateLimit = await checkPublishRateLimits(prisma, parsed.account, opportunity.channel.name);
   if (!rateLimit.ok) {

@@ -298,11 +298,12 @@ function ResponseCard({ response, text, setText, chatHistory, opportunityId, sou
   const [verificationRequired, setVerificationRequired] = useState(false);
   const [verifiedNotPublished, setVerifiedNotPublished] = useState(false);
   const isYouTube = channel.toLowerCase() === "youtube";
+  const needsRefresh = isYouTube && (runtime.optimized || runtime.queue) && !response.fresh;
   const youtubeConnectUrl = `/api/integrations/youtube/connect?client=${encodeURIComponent(clientSlug)}&account=${encodeURIComponent(youtube?.account ?? "youtube-principal")}`;
 
   async function submitResponse(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (submitting || (isYouTube && !youtube?.connected)) return;
+    if (submitting || (isYouTube && (verificationRequired || !youtube?.connected))) return;
     const form = event.currentTarget;
     const formData = new FormData(form);
     // Al completar, el botón desaparece y el foco cae al body: sólo quien envió con teclado necesita que se lo devolvamos a la confirmación.
@@ -355,7 +356,7 @@ function ResponseCard({ response, text, setText, chatHistory, opportunityId, sou
   }
 
   return <div className={`rounded-xl border p-4 ${response.isPrimary ? "border-moss/45 bg-moss/[0.05]" : "border-ink/10 bg-white"}`}>
-    <div className="mb-3 flex items-center justify-between gap-3"><span className="rounded-full bg-paper px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-ink">Propuesta lista para editar</span><span className="text-[11px] font-medium text-slate/65">{response.persona}</span></div>
+    <div className="mb-3 flex items-center justify-between gap-3"><span className="rounded-full bg-paper px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-ink">{needsRefresh ? "Propuesta pendiente de actualización" : "Propuesta lista para editar"}</span><span className="text-[11px] font-medium text-slate/65">{response.persona}</span></div>
     {/* Fuera del formulario de publicación: elegir producto nunca puede disparar un envío. */}
     {productPicker}
     <form onSubmit={submitResponse}>
@@ -369,13 +370,14 @@ function ResponseCard({ response, text, setText, chatHistory, opportunityId, sou
       <div className="mt-3 flex flex-wrap gap-2">
         <button type="button" onClick={copy} className="rounded-full border border-ink/15 px-3 py-2 text-xs font-bold text-ink transition hover:border-ink/40">{copied ? "Copiado" : "Copiar"}</button>
         {isYouTube ? (
-          youtube?.connected ? <button type="submit" disabled={submitting || verificationRequired} className="rounded-full bg-moss px-3 py-2 text-xs font-bold text-white transition hover:bg-moss/85 disabled:cursor-wait disabled:opacity-60">{submitting ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Publicando en YouTube…</span> : "Publicar en YouTube"}</button> : <a href={youtubeConnectUrl} className="rounded-full bg-moss px-3 py-2 text-xs font-bold text-white transition hover:bg-moss/85">Conectar cuenta de YouTube</a>
+          youtube?.connected ? <button type="submit" disabled={submitting || verificationRequired} className="rounded-full bg-moss px-3 py-2 text-xs font-bold text-white transition hover:bg-moss/85 disabled:cursor-not-allowed disabled:opacity-60">{submitting ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Publicando en YouTube…</span> : "Publicar en YouTube"}</button> : <a href={youtubeConnectUrl} className="rounded-full bg-moss px-3 py-2 text-xs font-bold text-white transition hover:bg-moss/85">Conectar cuenta de YouTube</a>
         ) : <>
           <button type="submit" disabled={submitting} className="rounded-full bg-ink px-3 py-2 text-xs font-bold text-paper transition hover:bg-slate disabled:cursor-wait disabled:opacity-60">{submitting ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Guardando…</span> : "Guardar como respondida"}</button>
           <button type="button" onClick={openForPublishing} disabled={openingSource} className="rounded-full bg-moss px-3 py-2 text-xs font-bold text-white transition hover:bg-moss/85 disabled:cursor-wait disabled:opacity-60">{openingSource ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Abriendo…</span> : "Abrir para publicar"}</button>
         </>}
         <RegenerateButton opportunityId={opportunityId} responseId={response.id} chatHistory={chatHistory} />
       </div>
+      {needsRefresh ? <p role="status" className="mt-2 text-xs text-slate">Podés publicar este texto. Si querés actualizarlo con el contexto actual, usá «Rehacer propuesta».</p> : null}
       {isYouTube ? <p className="mt-2 text-[11px] font-medium text-slate/65">{youtube?.connected ? `Se publicará con la cuenta conectada${youtube.channelTitle ? `: ${youtube.channelTitle}` : ""}.` : "Conectá una cuenta para publicar sin abrir YouTube."}</p> : null}
       {submissionError ? <div role="alert" className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">{submissionError}{reconnectRequired ? <a href={youtubeConnectUrl} className="ml-1 font-bold underline underline-offset-2">Reconectar cuenta de YouTube</a> : null}</div> : null}
       {verificationRequired ? <div className="mt-3 space-y-3 rounded-lg border border-brass/30 bg-paper p-3 text-xs">

@@ -94,6 +94,7 @@ describe("Guardar como respondida en Copiloto", () => {
     state.responses[1] = { id: "response-2", editedText: "", approvedBy: "", isPrimary: true };
     state.publications = 0;
     vi.clearAllMocks();
+    vi.mocked(assertCurrentCMResponse).mockReset().mockResolvedValue(undefined);
   });
   afterEach(() => vi.unstubAllEnvs());
 
@@ -162,12 +163,24 @@ describe("Guardar como respondida en Copiloto", () => {
     expect(publishYouTubeComment).toHaveBeenCalledTimes(1);
     expect(state.status).toBe("DRAFTED"); expect(state.publications).toBe(0);
   });
-  it("una propuesta desactualizada no llega a la API de publicación", async () => {
-    vi.stubEnv("OPTIMIZED_LOADING", "true");
-    vi.mocked(assertCurrentCMResponse).mockRejectedValueOnce(new Error("stale"));
+  it.each(["OPTIMIZED_LOADING", "CM_MANUAL_QUEUE"])("permite publicar el texto revisado aunque la propuesta esté desactualizada con %s", async (flag) => {
+    vi.stubEnv(flag, "true");
+    vi.mocked(assertCurrentCMResponse).mockRejectedValue(new Error("La propuesta quedó desactualizada"));
     const form = responseForm(); form.set("account", "youtube-principal");
-    expect(await publishCopilotYouTubeResponse(form)).toMatchObject({ success: false });
-    expect(publishYouTubeComment).not.toHaveBeenCalled();
+    expect(await publishCopilotYouTubeResponse(form)).toMatchObject({ success: true });
+    expect(assertCurrentCMResponse).not.toHaveBeenCalled();
+    expect(publishYouTubeComment).toHaveBeenCalledTimes(1);
+    expect(publishYouTubeComment).toHaveBeenCalledWith(expect.objectContaining({ text: "Texto final editado" }));
+    expect(state.status).toBe("PUBLISHED");
+    expect(state.publications).toBe(1);
+  });
+  it("publicar no depende de consultar las reglas de generación", async () => {
+    vi.stubEnv("OPTIMIZED_LOADING", "true");
+    vi.mocked(assertCurrentCMResponse).mockRejectedValue(new Error("Database timeout"));
+    const form = responseForm(); form.set("account", "youtube-principal");
+    expect(await publishCopilotYouTubeResponse(form)).toMatchObject({ success: true });
+    expect(assertCurrentCMResponse).not.toHaveBeenCalled();
+    expect(publishYouTubeComment).toHaveBeenCalledTimes(1);
   });
   it("no habilita un reintento sin la comprobación humana explícita", async () => {
     const form = responseForm();
