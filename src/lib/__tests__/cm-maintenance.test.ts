@@ -3,6 +3,7 @@ import type { PrismaClient } from "@prisma/client";
 
 const model = vi.hoisted(() => ({ version: "v1", duringGeneration: (() => {}) as () => void }));
 vi.mock("../cm-version", () => ({ loadCMVersion: vi.fn(async () => model.version) }));
+vi.mock("../cm-fast-admission", () => ({ currentManualFingerprint: vi.fn(async () => "db-v2:shared") }));
 vi.mock("../ai-draft-generator", () => ({
   generateAICopilotDraft: vi.fn(async () => { model.duringGeneration(); return { draftText: "Propuesta actualizada", riskNotes: "" }; }),
   shortenCopilotText: (text: string) => text,
@@ -23,6 +24,7 @@ vi.mock("../guardrails", () => ({ validateClientScopedActors: () => ({ ok: true 
 import { cmCanRetry, cmDay, cmState, loadCMCoverage, refreshCMOpportunity, runCMMaintenance } from "../cm-maintenance";
 import { cmCoverageStatus, cmStamp, cmManualInputHash } from "../cm-freshness";
 import { generateAICopilotDraft } from "../ai-draft-generator";
+import { currentManualFingerprint } from "../cm-fast-admission";
 
 function fixture() {
   const response = { id: "old", personaId: "persona", brandId: "brand", draftText: "Vieja", editedText: "", approvedBy: "", acceptedAsCorrectAt: null,
@@ -110,6 +112,18 @@ describe("actualización automática del CM", () => {
     expect(await refreshCMOpportunity(f.db, "client", "op", "owner", { jobId: "job", expectedHash: cmManualInputHash(f.opportunity) })).toBe("generated");
     expect(generateAICopilotDraft).toHaveBeenCalledTimes(1);
     expect(f.mock.cMManualJob.update).toHaveBeenCalledWith({ where: { id: "job" }, data: { status: "SUCCEEDED", leaseUntil: null, result: { responseId: "new", review: false } } });
+  });
+  it("procesa una regeneración admitida por la web con la huella compartida", async () => {
+    const f = fixture();
+    expect(await refreshCMOpportunity(f.db, "client", "op", "owner", { jobId: "job", responseId: "old", expectedHash: "db-v2:shared" })).toBe("generated");
+    expect(currentManualFingerprint).toHaveBeenCalledWith(f.db, "op", "client");
+    expect(f.opportunity.responses[0]).toMatchObject({ id: "new", isPrimary: true, draftText: "Propuesta actualizada" });
+  });
+  it("sigue rechazando cambios reales después de la admisión de la web", async () => {
+    const f = fixture();
+    expect(await refreshCMOpportunity(f.db, "client", "op", "owner", { jobId: "job", expectedHash: "db-v2:previous" })).toBe("changed");
+    expect(generateAICopilotDraft).not.toHaveBeenCalled();
+    expect(f.mock.response.create).not.toHaveBeenCalled();
   });
   it("rehacer abre la nueva propuesta y conserva aprobación, edición y chat anteriores", async () => {
     const f = fixture(); f.response.editedText = "Edición aprobada"; f.response.approvedBy = "Fede";

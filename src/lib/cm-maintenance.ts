@@ -79,7 +79,7 @@ export async function refreshCMOpportunity(db: PrismaClient, clientId: string, i
   const timing = operationTiming("cm-generation", manual?.jobId);
   const version = await timing.measure("context-version", () => loadCMVersion(db, clientId));
   if (manual) {
-    const fingerprint = manual.expectedHash.startsWith("db-v1:") ? await currentManualFingerprint(db, id, clientId) : cmManualInputHash(before);
+    const fingerprint = /^db-v[12]:/.test(manual.expectedHash) ? await currentManualFingerprint(db, id, clientId) : cmManualInputHash(before);
     if (fingerprint !== manual.expectedHash || (manual.inputVersion && version !== manual.inputVersion)) return "changed";
   }
   if (!manual && before.responses.some((response) => cmIsFresh(response.evidence, version, before))) return "skipped";

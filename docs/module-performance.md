@@ -63,6 +63,17 @@ de los recursos en la misma sentencia que crea la solicitud. El JWT por sí solo
 no autoriza el INSERT. Las sesiones delegadas conservan los guards existentes.
 
 Estados: `QUEUED`, `RUNNING`, `SUCCEEDED`, `FAILED`, `CONFLICT`.
+
+La huella `db-v2` de admisión compara los datos compartidos en Postgres. Las
+variables de IA y los archivos locales de la web no deben coincidir con los del
+worker: este calcula su propia versión editorial y la vuelve a validar antes de
+guardar. Se mantienen las comprobaciones de cambios de oportunidad, respuestas,
+catálogo y aprendizaje mientras la solicitud espera en cola.
+
+Al actualizar desde `db-v1`, actualizar la web y reiniciar el worker con el mismo
+código. Las solicitudes antiguas pendientes terminan en `CONFLICT`; volver a
+solicitarlas con «Rehacer propuesta» después de la actualización. No se borran ni
+se reemplazan respuestas anteriores por una solicitud en conflicto.
 Los índices únicos impiden dos solicitudes activas para una oportunidad y dos
 ejecuciones manuales para el mismo cliente. Un bloqueo transaccional limita las
 ejecuciones manuales a dos globales. Se comparte el lease de `DraftJob` con los
@@ -71,8 +82,9 @@ procesos existentes; un worker sin dueño vigente no puede guardar el resultado.
 La huella de entrada se comprueba antes de generar y se revisan nuevamente el
 contexto, la oportunidad y sus respuestas antes de guardar. Los cambios concurrentes
 terminan en conflicto. El guardado de propuesta y éxito de tarea es atómico.
-La huella de admisión incluye las fuentes del contexto, las reglas y la configuración
-del modelo: también detecta cambios ocurridos mientras la solicitud estaba en cola.
+La huella de admisión incluye las fuentes del contexto y las reglas guardadas en
+Postgres: también detecta cambios ocurridos mientras la solicitud estaba en cola.
+La configuración del modelo se valida durante la ejecución en el worker.
 Las ediciones y aprobaciones humanas se conservan; una propuesta nueva se muestra
 para revisar. Las ediciones locales del operador tampoco se reemplazan al terminar
 una tarea en segundo plano.

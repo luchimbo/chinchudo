@@ -3,19 +3,17 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import type { z } from "zod";
 import type { manualJobInput } from "./cm-manual-jobs";
 import { ClientResolutionError } from "./auth";
-import { cmRulesVersion } from "./cm-version";
-import { cmHash } from "./cm-freshness";
 
 export type SignedTenantClaims = { email: string; tokenVersion: number };
 type Admission = { authenticated: boolean; authorized: boolean; owned: boolean; valid: boolean; keyMismatch: boolean; job: { id: string; status: string } | null };
 
 // Compare the actual sources at admission and execution, including changes while
-// queued. The worker still computes the exact editorial version before saving.
+// queued. Process-local model settings and source files belong to the worker's
+// editorial version, not this shared DB fingerprint: web and worker can run
+// on different hosts. The worker checks its exact version again before saving.
 // Only digests leave Postgres; client credentials never enter this projection.
 function contextFingerprint(clientId: Prisma.Sql) {
-  const runtime = cmHash({ rules: cmRulesVersion(), model: ["LLM_PROVIDER", "LLM_LOCAL_MODEL", "LLM_MODEL", "OPENROUTER_MODEL", "LLM_LOCAL_START", "LLM_LOCAL_END", "LLM_SCHEDULE_TIMEZONE"].map(key => process.env[key] || "") });
   return Prisma.sql`md5(jsonb_build_object(
-    'runtime', ${runtime},
     'client', (SELECT jsonb_build_array(c.id,c.slug,c.name,c.description,c."responsePolicy",c."domainKeywords",c."domainExclusions",c."storeUrl",c."openrouterModel") FROM "Client" c WHERE c.id = ${clientId}),
     'prompts', (SELECT jsonb_agg(to_jsonb(p) ORDER BY p.id) FROM "PromptVersion" p WHERE p.name = 'response-generator' AND p.active),
     'brands', (SELECT jsonb_agg(to_jsonb(b) ORDER BY b.id) FROM "Brand" b WHERE b."clientId" = ${clientId}),
@@ -33,7 +31,7 @@ function contextFingerprint(clientId: Prisma.Sql) {
 }
 
 function inputFingerprint() {
-  return Prisma.sql`'db-v1:' || md5(to_jsonb(o)::text || coalesce((SELECT jsonb_agg(to_jsonb(r) ORDER BY r.id)::text FROM "Response" r WHERE r."opportunityId" = o.id), '[]') || ${contextFingerprint(Prisma.sql`o."clientId"`)})`;
+  return Prisma.sql`'db-v2:' || md5(to_jsonb(o)::text || coalesce((SELECT jsonb_agg(to_jsonb(r) ORDER BY r.id)::text FROM "Response" r WHERE r."opportunityId" = o.id), '[]') || ${contextFingerprint(Prisma.sql`o."clientId"`)})`;
 }
 
 /** JWT signature is verified by auth.ts; this statement checks current DB authority

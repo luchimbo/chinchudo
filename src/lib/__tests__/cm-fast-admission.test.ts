@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 import { currentManualFingerprint, fastManualAdmission } from "../cm-fast-admission";
 
@@ -8,6 +8,7 @@ function fixture() {
   const query = vi.fn(async (_sql: { text: string; values: unknown[] }) => [accepted]);
   return { query, db: { $queryRaw: query } as unknown as PrismaClient };
 }
+afterEach(() => vi.unstubAllEnvs());
 describe("admisión atómica CM", () => {
   it("autoriza e inserta en una consulta parametrizada", async () => {
     const f = fixture();
@@ -50,5 +51,23 @@ describe("admisión atómica CM", () => {
     expect(sql.text).toContain('FROM "Product"');
     expect(sql.text).toContain('FROM "PromptVersion"');
     expect(sql.text).not.toContain('openrouterApiKey');
+  });
+  it("web y worker comparan la misma huella aunque tengan distinta configuración local", async () => {
+    const f = fixture();
+    vi.stubEnv("LLM_PROVIDER", "openrouter");
+    vi.stubEnv("OPENROUTER_MODEL", "web-model");
+    await fastManualAdmission(f.db, { email: "operator", tokenVersion: 0 }, input);
+    const admission = f.query.mock.calls[0][0];
+    vi.stubEnv("LLM_PROVIDER", "schedule");
+    vi.stubEnv("OPENROUTER_MODEL", "worker-model");
+    const query = vi.fn(async (_sql: { text: string; values: unknown[] }) => [{ fingerprint: "db-v2:shared" }]);
+    await currentManualFingerprint({ $queryRaw: query } as unknown as PrismaClient, "op", "tenant");
+    const worker = query.mock.calls[0][0];
+    expect(admission.text).toContain("'db-v2:'");
+    expect(worker.text).toContain("'db-v2:'");
+    for (const sql of [admission, worker]) {
+      expect(sql.text).not.toContain("'runtime'");
+      expect(sql.values).not.toEqual(expect.arrayContaining([expect.stringMatching(/^[a-f0-9]{64}$/)]));
+    }
   });
 });
