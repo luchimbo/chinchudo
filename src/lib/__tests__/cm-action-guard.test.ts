@@ -37,11 +37,11 @@ describe("vigencia exacta al aplicar o publicar CM", () => {
     await expect(assertCurrentCMResponse(f.db, "tenant", "response")).rejects.toBe(unavailable);
     expect(unavailable).not.toBeInstanceOf(CMStaleResponseError);
   });
-  it("el aprendizaje de la misma revisión no invalida su aprobación", async () => {
+  it("una revisión aprobada sigue vigente con una sola consulta de versión", async () => {
     const f = fixture(); f.row.approvedBy = "Fede";
-    vi.mocked(loadCMVersion).mockResolvedValueOnce("with-own-feedback").mockResolvedValueOnce("v1");
     await expect(assertCurrentCMResponse(f.db, "tenant", "response")).resolves.toBeUndefined();
-    expect(loadCMVersion).toHaveBeenLastCalledWith(f.db, "tenant", { excludeFeedbackFromResponseId: "response" });
+    expect(loadCMVersion).toHaveBeenCalledTimes(1);
+    expect(loadCMVersion).toHaveBeenCalledWith(f.db, "tenant");
   });
   it("la aprobación no permite ignorar otros cambios de contexto", async () => {
     const f = fixture(); f.row.approvedBy = "Fede"; vi.mocked(loadCMVersion).mockResolvedValue("changed-context");

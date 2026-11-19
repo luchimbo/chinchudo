@@ -20,12 +20,6 @@ export async function assertCurrentCMResponse(db: PrismaClient, clientId: string
   if (row.opportunity.channel.name !== "YouTube") return;
   const current = await loadCMVersion(db, clientId);
   if (cmIsFresh(row.evidence, current, row.opportunity)) return;
-  // Accepting this response can add the response itself and its learned memories
-  // to the context. That feedback must not invalidate its own prior review.
-  if (row.approvedBy || row.editedText || row.acceptedAsCorrectAt) {
-    const withoutOwnFeedback = await loadCMVersion(db, clientId, { excludeFeedbackFromResponseId: responseId });
-    if (cmIsFresh(row.evidence, withoutOwnFeedback, row.opportunity)) return;
-  }
   throw new CMStaleResponseError();
 }
 

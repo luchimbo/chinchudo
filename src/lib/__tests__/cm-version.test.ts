@@ -30,22 +30,25 @@ describe("versionado de reglas y contenido por cliente", () => {
     f.product.updatedAt = new Date(); f.product.sourceSnapshotAt = new Date(); f.prompt.updatedAt = new Date();
     expect(await loadCMVersion(f.db, "client")).toBe(original);
   });
-  it("consulta catálogo, marca y aprendizaje solamente del cliente solicitado", async () => {
+  it("consulta catálogo y marca solamente del cliente solicitado", async () => {
     const f = fixture(); await loadCMVersion(f.db, "client");
     expect(f.mock.brand.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { clientId: "client" } }));
     expect(f.mock.product.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { brand: { clientId: "client" } } }));
-    expect(f.mock.clientMemory.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { clientId: "client", active: true } }));
     const selection = f.mock.client.findUniqueOrThrow.mock.calls[0] as unknown[];
     expect(selection[0]).toMatchObject({ select: { responsePolicy: true } });
     expect(JSON.stringify(selection)).not.toContain("ApiKey");
   });
-  it("excluye únicamente el aprendizaje de la propia revisión al verificarla", async () => {
+  it("lo aprendido no vuelve vieja cada propuesta existente", async () => {
     const f = fixture(); const original = await loadCMVersion(f.db, "client");
-    f.mock.clientMemory.findMany.mockResolvedValue([{ id: "memory", responseId: "own", rule: "Corrección propia" }] as never);
+    f.mock.clientMemory.findMany.mockResolvedValue([{ id: "memory", responseId: "own", rule: "Corrección" }] as never);
     f.mock.response.findMany.mockResolvedValue([{ id: "own", editedText: "Respuesta aceptada" }] as never);
-    expect(await loadCMVersion(f.db, "client")).not.toBe(original);
-    expect(await loadCMVersion(f.db, "client", { excludeFeedbackFromResponseId: "own" })).toBe(original);
-    f.product.stockStatus = "Sin stock";
-    expect(await loadCMVersion(f.db, "client", { excludeFeedbackFromResponseId: "own" })).not.toBe(original);
+    expect(await loadCMVersion(f.db, "client")).toBe(original);
+  });
+  it("no depende de variables de entorno del host", async () => {
+    const f = fixture(); const original = await loadCMVersion(f.db, "client");
+    const previous = process.env.OPENROUTER_MODEL;
+    process.env.OPENROUTER_MODEL = "otro/modelo";
+    try { expect(await loadCMVersion(f.db, "client")).toBe(original); }
+    finally { if (previous === undefined) delete process.env.OPENROUTER_MODEL; else process.env.OPENROUTER_MODEL = previous; }
   });
 });

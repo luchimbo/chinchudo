@@ -1,5 +1,4 @@
 import { PrismaClient } from "@prisma/client";
-import { execFileSync } from "node:child_process";
 // @ts-ignore shared ESM environment helper.
 import { loadEnv, writeReport } from "./agent-utils.mjs";
 import { classifyOpportunity } from "../src/lib/ai-opportunity-classifier";
@@ -36,7 +35,6 @@ function parseArgs() {
   const opportunityAt = process.argv.indexOf("--opportunity-id");
   return {
     dryRun: process.argv.includes("--dry-run"),
-    draft: process.argv.includes("--draft"),
     retryFallback: process.argv.includes("--retry-fallback"),
     today: process.argv.includes("--today"),
     clientSlug: clientAt >= 0 ? process.argv[clientAt + 1] : "",
@@ -126,20 +124,7 @@ async function main() {
       await processOpportunity(opportunity);
     }
   }));
-  if (!args.dryRun && args.draft) {
-    for (const opportunityId of draftOpportunityIds) {
-      execFileSync("node", [
-        "node_modules/tsx/dist/cli.mjs",
-        "scripts/draft-worker.mts",
-        "--opportunity-id",
-        opportunityId,
-        "--limit",
-        "1",
-        "--draft-only",
-      ], { cwd: process.cwd(), stdio: "inherit" });
-    }
-  }
-  const report = writeReport("reclassify-contextual", { command: "reclassify-contextual", dry_run: args.dryRun, concurrency: args.concurrency, read: opportunities.length, updated, discarded, drafts_requested: draftOpportunityIds.length, errors });
+  const report = writeReport("reclassify-contextual", { command: "reclassify-contextual", dry_run: args.dryRun, concurrency: args.concurrency, read: opportunities.length, updated, discarded, pending_for_cm: draftOpportunityIds.length, errors });
   await prisma.$disconnect();
   console.log(`reclassify-contextual: ${updated} actualizadas, ${discarded} descartadas. Reporte: ${report}`);
   if (errors.length) process.exitCode = 1;

@@ -8,7 +8,7 @@ const files = [
   "persona-router.ts", "product-public-name.ts", "brand-identity.ts", "guardrails.ts",
   "jurispedia-policy.ts", "vidia-policy.ts", "llm-provider.ts", "client-memory.ts",
   "observed-profiles.ts", "competitor-evidence.ts", "product-identity.ts", "cm-maintenance.ts",
-  "../app/(app)/opportunities/actions.ts", "cm-freshness.ts", "cm-version.ts", "prompts.ts", "../../scripts/draft-worker.mts",
+  "cm-freshness.ts", "cm-version.ts", "prompts.ts",
   "kressmer-radar.ts", "opportunity-triage.ts",
 ];
 const hash = createHash("sha256");

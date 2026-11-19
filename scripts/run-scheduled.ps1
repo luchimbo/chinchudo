@@ -1,7 +1,7 @@
 # Corre agents:monitor y guarda log.
 # Diseñado para Task Scheduler de Windows. NSTBrowser arranca solo al iniciar Windows.
-# Los borradores no se generan acá: los genera el servidor "pcmidi" por cron cada hora
-# (scripts/server/run-draft-quota.sh, instalado con scripts/server/sync-draft-server.sh).
+# Las propuestas no se generan acá: las genera el mantenimiento del Asistente CM
+# (tarea Los5Apostoles-AsistenteCM, scripts/cm-maintenance.mts) cada 15 minutos.
 
 $ROOT = Split-Path -Parent $PSScriptRoot
 $LOG_DIR = Join-Path $ROOT "logs"

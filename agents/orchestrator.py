@@ -428,7 +428,6 @@ def run_daily(args: argparse.Namespace) -> None:
     require_ok(run_step("social-listen", listen_command(args)), steps, "daily")
     if not args.dry_run:
         require_ok(run_step("import-opportunities", [resolve_bin("npx"), "tsx", "scripts/import-opportunities.mts"]), steps, "daily")
-    require_ok(run_step("draft-worker", node_command("scripts/draft-worker.mts", args)), steps, "daily")
     # Pasar --dry-run explícito al export para no depender solo de variables npm.
     export_command = [resolve_bin("node"), "scripts/export-csv.mjs"]
     if args.dry_run:
@@ -523,9 +522,6 @@ def main() -> None:
     listen.add_argument("--language", default="es", choices=["es", "en", "de", "pt", "any"])
     listen.add_argument("--dry-run", action="store_true")
 
-    draft = sub.add_parser("draft")
-    draft.add_argument("--limit", type=int, default=5)
-    draft.add_argument("--dry-run", action="store_true")
 
     export = sub.add_parser("export")
     export.add_argument("--dry-run", action="store_true")
@@ -548,8 +544,6 @@ def main() -> None:
 
     if args.command == "listen":
         run_listen(args)
-    elif args.command == "draft":
-        run_single_node(args, "scripts/draft-worker.mts", "draft")
     elif args.command == "export":
         run_single_node(args, "scripts/export-csv.mjs", "export")
     elif args.command == "daily":

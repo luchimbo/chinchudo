@@ -404,7 +404,7 @@ export async function runClient(client: Client, since: Date, maxRounds: number, 
   if (client.slug === "kressmer" && !dryRun) {
     const progress = await kressmerDailyProgress(prisma, client.id, since);
     if (progress.pendingIds.length) {
-      const drafted = await execute("npx", ["tsx", "scripts/daily-draft-quota.mts", "--client", "kressmer"], 20 * 60_000);
+      const drafted = await execute("npx", ["tsx", "scripts/cm-maintenance.mts", "--client", "kressmer", "--limit", String(progress.pendingIds.length)], 20 * 60_000);
       attempts.push({ source: "draft", channel: "internal", code: drafted.code, timedOut: drafted.timedOut, error: drafted.code ? drafted.output.slice(-1000) : "" });
     }
     readyResponses = (await kressmerDailyProgress(prisma, client.id, since)).ready;

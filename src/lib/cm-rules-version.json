@@ -21,13 +21,11 @@
     "competitor-evidence.ts",
     "product-identity.ts",
     "cm-maintenance.ts",
-    "../app/(app)/opportunities/actions.ts",
     "cm-freshness.ts",
     "cm-version.ts",
     "prompts.ts",
-    "../../scripts/draft-worker.mts",
     "kressmer-radar.ts",
     "opportunity-triage.ts"
   ],
-  "version": "adf63b2cd75732e216e32a922045547bbc3551dbd1923c3ce7625afd74c1b8b5"
+  "version": "743cf0568633a5c6ce67a65da4d984e87023617f4713733f4c13113f53636dc7"
 }
