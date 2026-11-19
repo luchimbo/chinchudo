@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { setTimeout as sleep } from "node:timers/promises";
 import { dailyArticlePlan } from "../src/lib/blog-daily-plan.mjs";
 import { inspectBlogArticle } from "../src/lib/blog-evidence.mjs";
 import { nextFreeEditorialDay, withDateHistory } from "../src/lib/blog-free-slot.mjs";
@@ -23,7 +24,7 @@ export function dayPlanArgs(preparation) {
 
 const MANUAL_PUBLICATION_QUEUED = "MANUAL_PUBLICATION_QUEUED";
 
-export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcmidi", fetchUrl = fetch, now = () => new Date(), generationClients = new Set(), log = console, withLease = async (_id, fn) => fn(), catalogPending = async () => false, inspect = (clientId, content, id) => inspectBlogArticle(prisma, clientId, content, id) }) {
+export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcmidi", fetchUrl = fetch, wait = sleep, now = () => new Date(), generationClients = new Set(), log = console, withLease = async (_id, fn) => fn(), catalogPending = async () => false, inspect = (clientId, content, id) => inspectBlogArticle(prisma, clientId, content, id) }) {
   let running = false;
   const publishingClients = new Set();
   let lastStartedAt = null, lastCompletedAt = null, lastFailure = false, blockedByCatalog = false;
@@ -113,10 +114,17 @@ export function createBlogDaily({ prisma, runBlogPython, targetClientSlug = "pcm
       const language = version.id === landing.id ? content.language : parseContent(version).language;
       const prefix = ["en", "de"].includes(language) ? `/${language}` : "";
       const publicUrl = `${client.blogBaseUrl.replace(/\/$/, "")}${prefix}/guias/${version.contentCluster?.slug || landing.contentCluster.slug}/${version.slug}/`;
-      const response = await fetchUrl(`${publicUrl}?revision=${token}`, { signal: AbortSignal.timeout(20_000), headers: { "Cache-Control": "no-cache" } });
-      if (!response.ok) throw new Error(`La URL pública respondió ${response.status}: ${publicUrl}`);
-      const html = await response.text();
-      if (!html.includes(`<meta name="editorial-revision" content="${token}">`)) throw new Error(`La URL pública todavía no contiene la versión desplegada: ${publicUrl}`);
+      // The production domain can briefly serve the previous deployment after Vercel reports success.
+      const delays = [0, 2000, 4000, 8000, 16000];
+      for (const [attempt, delay] of delays.entries()) {
+        if (delay) await wait(delay);
+        const response = await fetchUrl(`${publicUrl}?revision=${token}&attempt=${attempt}`, { signal: AbortSignal.timeout(20_000), headers: { "Cache-Control": "no-cache" } });
+        if (response.ok && (await response.text()).includes(`<meta name="editorial-revision" content="${token}">`)) break;
+        if (attempt === delays.length - 1 || (!response.ok && response.status !== 404)) {
+          if (!response.ok) throw new Error(`La URL pública respondió ${response.status}: ${publicUrl}`);
+          throw new Error(`La URL pública todavía no contiene la versión desplegada: ${publicUrl}`);
+        }
+      }
       await prisma.landing.update({ where: { id: version.id }, data: { publicPreviewUrl: publicUrl } });
     }
     return url;

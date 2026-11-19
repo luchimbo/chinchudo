@@ -113,7 +113,7 @@ function build(overrides: Row = {}) {
   const runBlogPython = vi.fn(async (_args: string[]) => "ok");
   const fetchUrl = vi.fn(async (url: string) => ({ ok: true, status: 200, text: async () => `<meta name="editorial-revision" content="${new URL(url).searchParams.get("revision")}">` }));
   const inspect = vi.fn(async () => ({ publishable: true, version: 1, checks: [] }));
-  const daily = createBlogDaily({ prisma, runBlogPython, fetchUrl, inspect, now: () => clock, log: { log: () => {}, error: () => {} }, ...overrides });
+  const daily = createBlogDaily({ prisma, runBlogPython, fetchUrl, inspect, wait: async () => {}, now: () => clock, log: { log: () => {}, error: () => {} }, ...overrides });
   return { runBlogPython, fetchUrl, daily };
 }
 
@@ -208,7 +208,7 @@ describe("rutina diaria del blog", () => {
     const fetchUrl = vi.fn(async (url: string) => ({ ok: !url.includes("/de/"), status: url.includes("/de/") ? 404 : 200, text: async () => `<meta name="editorial-revision" content="${new URL(url).searchParams.get("revision")}">` }));
     const { daily } = build({ fetchUrl });
     await daily.runDailyBlogCalendar();
-    expect(fetchUrl).toHaveBeenCalledTimes(3);
+    expect(fetchUrl).toHaveBeenCalledTimes(7);
     expect(row("2026-10-01").status).toBe("FAILED");
     expect(row("2026-10-01").lastError).toContain("404");
     expect(landings.en.status).toBe("DRAFT"); expect(landings.de.status).toBe("DRAFT");
@@ -704,6 +704,21 @@ describe("rutina diaria del blog", () => {
     await daily.runDailyBlogCalendar();
     expect(row("2026-10-01").status).toBe("FAILED");
     expect(row("2026-10-01").lastError).toContain("404");
+  });
+
+  it("espera la versión nueva si la URL pública devuelve 404 y luego la versión anterior", async () => {
+    addReady("2026-10-01");
+    const fetchUrl = vi.fn(async (url: string) => ({
+      ok: true, status: 200,
+      text: async () => `<meta name="editorial-revision" content="${new URL(url).searchParams.get("revision")}">`,
+    }))
+      .mockResolvedValueOnce({ ok: false, status: 404, text: async () => "" })
+      .mockResolvedValueOnce({ ok: true, status: 200, text: async () => "versión anterior" });
+    const { daily, runBlogPython } = build({ fetchUrl });
+    await daily.runDailyBlogCalendar();
+    expect(row("2026-10-01").status).toBe("PUBLISHED");
+    expect(deploys(runBlogPython)).toBe(1);
+    expect(new Set(fetchUrl.mock.calls.map(([url]) => url)).size).toBe(3);
   });
 
   it("reintenta una falla y se detiene a los 3 intentos", async () => {
