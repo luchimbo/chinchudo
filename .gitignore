@@ -86,3 +86,8 @@ landing-build/data/ig_state.json
 landing-build/data/nurture_metrics.json
 landing-build/data/oportunidades_research.jsonl
 landing-build/data/social_intel.jsonl
+
+# Artefactos locales de corridas, deploys y diagnósticos (no versionar)
+.tmp/
+reports/
+logs/
