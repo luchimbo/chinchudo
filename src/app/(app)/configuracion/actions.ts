@@ -2,9 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { assertClientAccess, getCurrentUser } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/auth";
 import { hashPassword, verifyPassword } from "@/lib/auth-crypto";
 import { validatePassword } from "@/lib/password-policy";
 import { checkRateLimit } from "@/lib/rate-limit";

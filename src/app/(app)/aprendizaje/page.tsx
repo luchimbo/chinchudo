@@ -3,7 +3,6 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { getVisibleClients, requirePageClient } from "@/lib/auth";
 import { deleteClientMemoryAction, createManualClientMemoryAction, unmarkAcceptedResponseAction, updateClientMemoryAction } from "../opportunities/actions";
-import { SubmitButton } from "../opportunities/[id]/SubmitButton";
 import { PendingSubmitButton } from "@/components/pending-submit-button";
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -216,12 +215,12 @@ export default async function AprendizajePage({ searchParams }: PageProps) {
                 />
               </div>
 
-              <SubmitButton
+              <PendingSubmitButton
                 loadingText="Guardando..."
                 className="w-full rounded-xl bg-ink px-4 py-3 text-xs font-bold text-paper transition hover:bg-slate-850"
               >
                 Guardar en Memoria
-              </SubmitButton>
+              </PendingSubmitButton>
             </form>
           </div>
         </aside>

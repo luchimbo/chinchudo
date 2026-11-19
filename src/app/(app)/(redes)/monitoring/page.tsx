@@ -141,7 +141,7 @@ export default async function MonitoringPage({ searchParams }: { searchParams: {
         <h2 className="font-display text-2xl text-ink">Detecciones recientes (7 días)</h2>
         <div className="mt-4 grid gap-2">
           {recent.map((o) => (
-            <Link key={o.id} href={`/opportunities/${o.id}`} className="flex min-w-0 flex-col gap-2 rounded-md border border-ink/10 bg-paper p-3 text-sm transition hover:bg-white sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+            <Link key={o.id} href={`/asistente-cm?focus=${encodeURIComponent(o.id)}`} className="flex min-w-0 flex-col gap-2 rounded-md border border-ink/10 bg-paper p-3 text-sm transition hover:bg-white sm:flex-row sm:items-center sm:justify-between sm:gap-3">
               <span className="min-w-0 truncate text-ink">{o.sourceText.slice(0, 90)}</span>
               <span className="text-xs text-slate/70 sm:shrink-0">{o.channel.name} · {o.monitoredSource?.label ?? "—"}</span>
             </Link>

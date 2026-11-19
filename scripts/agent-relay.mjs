@@ -14,7 +14,6 @@ import { catalogSyncBlocksBlog } from "../src/lib/blog-auto-repair.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
-const RESULTS_PATH = join(ROOT, "data", "publish-results.json");
 
 // Cargar .env manualmente (el relay corre fuera de Next.js)
 const envPath = join(ROOT, ".env");
@@ -305,19 +304,6 @@ function parseImportSummary(stdout) {
   };
 }
 
-// Guarda el resultado de una publicacion en data/publish-results.json
-function saveResult(resultKey, result) {
-  try {
-    const existing = existsSync(RESULTS_PATH)
-      ? JSON.parse(readFileSync(RESULTS_PATH, "utf-8"))
-      : {};
-    existing[resultKey] = { ...result, ts: Date.now() };
-    writeFileSync(RESULTS_PATH, JSON.stringify(existing, null, 2), "utf-8");
-  } catch (e) {
-    console.error("[agent-relay] No se pudo guardar resultado:", e.message);
-  }
-}
-
 // Testea conectividad con NSTBrowser API
 async function testNstbrowser() {
   const apiKey = process.env.NSTBROWSER_API_KEY ?? "";
@@ -400,21 +386,6 @@ const server = http.createServer(async (req, res) => {
     });
   }
 
-  // GET /result/:opportunityId — devuelve el ultimo resultado de publicacion
-  if (method === "GET" && url.startsWith("/result/")) {
-    const opportunityId = url.replace("/result/", "").split("?")[0];
-    try {
-      const results = existsSync(RESULTS_PATH)
-        ? JSON.parse(readFileSync(RESULTS_PATH, "utf-8"))
-        : {};
-      const entry = results[opportunityId];
-      if (!entry) return json(res, 404, { error: "no_result_yet" });
-      return json(res, 200, entry);
-    } catch (e) {
-      return json(res, 500, { error: e.message });
-    }
-  }
-
   // GET /accounts?channel=<canal>&client=<clientSlug>
   // Las cuentas son compartidas entre clientes; el cliente se conserva para
   // compatibilidad con llamadas anteriores, pero no restringe el resultado.
@@ -462,59 +433,6 @@ const server = http.createServer(async (req, res) => {
         else console.log("[agent-relay] login-status OK");
       });
     return;
-  }
-
-  // POST /publish — responde 202 inmediato, procesa en background
-  if (method === "POST" && url === "/publish") {
-    let body;
-    try { body = await readBody(req); }
-    catch { return json(res, 400, { error: "invalid_json" }); }
-
-    const { opportunityId, responseId, account, attemptId } = body;
-    if (!opportunityId || !responseId) {
-      return json(res, 400, { error: "missing_fields" });
-    }
-
-    // publish-response importa .ts con alias "@/": necesita el loader de tsx.
-    const args = [
-      "--import", "tsx",
-      join(ROOT, "scripts", "publish-response.mjs"),
-      "--opportunity-id", opportunityId,
-      "--response-id", responseId,
-    ];
-    if (account) args.push("--account", account);
-
-    const resultKey = attemptId || opportunityId;
-    saveResult(resultKey, { pending: true, state: "queued", opportunityId, responseId, account: account ?? "auto", attemptId: resultKey });
-    console.log(`[agent-relay] encolando attempt=${resultKey} opp=${opportunityId} resp=${responseId} account=${account ?? "auto"}`);
-
-    // Responder 202 de inmediato
-    json(res, 202, { accepted: true, attemptId: resultKey, opportunityId, account: account ?? "auto" });
-
-    // Procesar en background
-    execFile("node", args, { cwd: ROOT, encoding: "utf-8", timeout: 180_000 },
-      (err, stdout, stderr) => {
-        const allOutput = (stdout ?? "") + "\n" + (stderr ?? "");
-        const lastLine = (stdout ?? "").trim().split("\n").pop() ?? "{}";
-        try {
-          const result = JSON.parse(lastLine);
-          if (result.success) {
-            console.log(`[agent-relay] OK opp=${opportunityId}`, JSON.stringify(result));
-            saveResult(resultKey, { pending: false, state: "confirmed", attemptId: resultKey, opportunityId, responseId, account: account ?? "auto", success: true, ...result });
-          } else {
-            console.warn(`[agent-relay] ERROR opp=${opportunityId} — ${result.error}`);
-            saveResult(resultKey, { pending: false, state: "failed", attemptId: resultKey, opportunityId, responseId, account: account ?? "auto", success: false, error: result.error, detail: allOutput.slice(-500) });
-          }
-        } catch {
-          const detail = err?.message || stderr || "spawn_failed";
-          console.error(`[agent-relay] FALLO opp=${opportunityId} — ${detail}`);
-          console.error("STDOUT:", stdout?.slice(-500));
-          console.error("STDERR:", stderr?.slice(-500));
-          saveResult(resultKey, { pending: false, state: "failed", attemptId: resultKey, opportunityId, responseId, account: account ?? "auto", success: false, error: "spawn_failed", detail: allOutput.slice(-500) });
-        }
-      }
-    );
-    return; // ya respondimos 202
   }
 
   // POST /landings/preview — ejecuta build_landings.py localmente y devuelve el HTML

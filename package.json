@@ -56,7 +56,6 @@
     "agents:seed-prestige-radar": "npx tsx scripts/seed-prestige-radar.mts",
     "agents:monitor": "python agents/orchestrator.py monitor",
     "agents:healthcheck": "python agents/orchestrator.py healthcheck",
-    "agents:publish": "tsx scripts/publish-response.mjs",
     "db:backup": "node scripts/backup-db.mjs",
     "relay": "node scripts/agent-relay.mjs",
     "relay:start": "node scripts/start-relay.mjs",

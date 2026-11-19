@@ -21,9 +21,7 @@ vi.mock("@/lib/cm-action-guard", async (importOriginal) => ({
 vi.mock("@/lib/auth-guards", () => ({ requireOwnedClientId: vi.fn(async () => ({ id: "client-1" })) }));
 vi.mock("@/lib/auth", () => ({ assertClientAccess: vi.fn(async () => {}) }));
 vi.mock("@/lib/publish-agent", () => ({
-  checkPublishRateLimits: vi.fn(async () => ({ ok: true })),
   closeSiblingOpportunities: vi.fn(async () => 0),
-  runPublisher: vi.fn(),
 }));
 vi.mock("@/lib/youtube-publisher", () => ({
   publishYouTubeComment: vi.fn(async () => ({ success: true, url: "https://youtube.com/watch?v=test", remoteId: "remote-1", method: "youtube_api" })),

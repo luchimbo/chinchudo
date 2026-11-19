@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { confirmYouTubeNotPublished, discardCopilotOpportunity, generateCopilotDrafts, markCopilotResponse, publishCopilotYouTubeResponse, regenerateCopilotResponse } from "@/app/(app)/opportunities/actions";
+import { confirmYouTubeNotPublished, discardCopilotOpportunity, markCopilotResponse, publishCopilotYouTubeResponse } from "@/app/(app)/opportunities/actions";
 import { coverageNeedsDetail, type CoverageRow } from "@/lib/cm-coverage-view";
 import { CMRuntime, CMJobStatus, useCMRuntime, enqueueCM } from "./runtime";
 import { CoveragePanel } from "./coverage-panel";
@@ -72,7 +72,7 @@ function ProductCombobox({ products, current, selected, onSelect, disabled = fal
   onSelect: (choice: ProductChoice) => void;
   disabled?: boolean;
 }) {
-  const { client, optimized } = useCMRuntime();
+  const { client } = useCMRuntime();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
@@ -82,8 +82,8 @@ function ProductCombobox({ products, current, selected, onSelect, disabled = fal
   const listId = useId();
   const shown = selected ?? current;
 
-  const searched = useCatalogSearch("cm-product", query, open && optimized, client);
-  const availableProducts = optimized ? searched.items : products;
+  const searched = useCatalogSearch("cm-product", query, open, client);
+  const availableProducts = searched.items;
   const searchable = useMemo(() => [{ id: "", name: NO_PRODUCT_LABEL, brand: "" }, ...availableProducts]
     .map((option) => ({ ...option, search: normalizeSearch(`${option.name} ${option.brand}`) })), [availableProducts]);
   const options = useMemo(() => {
@@ -230,7 +230,7 @@ function RegenerateButton({ opportunityId, responseId, chatHistory }: { opportun
       formData.set("opportunityId", opportunityId);
       formData.set("responseId", responseId);
       if (chatHistory) formData.set("chatHistory", JSON.stringify(chatHistory));
-      if (runtime.queue) await enqueueCM(formData, runtime.client, "regenerate"); else { await regenerateCopilotResponse(formData); runtime.notify(opportunityId); }
+      await enqueueCM(formData, runtime.client, "regenerate");
     } catch {
       setError("No se pudo regenerar la respuesta. Probá de nuevo en un momento.");
     } finally {
@@ -268,7 +268,7 @@ function ProposalProductPicker({ opportunityId, responseId, products, current }:
       formData.set("opportunityId", opportunityId);
       formData.set("responseId", responseId);
       if (productChange) formData.set("productId", productChange.id);
-      if (runtime.queue) await enqueueCM(formData, runtime.client, "regenerate"); else { await regenerateCopilotResponse(formData); runtime.notify(opportunityId); }
+      await enqueueCM(formData, runtime.client, "regenerate");
     } catch {
       setError("No se pudo rehacer la propuesta. Probá de nuevo en un momento.");
     } finally {
@@ -287,8 +287,6 @@ function ProposalProductPicker({ opportunityId, responseId, products, current }:
 }
 
 function ResponseCard({ response, text, setText, chatHistory, opportunityId, sourceUrl, channel, clientSlug, youtube, productPicker, onCompleted }: { response: Response; text: string; setText: (text: string) => void; chatHistory: ChatMessage[] | undefined; opportunityId: string; sourceUrl: string; channel: string; clientSlug: string; youtube: { account: string; connected: boolean; channelTitle: string } | null; productPicker: React.ReactNode; onCompleted: (kind: CompletionKind, moveFocus: boolean) => void }) {
-  const router = useRouter();
-  const runtime = useCMRuntime();
   const [copied, setCopied] = useState(false);
   const [openingSource, setOpeningSource] = useState(false);
   const [popupBlocked, setPopupBlocked] = useState(false);
@@ -298,7 +296,7 @@ function ResponseCard({ response, text, setText, chatHistory, opportunityId, sou
   const [verificationRequired, setVerificationRequired] = useState(false);
   const [verifiedNotPublished, setVerifiedNotPublished] = useState(false);
   const isYouTube = channel.toLowerCase() === "youtube";
-  const needsRefresh = isYouTube && (runtime.optimized || runtime.queue) && !response.fresh;
+  const needsRefresh = isYouTube && !response.fresh;
   const youtubeConnectUrl = `/api/integrations/youtube/connect?client=${encodeURIComponent(clientSlug)}&account=${encodeURIComponent(youtube?.account ?? "youtube-principal")}`;
 
   async function submitResponse(event: React.FormEvent<HTMLFormElement>) {
@@ -327,7 +325,6 @@ function ResponseCard({ response, text, setText, chatHistory, opportunityId, sou
       // Si mientras esperaba la persona pasó el foco a otra parte, no se lo robamos.
       const focusStayedHere = document.activeElement === document.body || form.contains(document.activeElement);
       onCompleted(isYouTube ? "youtube" : "manual", keyboardSubmit && focusStayedHere);
-      if (!runtime.optimized) router.refresh();
     } catch {
       setSubmissionError(isYouTube
         ? "No se pudo completar la publicación. El comentario sigue acá; comprobá el estado antes de reintentar."
@@ -403,8 +400,7 @@ function ResponseCard({ response, text, setText, chatHistory, opportunityId, sou
 
 function ResponseWithChat({ response, opportunityId, sourceUrl, channel, clientSlug, youtube, productPicker, onCompleted, onDirtyChange, onSaved }: { response: Response; opportunityId: string; sourceUrl: string; channel: string; clientSlug: string; youtube: { account: string; connected: boolean; channelTitle: string } | null; productPicker: React.ReactNode; onCompleted: (kind: CompletionKind, moveFocus: boolean) => void; onDirtyChange?: (dirty: boolean) => void; onSaved: () => void }) {
   // El texto vive acá para que el chat pueda reemplazar la versión editable.
-  const runtime = useCMRuntime();
-  const [chatOpen, setChatOpen] = useState(!runtime.optimized);
+  const [chatOpen, setChatOpen] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState("");
   const [variants, setVariants] = useState<Response[]>([]);
@@ -481,7 +477,6 @@ function CompletedOpportunityCard({ completion, clientSlug, nextHref, onDismiss 
 }
 
 function OpportunityCard({ opportunity: initialOpportunity, clientSlug, youtube, products, onCompleted, onSaved, savedAction }: { opportunity: Opportunity; clientSlug: string; youtube: { account: string; connected: boolean; channelTitle: string } | null; products: ProductOption[]; onCompleted: (kind: CompletionKind, moveFocus: boolean) => void; onSaved: () => void; savedAction?: React.ReactNode }) {
-  const runtime = useCMRuntime();
   const dirty = useRef(false);
   const [updatePending, setUpdatePending] = useState(false);
   const [pendingResponses, setPendingResponses] = useState<Response[]>([]);
@@ -501,13 +496,12 @@ function OpportunityCard({ opportunity: initialOpportunity, clientSlug, youtube,
   const currentOpportunity = useRef(opportunity);
   currentOpportunity.current = opportunity;
   useEffect(() => {
-    if (!runtime.optimized && !runtime.queue) return;
     let controller: AbortController | undefined;
     let running = false, stopped = false, lastDetailRevision = "";
     const refresh = () => {
       if (running || stopped) return;
       running = true; controller = new AbortController();
-      void fetch(`/api/cm/opportunities/${initialOpportunity.id}?client=${encodeURIComponent(clientSlug)}${runtime.optimized ? "" : "&history=1"}`, { signal: controller.signal })
+      void fetch(`/api/cm/opportunities/${initialOpportunity.id}?client=${encodeURIComponent(clientSlug)}`, { signal: controller.signal })
         .then(async r => {
           if (!r.ok) throw new Error("detail_failed");
           const next = (await r.json()).opportunity;
@@ -532,7 +526,7 @@ function OpportunityCard({ opportunity: initialOpportunity, clientSlug, youtube,
     window.addEventListener("cm-opportunity-changed", changed);
     window.addEventListener("cm-coverage-updated", covered);
     return () => { stopped = true; controller?.abort(); window.removeEventListener("cm-opportunity-changed", changed); window.removeEventListener("cm-coverage-updated", covered); };
-  }, [clientSlug, initialOpportunity.id, runtime.optimized, runtime.queue]);
+  }, [clientSlug, initialOpportunity.id]);
   const [discardOpen, setDiscardOpen] = useState(false);
   const [discardError, setDiscardError] = useState("");
 
@@ -576,9 +570,9 @@ function OpportunityCard({ opportunity: initialOpportunity, clientSlug, youtube,
         {opportunity.freshness === "fresh" ? "Respuesta actualizada" : opportunity.freshness === "review" ? "Hay una propuesta actualizada para revisar. Tu respuesta anterior se conserva." : opportunity.freshness === "error" ? "No se pudo actualizar. Se volverá a intentar; podés regenerar manualmente." : opportunity.freshness === "stale" ? "Pendiente de actualización con las reglas actuales" : "Pendiente de generación automática"}
       </p>
       {opportunity.refreshError ? <details className="mb-3 text-xs text-slate"><summary className="cursor-pointer">Ver motivo</summary><p className="mt-2">{opportunity.refreshError}</p></details> : null}
-      {!response ? <form action={async data => { if (runtime.queue) await enqueueCM(data, clientSlug, "generate"); else { await generateCopilotDrafts(data); runtime.notify(opportunity.id); } }} className="rounded-xl bg-paper p-4">
+      {!response ? <form action={async data => { await enqueueCM(data, clientSlug, "generate"); }} className="rounded-xl bg-paper p-4">
         <input type="hidden" name="opportunityId" value={opportunity.id} />
-        {(runtime.optimized || products.length > 0) ? <div className="mb-3 max-w-md"><p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate/70">Producto para la propuesta</p><ProductCombobox products={products} current={currentProduct} selected={generateChoice} onSelect={setGenerateChoice} /></div> : null}
+        <div className="mb-3 max-w-md"><p className="mb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate/70">Producto para la propuesta</p><ProductCombobox products={products} current={currentProduct} selected={generateChoice} onSelect={setGenerateChoice} /></div>
         {generateChoice ? <input type="hidden" name="productId" value={generateChoice.id} /> : null}
         <PendingSubmit pendingLabel="Generando respuesta..." className="rounded-full bg-ink px-4 py-2.5 text-sm font-bold text-paper transition hover:bg-slate">Generar respuesta</PendingSubmit>
         <p className="mt-2 text-xs text-slate/70">{generateChoice ? `Se genera con ${generateChoice.id ? `las características de ${generateChoice.name}` : "ningún producto específico"}, además de lo que la IA aprendió de los chats.` : "Se genera con las reglas y respuestas correctas que la IA aprendió de los chats. Después la podés ajustar acá mismo."}</p>
@@ -594,7 +588,7 @@ function OpportunityCard({ opportunity: initialOpportunity, clientSlug, youtube,
   </article>;
 }
 
-function Workspace({ activeClient, youtube, filters, products, opportunities, coverage, queuePage, optimized = false, coveragePending = false }: { queuePage: QueuePage; optimized?: boolean; queueEnabled?: boolean; coveragePending?: boolean; coverage: Coverage; activeClient: { slug: string; name: string } | null; youtube: { account: string; connected: boolean; channelTitle: string } | null; filters: { brands: { id: string; name: string }[]; channels: { id: string; name: string }[]; selectedBrand: string; selectedChannel: string; selectedResponse: string; selectedSort: string }; products: ProductOption[]; opportunities: Opportunity[] }) {
+function Workspace({ activeClient, youtube, filters, products, opportunities, coverage, queuePage, coveragePending = false }: { queuePage: QueuePage; coveragePending?: boolean; coverage: Coverage; activeClient: { slug: string; name: string } | null; youtube: { account: string; connected: boolean; channelTitle: string } | null; filters: { brands: { id: string; name: string }[]; channels: { id: string; name: string }[]; selectedBrand: string; selectedChannel: string; selectedResponse: string; selectedSort: string }; products: ProductOption[]; opportunities: Opportunity[] }) {
   const pathname = usePathname();
   const router = useRouter();
   const params = useSearchParams();
@@ -658,7 +652,7 @@ function Workspace({ activeClient, youtube, filters, products, opportunities, co
   }
 
   return <div className="mx-auto w-full max-w-6xl px-5 py-8 lg:px-8"><header className="grid gap-5 border-b border-ink/10 pb-7 md:grid-cols-[1fr_auto] md:items-end"><div><h1 className="font-display text-4xl leading-none text-ink md:text-5xl">Asistente CM</h1><Link href={activeClient ? `/historial?client=${encodeURIComponent(activeClient.slug)}` : "/historial"} className="mt-3 inline-flex rounded-full border border-ink/15 px-3 py-1.5 text-xs font-bold text-ink transition hover:border-ink/40 hover:bg-white">Ver respuestas enviadas →</Link></div><div className="rounded-2xl border border-moss/20 bg-moss/[0.06] px-4 py-3 text-sm text-ink"><span className="font-bold">{activeClient?.name ?? "Sin cliente"}</span><br /><span className="text-xs text-slate">YouTube: {youtube?.connected ? "publicación por API" : "conexión pendiente"}. Meta: publicación manual.</span>{youtube?.connected ? <><button type="button" onClick={disconnectYouTube} disabled={disconnectingYouTube} className="mt-3 block text-xs font-bold text-slate underline decoration-slate/35 underline-offset-4 transition hover:text-ink disabled:cursor-wait disabled:opacity-60">{disconnectingYouTube ? <span role="status" className="inline-flex items-center gap-2"><LoadingSpinner />Desconectando…</span> : "Desconectar cuenta de YouTube"}</button>{youtubeDisconnectError ? <p role="alert" className="mt-2 text-xs font-medium text-red-600">{youtubeDisconnectError}</p> : null}</> : null}</div></header>
-    <CoveragePanel visibleIds={opportunities.map(opportunity => opportunity.id)} client={activeClient?.slug || ""} initial={coverage} pending={coveragePending} optimized={optimized} />
+    <CoveragePanel visibleIds={opportunities.map(opportunity => opportunity.id)} client={activeClient?.slug || ""} initial={coverage} pending={coveragePending} />
     <div className="mt-6 flex flex-wrap gap-3 rounded-2xl border border-ink/10 bg-white/65 p-3"><label className="text-xs font-bold text-slate/70">Marca<select value={filters.selectedBrand} onChange={(event) => setParam("brand", event.target.value)} className="ml-2 rounded-lg border border-ink/10 bg-paper px-2 py-1.5 text-xs text-ink"><option value="">Todas</option>{filters.brands.map((brand) => <option key={brand.id} value={brand.id}>{brand.name}</option>)}</select></label><label className="text-xs font-bold text-slate/70">Red<select value={filters.selectedChannel} onChange={(event) => setParam("channel", event.target.value)} className="ml-2 rounded-lg border border-ink/10 bg-paper px-2 py-1.5 text-xs text-ink"><option value="">Todas</option>{filters.channels.map((channel) => <option key={channel.id} value={channel.id}>{channel.name}</option>)}</select></label><label className="text-xs font-bold text-slate/70">Respuesta<select value={filters.selectedResponse} onChange={(event) => setParam("response", event.target.value)} className="ml-2 rounded-lg border border-ink/10 bg-paper px-2 py-1.5 text-xs text-ink"><option value="">Todas</option><option value="generated">Con respuesta generada</option><option value="missing">Sin respuesta</option><option value="stale">Por actualizar</option><option value="fresh">Actualizadas</option><option value="review">Propuestas para revisar</option><option value="error">Con error</option></select></label><label className="text-xs font-bold text-slate/70">Orden<select value={filters.selectedSort} onChange={(event) => setParam("sort", event.target.value)} className="ml-2 rounded-lg border border-ink/10 bg-paper px-2 py-1.5 text-xs text-ink"><option value="today">Para hoy</option><option value="relevance">Relevancia</option><option value="newest">Más recientes</option><option value="oldest">Más antiguas</option></select></label></div>
     <section className="mt-5 grid gap-4">
       <h2 className="font-display text-2xl text-ink">{filters.selectedSort === "today" ? "Para hoy" : "Oportunidades encontradas"}</h2>
@@ -697,4 +691,4 @@ function Workspace({ activeClient, youtube, filters, products, opportunities, co
   </div>;
 }
 
-export function CopilotWorkspace(props: Parameters<typeof Workspace>[0]) { return <CMRuntime key={props.activeClient?.slug} client={props.activeClient?.slug || ""} optimized={!!props.optimized} queue={!!props.queueEnabled}><Workspace {...props} /></CMRuntime>; }
+export function CopilotWorkspace(props: Parameters<typeof Workspace>[0]) { return <CMRuntime key={props.activeClient?.slug} client={props.activeClient?.slug || ""}><Workspace {...props} /></CMRuntime>; }

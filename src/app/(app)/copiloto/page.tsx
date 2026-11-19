@@ -1,128 +1,19 @@
-import { optimizedLoading, manualCMQueue } from "@/lib/performance-flags";
-import OptimizedCopilot from "./optimized-page";
 import { FirstUseHint } from "@/components/first-use-hint";
-import { Prisma } from "@prisma/client";
 import { requirePageClient } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { OPPORTUNITY_CHANNEL_NAMES } from "@/lib/opportunity-channels";
-import type { ChatMessage } from "@/lib/refine-draft";
-import { CopilotWorkspace } from "./workspace";
-import { loadCMCoverage } from "@/lib/cm-maintenance";
-import { cmIsFresh } from "@/lib/cm-freshness";
+import OptimizedCopilot from "./optimized-page";
 
-import { cmQueueCoverage, cmQueueResponse, cmQueueSort, loadCMSummaries } from "@/lib/cm-summary-query";
-
-function parseChatHistory(value: Prisma.JsonValue): ChatMessage[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item) => {
-    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
-    const { sender, text, suggestion } = item as Record<string, unknown>;
-    if ((sender !== "user" && sender !== "assistant") || typeof text !== "string") return [];
-    // La propuesta editable del chat se conserva solo si tiene la forma esperada.
-    const proposal = suggestion && typeof suggestion === "object" ? suggestion as Record<string, unknown> : null;
-    return [{
-      sender,
-      text,
-      ...(proposal && typeof proposal.text === "string" && typeof proposal.original === "string"
-        ? { suggestion: { text: proposal.text, original: proposal.original } }
-        : {}),
-    }];
-  });
-}
 type PageProps = {
   searchParams: { firstUse?: string; client?: string; brand?: string; channel?: string; response?: string; sort?: string; page?: string; focus?: string };
 };
 
 export default async function CopilotoPage({ searchParams }: PageProps) {
-  if (optimizedLoading()) return <OptimizedCopilot searchParams={searchParams} />;
-  const [activeClient, channels] = await Promise.all([
-    requirePageClient(prisma, searchParams.client),
-    prisma.channel.findMany({
-      where: { name: { in: [...OPPORTUNITY_CHANNEL_NAMES] } },
-      orderBy: { name: "asc" },
-    }),
-  ]);
-  const [brands, coverage] = await Promise.all([
-    prisma.brand.findMany({ where: { clientId: activeClient.id }, orderBy: { name: "asc" } }),
-    loadCMCoverage(prisma, activeClient.id),
-  ]);
-  const coverageById = new Map(coverage.rows.map((row) => [row.id, row]));
-  const selectedBrand = brands.find((brand) => brand.id === searchParams.brand)?.id;
-  const selectedChannel = channels.find((channel) => channel.id === searchParams.channel)?.id;
-  const selectedResponse = cmQueueResponse(searchParams.response);
-  const selectedSort = cmQueueSort(searchParams.sort);
-  const [queue, youtubeConnection, products] = await Promise.all([
-    loadCMSummaries(prisma, {
-      clientId: activeClient.id, brand: selectedBrand ?? "", channel: selectedChannel ?? "", response: selectedResponse,
-      ...cmQueueCoverage(coverage.rows, selectedResponse), sort: selectedSort, page: Number(searchParams.page),
-      pageSize: 60, now: new Date(), focusId: searchParams.focus,
-    }),
-    activeClient
-      ? prisma.youTubeConnection.findFirst({ where: { clientId: activeClient.id }, orderBy: { updatedAt: "desc" }, select: { account: true, channelTitle: true } })
-      : Promise.resolve(null),
-    activeClient
-      ? prisma.product.findMany({
-          where: { brand: { clientId: activeClient.id } },
-          select: { id: true, name: true, brand: { select: { name: true } } },
-          orderBy: [{ brand: { name: "asc" } }, { name: "asc" }],
-        })
-      : Promise.resolve([]),
-  ]);
-  const opportunities = await prisma.opportunity.findMany({
-    where: { clientId: activeClient.id, id: { in: queue.rows.map(row => row.id) } },
-    include: {
-      channel: true, detectedBrand: true, detectedProduct: true,
-      responses: { include: { persona: true }, orderBy: { createdAt: "desc" } },
-    },
-  });
-  const opportunitiesById = new Map(opportunities.map(opportunity => [opportunity.id, opportunity]));
+  const firstUse = searchParams.firstUse === "opportunities" || searchParams.firstUse === "responses" ? searchParams.firstUse : null;
+  const client = firstUse ? await requirePageClient(prisma, searchParams.client) : null;
   return (
     <>
-    {searchParams.firstUse === "opportunities" || searchParams.firstUse === "responses" ? <FirstUseHint goal={searchParams.firstUse} clientSlug={activeClient.slug} clientId={activeClient.id} /> : null}
-    <CopilotWorkspace queueEnabled={manualCMQueue()}
-      queuePage={{ page: queue.page, nextId: queue.nextId, focusId: queue.focusId, targetMissing: queue.targetMissing }}
-      activeClient={activeClient ? { slug: activeClient.slug, name: activeClient.name } : null}
-      coverage={coverage.counts}
-      youtube={activeClient ? {
-        account: youtubeConnection?.account ?? "youtube-principal",
-        connected: Boolean(youtubeConnection),
-        channelTitle: youtubeConnection?.channelTitle ?? "",
-      } : null}
-      filters={{ brands: brands.map((brand) => ({ id: brand.id, name: brand.name })), channels: channels.map((channel) => ({ id: channel.id, name: channel.name })), selectedBrand: selectedBrand ?? "", selectedChannel: selectedChannel ?? "", selectedResponse, selectedSort }}
-      products={products.map((product) => ({ id: product.id, name: product.name, brand: product.brand.name }))}
-      opportunities={queue.rows.flatMap(({ id, priorityReasons }) => {
-        const opportunity = opportunitiesById.get(id);
-        if (!opportunity) return [];
-        return [{
-          priorityReasons,
-          id: opportunity.id,
-          text: opportunity.sourceText,
-          title: opportunity.sourceTitle,
-          notes: opportunity.notes,
-          author: opportunity.sourceAuthor,
-          sourceUrl: opportunity.sourceUrl,
-          channel: opportunity.channel.name,
-          brand: opportunity.detectedBrand?.name ?? "Marca por definir",
-          product: opportunity.detectedProduct?.name ?? "",
-          productId: opportunity.detectedProductId ?? "",
-          createdAt: opportunity.createdAt.toISOString(),
-          status: opportunity.status,
-          freshness: coverageById.get(opportunity.id)?.status ?? "missing",
-          refreshError: coverageById.get(opportunity.id)?.error ?? "",
-          hasDrafts: opportunity.responses.length > 0,
-          responses: opportunity.responses.map((response) => ({
-            id: response.id,
-            text: response.editedText || response.draftText,
-            variantType: response.variantType,
-            isPrimary: response.isPrimary,
-            persona: response.persona.name,
-            acceptedAsCorrect: Boolean(response.acceptedAsCorrectAt),
-            fresh: cmIsFresh(response.evidence, coverage.version, opportunity),
-            chatHistory: parseChatHistory(response.chatHistory),
-          })),
-        }];
-      })}
-    />
+      {firstUse && client ? <FirstUseHint goal={firstUse} clientSlug={client.slug} clientId={client.id} /> : null}
+      <OptimizedCopilot searchParams={searchParams} />
     </>
   );
 }

@@ -20,7 +20,7 @@ vi.mock("@/lib/auth-guards", () => ({
   }),
 }));
 vi.mock("@/lib/auth", () => ({ assertClientAccess: vi.fn(async () => {}) }));
-vi.mock("@/lib/publish-agent", () => ({ checkPublishRateLimits: vi.fn(), closeSiblingOpportunities: vi.fn(), runPublisher: vi.fn() }));
+vi.mock("@/lib/publish-agent", () => ({ closeSiblingOpportunities: vi.fn() }));
 vi.mock("@/lib/youtube-publisher", () => ({ publishYouTubeComment: vi.fn() }));
 vi.mock("@/lib/client-context", () => ({
   resolveOpportunityClient: vi.fn(async () => ({ client: { id: "client-1", slug: state.clientSlug, name: "Cliente" }, confidence: "high", reason: "" })),

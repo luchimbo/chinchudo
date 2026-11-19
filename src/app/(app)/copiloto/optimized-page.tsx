@@ -4,7 +4,6 @@ import { requirePageClient } from "@/lib/auth";
 import { OPPORTUNITY_CHANNEL_NAMES } from "@/lib/opportunity-channels";
 import { readCoverageSnapshot } from "@/lib/cm-coverage-snapshot";
 import { operationTiming } from "@/lib/performance";
-import { manualCMQueue } from "@/lib/performance-flags";
 import { CopilotWorkspace } from "./workspace";
 
 export default async function OptimizedCopilot({ searchParams }: { searchParams: Record<string, string | undefined> }) {
@@ -27,7 +26,7 @@ export default async function OptimizedCopilot({ searchParams }: { searchParams:
     ...cmQueueCoverage(snapshot.rows, selectedResponse, snapshot.pending), sort: selectedSort,
     page: Number(searchParams.page), pageSize: 20, now: new Date(), focusId: searchParams.focus, compact: true,
   }));
-  return <CopilotWorkspace optimized queueEnabled={manualCMQueue()} coveragePending={snapshot.pending} coverage={snapshot.counts}
+  return <CopilotWorkspace coveragePending={snapshot.pending} coverage={snapshot.counts}
     queuePage={{ page: queue.page, nextId: queue.nextId, focusId: queue.focusId, targetMissing: queue.targetMissing, pendingFilter }}
     activeClient={{ slug: client.slug, name: client.name }} youtube={{ account: youtube?.account ?? "youtube-principal", connected: !!youtube, channelTitle: youtube?.channelTitle ?? "" }}
     filters={{ brands, channels, selectedBrand, selectedChannel, selectedResponse, selectedSort }} products={[]}
