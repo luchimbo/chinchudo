@@ -839,7 +839,7 @@ def validate_landings(landings: list[dict], categories: dict[str, dict], product
     errors: list[str] = []
     # Títulos y metadatos iguales no impiden publicar. Solo se protege la URL:
     # dos páginas del mismo idioma no pueden escribir sobre la misma ruta.
-    seen: dict[str, set[str]] = {"slug": set()}
+    seen: dict[str, dict[str, str]] = {"slug": {}}
     required = ["keyword", "intent", "seo_title", "meta_description", "h1", "hero_lede", "primary_category_id"]
 
     for product_id, product in products.items():
@@ -863,8 +863,13 @@ def validate_landings(landings: list[dict], categories: dict[str, dict], product
             if not value:
                 continue
             if value in seen[field]:
-                errors.append(f"{label}: {field} duplicado")
-            seen[field].add(value)
+                errors.append(
+                    f"{label}: {field} duplicado con {seen[field][value]} "
+                    f"(valor: {str(landing.get(field, '')).strip()!r}). "
+                    "Editá ese campo en una de las páginas y volvé a publicar."
+                )
+            else:
+                seen[field][value] = str(label)
 
         ids = category_ids_for(landing)
         if not ids:
