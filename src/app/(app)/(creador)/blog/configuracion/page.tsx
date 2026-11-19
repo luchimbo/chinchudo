@@ -1,11 +1,10 @@
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { assertClientAccess, getVisibleClients } from "@/lib/auth";
-import { updateLandingsConfig, updateEmailConfig, updateExcludedProducts, updatePriorityCompetitors, discoverPriorityCompetitors } from "./actions";
+import { updateLandingsConfig, updateExcludedProducts, updatePriorityCompetitors, discoverPriorityCompetitors } from "./actions";
 import { ExcludedProductsForm } from "./excluded-products-form";
 import { loadBlogCatalog, parsePriorityCompetitors, priorityCompetitorsKey } from "@/lib/blog-day-plan";
 import { LandingsForm } from "./landings-form";
-import { EmailsForm } from "./emails-form";
 import { CatalogSyncPanel } from "./catalog-sync-panel";
 import { PendingSubmitButton } from "@/components/pending-submit-button";
 import { blogPreferences, editorialCalendarEnabled } from "@/lib/blog-language";
@@ -60,15 +59,6 @@ export default async function LandingsConfigPage({
       blogBaseUrl: true,
       autoApprove: true,
       autoPublish: true,
-      fromName: true,
-      fromEmail: true,
-      smtpHost: true,
-      smtpPort: true,
-      smtpUser: true,
-      smtpPass: true,
-      labName: true,
-      unsubscribeBaseUrl: true,
-      trackBaseUrl: true,
     },
   });
 
@@ -121,7 +111,7 @@ export default async function LandingsConfigPage({
           <ul className="mt-1 flex flex-wrap gap-x-3 gap-y-1">{researchSources(researchSetting?.value).map(item => <li key={item.sourceUrl}><a href={item.sourceUrl} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">{item.name}</a></li>)}</ul>
         </div> : null}
       </section> : null}
-      <div className="mt-8 grid gap-8 lg:grid-cols-2">
+      <div className="mt-8 grid gap-8">
         {/* Columna Izquierda: Landings */}
         <section className="rounded-xl border border-ink/10 bg-paper p-6 shadow-sm">
           <h2 className="mb-4 font-display text-xl font-semibold text-ink">URLs y Comportamiento</h2>
@@ -144,25 +134,6 @@ export default async function LandingsConfigPage({
           />
         </section>
 
-        {/* Columna Derecha: Emails */}
-        <section className="rounded-xl border border-ink/10 bg-paper p-6 shadow-sm">
-          <h2 className="mb-4 font-display text-xl font-semibold text-ink">Salida de Emails (Nurturing)</h2>
-          <EmailsForm
-            config={{
-              id: c.id,
-              fromName: c.fromName ?? "",
-              fromEmail: c.fromEmail ?? "",
-              labName: c.labName ?? "",
-              smtpHost: c.smtpHost ?? "",
-              smtpPort: c.smtpPort ?? 465,
-              smtpUser: c.smtpUser ?? "",
-              hasSmtpPass: !!c.smtpPass,
-              unsubscribeBaseUrl: c.unsubscribeBaseUrl ?? "",
-              trackBaseUrl: c.trackBaseUrl ?? "",
-            }}
-            updateEmailConfig={updateEmailConfig}
-          />
-        </section>
       </div>
     </div>
   );

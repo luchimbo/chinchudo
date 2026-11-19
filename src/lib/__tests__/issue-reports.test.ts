@@ -16,7 +16,7 @@ describe("reportes internos", () => {
 
   it("clasifica el sector según la ruta reportada", () => {
     expect(getIssueSector("/blog/diseno")).toBe("Blog");
-    expect(getIssueSector("/oportunidades?client=pcmidi")).toBe("Publicador en Redes");
+    expect(getIssueSector("/oportunidades?client=pcmidi")).toBe("Asistente CM");
     expect(getIssueSector("/configuracion/identidad")).toBe("Configuración");
     expect(getIssueSector("/?client=pcmidi")).toBe("Inicio");
     expect(getIssueSector("/cualquier-cosa")).toBe("Suite");

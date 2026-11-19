@@ -372,25 +372,6 @@ def psycopg_url(raw_url: str) -> str:
     return urlunparse(parsed._replace(query=urlencode(query_params)))
 
 
-def load_lead_magnets() -> dict[str, dict]:
-    """Carga lead magnets indexados por slug."""
-    magnets = {}
-    path = DATA_DIR / "lead_magnets.jsonl"
-    if not path.exists():
-        return magnets
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            record = json.loads(line)
-            slug = record.get("slug")
-            if slug:
-                magnets[slug] = record.get("lead_magnet", {})
-        except json.JSONDecodeError:
-            continue
-    return magnets
-
-
 def _load_landings_from_pg(include_drafts: bool = False) -> list[dict] | None:
     """Lee páginas públicas; opcionalmente incluye borradores para deduplicar."""
     db_url = os.environ.get("DATABASE_URL", "")
@@ -624,7 +605,7 @@ def preview_command(landing_id: str = "", base_url: str = "", content_override: 
         landing = normalize_generated_landing({**base, **content_override})
         if landing.get("primary_category_id") not in categories:
             raise SystemExit("El artículo no tiene una categoría principal del catálogo; no se puede previsualizar.")
-        html_text = render_landing(landing, categories, products, base_url, load_lead_magnets())
+        html_text = render_landing(landing, categories, products, base_url)
         sys.stdout.buffer.write(mark_preview_noindex(html_text).encode("utf-8"))
         return
     if not categories:
@@ -637,7 +618,7 @@ def preview_command(landing_id: str = "", base_url: str = "", content_override: 
             landing = demo_landing(categories, products)
         elif landing.get("primary_category_id") not in categories:
             raise SystemExit("El articulo no tiene una categoria del catalogo vigente.")
-    html_text = render_landing(landing, categories, products, base_url, load_lead_magnets())
+    html_text = render_landing(landing, categories, products, base_url)
     sys.stdout.buffer.write(mark_preview_noindex(html_text).encode("utf-8"))
 
 
@@ -2999,7 +2980,7 @@ def generate_landings(limit: int, model: str, dry_run: bool = False, max_seconds
             errors = validate_editorial_candidate(landing, existing, clusters, pillar_slugs, categories, products)
             if not errors:
                 blog_url = client_blog_url().rstrip("/")
-                rendered = render_landing(landing, categories, products, blog_url, {})
+                rendered = render_landing(landing, categories, products, blog_url)
                 errors = [f"{landing['slug']}: {error}" for error in validate_rendered_article(rendered, landing_url(landing, blog_url))]
         if errors:
             print("Saltada por validacion: " + landing.get("slug", topic.get("keyword", "sin-slug")))
@@ -3209,7 +3190,7 @@ def translate_article(landing_id: str, language: str, model: str) -> dict:
     base_slug = slugify(candidate.get("keyword") or title) or f"{row['slug']}-{language}"
 
     # Falla antes de guardar si la traducción no se puede renderizar.
-    render_landing({**candidate, "slug": base_slug}, load_categories(), load_products(), client_blog_url().rstrip("/"), {})
+    render_landing({**candidate, "slug": base_slug}, load_categories(), load_products(), client_blog_url().rstrip("/"))
 
     status = "PUBLISHED" if row["status"] == "PUBLISHED" else "DRAFT"
     new_id = "tr" + uuid.uuid4().hex[:23]
@@ -3295,7 +3276,7 @@ def regenerate_editorial(slugs: list[str], model: str, dry_run: bool = False, at
             generated = ensure_catalog_requirements(generated, categories, products)
             errors = validate_landings([generated], categories, products) or validate_editorial_candidate(generated, others, clusters, pillar_slugs, categories, products)
             if not errors:
-                rendered = render_landing(generated, categories, products, blog_url, {})
+                rendered = render_landing(generated, categories, products, blog_url)
                 errors = validate_rendered_article(rendered, landing_url(generated, blog_url))
             if not errors:
                 candidate = generated
@@ -3322,53 +3303,11 @@ def regenerate_editorial(slugs: list[str], model: str, dry_run: bool = False, at
     return {**summary, "report": str(report_path)}
 
 
-def render_landing(landing: dict, categories: dict[str, dict], products: dict[str, dict], base_url: str, lead_magnets: dict[str, dict] | None = None) -> str:
+def render_landing(landing: dict, categories: dict[str, dict], products: dict[str, dict], base_url: str) -> str:
     primary = categories[landing["primary_category_id"]]
     category_ids = category_ids_for(landing)
     selected = [categories[item] for item in category_ids]
     selected_products = [products[item] for item in landing.get("product_ids", []) if item in products and products[item].get("linkStatus") != "missing"]
-
-    # Renderizar lead magnet si existe
-    lead_magnet_html = ""
-    slug = landing.get("slug") or slugify(landing.get("keyword", ""))
-    magnet = (lead_magnets or {}).get(slug)
-    magnet_slug, magnet_keyword = slug, landing.get("keyword", "")
-    borrowed = landing.get("_lead_magnet")
-    if not magnet and borrowed:
-        # El recurso se entrega por el slug de su landing de origen.
-        magnet, magnet_slug, magnet_keyword = borrowed["magnet"], borrowed["slug"], borrowed.get("keyword") or magnet_keyword
-    if magnet:
-        magnet_title = esc(magnet.get("title", ""))
-        magnet_desc = esc(magnet.get("description", ""))
-        magnet_cta = esc(magnet.get("cta_text", "Descargar recurso"))
-        magnet_type = esc(magnet.get("resource_type", "recurso"))
-        magnet_value = esc(magnet.get("value_proposition", ""))
-        
-        lead_magnet_html = f'''<section id="lead-magnet" class="section lead-magnet-section">
-      <div class="container lead-magnet-grid">
-        <div class="lead-magnet-content">
-          <span class="lead-magnet-badge">{magnet_type.upper()} GRATUITO</span>
-          <h2>{magnet_title}</h2>
-          <p>{magnet_desc}</p>
-          {f'<p><strong>{magnet_value}</strong></p>' if magnet_value else ''}
-        </div>
-        <div class="lead-magnet-form">
-          <h3>Recibir el {magnet_type}</h3>
-          <p>Dejanos tu email y te enviamos el recurso directamente.</p>
-          <form action="/api/leads" method="POST" class="lm-form">
-            <input type="email" name="email" placeholder="tu@email.com" required class="lm-input" aria-label="Email">
-            <input type="text" name="nombre" placeholder="Nombre (opcional)" class="lm-input" aria-label="Nombre">
-            <label class="lm-privacy" style="display:flex; gap:.55rem; align-items:flex-start; margin:.2rem 0 .9rem;"><input type="checkbox" name="consentimiento" value="true" required style="margin-top:.2rem;">Acepto recibir este recurso, informacion util y novedades de {esc(client_lab_name())}.</label>
-            <input type="hidden" name="slug" value="{esc(magnet_slug)}">
-            <input type="hidden" name="keyword" value="{esc(magnet_keyword)}">
-            <input type="hidden" name="lead_magnet" value="{magnet_title}">
-            <button type="submit" class="lm-submit">{magnet_cta}</button>
-            <div class="lm-status" role="status" aria-live="polite" style="margin-top:.8rem; font-size:13px;"></div>
-          </form>
-          <span class="lm-privacy">No enviamos spam. Podes darte de baja en cualquier momento.</span>
-        </div>
-      </div>
-    </section>'''
 
     # "Cuarto de caña" is a catalogue classification. On customer-facing
     # landings, "medias" is the familiar wording.
@@ -3458,7 +3397,7 @@ def render_landing(landing: dict, categories: dict[str, dict], products: dict[st
         "code": esc(brand[:12].upper() + " · " + slug[:14].upper()),
         "eyebrow": esc("Guia tecnica · " + display_category_name(primary)),
         "h1": esc(landing_title(landing["h1"])),
-        "lead_magnet_html": lead_magnet_html,
+        "lead_magnet_html": "",
         "hero_lede": esc(landing_title(landing["hero_lede"])),
         "keyword": esc(landing["keyword"]),
         "components_title": esc(landing_title(components_title)),
@@ -3494,7 +3433,7 @@ def render_landing(landing: dict, categories: dict[str, dict], products: dict[st
     template_text = active_template_path().read_text(encoding="utf-8-sig")
     rendered = render_template(template_text, values)
     if is_editorial(landing):
-        return catalog_html(render_editorial_article(rendered, landing, categories, products, values, lead_magnet_html, faq_entities, blog_url or base_url.rstrip("/")), categories, products)
+        return catalog_html(render_editorial_article(rendered, landing, categories, products, values, faq_entities, blog_url or base_url.rstrip("/")), categories, products)
     return catalog_html(with_blog_citations(rendered, landing.get("_related") or []), categories, products)
 
 
@@ -3653,18 +3592,6 @@ class ArticleLinker:
         return store_link(url, label, link_type, target)
 
 
-def editorial_lead_magnet(landing: dict, landings: list[dict], lead_magnets: dict[str, dict]) -> dict | None:
-    """Un artículo sin recurso propio usa el de una landing de su misma
-    categoría principal (orden estable por slug)."""
-    if landing.get("slug") in lead_magnets:
-        return None
-    category = landing.get("primary_category_id")
-    for item in sorted(landings, key=lambda row: str(row.get("slug") or "")):
-        if item is not landing and item.get("primary_category_id") == category and item.get("slug") in lead_magnets:
-            return {"slug": item["slug"], "keyword": item.get("keyword") or "", "magnet": lead_magnets[item["slug"]]}
-    return None
-
-
 # Ajustes de lectura sobre la base visual del template activo, con sus
 # colores y tipografías; el logo monocromático se limita a PC MIDI.
 ARTICLE_CSS = """<style>
@@ -3738,7 +3665,6 @@ def render_editorial_article(
     categories: dict[str, dict],
     products: dict[str, dict],
     values: dict[str, str],
-    lead_magnet_html: str,
     faq_entities: list[dict],
     blog_url: str,
 ) -> str:
@@ -3907,7 +3833,7 @@ def render_editorial_article(
         verified = str(source.get("verifiedAt") or "")[:10]
         source_rows.append(f'<li id="fuente-{quote(source_id)}">[{index}] {reference} <small>· {esc(source_labels.get(source.get("type"), "Fuente"))} · Verificada {esc(verified)}</small></li>')
     sources_html = f'<section class="section article-flow"><div class="container article-prose"><h2>Fuentes y documentación</h2><ul>{"".join(source_rows)}</ul></div></section>' if source_rows else ""
-    main_html = "<main>" + hero_html + intro_html + body_html + decision_html + mistakes_html + solution_html + lead_magnet_html + faqs_html + sources_html + related_html + "</main>"
+    main_html = "<main>" + hero_html + intro_html + body_html + decision_html + mistakes_html + solution_html + faqs_html + sources_html + related_html + "</main>"
 
     logo_url = client_logo_url() or (f"{blog_url}{bundled_logo_path()}" if bundled_logo_path() and blog_url else "")
     organization = {"@type": "Organization", "name": brand, "url": f"{store_url}/"}
@@ -4436,10 +4362,6 @@ def build(base_url: str = "") -> dict:
     locales = list(dict.fromkeys([valid_blog_language(value) for value in (blog_config().get("languages") or ["es"])] + [valid_blog_language(item.get("language", "es")) for item in landings]))
     for locale in locales:
         attach_internal_links([item for item in landings if valid_blog_language(item.get("language", "es")) == locale])
-    lead_magnets = load_lead_magnets()
-    for landing in landings:
-        if is_editorial(landing):
-            landing["_lead_magnet"] = editorial_lead_magnet(landing, landings, lead_magnets)
     errors = validate_landings(landings, categories, products)
     if errors:
         report_path = write_report("build-blocked", {"command": "build", "status": "blocked", "stage": "data_validation", "errors": errors})
@@ -4483,7 +4405,7 @@ def build(base_url: str = "") -> dict:
     published: list[dict] = []
     noindex_count = 0
     for landing in landings:
-        html_text = catalog_html(render_landing(landing, categories, products, base_url, lead_magnets), categories, products)
+        html_text = catalog_html(render_landing(landing, categories, products, base_url), categories, products)
         landing_dir = SITE_DIR / unquote(landing_path(landing)).strip("/")
         landing_dir.mkdir(parents=True, exist_ok=True)
         output = landing_dir / "index.html"

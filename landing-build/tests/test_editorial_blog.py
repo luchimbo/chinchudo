@@ -89,7 +89,6 @@ def site(tmp_path, monkeypatch):
     monkeypatch.setattr(bl, "REPORTS_DIR", tmp_path / "reports")
     monkeypatch.setattr(bl, "load_categories", lambda: CATEGORIES)
     monkeypatch.setattr(bl, "load_products", lambda: PRODUCTS)
-    monkeypatch.setattr(bl, "load_lead_magnets", lambda: {})
     clusters = [
         {"slug": "controladores-midi", "name": "Controladores MIDI y DAW", "description": "Guías de controladores."},
         {"slug": "grabacion-en-casa", "name": "Grabación en casa", "description": "Guías de grabación."},
@@ -405,7 +404,6 @@ def test_preview_renders_unsaved_editor_content(monkeypatch, capsysbinary):
     monkeypatch.setattr(bl, "_CLIENT_CONFIG", {"slug": "pcmidi", "name": "PC MIDI Center", "storeUrl": STORE, "blogBaseUrl": BASE})
     monkeypatch.setattr(bl, "load_categories", lambda: CATEGORIES)
     monkeypatch.setattr(bl, "load_products", lambda: PRODUCTS)
-    monkeypatch.setattr(bl, "load_lead_magnets", lambda: {})
     base = {**article("guia-borrador", "controladores-midi"), **BODY}
     monkeypatch.setattr(bl, "load_preview_landing", lambda landing_id="": dict(base) if landing_id == "id-1" else None)
     override = {"h1": "Título editado sin guardar", "sections": [*BODY["sections"][:2], {"h2": "Sección nueva editada", "body": "Mirá el [[p:minilab-3|MiniLab]]."}]}
@@ -630,7 +628,7 @@ def test_sources_comparison_and_marked_revision_match_visible_article(monkeypatc
     monkeypatch.setattr(bl, "_CLIENT_CONFIG", {"slug": "pcmidi", "name": "PC MIDI Center", "storeUrl": STORE, "blogBaseUrl": BASE})
     source = {"id": "manual", "title": "Manual del fabricante", "url": "https://manufacturer.example/manual", "type": "manufacturer", "verifiedAt": "2026-10-01T10:00:00Z", "claims": ["Dato revisado"]}
     content = article("comparativa", "controladores-midi", **BODY, source_refs=[source], publication_token="revision-verificada", decision_support={"criteria": ["Uso", "Espacio"], "options": [{"product_id": "minilab-3", "suitable_for": "Producir", "advantages": "Dato revisado [[s:manual]]", "limitations": "Revisá el espacio", "evidence_ids": ["manual"]}], "recommendation": "Decidí según el uso."})
-    html_text = bl.render_landing(content, CATEGORIES, PRODUCTS, BASE, {})
+    html_text = bl.render_landing(content, CATEGORIES, PRODUCTS, BASE)
     assert 'id="fuente-manual"' in html_text and 'href="#fuente-manual"' in html_text
     assert 'href="https://manufacturer.example/manual"' in html_text
     assert "Comparación para elegir" in html_text and "Revisá el espacio" in html_text
@@ -641,7 +639,7 @@ def test_sources_comparison_and_marked_revision_match_visible_article(monkeypatc
     assert posting["citation"][0]["url"] == source["url"]
     assert not any(s.get("@type") == "FAQPage" for s in schemas)
     content.pop("published_at")
-    preview = bl.render_landing(content, CATEGORIES, PRODUCTS, BASE, {})
+    preview = bl.render_landing(content, CATEGORIES, PRODUCTS, BASE)
     assert '"datePublished"' not in preview
 
 

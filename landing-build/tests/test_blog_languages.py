@@ -45,7 +45,6 @@ def test_shared_builder_separates_language_pages_and_sitemap(tmp_path, monkeypat
     monkeypatch.setattr(bl, "REPORTS_DIR", tmp_path / "reports")
     monkeypatch.setattr(bl, "load_categories", lambda: CATEGORIES)
     monkeypatch.setattr(bl, "load_products", lambda: PRODUCTS)
-    monkeypatch.setattr(bl, "load_lead_magnets", lambda: {})
     monkeypatch.setattr(bl, "load_content_clusters", lambda: [{"slug": "music", "name": "Music", "description": ""}])
     rows = [article("home-practice", "music", language="en", **BODY), article("klavier-ueben", "music", language="de", **BODY)]
     monkeypatch.setattr(bl, "load_landings", lambda: rows)

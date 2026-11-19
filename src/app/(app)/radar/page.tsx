@@ -1,12 +1,10 @@
 import { redirect } from "next/navigation";
 
-/** Pantalla reemplazada por el Estudio de Reels. */
+/** Ruta histórica: las oportunidades viven en el Asistente CM. */
 export default function LegacyRedirect({ searchParams }: { searchParams: { client?: string; firstUse?: string } }) {
-  if (searchParams.firstUse === "opportunities") {
-    const query = new URLSearchParams({ firstUse: "opportunities" });
-    if (searchParams.client) query.set("client", searchParams.client);
-    redirect(`/asistente-cm?${query}`);
-  }
-  const target = "/estudio/inspiracion";
-  redirect(searchParams.client ? `${target}${target.includes("?") ? "&" : "?"}client=${encodeURIComponent(searchParams.client)}` : target);
+  const query = new URLSearchParams();
+  if (searchParams.firstUse === "opportunities") query.set("firstUse", "opportunities");
+  if (searchParams.client) query.set("client", searchParams.client);
+  const suffix = query.toString();
+  redirect(suffix ? `/asistente-cm?${suffix}` : "/asistente-cm");
 }

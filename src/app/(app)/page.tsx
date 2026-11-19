@@ -45,12 +45,10 @@ export default async function HomePage({ searchParams }: PageProps) {
   const opportunityWhere = { ...clientWhere, ...operationalOpportunityWhere() };
   const workStatuses = ["NEW", "NEEDS_REVIEW", "DRAFTED", "APPROVED", "FOLLOW_UP"] as const;
 
-  const [pending, published, converted, landings, leads, onboarding] = await Promise.all([
+  const [pending, published, landings, onboarding] = await Promise.all([
     prisma.opportunity.count({ where: { ...opportunityWhere, status: { in: [...workStatuses] } } }),
     prisma.opportunity.count({ where: { ...opportunityWhere, status: "PUBLISHED" } }),
-    prisma.opportunity.count({ where: { ...opportunityWhere, status: "CONVERTED" } }),
     prisma.landing.count({ where: clientWhere }),
-    prisma.lead.count({ where: clientWhere }),
     Promise.resolve(welcomeOnboarding),
   ]);
 
@@ -81,12 +79,10 @@ export default async function HomePage({ searchParams }: PageProps) {
 
       {onboardingProgress ? <OnboardingChecklist progress={onboardingProgress} /> : null}
 
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Metric label="Para atender" value={pending} note="Conversaciones activas" href={withClient("/asistente-cm")} tone="brass" />
-        <Metric label="Publicadas" value={published} note="Respuestas registradas" href={withClient("/actividad")} tone="moss" />
-        <Metric label="Conversiones" value={converted} note="Resultados atribuidos" href={withClient("/analytics")} tone="moss" />
+        <Metric label="Publicadas" value={published} note="Respuestas registradas" href={withClient("/historial")} tone="moss" />
         <Metric label="Artículos" value={landings} note="Artículos del blog" href={withClient("/blog")} />
-        <Metric label="Leads" value={leads} note="Contactos captados" href={withClient("/leads")} />
       </section>
     </div>
   );

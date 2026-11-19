@@ -4,11 +4,7 @@ const PUBLIC_EXACT = new Set([
   "/recuperar",
   "/verificar-email",
   "/api/support/exchange",
-  "/api/leads",
   "/api/events",
-  "/api/click",
-  "/api/unsubscribe",
-  "/api/nurture",
 ]);
 
 const PUBLIC_PREFIXES = ["/api/auth/", "/l/", "/recuperar/", "/invitacion/"];

@@ -38,29 +38,6 @@ const ShareIcon = () => (
   </svg>
 );
 
-const ContactsIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="9" cy="8" r="3" />
-    <path d="M3 21v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6M21 21v-2a6 6 0 0 0-4-5.65" />
-  </svg>
-);
-
-const ChartIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="18" y1="20" x2="18" y2="10" />
-    <line x1="12" y1="20" x2="12" y2="4" />
-    <line x1="6" y1="20" x2="6" y2="14" />
-  </svg>
-);
-
-const VideoIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polygon points="23 7 16 12 23 17 23 7" />
-    <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-  </svg>
-);
-
-
 const GearIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <circle cx="12" cy="12" r="3" />
@@ -87,7 +64,7 @@ const MAIN_SECTORS: Sector[] = [
     id: "redes",
     href: "/asistente-cm",
     label: "Asistente CM",
-    paths: ["/asistente-cm", "/copiloto", "/oportunidades", "/bitacora", "/historial", "/distribution", "/actividad", "/redes"],
+    paths: ["/asistente-cm", "/copiloto", "/oportunidades", "/historial", "/redes", "/opportunities", "/monitoring", "/logins"],
     icon: <ShareIcon />,
   },
   {
@@ -96,27 +73,6 @@ const MAIN_SECTORS: Sector[] = [
     label: "Blog",
     paths: ["/blog"],
     icon: <FileTextIcon />,
-  },
-  {
-    id: "contactos",
-    href: "/leads",
-    label: "Contactos",
-    paths: ["/leads"],
-    icon: <ContactsIcon />,
-  },
-  {
-    id: "estudio",
-    href: "/estudio",
-    label: "Estudio de Reels",
-    paths: ["/estudio", "/videos", "/tendencias", "/radar"],
-    icon: <VideoIcon />,
-  },
-  {
-    id: "analiticas",
-    href: "/analytics",
-    label: "Analíticas",
-    paths: ["/analytics", "/informe", "/geo"],
-    icon: <ChartIcon />,
   },
   {
     id: "aprendizaje",

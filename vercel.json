@@ -4,9 +4,6 @@
   "installCommand": "npm install",
   "devCommand": "next dev",
   "regions": ["gru1"],
-  "crons": [
-    { "path": "/api/nurture", "schedule": "0 10 * * *" }
-  ],
   "functions": {
     "src/app/**/*.ts": {
       "maxDuration": 30
@@ -14,7 +11,7 @@
   },
   "headers": [
     {
-      "source": "/api/(leads|events|click|unsubscribe)",
+      "source": "/api/events",
       "headers": [
         { "key": "Access-Control-Allow-Origin", "value": "*" },
         { "key": "Access-Control-Allow-Methods", "value": "GET, POST, OPTIONS" }

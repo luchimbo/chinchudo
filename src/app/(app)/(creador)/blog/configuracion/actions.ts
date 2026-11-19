@@ -135,27 +135,3 @@ export async function researchCompetitorsForPlanner(clientId: string, force: boo
     return { competitors: [], error: error instanceof Error && error.message.includes("catálogo") ? error.message : "No se pudieron investigar los rivales. Reintentá en unos minutos." };
   }
 }
-
-export async function updateEmailConfig(formData: FormData) {
-  const id = z.string().min(1).parse(formData.get("id"));
-  await assertClientAccess(prisma, id);
-
-  const smtpPass = str(formData, "smtpPass");
-
-  await prisma.client.update({
-    where: { id },
-    data: {
-      fromName: str(formData, "fromName"),
-      fromEmail: str(formData, "fromEmail"),
-      labName: str(formData, "labName"),
-      smtpHost: str(formData, "smtpHost"),
-      smtpPort: parseInt(str(formData, "smtpPort") || "465", 10) || 465,
-      smtpUser: str(formData, "smtpUser"),
-      unsubscribeBaseUrl: str(formData, "unsubscribeBaseUrl"),
-      trackBaseUrl: str(formData, "trackBaseUrl"),
-      ...(smtpPass ? { smtpPass } : {}),
-    },
-  });
-
-  revalidatePath("/blog/configuracion");
-}

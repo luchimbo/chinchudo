@@ -4,13 +4,6 @@ from __future__ import annotations
 
 import os
 
-LEGACY_SQLITE_ENTRYPOINTS = {
-    "authority_swarm": "src/authority_swarm/cli.py",
-    "nurture_legacy": "agents/agente_4_nurture.py",
-    "conversion_legacy": "agents/agente_conversion.py",
-    "legacy_schema_tools": "scripts/db-apply-diff.mjs",
-}
-
 
 def is_production(env: dict[str, str] | None = None) -> bool:
     values = env if env is not None else os.environ

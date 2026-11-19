@@ -63,7 +63,6 @@ export default async function LandingsPage({
       select: {
         id: true, titulo: true, slug: true, keyword: true, status: true, createdAt: true,
         contentType: true, indexingState: true, publicPreviewUrl: true,
-        leadMagnet: { select: { tipo: true } },
         blogPublication: { select: { id: true } },
         contentCluster: { select: { slug: true, name: true } },
         outboundInternalLinks: {
@@ -72,7 +71,6 @@ export default async function LandingsPage({
         },
         _count: {
           select: {
-            leads: true,
             trackingEvents: { where: { eventType: "page_view" } },
             inboundInternalLinks: { where: { mode: { not: "EXCLUDED" } } },
           },
@@ -170,11 +168,6 @@ export default async function LandingsPage({
                       {STATUS_LABELS[landing.status]}
                     </span>
                     <span className="text-xs text-slate">{fmt(landing.createdAt)}</span>
-                    {landing.leadMagnet && (
-                      <span className="rounded-full bg-brass/10 px-2 py-0.5 text-xs text-brass">
-                        Lead magnet: {landing.leadMagnet.tipo.toLowerCase()}
-                      </span>
-                    )}
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
                     <span className="rounded-full bg-ink/5 px-2 py-0.5 font-semibold text-ink">{CONTENT_TYPE_LABELS[landing.contentType] ?? landing.contentType}</span>
@@ -195,7 +188,6 @@ export default async function LandingsPage({
                   ) : null}
                   <div className="mt-2 flex gap-4 text-xs text-slate">
                     <span>👁 {landing._count.trackingEvents} visitas</span>
-                    <span>📧 {landing._count.leads} contactos capturados</span>
                     {landing.contentCluster ? (
                       <span>
                         🔗 {landing._count.inboundInternalLinks} entrantes · {landing.outboundInternalLinks.filter((link) => link.mode !== "EXCLUDED").length} salientes

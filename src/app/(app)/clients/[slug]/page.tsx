@@ -39,9 +39,6 @@ export default async function ClientSettingsPage({
       domainKeywords: true, domainExclusions: true,
       openrouterApiKey: true, openrouterModel: true,
       storeUrl: true, blogBaseUrl: true, labName: true, logoUrl: true,
-      fromName: true, fromEmail: true,
-      smtpHost: true, smtpPort: true, smtpUser: true, smtpPass: true,
-      unsubscribeBaseUrl: true, trackBaseUrl: true,
     },
   });
 
@@ -135,45 +132,6 @@ export default async function ClientSettingsPage({
           <label className={labelCls}>
             URL del logo
             <input name="logoUrl" defaultValue={c.logoUrl ?? ""} placeholder="https://…/logo.png" className={inputCls} />
-          </label>
-        </div>
-
-        {/* Email */}
-        <p className={sectionHead}>Emails automáticos a contactos</p>
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className={labelCls}>
-            Nombre del remitente
-            <input name="fromName" defaultValue={c.fromName ?? ""} placeholder="Lucas de Prestige Running" className={inputCls} />
-          </label>
-          <label className={labelCls}>
-            Email del remitente
-            <input name="fromEmail" defaultValue={c.fromEmail ?? ""} placeholder="lucas@tutienda.com.ar" className={inputCls} />
-          </label>
-          <label className={labelCls}>
-            Servidor de correo saliente
-            <input name="smtpHost" defaultValue={c.smtpHost ?? ""} placeholder="smtp.zoho.com" className={inputCls} />
-          </label>
-          <label className={labelCls}>
-            Puerto del servidor
-            <input name="smtpPort" type="number" defaultValue={c.smtpPort ?? 465} className={inputCls} />
-          </label>
-          <label className={labelCls}>
-            Usuario de correo
-            <input name="smtpUser" defaultValue={c.smtpUser ?? ""} className={inputCls} />
-          </label>
-          <label className={labelCls}>
-            Contraseña de correo {c.smtpPass ? <span className="font-normal text-slate/60">(configurada)</span> : null}
-            <input name="smtpPass" type="password" autoComplete="off" placeholder="en blanco = conservar la actual" className={inputCls} />
-          </label>
-          <label className={`${labelCls} md:col-span-2`}>
-            URL para darse de baja
-            <span className={hintCls}>Se incluye al pie de cada email. Ej: https://blog.tudominio.com/api/unsubscribe/</span>
-            <input name="unsubscribeBaseUrl" defaultValue={c.unsubscribeBaseUrl ?? ""} className={inputCls} />
-          </label>
-          <label className={`${labelCls} md:col-span-2`}>
-            URL base para medir clicks en emails
-            <span className={hintCls}>Dominio donde vive la app. Ej: https://blog.tudominio.com</span>
-            <input name="trackBaseUrl" defaultValue={c.trackBaseUrl ?? ""} className={inputCls} />
           </label>
         </div>
 

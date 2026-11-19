@@ -14,10 +14,7 @@ type ClientOption = { slug: string; name: string };
 const SECTOR_LABEL: Array<{ paths: string[]; label: string }> = [
   { paths: ["/"], label: "Inicio" },
   { paths: ["/blog"], label: "Blog" },
-  { paths: ["/leads"], label: "Contactos" },
-  { paths: ["/estudio", "/videos", "/tendencias", "/radar"], label: "Estudio de Reels" },
-  { paths: ["/asistente-cm", "/copiloto", "/oportunidades", "/bitacora", "/historial", "/distribution", "/actividad", "/redes"], label: "Asistente CM" },
-  { paths: ["/analytics", "/informe", "/geo"], label: "Analíticas" },
+  { paths: ["/asistente-cm", "/copiloto", "/oportunidades", "/historial", "/redes", "/opportunities", "/monitoring", "/logins"], label: "Asistente CM" },
   { paths: ["/aprendizaje"], label: "Aprendizaje IA" },
   { paths: ["/configuracion", "/brands", "/products", "/personas", "/prompts", "/knowledge", "/clients"], label: "Configuración" },
 ];
@@ -35,9 +32,6 @@ const MOBILE_SECTORS = [
   { href: "/", label: "Inicio" },
   { href: "/asistente-cm", label: "Asistente CM" },
   { href: "/blog", label: "Blog" },
-  { href: "/leads", label: "Contactos" },
-  { href: "/estudio", label: "Estudio de Reels" },
-  { href: "/analytics", label: "Analíticas" },
   { href: "/aprendizaje", label: "Aprendizaje IA" },
   { href: "/configuracion", label: "Configuración" },
 ];

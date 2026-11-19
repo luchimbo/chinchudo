@@ -46,13 +46,6 @@ function parseBranding(formData: FormData) {
     blogBaseUrl: str(formData, "blogBaseUrl"),
     labName: str(formData, "labName"),
     logoUrl: str(formData, "logoUrl"),
-    fromName: str(formData, "fromName"),
-    fromEmail: str(formData, "fromEmail"),
-    smtpHost: str(formData, "smtpHost"),
-    smtpPort: parseInt(str(formData, "smtpPort") || "465", 10) || 465,
-    smtpUser: str(formData, "smtpUser"),
-    unsubscribeBaseUrl: str(formData, "unsubscribeBaseUrl"),
-    trackBaseUrl: str(formData, "trackBaseUrl"),
   };
 }
 
@@ -63,12 +56,10 @@ export async function createClient(formData: FormData) {
   const data = parseBase(formData);
   const branding = parseBranding(formData);
   const apiKey = str(formData, "openrouterApiKey");
-  const smtpPass = str(formData, "smtpPass");
   await prisma.client.create({
     data: {
       ...data,
       ...branding,
-      smtpPass,
       domainKeywords: toJsonList(formData.get("domainKeywords")),
       domainExclusions: toJsonList(formData.get("domainExclusions")),
       openrouterApiKey: apiKey,
@@ -83,7 +74,6 @@ export async function updateClient(formData: FormData) {
   const data = parseBase(formData);
   const branding = parseBranding(formData);
   const apiKey = str(formData, "openrouterApiKey");
-  const smtpPass = str(formData, "smtpPass");
   await prisma.client.update({
     where: { id },
     data: {
@@ -92,7 +82,6 @@ export async function updateClient(formData: FormData) {
       domainKeywords: toJsonList(formData.get("domainKeywords")),
       domainExclusions: toJsonList(formData.get("domainExclusions")),
       ...(apiKey ? { openrouterApiKey: apiKey } : {}),
-      ...(smtpPass ? { smtpPass } : {}),
     },
   });
   revalidatePath("/clients");

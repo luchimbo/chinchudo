@@ -215,15 +215,9 @@ def apply_npm_flags(args: argparse.Namespace) -> argparse.Namespace:
 
 
 def apply_positional_fallback(args: argparse.Namespace, unknown: list[str]) -> argparse.Namespace:
-    if args.command not in {"listen", "daily", "trend-listen", "reference-scan"} or not unknown:
+    if args.command not in {"listen", "daily"} or not unknown:
         return args
     cleaned = [item for item in unknown if item != "--"]
-    if args.command in {"trend-listen", "reference-scan"}:
-        for item in cleaned:
-            if str(item).isdigit():
-                args.limit = int(item)
-                break
-        return args
     if len(cleaned) >= 1 and not getattr(args, "account", ""):
         args.account = cleaned[0]
     if len(cleaned) >= 2 and getattr(args, "channel", "youtube") == "youtube":
@@ -468,8 +462,7 @@ def run_healthcheck() -> None:
 
     # 2. Prisma / base de datos
     try:
-        # Kressmer is quota-managed (languages, comment age and response cohort).
-    sources = [source for source in list_active_sources() if source.get("clientSlug") != "kressmer"]
+        sources = list_active_sources()
         print(f"  [OK] Prisma/DB: {len(sources)} fuentes monitoreadas activas")
     except SystemExit as exc:
         print(f"  [FAIL] Prisma/DB: {exc}")
@@ -550,65 +543,8 @@ def main() -> None:
 
     sub.add_parser("healthcheck")
 
-    # ── Ciclo de landings SEO (ex-AgentesGuille / swarm.py) ──────────────────
-    research = sub.add_parser("research", help="Investigar oportunidades de keywords para landings")
-    research.add_argument("--limit", type=int, default=50)
-    research.add_argument("--dry-run", action="store_true")
-    research.add_argument("--client-slug", default="", help="Cliente para el cual investigar (default: pcmidi)")
-
-    generate = sub.add_parser("generate", help="Generar landings desde oportunidades aprobadas")
-    generate.add_argument("--limit", type=int, default=10)
-    generate.add_argument("--dry-run", action="store_true")
-    generate.add_argument("--client-slug", default="", help="Cliente para el cual generar landings")
-
-    build_l = sub.add_parser("build-landings", help="Build HTML estático de landings aprobadas")
-    build_l.add_argument("--base-url", default="https://blog.pcmidicenter.com")
-    build_l.add_argument("--client-slug", default="", help="Cliente cuyo blog construir")
-
-    nurture_cmd = sub.add_parser("nurture", help="Procesar emails de nurturing pendientes")
-    nurture_cmd.add_argument("--limit", type=int, default=50)
-    nurture_cmd.add_argument("--dry-run", action="store_true")
-    nurture_cmd.add_argument("--client-slug", default="", help="Cliente cuyos leads nutrir")
-
-    dist_cmd = sub.add_parser("distribution", help="Generar / programar piezas de distribución social")
-    dist_cmd.add_argument("action", choices=["generate", "approve", "schedule", "queue"], nargs="?", default="generate")
-    dist_cmd.add_argument("--limit", type=int, default=10)
-    dist_cmd.add_argument("--dry-run", action="store_true")
-    dist_cmd.add_argument("--client-slug", default="", help="Cliente para distribución")
-
-    geo_cmd = sub.add_parser("geo-audit", help="Auditar presencia GEO en IAs")
-    geo_cmd.add_argument("--limit", type=int, default=10)
-    geo_cmd.add_argument("--dry-run", action="store_true")
-    geo_cmd.add_argument("--client-slug", default="", help="Cliente a auditar en GEO")
-
-    conv_cmd = sub.add_parser("conversion", help="Analizar conversión de landings")
-    conv_cmd.add_argument("--window-days", type=int, default=30)
-    conv_cmd.add_argument("--min-views", type=int, default=50)
-    conv_cmd.add_argument("--dry-run", action="store_true")
-
-    trend_cmd = sub.add_parser("trend-listen", help="Buscar tendencias calientes en AR relacionadas al catálogo")
-    trend_cmd.add_argument("--limit", type=int, default=15)
-    trend_cmd.add_argument("--dry-run", action="store_true")
-
-    ref_cmd = sub.add_parser("reference-scan", help="Leer las cuentas de referencia del Estudio de Reels (ig-viral)")
-    ref_cmd.add_argument("--client-slug", default="", help="Cliente; por defecto, todos")
-    ref_cmd.add_argument("--limit", type=int, default=12)
-    ref_cmd.add_argument("--all", action="store_true", help="Leer todas aunque se hayan leido hace poco")
-    ref_cmd.add_argument("--dry-run", action="store_true")
-
-    ai_presence_cmd = sub.add_parser("ai-presence", help="Auditoria de presencia en IAs: consulta directa + radar de redes sociales")
-    ai_presence_cmd.add_argument("--limit", type=int, default=0)
-    ai_presence_cmd.add_argument("--dry-run", action="store_true")
-    ai_presence_cmd.add_argument("--client-slug", default="", help="Cliente a auditar (default: pcmidi)")
-
     parsed, unknown = parser.parse_known_args()
     args = apply_positional_fallback(apply_npm_flags(parsed), unknown)
-
-    SWARM = ROOT / "landing-build" / "swarm.py"
-    NURTURE_SCRIPT = ROOT / "agents" / "agente_4_nurture.py"
-    GEO_SCRIPT = ROOT / "agents" / "agente_geo_audit.py"
-    DIST_SCRIPT = ROOT / "agents" / "agente_distribucion.py"
-    CONV_SCRIPT = ROOT / "agents" / "agente_conversion.py"
 
     if args.command == "listen":
         run_listen(args)
@@ -622,79 +558,6 @@ def main() -> None:
         run_monitor(args)
     elif args.command == "healthcheck":
         run_healthcheck()
-    elif args.command == "research":
-        cmd = [sys.executable, str(SWARM), "research", "--limit", str(args.limit)]
-        if args.dry_run:
-            cmd.append("--dry-run")
-        if getattr(args, "client_slug", ""):
-            cmd.extend(["--client-slug", args.client_slug])
-        run_step("research", cmd)
-    elif args.command == "generate":
-        cmd = [sys.executable, str(SWARM), "generate", "--limit", str(args.limit)]
-        if args.dry_run:
-            cmd.append("--dry-run")
-        if getattr(args, "client_slug", ""):
-            cmd.extend(["--client-slug", args.client_slug])
-        run_step("generate-landings", cmd)
-    elif args.command == "build-landings":
-        cmd = [sys.executable, str(SWARM), "build", "--base-url", args.base_url]
-        if getattr(args, "client_slug", ""):
-            cmd.extend(["--client-slug", args.client_slug])
-        run_step("build-landings", cmd)
-    elif args.command == "nurture":
-        cmd = [sys.executable, str(NURTURE_SCRIPT), "process", "--limit", str(args.limit)]
-        if args.dry_run:
-            cmd.append("--dry-run")
-        if getattr(args, "client_slug", ""):
-            cmd.extend(["--client-slug", args.client_slug])
-        run_step("nurture", cmd)
-    elif args.command == "distribution":
-        cmd = [sys.executable, str(DIST_SCRIPT), args.action, "--limit", str(args.limit)]
-        if args.dry_run:
-            cmd.append("--dry-run")
-        if getattr(args, "client_slug", ""):
-            cmd.extend(["--client-slug", args.client_slug])
-        run_step(f"distribution-{args.action}", cmd)
-    elif args.command == "geo-audit":
-        # --client-slug es argumento global del script: debe ir ANTES del subcomando "audit"
-        cmd = [sys.executable, str(GEO_SCRIPT)]
-        if getattr(args, "client_slug", ""):
-            cmd.extend(["--client-slug", args.client_slug])
-        cmd.extend(["audit", "--limit", str(args.limit)])
-        if args.dry_run:
-            cmd.append("--dry-run")
-        run_step("geo-audit", cmd)
-    elif args.command == "conversion":
-        cmd = [sys.executable, str(CONV_SCRIPT), "run", "--window-days", str(args.window_days), "--min-views", str(args.min_views)]
-        if getattr(args, "dry_run", False):
-            cmd.append("--dry-run")
-        run_step("conversion", cmd)
-    elif args.command == "trend-listen":
-        TREND_SCRIPT = ROOT / "agents" / "trend-listen.py"
-        cmd = [sys.executable, str(TREND_SCRIPT), "--limit", str(args.limit)]
-        if args.dry_run:
-            cmd.append("--dry-run")
-        steps: list[dict] = []
-        require_ok(run_step("trend-listen", cmd), steps, "trend-listen")
-        if not args.dry_run:
-            require_ok(run_step("import-trends", [resolve_bin("npx"), "tsx", "scripts/import-trends.mts"]), steps, "trend-listen")
-        report = write_report("trend-listen", {"command": "trend-listen", "status": "ok", "dry_run": args.dry_run, "steps": steps})
-        print(f"agents: trend-listen OK. Reporte: {report}")
-    elif args.command == "reference-scan":
-        REF_SCRIPT = ROOT / "agents" / "reference-accounts.py"
-        cmd = [sys.executable, str(REF_SCRIPT), "--limit", str(args.limit)]
-        if args.client_slug:
-            cmd.extend(["--client", args.client_slug])
-        if args.all:
-            cmd.append("--all")
-        if args.dry_run:
-            cmd.append("--dry-run")
-        steps: list[dict] = []
-        require_ok(run_step("reference-scan", cmd), steps, "reference-scan")
-        if not args.dry_run:
-            require_ok(run_step("import-reference-reels", [resolve_bin("npx"), "tsx", "scripts/import-reference-reels.mts"]), steps, "reference-scan")
-        report = write_report("reference-scan", {"command": "reference-scan", "status": "ok", "dry_run": args.dry_run, "steps": steps})
-        print(f"agents: reference-scan OK. Reporte: {report}")
 
 
 if __name__ == "__main__":

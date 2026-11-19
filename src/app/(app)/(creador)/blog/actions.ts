@@ -159,8 +159,8 @@ export async function resetInternalLink(formData: FormData) {
 export type DeleteArticleResult = { ok: true } | { ok: false; error: string };
 
 /**
- * Borra el artículo y sus traducciones. Leads, eventos y piezas de distribución
- * se conservan sin el vínculo; la fecha del calendario queda omitida y, si algo
+ * Borra el artículo y sus traducciones. Las visitas registradas se conservan
+ * sin el vínculo; la fecha del calendario queda omitida y, si algo
  * estaba publicado, el relay vuelve a desplegar el blog sin esas páginas.
  */
 export async function deleteBlogArticle(id: string): Promise<DeleteArticleResult> {
@@ -177,9 +177,7 @@ export async function deleteBlogArticle(id: string): Promise<DeleteArticleResult
       for (const slot of slots) {
         await tx.blogPublication.update({ where: { id: slot.id }, data: { landingId: null, status: "SKIPPED", needsDeploy: false, lastError: "Artículo eliminado por el operador.", errorCode: "" } });
       }
-      await tx.lead.updateMany({ where: { landingId: { in: ids } }, data: { landingId: null } });
       await tx.trackingEvent.updateMany({ where: { landingId: { in: ids } }, data: { landingId: null } });
-      await tx.distributionPiece.updateMany({ where: { landingId: { in: ids } }, data: { landingId: null } });
       const published = await tx.landing.count({ where: { id: { in: ids }, status: { in: ["PUBLISHED", "APPROVED", "PREVIEW_ONLINE"] } } });
       await tx.landing.deleteMany({ where: { id: { in: ids } } });
       if (published) await requestBlogRedeploy(tx, landing.clientId);

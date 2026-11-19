@@ -34,11 +34,7 @@ describe("public-paths", () => {
     expect(isPublicPath("/api/auth/login")).toBe(true);
     expect(isPublicPath("/api/auth/register")).toBe(true);
     expect(isPublicPath("/api/support/exchange")).toBe(true);
-    expect(isPublicPath("/api/leads")).toBe(true);
     expect(isPublicPath("/api/events")).toBe(true);
-    expect(isPublicPath("/api/click")).toBe(true);
-    expect(isPublicPath("/api/unsubscribe")).toBe(true);
-    expect(isPublicPath("/api/nurture")).toBe(true);
   });
 
   it("mantiene privadas las rutas del panel", () => {
