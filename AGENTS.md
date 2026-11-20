@@ -16,16 +16,21 @@ Crear un software maestro que permita a PC MIDI Center operar presencia organica
 - Control humano antes de publicar.
 - Analitica de objeciones, marcas y conversiones.
 
-## Estado Actual (Julio 2026)
+## Estado Actual (Noviembre 2026)
 
-El proyecto ya supero el MVP y hoy es una suite multi-cliente:
+En noviembre 2026 se hizo una limpieza grande. La suite hace cuatro cosas y nada más:
 
-- **Clientes activos**: `pcmidi` (PC MIDI Center), `prestige-running`, `jurispedia`.
-- **Base de datos**: Supabase Postgres (fuente de verdad). La etapa SQLite quedo deprecada; `prisma/migrations` tiene baseline `0_init` y `prisma migrate deploy` funciona. Para una DB existente creada con `db push`, ejecutar una sola vez `prisma migrate resolve --applied 0_init` antes de `prisma migrate deploy`.
-- **App**: Next.js 14 (App Router) con panel de oportunidades, aprobacion, analytics, landings, leads/nurture, videos y GEO.
-- **IA real**: generacion y clasificacion via OpenRouter (key por cliente con fallback global), con fallback local deterministico y guardarrailes anti-inventos.
-- **Publicacion asistida operativa**: `agents/publisher.py` comenta en YouTube/Reddit/X/Facebook/Instagram con rate limits diarios y `--dry-run` real (propagado desde `scripts/publish-response.mjs` y desde el panel). El orchestrator NO publica: Fede aprueba y decide.
-- **Provider de navegador por defecto**: NSTBrowser (local API). Dolphin Anty sigue soportado como alternativa (`browserProvider: "dolphin"`).
+1. **Asistente CM** (`/asistente-cm`): una propuesta por comentario, chat de ajuste, aprendizaje y publicación.
+2. **Encontrar oportunidades**: escucha **solo de YouTube** (monitor programado, cuota diaria y búsqueda manual).
+3. **Buenas respuestas**: un único generador (`refreshCMOpportunity` en `src/lib/cm-maintenance.ts`).
+4. **Blog** (`/blog`): calendario editorial, artículos, traducciones y publicación en Vercel.
+
+Además se conservan el onboarding de clientes nuevos y la lógica de cada cliente.
+
+- **Clientes activos**: `pcmidi`, `prestige-running`, `jurispedia`, `kressmer`, `programa-vidia`.
+- **Base de datos**: Supabase Postgres (fuente de verdad). `prisma migrate deploy` funciona sobre la baseline `0_init`.
+- **IA**: OpenRouter (key/modelo por cliente con fallback global) o el LLM local (qwen) en horario. Si la IA falla, no se inventa una plantilla: se conserva la propuesta anterior y se reintenta.
+- **Se borró** (queda en git): Estudio de Reels, videos/avatares, tendencias, analítica, presencia en IAs (GEO), bitácora, leads/contactos y nurture por email, la vista clásica de 3 variantes, `draft-worker`, `publisher.py` y los agentes Python viejos (`agente_*`, `swarm.py`).
 
 ## Principios Del Proyecto
 
@@ -45,7 +50,7 @@ El proyecto ya supero el MVP y hoy es una suite multi-cliente:
    El sistema debe evitar frases clonadas, respuestas demasiado parecidas y tono artificial.
 
 6. **Escalabilidad simple**
-   Primero MVP local con SQLite. Luego Supabase, jobs programados, dashboard avanzado y reportes.
+   Pocas piezas, un solo camino por tarea. Antes de agregar un módulo, confirmar que se va a usar.
 
 ## Roles Humanos
 
@@ -231,53 +236,45 @@ Estilo:
 
 ## Arquitectura De Agentes Internos
 
-Antes de seguir puliendo la app visible, el proyecto prioriza una capa interna estable para que todo lo que pase por detras quede registrado, deduplicado y auditable.
+Python maneja el navegador real (CDP). Node.js + Prisma persisten en Postgres. JSON/JSONL solo como buffer o reporte.
 
-Enfoque elegido:
+### Asistente CM
 
-- Python para navegador real y CDP, reutilizando la logica que ya funciono en otra app.
-- Node.js + Prisma para persistir en Supabase Postgres, la fuente de verdad del sistema.
-- JSON/JSONL solo como buffer, staging, evidencia o reporte tecnico. No debe ser la fuente principal.
-- Publicacion asistida bajo control humano: los agentes detectan, preparan y pueden publicar comentarios con `agents/publisher.py` (rate limits + `--dry-run`), pero el orchestrator nunca publica solo; Fede aprueba y decide.
+- **Escucha**: `agents/social-listen.py` (YouTube) → `data/social-listen-intake.jsonl` → `scripts/import-opportunities.mts`.
+  - El importador deduplica por URL/comentario y clasifica con IA (`src/lib/ai-opportunity-classifier.ts`).
+  - Si la IA falla, la fila vuelve al intake y se reintenta hasta 3 veces. Recién ahí entra con el fallback local como `NEEDS_REVIEW`.
+  - Disparadores: `scripts/run-scheduled.ps1` (tarea `10Apostoles-Monitor`: `agents:daily-quota` + `agents:monitor`) y la búsqueda manual de `/oportunidades`, que va por el relay (`/api/opportunities/search/run`).
+- **Generación**: un único camino, `refreshCMOpportunity` (`src/lib/cm-maintenance.ts`). Lo usan:
+  - la cola manual del Asistente CM (`/api/cm/jobs` → `scripts/cm-manual-worker.mts`);
+  - el mantenimiento cada 15 minutos (tarea `Los5Apostoles-AsistenteCM` → `scripts/cm-maintenance.mts`);
+  - la cuota diaria de Kressmer.
+- **Prompt**: `buildCopilotPrompt` en `src/lib/ai-draft-generator.ts` (Kressmer usa `buildKressmerReplyPrompt`). Validación en `src/lib/draft-output.ts`: sin preguntas salvo Prestige y Kressmer.
+- **Frescura**: `src/lib/cm-version.ts`. Versión = manifiesto de reglas commiteado (`src/lib/cm-rules-version.json`, lo regenera `npm run dev`/`build`) + contenido del cliente. Memorias y ejemplos aprendidos no invalidan propuestas existentes.
+- **Publicación**: solo `publishCopilotYouTubeResponse` (`src/app/(app)/opportunities/actions.ts`), por la API oficial de YouTube con la conexión OAuth del cliente (`YouTubeConnection`). Reclama la publicación antes de enviar para no publicar dos veces. Después descarta solo las oportunidades del mismo hilo o de la misma persona en ese video.
 
-Capas esperadas:
+### Blog
 
-- `agents/browser-cdp.py`: abre perfiles con NSTBrowser (default), Dolphin o Chrome local, usa CDP, permite login asistido, extrae contenido visible y soporta `dry-run`.
-- `agents/accounts.example.json`: plantilla de cuentas/perfiles. Copiar a `agents/accounts.json` para configurar cuentas reales.
-- `agents/social-listen.py`: ejecuta busquedas por canal, normaliza oportunidades y deja evidencia de escucha.
-- `scripts/import-opportunities.mts`: importa oportunidades desde el buffer JSONL a Postgres con deduplicacion por URL.
-- `scripts/draft-worker.mts`: genera borradores (IA o fallback local) seguros y los guarda en Prisma.
-- `agents/publisher.py`: publica comentarios aprobados con rate limits diarios y `--dry-run` real.
-- `agents/orchestrator.py`: coordina pasos `listen`, `draft`, `export`, `daily`, `monitor`, `healthcheck`, `trend-listen`, `nurture`, `distribution`, `geo-audit`, `conversion`, `ai-presence`.
-- `reports/`: reportes JSON auditables por corrida.
-- `data/`: intake temporal JSONL para staging/debug.
-- `exports/`: CSVs operativos para revision o backup.
+- Motor: `scripts/blog-daily.mjs` (`createBlogDaily`) + `landing-build/build_landings.py`.
+- **Corre en el servidor SSH `pcmidi`** (`~/services/pcmidi-suite`, `scripts/start-blog-runtime-ssh.sh` vía `@reboot`): `scripts/blog-runtime-service.mjs` maneja todos los calendarios, la cola de publicación, las vistas previas, la sincronización de catálogo y el análisis de negocio, y publica su túnel en `AppSetting blog_runtime_relay_url`.
+- Desplegar el servidor: `bash scripts/server/deploy-blog-runtime.sh --apply` (desde una rama publicada; por defecto `main`). Estado: `npm run blog:status`.
+- La app (`src/lib/relay-client.ts`, `src/lib/landing-html.ts`) habla con el blog solo por ese túnel.
 
-Reglas de agentes:
+### Relay local
+
+`scripts/agent-relay.mjs` (tarea `PCMidi Relay`, puerto 3099) queda para la búsqueda de oportunidades, el estado de login de perfiles y el proxy al LLM local. No toca el blog.
+
+### Reglas de agentes
 
 - Todo comando debe registrar reporte con comando, fecha, canal, entradas leidas, oportunidades creadas, descartes y errores.
 - Todo comando que escriba datos debe aceptar `--dry-run` cuando sea razonable.
 - Las credenciales de cuentas deben vivir en `.env`, referenciadas desde `agents/accounts.json` por nombre de variable. Nunca hardcodear usuarios ni claves.
-- Cada cuenta debe usar un perfil Chrome y puerto CDP propio para no mezclar sesiones.
+- Cada cuenta debe usar un perfil de navegador y puerto CDP propio para no mezclar sesiones.
 - Si `browserProvider` es `nstbrowser` (default), `start-browser` llama a la Local API de NSTBrowser (`NSTBROWSER_API_BASE`, por defecto `http://localhost:8848/api/v2`) con header `x-api-key: NSTBROWSER_API_KEY`.
-- Si `browserProvider` es `dolphin`, `start-browser` debe llamar a la Local API de Dolphin (`DOLPHIN_API_BASE`, por defecto `http://localhost:3001/v1.0`) y guardar el `automation.port`/`wsEndpoint` en `data/browser-runtime.json`.
-- Si Dolphin responde `401`, configurar `DOLPHIN_API_TOKEN` en `.env`; el agente lo envia como `Authorization: Bearer`.
+- Si `browserProvider` es `dolphin`, `start-browser` llama a la Local API de Dolphin (`DOLPHIN_API_BASE`, por defecto `http://localhost:3001/v1.0`); con `401`, configurar `DOLPHIN_API_TOKEN`.
 - El login automatizado solo puede completar usuario y contraseña de cuentas propias/autorizadas. Si aparece 2FA, captcha o checkpoint, el agente debe frenar y dejar la ventana abierta para resolucion humana.
 - La escucha no debe duplicar oportunidades con la misma URL.
 - Los borradores no deben inventar stock, precio, garantia ni claims tecnicos.
-- La publicacion via `publisher.py`/`publish-response.mjs` debe respetar rate limits diarios por cuenta y soportar `--dry-run` end-to-end (el flag llega hasta el navegador).
-
-Flujo de cuentas:
-
-```bash
-copy agents\accounts.example.json agents\accounts.json
-REM Editar agents\accounts.json y reemplazar nstbrowserProfileId por el ID real del perfil NSTBrowser.
-REM (Alternativa: browserProvider "dolphin" + dolphinProfileId + DOLPHIN_API_TOKEN en .env)
-python agents/browser-cdp.py start-browser --account soporte-pc-midi
-python agents/browser-cdp.py list-nstbrowser-profiles
-python agents/browser-cdp.py login --account soporte-pc-midi --channel facebook
-npm run agents:listen -- --account soporte-pc-midi --channel facebook --query "MidiPlus controlador MIDI" --dry-run
-```
+- Ningún proceso automático publica: Fede aprueba y publica desde el Asistente CM.
 
 ## Modulos Del Sistema
 
@@ -345,47 +342,17 @@ Debe contener:
 
 ### 5. Generador IA
 
-Entrada:
+Entrada: comentario, cliente, marca, producto (detectado o elegido por el CM), persona, memorias aprendidas, ejemplos aprobados y correcciones del chat.
 
-- Texto de la oportunidad.
-- Marca.
-- Producto.
-- Persona.
-- Objetivo de respuesta.
-- Nivel tecnico.
-- Red social.
+Salida: **una** propuesta breve (objetivo 280, máximo 400 caracteres) y notas internas de riesgo. El operador puede rehacerla o ajustarla por chat.
 
-Salida:
+### 6. Asistente CM (panel de aprobación)
 
-- Variante corta.
-- Variante tecnica.
-- Variante conversacional.
-- Riesgos o alertas.
-- Preguntas de seguimiento sugeridas.
-
-### 6. Panel De Aprobacion
-
-Debe permitir:
-
-- Ver oportunidades pendientes.
-- Generar respuestas.
-- Editar respuestas.
-- Aprobar.
-- Copiar al portapapeles.
-- Marcar como publicado.
-- Agregar resultado.
-
-### 7. Analytics
-
-Metricas basicas:
-
-- Oportunidades por red.
-- Oportunidades por marca.
-- Objeciones mas frecuentes.
-- Productos mas mencionados.
-- Respuestas publicadas.
-- Conversiones asistidas.
-- Tiempo medio de respuesta.
+- Cola priorizada de oportunidades de YouTube.
+- Generar o rehacer la propuesta (en segundo plano).
+- Editar, ajustar por chat y marcar respuestas correctas como ejemplo.
+- Publicar en YouTube con la cuenta conectada del cliente.
+- Descartar.
 
 ## Flujo Operativo Diario
 
@@ -394,9 +361,9 @@ Metricas basicas:
 3. Descarta basura, spam o temas irrelevantes.
 4. Asigna marca/producto si el sistema no lo hizo.
 5. Elige persona de respuesta.
-6. Genera 3 variantes con IA.
-7. Edita la mejor.
-8. Publica manualmente.
+6. Revisa la propuesta de la IA (o la rehace).
+7. La edita o ajusta por chat.
+8. Publica desde el Asistente CM.
 9. Marca estado como `published`.
 10. Si hay respuesta del usuario, marca `follow_up`.
 11. Si deriva a WhatsApp o venta, marca `converted`.
@@ -423,37 +390,23 @@ Evitar:
 - Links repetidos.
 - Respuestas sin contexto.
 
-## Criterios De Aceptacion Del MVP
-
-El MVP esta listo cuando:
-
-- Se pueden crear oportunidades manualmente.
-- Se pueden cargar productos y marcas.
-- Existen las 5 personas operativas.
-- La IA genera 3 variantes de respuesta.
-- Fede puede aprobar, editar y marcar como publicado.
-- Todo queda registrado en SQLite.
-- Hay un listado filtrable por estado, marca y red.
-- Se puede exportar un CSV basico.
-
-## Comandos Esperados
-
-Cuando exista implementacion:
+## Comandos
 
 ```bash
 npm install
 npm run dev
-npm run db:migrate
-npm run db:push
-npm run db:seed
+npm run build
 npm run lint
 npm run test
-npm run agents:listen -- --dry-run
-npm run agents:draft -- --dry-run
-npm run agents:export
-npm run agents:daily -- --dry-run
-python agents/browser-cdp.py start-browser --account soporte-pc-midi
-python agents/browser-cdp.py login --account soporte-pc-midi --channel facebook --dry-run
+python -m pytest agents/tests landing-build/tests
+npx prisma migrate deploy
+npm run agents:healthcheck
+npm run agents:monitor -- --dry-run
+npm run agents:daily-quota -- --dry-run
+npm run agents:cm-maintenance -- --dry-run
+npm run blog:status
+bash scripts/server/deploy-blog-runtime.sh            # simulación
+powershell -File scripts/run-cleanup.ps1               # simulación; -Apply borra
 ```
 
 ## Convenciones De Desarrollo
@@ -467,14 +420,9 @@ python agents/browser-cdp.py login --account soporte-pc-midi --channel facebook 
 - Tests unitarios para clasificadores, prompts y transformaciones.
 - Tests E2E para el flujo de oportunidad a publicacion.
 
-## Variables De Entorno Sugeridas
+## Variables De Entorno
 
-```env
-DATABASE_URL="file:./dev.db"
-LLM_PROVIDER="openai"
-LLM_API_KEY=""
-APP_ENV="development"
-```
+Ver `.env.example`. Las principales: `DATABASE_URL`, `DIRECT_URL`, `AUTH_SECRET`, `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `AGENT_RELAY_TOKEN`, `NSTBROWSER_API_KEY`, `VERCEL_TOKEN`, las credenciales OAuth de YouTube y `SOCIAL_TOKEN_ENCRYPTION_KEY`.
 
 ## Definicion De Exito
 

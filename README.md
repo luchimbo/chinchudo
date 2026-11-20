@@ -78,16 +78,8 @@ queda reservado para iteración local o recuperación controlada.
 
 ## Publicación compatible con plataformas
 
-- **YouTube:** la respuesta aprobada se publica con YouTube Data API y OAuth de la cuenta autorizada. Configurar `YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET` y `SOCIAL_TOKEN_ENCRYPTION_KEY`; desde una oportunidad de YouTube, elegir **Conectar cuenta de YouTube** y aceptar el permiso. Los tokens se guardan cifrados en la base.
-- **Instagram/Facebook (posteos ajenos):** el panel copia el borrador y abre la publicación, pero no automatiza el navegador ni presiona publicar. Después de comentar desde la cuenta comercial, Fede selecciona **Confirmar publicación manual** para registrar el resultado.
+- **YouTube:** la respuesta aprobada se publica con YouTube Data API y OAuth de la cuenta autorizada. Configurar `YOUTUBE_OAUTH_CLIENT_ID`, `YOUTUBE_OAUTH_CLIENT_SECRET` y `SOCIAL_TOKEN_ENCRYPTION_KEY`; desde el Asistente CM, elegir **Conectar cuenta de YouTube** y aceptar el permiso. Los tokens se guardan cifrados en la base.
 - Para revocar una conexión de YouTube, enviar `DELETE /api/integrations/youtube?client=<slug>&account=<cuenta>` con una sesión del cliente; también se revoca el token de Google cuando está disponible.
-
-## Rutina semanal de Fede (45–60 min)
-
-1. Abrir `/analytics` → revisar tendencias y conversiones.
-2. Generar el **Resumen Semanal IA** (botón en la página de analytics).
-3. Identificar objeciones nuevas → cargarlas en `/knowledge`.
-4. Pasarle el resumen a dirección.
 
 ## Monitoreo semi-automático (Fase 6)
 
@@ -152,17 +144,4 @@ Genera un export en `exports/backup-<fecha>.json`. Supabase también hace backup
 
 Los errores de IA y eventos de rate limiting quedan en la tabla `SystemLog` de Supabase. Consultables desde Prisma Studio (`npm run db:studio`) o directamente en el panel de Supabase.
 
-## Fases completadas
-
-| Fase | Descripción |
-|---|---|
-| 0 | Setup, repositorio, estructura base |
-| 0.5 | Backend de agentes (CDP, social-listen, orchestrator) |
-| 1 | MVP de datos: schema Prisma, seed, CRUD |
-| 2 | Generador IA con OpenRouter |
-| 3 | Dashboard operativo para Fede |
-| 4 | Base de conocimiento (FAQs, objeciones) |
-| 5 | Clasificación asistida |
-| 6 | Monitoreo semi-automático |
-| 7 | Analytics y reportes + resumen semanal IA |
-| 8 | Producción: auth, logs persistentes, rate limits, backups |
+Ver `AGENTS.md` para el estado actual y la arquitectura.
