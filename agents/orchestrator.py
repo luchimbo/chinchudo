@@ -165,7 +165,38 @@ def require_ok(result: dict, steps: list[dict], workflow: str) -> None:
         raise SystemExit(f"agents: {result['step']} fallo. Reporte: {report}")
 
 
-def listen_command(args: argparse.Namespace) -> list[str]:
+INTAKE_DIR = ROOT / "runtime" / "intake"
+SHARED_INTAKE = ROOT / "data" / "social-listen-intake.jsonl"
+
+
+def run_intake(name: str) -> str:
+    """A JSONL file owned by one run, relative to ROOT, so concurrent listeners never mix rows."""
+    INTAKE_DIR.mkdir(parents=True, exist_ok=True)
+    return str((INTAKE_DIR / f"{name}-{utc_stamp()}-{os.getpid()}.jsonl").relative_to(ROOT)).replace("\\", "/")
+
+
+def import_command(intake: str) -> list[str]:
+    return [resolve_bin("npx"), "tsx", "scripts/import-opportunities.mts", "--input", intake]
+
+
+def import_pending_intake(steps: list[dict], workflow: str, min_age_s: int = 15 * 60, max_age_s: int = 48 * 3600) -> None:
+    """Import rows left for retry by earlier runs (classifier failures) and the legacy shared file.
+
+    Files younger than 15 minutes may still be in use; older than 48 hours are not revived.
+    """
+    now = time.time()
+    pending = [path for path in sorted(INTAKE_DIR.glob("*.jsonl")) if min_age_s <= now - path.stat().st_mtime <= max_age_s and path.stat().st_size > 0]
+    if SHARED_INTAKE.exists() and SHARED_INTAKE.stat().st_size > 0:
+        pending.append(SHARED_INTAKE)
+    for path in pending:
+        relative = str(path.relative_to(ROOT)).replace("\\", "/")
+        result = run_step(f"import-pending:{path.name}", import_command(relative))
+        steps.append(result)
+        if result.get("status") != "ok":
+            log.warning("pending_intake_import_failed", workflow=workflow, file=path.name)
+
+
+def listen_command(args: argparse.Namespace, intake: str = "") -> list[str]:
     command = [
         sys.executable,
         str(SOCIAL_LISTEN),
@@ -180,6 +211,8 @@ def listen_command(args: argparse.Namespace) -> list[str]:
     ]
     if getattr(args, "language", ""):
         command.extend(["--language", args.language])
+    if intake:
+        command.extend(["--intake-path", intake])
     if args.dry_run:
         command.append("--dry-run")
     return command
@@ -234,9 +267,10 @@ def apply_positional_fallback(args: argparse.Namespace, unknown: list[str]) -> a
 
 def run_listen(args: argparse.Namespace) -> None:
     steps: list[dict] = []
-    require_ok(run_step("social-listen", listen_command(args)), steps, "listen")
+    intake = run_intake("listen")
+    require_ok(run_step("social-listen", listen_command(args, intake)), steps, "listen")
     if not args.dry_run:
-        require_ok(run_step("import-opportunities", [resolve_bin("npx"), "tsx", "scripts/import-opportunities.mts"]), steps, "listen")
+        require_ok(run_step("import-opportunities", import_command(intake)), steps, "listen")
     report = write_report("listen", {"command": "listen", "status": "ok", "dry_run": args.dry_run, "steps": steps})
     print(f"agents: listen OK. Reporte: {report}")
 
@@ -395,6 +429,7 @@ def _run_monitor_locked(args: argparse.Namespace) -> None:
         print(f"  {src['label']!r:40} -> {src.get('account', '?')}{tag}")
     print()
 
+    intake = run_intake("monitor")
     for src in sources_to_run:
         account = src.get("account", "") or ""
         command = [
@@ -405,6 +440,7 @@ def _run_monitor_locked(args: argparse.Namespace) -> None:
             "--limit", str(src.get("limit", 5)),
             "--source-id", src["id"],
             "--record-source-status",
+            "--intake-path", intake,
         ]
         if src.get("clientId"):
             command.extend(["--client-id", src["clientId"]])
@@ -413,7 +449,9 @@ def _run_monitor_locked(args: argparse.Namespace) -> None:
         require_ok(run_step(f"listen:{src['label']}", command), steps, "monitor")
 
     if not args.dry_run:
-        require_ok(run_step("import-opportunities", [resolve_bin("npx"), "tsx", "scripts/import-opportunities.mts"]), steps, "monitor")
+        if (ROOT / intake).exists():
+            require_ok(run_step("import-opportunities", import_command(intake)), steps, "monitor")
+        import_pending_intake(steps, "monitor")
     report = write_report("monitor", {
         "command": "monitor", "status": "ok", "dry_run": args.dry_run,
         "sources_total": len(sources), "sources_run": len(sources_to_run),
@@ -425,9 +463,10 @@ def _run_monitor_locked(args: argparse.Namespace) -> None:
 
 def run_daily(args: argparse.Namespace) -> None:
     steps: list[dict] = []
-    require_ok(run_step("social-listen", listen_command(args)), steps, "daily")
+    intake = run_intake("daily")
+    require_ok(run_step("social-listen", listen_command(args, intake)), steps, "daily")
     if not args.dry_run:
-        require_ok(run_step("import-opportunities", [resolve_bin("npx"), "tsx", "scripts/import-opportunities.mts"]), steps, "daily")
+        require_ok(run_step("import-opportunities", import_command(intake)), steps, "daily")
     # Pasar --dry-run explícito al export para no depender solo de variables npm.
     export_command = [resolve_bin("node"), "scripts/export-csv.mjs"]
     if args.dry_run:

@@ -338,6 +338,8 @@ const server = http.createServer(async (req, res) => {
         data: { channels, language, limit, query, suggestions: [] },
       });
 
+      // Each search owns its intake file: a concurrent monitor run never imports its rows.
+      const intake = `runtime/intake/manual-search-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jsonl`;
       for (const channel of channels) {
         send({ status: "channel_started", channel, message: `Buscando en ${channel}...` });
         const listen = await runProcess(commandName("python"), [
@@ -347,6 +349,7 @@ const server = http.createServer(async (req, res) => {
           "--limit", String(limit),
           "--client-id", clientId,
           "--language", language || "es",
+          "--intake-path", intake,
         ], (line, streamName) => {
           if (streamName === "stderr" && line.includes("ERROR")) {
             send({ status: "error", channel, message: line.slice(0, 500) });
@@ -387,7 +390,7 @@ const server = http.createServer(async (req, res) => {
         });
 
         send({ status: "import_started", channel, message: "Importando oportunidades nuevas..." });
-        const imported = await runProcess(commandName("npx"), ["tsx", join(ROOT, "scripts", "import-opportunities.mts")], () => {});
+        const imported = await runProcess(commandName("npx"), ["tsx", join(ROOT, "scripts", "import-opportunities.mts"), "--input", intake], () => {});
         const importSummary = parseImportSummary(imported.stdout);
         if (imported.code !== 0) {
           totals.errors += 1;

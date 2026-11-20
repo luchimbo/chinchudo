@@ -512,7 +512,7 @@ def load_own_usernames() -> set[str]:
     return own
 
 
-def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str | None, source_id: str | None = None, client_id: str | None = None, language: str = "es", public_discovery: bool = True, indexed_only: bool = False, youtube_video_offset: int = 0, youtube_videos: int = 2, youtube_search_mode: str = "any", youtube_comment_pages: int = 1) -> dict:
+def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str | None, source_id: str | None = None, client_id: str | None = None, language: str = "es", public_discovery: bool = True, indexed_only: bool = False, youtube_video_offset: int = 0, youtube_videos: int = 2, youtube_search_mode: str = "any", youtube_comment_pages: int = 1, intake_path: Path | None = None) -> dict:
     started_at = datetime.now(timezone.utc).isoformat()
     log.info("listen_start", channel=channel, account=account or "default", query=query[:60], limit=limit, dry_run=dry_run, language=language)
     
@@ -599,7 +599,7 @@ def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str
             "error": f"Error CDP durante extracción ({channel}): {exc}",
             "traceback": traceback.format_exc()[-800:],
             "items_read": 0, "intake_rows": 0, "discarded_count": 0,
-            "discard_reasons": {}, "discarded_sample": [], "intake_path": str(INTAKE_PATH), "sample": [],
+            "discard_reasons": {}, "discarded_sample": [], "intake_path": str(intake_path or INTAKE_PATH), "sample": [],
         }
     finally:
         profile_lock.close()
@@ -660,7 +660,7 @@ def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str
         rows.append(row)
 
     if rows and not dry_run:
-        append_jsonl(INTAKE_PATH, rows)
+        append_jsonl(intake_path or INTAKE_PATH, rows)
 
     discard_summary: dict[str, int] = {}
     for d in discarded:
@@ -704,7 +704,7 @@ def run_listen(channel: str, query: str, limit: int, dry_run: bool, account: str
         "discarded_count": len(discarded),
         "discard_reasons": discard_summary,
         "discarded_sample": discarded[:5],
-        "intake_path": str(INTAKE_PATH),
+        "intake_path": str(intake_path or INTAKE_PATH),
         "rows": rows,
         "sample": rows[:3],
     }
@@ -732,6 +732,7 @@ def main() -> None:
     parser.add_argument("--health", action="store_true", help="Verificar conectores de escucha y salir")
     parser.add_argument("--output-json", action="store_true", help="Devolver TODOS los rows en JSON por stdout (modo machine-readable)")
     parser.add_argument("--record-source-status", action="store_true", help="Registrar el resultado observado de la fuente en Postgres")
+    parser.add_argument("--intake-path", default="", help="Archivo JSONL propio de esta corrida (relativo a la raíz); por defecto el intake compartido")
     args = parser.parse_args()
 
     if args.health:
@@ -741,7 +742,8 @@ def main() -> None:
     summary = run_listen(
         args.channel, args.query, args.limit, args.dry_run, args.account or None,
         source_id=args.source_id or None, client_id=args.client_id or None,
-        language=args.language, public_discovery=not args.no_public_discovery, indexed_only=args.indexed_only, youtube_video_offset=args.youtube_video_offset, youtube_videos=args.youtube_videos, youtube_search_mode=args.youtube_search_mode, youtube_comment_pages=args.youtube_comment_pages
+        language=args.language, public_discovery=not args.no_public_discovery, indexed_only=args.indexed_only, youtube_video_offset=args.youtube_video_offset, youtube_videos=args.youtube_videos, youtube_search_mode=args.youtube_search_mode, youtube_comment_pages=args.youtube_comment_pages,
+        intake_path=(ROOT / args.intake_path) if args.intake_path else None,
     )
     if args.record_source_status and args.source_id and not args.dry_run:
         import shutil
