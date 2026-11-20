@@ -18,7 +18,7 @@ describe("publicación YouTube verificada", () => {
     expect(fetch).toHaveBeenCalledTimes(1); expect(fetch.mock.calls[0]).toEqual([expect.stringContaining("/comments?part=snippet"), expect.objectContaining({ method: "POST", body: JSON.stringify({ snippet: { parentId: "parent", textOriginal: "Respuesta revisada" } }) })]);
   });
   it("una respuesta dentro de un hilo se publica en el comentario principal", async () => {
-    const fetch = vi.fn(async () => new Response(JSON.stringify({ id: "remote-comment" }), { status: 200 })); vi.stubGlobal("fetch", fetch);
+    const fetch = vi.fn(async (_url: string, _init?: RequestInit) => new Response(JSON.stringify({ id: "remote-comment" }), { status: 200 })); vi.stubGlobal("fetch", fetch);
     await publishYouTubeComment({ ...input(db()), sourceUrl: "https://www.youtube.com/watch?v=video&lc=parent.reply" });
     expect(fetch.mock.calls[0][1]).toEqual(expect.objectContaining({ body: JSON.stringify({ snippet: { parentId: "parent", textOriginal: "Respuesta revisada" } }) }));
     expect(commentIdFromUrl("https://www.youtube.com/watch?v=video")).toBeNull();
