@@ -7,8 +7,31 @@ import { operationalOpportunityWhere } from "@/lib/opportunity-channels";
 import { getOnboardingProgress } from "@/lib/onboarding-progress";
 import { sanitizeDraft } from "@/lib/onboarding";
 import { OnboardingChecklist } from "@/components/onboarding-checklist";
+import { loadSystemHealth, type HealthAlert } from "@/lib/system-health";
 
 type PageProps = { searchParams: { client?: string } };
+
+const AREA_LABEL: Record<HealthAlert["area"], string> = { cm: "Asistente CM", listening: "Escucha", blog: "Blog" };
+
+/** Only rendered when something stopped working; a healthy suite shows nothing. */
+function SystemHealth({ alerts, withClient }: { alerts: HealthAlert[]; withClient: (href: string) => string }) {
+  if (!alerts.length) return null;
+  return (
+    <section aria-labelledby="system-health-heading" className="rounded-xl border border-signal/30 bg-signal/5 p-5">
+      <h2 id="system-health-heading" className="text-xs font-bold uppercase tracking-[0.2em] text-signal">Estado del sistema</h2>
+      <ul className="mt-3 grid gap-2">
+        {alerts.map((alert) => (
+          <li key={`${alert.area}:${alert.message}`}>
+            <Link href={withClient(alert.href)} className="flex flex-col gap-0.5 rounded-lg bg-paper px-4 py-3 text-sm transition hover:bg-white sm:flex-row sm:items-baseline sm:gap-3">
+              <span className={`shrink-0 text-xs font-bold ${alert.level === "error" ? "text-signal" : "text-brass"}`}>{AREA_LABEL[alert.area]}</span>
+              <span className="text-ink">{alert.message}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
 
 function Metric({
   label,
@@ -45,11 +68,13 @@ export default async function HomePage({ searchParams }: PageProps) {
   const opportunityWhere = { ...clientWhere, ...operationalOpportunityWhere() };
   const workStatuses = ["NEW", "NEEDS_REVIEW", "DRAFTED", "APPROVED", "FOLLOW_UP"] as const;
 
-  const [pending, published, landings, onboarding] = await Promise.all([
+  const [pending, published, landings, onboarding, healthAlerts] = await Promise.all([
     prisma.opportunity.count({ where: { ...opportunityWhere, status: { in: [...workStatuses] } } }),
     prisma.opportunity.count({ where: { ...opportunityWhere, status: "PUBLISHED" } }),
     prisma.landing.count({ where: clientWhere }),
     Promise.resolve(welcomeOnboarding),
+    // Health must never take the home page down with it.
+    loadSystemHealth(prisma, client.id).catch(() => [] as HealthAlert[]),
   ]);
 
   const withClient = (href: string) => client ? `${href}?client=${encodeURIComponent(client.slug)}` : href;
@@ -78,6 +103,8 @@ export default async function HomePage({ searchParams }: PageProps) {
       </header>
 
       {onboardingProgress ? <OnboardingChecklist progress={onboardingProgress} /> : null}
+
+      <SystemHealth alerts={healthAlerts} withClient={withClient} />
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Metric label="Para atender" value={pending} note="Conversaciones activas" href={withClient("/asistente-cm")} tone="brass" />

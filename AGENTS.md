@@ -261,6 +261,15 @@ Python maneja el navegador real (CDP). Node.js + Prisma persisten en Postgres. J
 - Desplegar el servidor: `bash scripts/server/deploy-blog-runtime.sh --apply` (desde una rama publicada; por defecto `main`). Estado: `npm run blog:status`.
 - La app (`src/lib/relay-client.ts`, `src/lib/landing-html.ts`) habla con el blog solo por ese túnel.
 
+### Salud del sistema
+
+`src/lib/system-health.ts` arma los avisos de la tarjeta "Estado del sistema" de Inicio (solo aparece si algo falla). Usa datos que ya escriben los procesos en Postgres:
+
+- latido del procesador de la cola (`cm.manual.worker.heartbeat`);
+- última corrida del mantenimiento (`cm.maintenance.last-run`);
+- última oportunidad de YouTube, en clientes con escucha activa;
+- túnel y publicaciones fallidas del blog.
+
 ### Relay local
 
 `scripts/agent-relay.mjs` (tarea `PCMidi Relay`, puerto 3099) queda para la búsqueda de oportunidades, el estado de login de perfiles y el proxy al LLM local. No toca el blog.

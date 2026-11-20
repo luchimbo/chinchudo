@@ -58,6 +58,12 @@ async function main() {
   const results = await runCMMaintenance(db, options);
   const failed = results.some((result) => result.outcomes.some((outcome) => outcome.status === "error"));
   const report = writeReport("cm-maintenance", { command: "cm-maintenance", dry_run: options.dryRun, options, results });
+  if (!options.dryRun) {
+    // Read by the home page health card (src/lib/system-health.ts).
+    const outcomes = results.flatMap((result) => result.outcomes);
+    const value = JSON.stringify({ at: new Date().toISOString(), attempted: outcomes.length, errors: outcomes.filter((outcome) => outcome.status === "error").length });
+    await db.appSetting.upsert({ where: { key: "cm.maintenance.last-run" }, create: { key: "cm.maintenance.last-run", value }, update: { value } }).catch(() => undefined);
+  }
   console.log(`Asistente CM: ${options.dryRun ? "simulación" : "actualización"} ${failed ? "con errores" : "completada"}. Reporte: ${report}`);
   if (failed) process.exitCode = 1;
 }
