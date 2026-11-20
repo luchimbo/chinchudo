@@ -1,4 +1,4 @@
-import { fetchChatCompletion, resolveLLMConfig } from "./llm-provider";
+import { fetchChatCompletion, resolveLLMConfig, type LegacyClientLLMConfig } from "./llm-provider";
 import { logger } from "./logger";
 
 /** Versión de la respuesta que la IA propuso en el chat; `text` puede estar editado por el CM. */
@@ -55,18 +55,6 @@ function requestedCharacters(params: { targetCharacters?: number; maxCharacters?
 }
 
 /** Nunca devuelve un recorte que deje una oración inconclusa. */
-function fitToMaxCharacters(text: string, maxCharacters?: number): string {
-  const clean = text.trim().replace(/^["“]+|["”]+$/g, "").trim();
-  if (!maxCharacters || clean.length <= maxCharacters) return clean;
-  let sentenceEnd = -1;
-  for (const match of clean.matchAll(/[.!?](?=\s|$)/g)) {
-    if (match.index >= maxCharacters) break;
-    sentenceEnd = match.index;
-  }
-  if (sentenceEnd >= 0) return clean.slice(0, sentenceEnd + 1).trim();
-  throw new Error(`La respuesta supera los ${maxCharacters} caracteres y no tiene una oración completa dentro del límite.`);
-}
-
 export async function chatRefinementStep(params: {
   opportunityText: string;
   currentResponseText: string;
@@ -80,8 +68,10 @@ export async function chatRefinementStep(params: {
   acceptedExamples?: AcceptedExample[];
   maxCharacters?: number;
   targetCharacters?: number;
+  /** Per-client OpenRouter key/model; falls back to the global config. */
+  llmClient?: LegacyClientLLMConfig | null;
 }): Promise<{ message: string; suggestion: string | null }> {
-  const llmConfig = resolveLLMConfig();
+  const llmConfig = resolveLLMConfig(params.llmClient);
   const memoriesList = (params.clientMemories ?? []).map((m) => `- ${m.rule}`).join("\n");
 
   const systemMessage = `Sos un asistente experto en copy social para la marca "${params.brandName}" (Cliente: "${params.clientName ?? "General"}").
@@ -140,64 +130,5 @@ Formato de las propuestas:
   } catch (err) {
     logger.error("chat_refinement_exception", "Error en chatRefinementStep", err).catch(() => { });
     return { message: "Ocurrió un inconveniente de comunicación con el servicio de IA.", suggestion: null };
-  }
-}
-
-export async function compileResponseFromChat(params: {
-  opportunityText: string;
-  chatHistory: ChatMessage[];
-  currentResponseText: string;
-  brandName: string;
-  productName?: string;
-  personaName: string;
-  clientMemories?: { rule: string }[];
-  acceptedExamples?: AcceptedExample[];
-  maxCharacters?: number;
-  targetCharacters?: number;
-}): Promise<string> {
-  const llmConfig = resolveLLMConfig();
-  const memoriesList = (params.clientMemories ?? []).map((m) => `- ${m.rule}`).join("\n");
-  const formattedChat = expandChatForModel(params.chatHistory)
-    .map((msg) => `${msg.sender === "user" ? "Operador" : "IA"}: ${msg.text}`)
-    .join("\n");
-
-  const prompt = `Actuás como ${params.personaName} respondiendo a un comentario de redes para la marca ${params.brandName}.
-
-Comentario original: "${params.opportunityText.slice(0, 500)}"
-${params.productName ? `Nombre breve del producto para la respuesta: ${params.productName}. No copies el título comercial ni agregues otro color.\n` : ""}
-Borrador inicial: "${params.currentResponseText}"
-
-Conversación e indicaciones dadas por el Operador:
-${formattedChat}
-
-${memoriesList ? `Preferencias aprendidas, de más reciente a más antigua (si se contradicen, seguí la más reciente y las indicaciones actuales del operador):\n${memoriesList}\n` : ""}
-${formatAcceptedExamples(params.acceptedExamples)}
-REGLAS ABSOLUTAS:
-- Generá exclusivamente el TEXTO FINAL de la respuesta perfeccionada.
-- NO incluyas explicaciones, ni comillas extra, ni saludos al operador.
-- No incluyas preguntas (solo afirmaciones, recomendaciones o datos útiles).
-- Mantené el tono del perfil ${params.personaName} incorporando fielmente lo que pidió el operador en el chat.${requestedCharacters(params) ? `\n- Apuntá a ${requestedCharacters(params)} caracteres${params.maxCharacters ? `, con máximo de ${params.maxCharacters}` : ""}, y terminá en una oración completa.` : ""}
-- Si respondés para PC MIDI Center, no abras con "Mirá" ni cierres con una invitación genérica a consultar en la tienda.
-
-Respuesta final (únicamente el texto a publicar):`;
-
-  try {
-    const { response: res } = await fetchChatCompletion(llmConfig, {
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0.5,
-        max_tokens: 800,
-    }, "10 Apostoles - Compile Draft Response");
-
-    if (!res.ok) {
-      return fitToMaxCharacters(params.currentResponseText, params.maxCharacters);
-    }
-
-    const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-    const compiled = data.choices?.[0]?.message?.content?.trim();
-
-    return fitToMaxCharacters(compiled || params.currentResponseText, params.maxCharacters);
-  } catch (err) {
-    logger.error("compile_response_error", "Error en compileResponseFromChat", err).catch(() => { });
-    return fitToMaxCharacters(params.currentResponseText, params.maxCharacters);
   }
 }

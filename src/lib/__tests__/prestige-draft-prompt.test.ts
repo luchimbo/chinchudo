@@ -117,3 +117,14 @@ describe("prompt de Prestige", () => {
     expect(prompt).not.toContain("Cerrá siempre con una afirmación");
   });
 });
+
+describe("respuestas sin preguntas", () => {
+  it("rechaza preguntas para los clientes con la regla general", () => {
+    expect(validateDraftForClient("El AKM320 tiene 32 teclas. Te sirve?", "pcmidi")).toContain("contains_question");
+    expect(validateDraftForClient("El AKM320 tiene 32 teclas y es liviano.", "pcmidi")).not.toContain("contains_question");
+  });
+  it("respeta las reglas propias de Prestige y Kressmer", () => {
+    expect(validateDraftForClient("Yo uso medias Prestige. A quién no le pasó?", "prestige-running")).not.toContain("contains_question");
+    expect(validateDraftForClient("El Kressmer K-180 tiene 88 teclas. Buscás algo compacto?", "kressmer")).not.toContain("contains_question");
+  });
+});

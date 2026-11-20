@@ -6,7 +6,7 @@ import { logger } from "./logger";
 import { fetchChatCompletion, resolveLLMConfig, resolveOpenRouterConfig, type LLMConfig } from "./llm-provider";
 import { buildKressmerReplyPrompt, detectKressmerLanguage, kressmerCorrection, kressmerDraftClaimErrors } from "./kressmer-radar";
 import { policyInstructions } from "./response-policy";
-import { ensureRequiredBrandMention, sanitizeCopilotDraft, sanitizePublicDraft, validateDraftForClient } from "./draft-output";
+import { ensureRequiredBrandMention, sanitizeCopilotDraft, validateDraftForClient } from "./draft-output";
 import { COPILOT_MAX_CHARACTERS, COPILOT_TARGET_CHARACTERS } from "./copilot-limits";
 import { formatPublicProductName, normalizeGeneratedProductMentions, validateGeneratedProductBrands } from "./product-public-name";
 
@@ -196,7 +196,7 @@ export function buildPrompt(ctx: DraftContext): string {
     && alternatives.findIndex((candidate) => publicName(candidate) === publicName(entry)) === index);
 
   const primaryBlock = primary
-    ? `### Producto recomendado principal (usalo por defecto en las 3 variantes)\n  - ${publicName(primary)}: ${primary.uso}${primary.especificaciones ? ` | Especificaciones confirmadas: ${primary.especificaciones}` : ""}`
+    ? `### Producto recomendado principal (usalo por defecto)\n  - ${publicName(primary)}: ${primary.uso}${primary.especificaciones ? ` | Especificaciones confirmadas: ${primary.especificaciones}` : ""}`
     : "";
   const alternativesBlock = distinctAlternatives.length > 0
     ? `### Alternativas reales permitidas (solo si encajan mejor con el comentario)\n${distinctAlternatives.map(p => `  - ${publicName(p)}: ${p.uso}${p.especificaciones ? ` | Especificaciones confirmadas: ${p.especificaciones}` : ""}`).join("\n")}`
@@ -351,6 +351,7 @@ ${memoriesBlock}${acceptedExamplesBlock}${refinementGuidanceBlock}
   - Si el comentario está en español: Escribí la respuesta en español argentino (usá "vos", no "tú" ni modismos neutros; usá "tenés", "podés", "comprá", etc.)${forbiddenExtra}
   - Si el comentario está en inglés: Escribí la respuesta en inglés natural, fluido y coloquial, adaptado al tono de tu perfil${forbiddenExtra}
   - Si el comentario está en portugués: Escribí la respuesta en portugués natural, fluido y coloquial (priorizando portugués de Brasil a menos que el contexto indique lo contrario), adaptado al tono de tu perfil${forbiddenExtra}
+  - Si el comentario está en alemán: Escribí la respuesta en alemán natural y coloquial, con el mismo trato (du/Sie) que use el comentario${forbiddenExtra}
 ${goodEx}${badEx}
 
 ## Productos autorizados para esta respuesta
@@ -383,43 +384,21 @@ Intención: ${intent}
 Texto: "${opportunity.sourceText.slice(0, 800)}"
 
 ## Instrucciones de respuesta
-- ${channelStyle}
-${questionInstruction}
+${channelStyle ? `- ${channelStyle}\n` : ""}${questionInstruction}
 - Cerrá de forma natural, como cerraría un comentario real: sin moraleja, sin frase de coach y sin remate de venta.
 - Si es TECHNICAL_QUESTION: dá la información técnica directamente a partir de los datos confirmados, sin inventar experiencia personal.
 - Si es PURCHASE_QUESTION o PRICE_QUESTION: respondé solo con información confirmada y respetá las reglas de nombres de tiendas indicadas en las Reglas absolutas.
 - Si es COMPARISON o se menciona un competidor: compará objetivamente desde la experiencia de usuario utilizando los puntos de "Debilidades de la competencia" para argumentar de forma sutil por qué tu producto es mejor, apoyándote en las "Fortalezas" sin hablar de forma destructiva o artificial.
 ${pcmidiComparisonRule}
-- Cada variante debe sonar diferente en estilo, no solo en palabras
-- Cada variante debe ser única para esta oportunidad: incorpora detalles concretos del texto original y evita aperturas, estructuras y cierres genéricos repetibles.
-- ${client?.slug === "prestige-running" && !productFocus ? "Para Prestige Medias, cada variante debe mencionar 'Prestige Medias' una sola vez como experiencia personal breve, por ejemplo 'yo vengo usando unas medias Prestige y me resultan cómodas para entrenar'. No nombres modelo, tecnología ni beneficios técnicos." : primary ? (productChosenByCm ? "La respuesta debe nombrar el producto elegido por el CM, tejido de forma natural con lo que plantea el comentario." : client?.slug === "prestige-running" ? "Para Prestige Medias, priorizá una respuesta útil y conversacional. Si hay una necesidad puntual, como máximo UNA variante puede mencionar marca y modelo." : "Las TRES variantes deben nombrar el Producto recomendado principal o una alternativa real permitida, tejido de forma natural.") : "No hay producto autorizado compatible: las variantes deben aportar valor sin mencionar ni inventar un producto."}
+- La respuesta debe ser única para esta oportunidad: incorporá detalles concretos del texto original y evitá aperturas, estructuras y cierres genéricos repetibles.
+- ${client?.slug === "prestige-running" && !productFocus ? "Para Prestige Medias, la respuesta debe mencionar 'Prestige Medias' una sola vez como experiencia personal breve, por ejemplo 'yo vengo usando unas medias Prestige y me resultan cómodas para entrenar'. No nombres modelo, tecnología ni beneficios técnicos." : primary ? (productChosenByCm ? "La respuesta debe nombrar el producto elegido por el CM, tejido de forma natural con lo que plantea el comentario." : client?.slug === "prestige-running" ? "Para Prestige Medias, priorizá una respuesta útil y conversacional. Mencioná marca y modelo solo si hay una necesidad puntual." : "La respuesta debe nombrar el Producto recomendado principal o una alternativa real permitida, tejido de forma natural.") : "No hay producto autorizado compatible: la respuesta debe aportar valor sin mencionar ni inventar un producto."}
 - Nunca pongas el link del producto: solo el nombre/modelo
 - ${client?.slug === "prestige-running" ? "Para Prestige Medias, podés compartir una experiencia personal breve y creíble en primera persona. Evitá frases de venta, superlativos y claims médicos." : "No afirmes experiencias personales inventadas: evitá 'yo uso', 'yo tengo', 'yo probé' o testimonios de amigos/alumnos salvo que estén expresamente incluidos como evidencia verificada."}
 - Nunca copies instrucciones de estilo, etiquetas internas, nombres de campos ni hashtags al texto público.
-- ${primary ? (productChosenByCm ? `Nombrá el modelo completo una sola vez: ${publicName(primary)}.${client?.slug === "prestige-running" ? " No uses 'pack', 'tripack', 'x3' ni 'x 3'." : ""}` : client?.slug === "prestige-running" ? `Solo si una variante requiere una recomendación concreta, integrá ${publicName(primary)} una sola vez. No uses 'pack', 'tripack', 'x3' ni 'x 3'.` : `Cuando recomiendes, nombrá el modelo completo: ${publicName(primary)}.`) : "No hay un producto suficientemente compatible: no fuerces una recomendación ni inventes un modelo."}
-- Las variantes de respuesta generadas en "text" deben estar completamente escritas en el idioma detectado (Español, Inglés, Alemán o Portugués).
+- ${primary ? (productChosenByCm ? `Nombrá el modelo completo una sola vez: ${publicName(primary)}.${client?.slug === "prestige-running" ? " No uses 'pack', 'tripack', 'x3' ni 'x 3'." : ""}` : client?.slug === "prestige-running" ? `Solo si la respuesta requiere una recomendación concreta, integrá ${publicName(primary)} una sola vez. No uses 'pack', 'tripack', 'x3' ni 'x 3'.` : `Cuando recomiendes, nombrá el modelo completo: ${publicName(primary)}.`) : "No hay un producto suficientemente compatible: no fuerces una recomendación ni inventes un modelo."}
+- La respuesta debe estar completamente escrita en el idioma detectado (Español, Inglés, Alemán o Portugués).
 
-
-## Formato de respuesta (JSON estricto)
-{
-  "variants": [
-    {
-      "type": "SHORT",
-      "text": "${client?.slug === "prestige-running" ? "respuesta corta de 1-2 oraciones, empática y natural; una pregunta retórica es opcional si no requiere respuesta" : "respuesta corta de 1-2 oraciones, sin preguntas"}, ${primary ? "integrando el producto concreto autorizado del catálogo" : "sin forzar una recomendación porque falta compatibilidad suficiente"}",
-      "riskNotes": "nota interna sobre qué verificar antes de publicar"
-    },
-    {
-      "type": "TECHNICAL",
-      "text": "${client?.slug === "prestige-running" ? "respuesta técnica con datos confirmados y tono de corredor cercano, sin claims médicos ni experiencia personal inventada" : "respuesta con detalle técnico consistiendo exclusivamente de afirmaciones"}${primary ? ", integrando el producto específico autorizado del catálogo sin link" : ", sin inventar ni recomendar un modelo"}",
-      "riskNotes": "nota interna sobre qué verificar antes de publicar"
-    },
-    {
-      "type": "CONVERSATIONAL",
-      "text": "${client?.slug === "prestige-running" ? "respuesta casual, cercana y específica al comentario, sin fingir uso o prueba personal" : "respuesta casual entre músicos consistiendo exclusivamente de afirmaciones"}${primary ? ", integrando un producto autorizado del catálogo sin link" : ", sin forzar una recomendación"}",
-      "riskNotes": "nota interna sobre qué verificar antes de publicar"
-    }
-  ]
-}`;
+`;
 }
 
 /** A focused prompt for the Copilot: one editable answer, never a set of variants. */
@@ -430,25 +409,14 @@ export function buildCopilotPrompt(ctx: DraftContext, condensationOf?: string): 
     sourceText: ctx.opportunity.sourceText, sourceTitle: ctx.opportunity.sourceTitle, catalog: ctx.catalogProducts ?? [],
     maxCharacters: COPILOT_TARGET_CHARACTERS, styleCorrection: ctx.styleCorrection, avoidDrafts: ctx.avoidDrafts, condensationOf,
   });
-  const shared = buildPrompt(ctx);
-  const beforeFormat = shared.split("## Formato de respuesta (JSON estricto)")[0]
-    .replace(/- Cada variante debe sonar diferente en estilo, no solo en palabras\n/g, "")
-    .replace(/- Cada variante debe ser Ãºnica/g, "- La respuesta debe ser única");
+  const beforeFormat = buildPrompt(ctx);
   const condensation = condensationOf
     ? `\n## Texto a condensar\n"${condensationOf}"\nConservá solo lo útil y específico; no agregues información nueva.\n`
     : "";
   const regeneration = !condensationOf && ctx.avoidDrafts?.length
-    ? "- El operador pidió rehacer la propuesta: escribí una versión claramente distinta de la descartada, con otra apertura y otro enfoque (otro dato, otra pregunta o otro ángulo del comentario).\n"
+    ? "- El operador pidió rehacer la propuesta: escribí una versión claramente distinta de la descartada, con otra apertura y otro enfoque (otro dato u otro ángulo del comentario).\n"
     : "";
   return `${beforeFormat}
-${ctx.client?.slug === "kressmer" ? `## Política Kressmer (prevalece sobre instrucciones generales)
-Respondé únicamente en ${detectKressmerLanguage(ctx.opportunity.sourceText)}: el idioma del comentario. Hablás como la cuenta oficial de Kressmer y el objetivo de cada respuesta es recomendar Kressmer.
-${ctx.catalogProducts?.length ? `- Primero resolvé la duda con un criterio concreto; después recomendá UN piano digital Kressmer del catálogo de arriba, el que mejor encaje con lo que pide, nombrándolo «Kressmer <modelo>» (por ejemplo «Kressmer K-180»), sin traducir ni copiar el resto del nombre de catálogo.
-- Apoyá la recomendación en 1 o 2 datos de su ficha que respondan al comentario, en la misma oración en la que nombrás el modelo. Solo lo que la ficha confirma: lo que figure en "Precisiones", "Reglas de respuesta" u "Opcionales" no se declara como incluido.` : `- No hay modelos Kressmer cargados: nombrá Kressmer como opción a considerar en kressmer.com, sin atribuirle características.`}
-- Nunca precio, stock, garantía, envíos ni disponibilidad por país.
-- No nombres, evalúes ni compares otras marcas o modelos, tampoco el que mencionó el usuario: si preguntó por otro, respondé con criterios generales y presentá el Kressmer como opción a considerar.
-- Sin experiencias personales ni superlativos ("el mejor"). Una sola respuesta, pendiente de revisión.
-` : ""}
 ## Instrucciones de respuesta del Asistente CM
 - Devolvé UNA sola propuesta breve, directa, natural y específica a este comentario.
 - Máximo ${COPILOT_TARGET_CHARACTERS} caracteres, idealmente una o dos oraciones. Terminá siempre en una oración completa.
@@ -462,45 +430,9 @@ ${regeneration}${condensation}
 }`;
 }
 
-const MAX_RETRIES = 2;
-const RETRY_DELAY_MS = 1500;
-
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
 function logAIError(context: string, detail: unknown) {
   logger.error("ai_error", context, detail ?? undefined).catch(() => {});
   console.error(`[AI] ${context}`, detail);
-}
-
-async function fetchWithRetry(
-  url: string,
-  options: RequestInit,
-  retries = MAX_RETRIES
-): Promise<Response> {
-  for (let attempt = 1; attempt <= retries + 1; attempt++) {
-    try {
-      const res = await fetch(url, options);
-      // Reintentar en errores 429 (rate limit) y 5xx
-      if ((res.status === 429 || res.status >= 500) && attempt <= retries) {
-        const wait = RETRY_DELAY_MS * attempt;
-        logAIError(`Intento ${attempt} fallido (HTTP ${res.status}), reintentando en ${wait}ms…`, null);
-        await sleep(wait);
-        continue;
-      }
-      return res;
-    } catch (err) {
-      if (attempt <= retries) {
-        const wait = RETRY_DELAY_MS * attempt;
-        logAIError(`Intento ${attempt} fallido (red), reintentando en ${wait}ms…`, err);
-        await sleep(wait);
-      } else {
-        throw err;
-      }
-    }
-  }
-  throw new Error("fetchWithRetry: no debería llegar aquí");
 }
 
 async function fetchRawCompletion(
@@ -565,6 +497,9 @@ function buildStyleCorrection(errors: string[]): string {
   if (errors.includes("prestige_missing_brand_mention")) {
     notes.push("Falta integrar la marca Prestige Medias de forma natural dentro del flujo de la respuesta (experiencia o dato concreto en primera persona). No la agregues como oración de cierre desconectada ni como remate de venta.");
   }
+  if (errors.includes("contains_question")) {
+    notes.push("La respuesta no puede tener preguntas. Reescribila solo con afirmaciones útiles para el comentario.");
+  }
   if (errors.includes("internal_instruction")) {
     notes.push("El texto anterior copió frases de las instrucciones internas (por ejemplo 'sin forzar una recomendación'). Las instrucciones son guía para vos, nunca texto visible: reescribí desde cero.");
   }
@@ -575,100 +510,6 @@ function buildStyleCorrection(errors: string[]): string {
     notes.push("El texto anterior fue rechazado por las reglas de calidad. Reescribí desde cero con lenguaje natural y específico al comentario.");
   }
   return notes.join(" ");
-}
-
-async function attemptAIDrafts(ctx: DraftContext): Promise<DraftVariant[] | null> {
-  // La API key y el modelo se resuelven por cliente: lo que cargó el cliente en su
-  // configuración tiene prioridad; si está vacío se cae al .env global (compat).
-  const llm = resolveLLMConfig(ctx.client);
-  const apiKey = llm.apiKey;
-  if (!apiKey) {
-    logAIError(
-      ctx.client
-        ? `Sin API key de OpenRouter para el cliente "${ctx.client.name}" ni en .env`
-        : `API key de ${llm.provider} no configurada`,
-      null,
-    );
-    return null;
-  }
-
-  const model = llm.model;
-
-  const keySource = ctx.client?.openrouterApiKey?.trim() ? `cliente:${ctx.client.slug}` : "env";
-  logger.info("ai_key_source", "Configuracion LLM resuelta", { provider: llm.provider, keySource, model }).catch(() => {});
-
-  let raw: string;
-  try {
-    const completion = await fetchRawCompletion(
-      llm,
-      {
-        model: llm.model,
-        messages: [
-          ...(ctx.activeSystemPrompt ? [{ role: "system", content: ctx.activeSystemPrompt }] : []),
-          { role: "user", content: buildPrompt(ctx) }
-        ],
-        response_format: { type: "json_object" },
-        temperature: 0.7,
-        // El razonamiento de los modelos locales lo apaga fetchChatCompletion.
-        max_tokens: llm.provider === "local" ? 4000 : 2000,
-      },
-      "Los 5 Apostoles - Social Listening",
-      ctx.client,
-    );
-    if (!completion) return null;
-    raw = completion.raw;
-    logger.info("ai_request", "LLM OK", { model: completion.model, provider: completion.provider, opportunityId: ctx.opportunity.id }).catch(() => {});
-  } catch (err) {
-    logAIError("LLM fetch fallido tras reintentos", err);
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as { variants?: { type: string; text: string; riskNotes?: string }[] };
-    const variants = parsed.variants ?? [];
-    const order: DraftVariant["variantType"][] = ["SHORT", "TECHNICAL", "CONVERSATIONAL"];
-    const identityErrors = variants.flatMap((variant) => productBrandErrors(variant.text ?? "", ctx));
-    if (identityErrors.length > 0) throw new ValidationRetryError(buildStyleCorrection(identityErrors));
-
-    const drafts = order.map((variantType) => {
-      const match = variants.find((v) => v.type === variantType);
-      return {
-        variantType,
-        draftText: ensureRequiredBrandMention(normalizeDraftProductNames(sanitizePublicDraft(match?.text ?? ""), ctx), ctx.client?.slug),
-        riskNotes: match?.riskNotes ?? "Revisar antes de publicar.",
-      };
-    }).filter((v) => v.draftText.length > 0);
-
-    const hasInvalidProduct = drafts.some((draft) => hasUncataloguedProductCode(draft.draftText, ctx));
-    const validationErrors = [...new Set(drafts.flatMap((draft) => validateDraftForClient(draft.draftText, ctx.client?.slug)))];
-    if (hasInvalidProduct) {
-      logAIError("OpenRouter menciono un codigo de producto fuera del catalogo; usando fallback local", {
-        opportunityId: ctx.opportunity.id,
-      });
-      return null;
-    }
-    if (validationErrors.length > 0) throw new ValidationRetryError(buildStyleCorrection(validationErrors));
-
-    return drafts;
-  } catch (err) {
-    if (err instanceof ValidationRetryError) throw err;
-    logAIError("No se pudo parsear JSON de OpenRouter", raw.slice(0, 300));
-    return null;
-  }
-}
-
-export async function generateAIDrafts(ctx: DraftContext): Promise<DraftVariant[] | null> {
-  try {
-    return await attemptAIDrafts(ctx);
-  } catch (err) {
-    if (!(err instanceof ValidationRetryError)) throw err;
-    try {
-      return await attemptAIDrafts({ ...ctx, styleCorrection: err.correction });
-    } catch (retryErr) {
-      if (retryErr instanceof ValidationRetryError) return null;
-      throw retryErr;
-    }
-  }
 }
 
 async function requestCopilotDraft(ctx: DraftContext, condensationOf?: string): Promise<DraftVariant | null> {

@@ -106,3 +106,22 @@ describe("direccion editorial del Copiloto", () => {
     expect(shortenCopilotText("Texto corto.")).toBe("Texto corto.");
   });
 });
+
+describe("prompt de una sola propuesta", () => {
+  it("no arrastra instrucciones de las tres variantes viejas ni bullets vacíos", () => {
+    for (const avoidDrafts of [undefined, ["Texto descartado anterior."]]) {
+      const prompt = buildCopilotPrompt({ ...context(), avoidDrafts });
+      expect(prompt).not.toMatch(/variante/i);
+      expect(prompt).not.toContain("TRES");
+      expect(prompt).not.toContain('"variants"');
+      expect(prompt).not.toContain("otra pregunta");
+      expect(prompt).not.toMatch(/^- *$/m);
+      expect(prompt.match(/## Formato de respuesta/g)).toHaveLength(1);
+    }
+  });
+
+  it("da instrucciones para cada idioma que acepta", () => {
+    const prompt = buildCopilotPrompt(context());
+    expect(prompt).toContain("Si el comentario está en alemán");
+  });
+});

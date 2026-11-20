@@ -1,5 +1,5 @@
 import type { PrismaClient, ClientMemory } from "@prisma/client";
-import { fetchChatCompletion, resolveLLMConfig } from "./llm-provider";
+import { fetchChatCompletion, resolveLLMConfig, type LegacyClientLLMConfig } from "./llm-provider";
 import { logger } from "./logger";
 
 function normalizeRule(rule: string): string {
@@ -146,10 +146,12 @@ export async function extractLearningsFromChat(params: {
   finalResponseText: string;
   chatHistory: { sender: string; text: string }[];
   brandName?: string;
+  /** Per-client OpenRouter key/model; falls back to the global config. */
+  llmClient?: LegacyClientLLMConfig | null;
 }): Promise<ChatLearning[]> {
   if (!params.chatHistory || params.chatHistory.length === 0) return [];
 
-  const llmConfig = resolveLLMConfig();
+  const llmConfig = resolveLLMConfig(params.llmClient);
   const prompt = `Analizá la conversación COMPLETA de refinamiento entre un Operador humano (community manager) y la IA para la marca/cliente "${params.brandName ?? "General"}".
 
 Comentario original que se estaba respondiendo:

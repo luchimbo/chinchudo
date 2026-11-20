@@ -53,7 +53,6 @@ export function validatePublicDraft(text: string): string[] {
   return [...new Set(errors)];
 }
 
-const PRESTIGE_PERSONAL_TESTIMONY = /\b(?:yo\s+(?:uso|tengo|prob[eé]|vi|corr[ií]|entren[eé])|mi\s+(?:experiencia|uso|entrenamiento))\b/i;
 const PRESTIGE_MEDICAL_CLAIM = /\b(?:cura|curan|trata|tratan|previene|previenen|diagnostic[ao]|lesi[oó]n|dolor|v[aá]rices|trombosis)\b/i;
 const PRESTIGE_DATA_QUESTION = /[¿?][^¿?]*(?:talle|modelo|cu[aá]nto|cu[aá]ntas|d[oó]nde|cu[aá]l|qu[eé]\s+(?:talle|modelo|us[aá]s)|ten[eé]s|us[aá]s|corr[eé]s)[^¿?]*[?]/i;
 
@@ -76,6 +75,11 @@ export function validateDraftForClient(text: string, clientSlug?: string): strin
   const errors = validatePublicDraft(text);
   if (clientSlug === "programa-vidia" && VIDIA_CLINICAL_CLAIM.test(text)) {
     errors.push("vidia_clinical_or_guaranteed_claim");
+  }
+  // The shared prompt forbids questions; Prestige (rhetorical only) and
+  // Kressmer (official account, own prompt) have their own question rules.
+  if (clientSlug && !["prestige-running", "kressmer"].includes(clientSlug) && /[¿?]/.test(text)) {
+    errors.push("contains_question");
   }
   if (clientSlug !== "prestige-running") return errors;
 

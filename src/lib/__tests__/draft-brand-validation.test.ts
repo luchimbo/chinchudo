@@ -7,7 +7,7 @@ vi.mock("../llm-provider", () => ({
   fetchChatCompletion: vi.fn(),
 }));
 import { fetchChatCompletion } from "../llm-provider";
-import { generateAICopilotDraft, generateAIDrafts } from "../ai-draft-generator";
+import { generateAICopilotDraft } from "../ai-draft-generator";
 
 const brand = { id: "meike", name: "Meike", clientId: "pcmidi" };
 const product = { id: "m25", name: "Controlador MIDI Meike M25 25 Teclas Sensitivo USB", category: "controladores-midi", brandId: brand.id, brand, description: "Controlador compacto de 25 teclas", useCases: "Controlar instrumentos virtuales", technicalSpecs: "25 teclas", warrantyNotes: "" };
@@ -37,16 +37,6 @@ describe("validación de fabricante en la salida real de IA", () => {
   it("no devuelve un borrador publicable si la IA insiste con la marca equivocada", async () => {
     vi.mocked(fetchChatCompletion).mockResolvedValue(completion({ text: "El MidiPlus M25 tiene 25 teclas." }));
     expect(await generateAICopilotDraft(ctx)).toBeNull();
-    expect(fetchChatCompletion).toHaveBeenCalledTimes(2);
-  });
-
-  it("aplica el mismo bloqueo en las tres variantes clásicas", async () => {
-    vi.mocked(fetchChatCompletion).mockResolvedValue(completion({ variants: [
-      { type: "SHORT", text: "El MidiPlus M25 tiene 25 teclas." },
-      { type: "TECHNICAL", text: "El Meike M25 tiene 25 teclas." },
-      { type: "CONVERSATIONAL", text: "El Meike M25 es compacto." },
-    ] }));
-    expect(await generateAIDrafts(ctx)).toBeNull();
     expect(fetchChatCompletion).toHaveBeenCalledTimes(2);
   });
 });

@@ -298,7 +298,7 @@ export async function discardCopilotOpportunity(formData: FormData) {
     : {};
 
   const discarded = await prisma.opportunity.updateMany({
-    where: { id: parsed.opportunityId, status: { in: ["NEW", "NEEDS_REVIEW", "DRAFTED"] } },
+    where: { id: parsed.opportunityId, status: { in: ["NEW", "NEEDS_REVIEW", "DRAFTED", "APPROVED"] } },
     data: {
       status: OpportunityStatus.DISCARDED,
       contextAssessment: {
@@ -436,6 +436,7 @@ export async function sendRefinementMessageAction(formData: FormData) {
     productName: chatProduct ? formatPublicProductName(chatProduct, nameContext) : undefined,
     personaName: response.persona.name,
     clientName: resolution.client.name,
+    llmClient: resolution.client,
     clientMemories: clientMemories.map((m) => ({ rule: m.rule })),
     maxCharacters: refinementMaxCharacters(response.opportunity.contextAssessment),
     targetCharacters: refinementTargetCharacters(response.opportunity.contextAssessment),
@@ -563,7 +564,7 @@ async function learnFromRefinementChat(responseId: string, finalText: string): P
       opportunityId: true,
       chatHistory: true,
       brand: { select: { name: true } },
-      opportunity: { select: { clientId: true, sourceText: true } },
+      opportunity: { select: { clientId: true, sourceText: true, client: { select: { openrouterApiKey: true, openrouterModel: true } } } },
     },
   });
   const chatHistory = (response.chatHistory as ChatMessage[] | undefined) ?? [];
@@ -574,6 +575,7 @@ async function learnFromRefinementChat(responseId: string, finalText: string): P
     // Las propuestas y lo que el CM les cambió a mano son parte de lo que hay que aprender.
     chatHistory: expandChatForModel(chatHistory),
     brandName: response.brand.name,
+    llmClient: response.opportunity.client,
   });
   // Si el LLM no devolvió nada (o falló), conservamos lo aprendido antes para esta respuesta.
   if (learnings.length === 0) return [];

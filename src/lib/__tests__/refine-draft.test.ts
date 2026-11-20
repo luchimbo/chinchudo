@@ -1,28 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { expandChatForModel, splitSuggestion, compileResponseFromChat, type ChatMessage } from "../refine-draft";
-import { fetchChatCompletion } from "../llm-provider";
+import { expandChatForModel, splitSuggestion, type ChatMessage } from "../refine-draft";
 
 vi.mock("../llm-provider", () => ({
   resolveLLMConfig: vi.fn(() => ({})),
   fetchChatCompletion: vi.fn(),
 }));
 vi.mock("../logger", () => ({ logger: { error: vi.fn(async () => {}) } }));
-
-function mockCompiledText(text: string) {
-  vi.mocked(fetchChatCompletion).mockResolvedValueOnce({
-    response: new Response(JSON.stringify({ choices: [{ message: { content: text } }] }), { status: 200 }),
-  } as Awaited<ReturnType<typeof fetchChatCompletion>>);
-}
-
-const compileParams = {
-  opportunityText: "¿Cuál controlador me sirve para home studio?",
-  chatHistory: [],
-  currentResponseText: "El MiniLab 3 es una opción para home studio.",
-  brandName: "Arturia",
-  personaName: "Técnico",
-  maxCharacters: 400,
-  targetCharacters: 280,
-};
 
 describe("propuestas del chat de ajuste", () => {
   it("separa la propuesta etiquetada del resto del mensaje", () => {
@@ -53,17 +36,5 @@ describe("propuestas del chat de ajuste", () => {
       { sender: "user", text: "Edité tu propuesta directamente, quedó así: \"Versión editada por el CM\"" },
       { sender: "assistant", text: "Otra opción\n\n<propuesta>Sin tocar</propuesta>" },
     ]);
-  });
-});
-
-describe("límite del chat de ajuste", () => {
-  it("cierra en una oración completa aunque esté al principio del texto largo", async () => {
-    mockCompiledText(`Dato útil. ${"Otro detalle sobre el controlador ".repeat(20)}`);
-    expect(await compileResponseFromChat(compileParams)).toBe("Dato útil.");
-  });
-
-  it("si no hay oración completa dentro del límite, conserva la respuesta anterior", async () => {
-    mockCompiledText("Descripción extensa sin punto final ".repeat(20));
-    expect(await compileResponseFromChat(compileParams)).toBe(compileParams.currentResponseText);
   });
 });
