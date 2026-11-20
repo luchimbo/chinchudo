@@ -42,13 +42,31 @@ export async function enqueueManualJob(db: PrismaClient, clientId: string, reque
     throw error;
   }
 }
+const errorCode = (error: unknown) => error && typeof error === "object" && "code" in error ? String(error.code) : "";
+const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);
+const DATABASE_ERROR = /P2024|P2028|P2034|connection pool|database server|Can't reach database|write conflict|deadlock|pooler\.supabase/i;
+const PROVIDER_ERROR = /timeout|timed out|ECONNRESET|ECONNREFUSED|fetch failed|\b429\b|\b50[234]\b/i;
+
 export const transientJobError = (error: unknown) => {
-  const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
-  // Draft persistence is atomic. An expired transaction or serialization
-  // conflict can be retried by the bounded job loop; this path never publishes.
-  return ["P2028", "P2034"].includes(code)
-    || /timeout|timed out|ECONNRESET|ECONNREFUSED|fetch failed|429|502|503|504|P2034/i.test(error instanceof Error ? error.message : String(error));
+  // Draft persistence is atomic. An expired transaction, a busy pool or a
+  // serialization conflict can be retried by the bounded job loop; this path never publishes.
+  return ["P2024", "P2028", "P2034"].includes(errorCode(error)) || DATABASE_ERROR.test(errorText(error)) || PROVIDER_ERROR.test(errorText(error));
 };
+
+/** What the operator sees in the assistant: the actual cause, not a generic message. */
+export function describeJobError(error: unknown, retrying: boolean): string {
+  const text = errorText(error);
+  const again = retrying ? " Se vuelve a intentar." : " No se pudo completar tras varios intentos; volvé a pedir la propuesta.";
+  if (["P2024", "P2028", "P2034"].includes(errorCode(error)) || DATABASE_ERROR.test(text)) return `La base de datos estaba ocupada.${again}`;
+  if (PROVIDER_ERROR.test(text)) return `La IA no respondió a tiempo.${again}`;
+  // Generation errors are written for the operator (external course, product
+  // out of catalog, other client's data, no valid AI proposal).
+  // Programming errors (TypeError, Prisma internals) stay in the logs.
+  const own = text.trim().split("\n")[0];
+  const plain = error instanceof Error && error.constructor === Error && !errorCode(error);
+  if (plain && own && own.length <= 300 && !/^(Invalid|PrismaClient)/.test(own)) return own;
+  return "No se pudo generar una propuesta segura. Se conserva el trabajo anterior.";
+}
 
 /** Global advisory lock serializes claims across worker processes; DB uniqueness protects tenants. */
 export async function claimManualJob(db: PrismaClient, owner: string) {
@@ -101,7 +119,7 @@ export async function runManualJob(db: PrismaClient, job: NonNullable<Awaited<Re
     const retry = transientJobError(error) && job.attempts < 3;
     await db.cMManualJob.updateMany({ where: { id: job.id, status: "RUNNING", lockedBy: owner }, data: {
       status: retry ? "QUEUED" : "FAILED", availableAt: new Date(Date.now() + job.attempts * 5000), leaseUntil: null,
-      error: retry ? "El proveedor demoró. Se volverá a intentar." : "No se pudo generar una propuesta segura. Se conserva el trabajo anterior." } });
+      error: describeJobError(error, retry) } });
   } finally { clearInterval(heartbeat); }
 }
 export const workerOwner = () => randomUUID();

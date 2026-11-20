@@ -3,7 +3,7 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 vi.mock("../cm-maintenance", () => ({ CM_ACTIVE_STATUSES: ["NEW", "DRAFTED", "APPROVED"], refreshCMOpportunity: vi.fn() }));
 vi.mock("../cm-version", () => ({ loadCMVersion: vi.fn(async () => "context-v1") }));
 import { refreshCMOpportunity } from "../cm-maintenance";
-import { claimManualJob, enqueueManualJob, manualJobInput, runManualJob, transientJobError } from "../cm-manual-jobs";
+import { claimManualJob, describeJobError, enqueueManualJob, manualJobInput, runManualJob, transientJobError } from "../cm-manual-jobs";
 
 function fixture() {
   const opportunity = { id: "op", clientId: "client", status: "DRAFTED", sourceText: "consulta", sourceTitle: "", channelId: "yt", detectedIntent: "TECHNICAL_QUESTION", detectedBrandId: null, detectedProductId: null, contextAssessment: {}, updatedAt: new Date(0), responses: [{ id: "response", updatedAt: new Date(0), publishingLog: null }] };
@@ -103,5 +103,14 @@ describe("cola manual CM", () => {
     expect(transientJobError(Object.assign(new Error("Transaction not found"), { code: "P2028" }))).toBe(true);
     expect(transientJobError(Object.assign(new Error("Write conflict"), { code: "P2034" }))).toBe(true);
     expect(transientJobError(Object.assign(new Error("Missing table"), { code: "P2021" }))).toBe(false);
+  });
+  it("cada error muestra su causa real", () => {
+    expect(describeJobError(Object.assign(new Error("Timed out fetching a new connection from the connection pool"), { code: "P2024" }), true)).toBe("La base de datos estaba ocupada. Se vuelve a intentar.");
+    expect(describeJobError(new Error("Invalid `tx.response.updateMany()` invocation\nTransaction failed due to a write conflict or a deadlock"), false)).toMatch(/^La base de datos estaba ocupada\. No se pudo completar/);
+    expect(describeJobError(new Error("fetch failed"), true)).toBe("La IA no respondió a tiempo. Se vuelve a intentar.");
+    expect(describeJobError(new Error("El producto elegido ya no está en el catálogo. Revisá la selección."), false)).toBe("El producto elegido ya no está en el catálogo. Revisá la selección.");
+    expect(describeJobError(new Error("La IA no devolvió una propuesta válida. Se conserva la respuesta anterior."), false)).toContain("La IA no devolvió");
+    expect(describeJobError(new TypeError("x is undefined"), false)).toBe("No se pudo generar una propuesta segura. Se conserva el trabajo anterior.");
+    expect(transientJobError(Object.assign(new Error("pool"), { code: "P2024" }))).toBe(true);
   });
 });
