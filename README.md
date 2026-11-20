@@ -67,14 +67,11 @@ queda reservado para iteración local o recuperación controlada.
 
 ## Rutina diaria de Fede (30–45 min)
 
-1. Abrir `http://localhost:3000` e ingresar con la contraseña.
-2. Revisar oportunidades `Nuevas` en el tablero.
-3. Descartar las irrelevantes.
-4. Para las relevantes: elegir marca, producto y persona → **Generar respuestas**.
-5. Editar la mejor variante y aprobarla.
-6. Copiarla, publicarla manualmente en la red social.
-7. Volver al sistema → **Marcar como publicada** + cargar URL y resultado.
-8. Revisar los **follow-ups** pendientes.
+1. Abrir **Asistente CM**: la cola ya viene priorizada y con propuestas generadas.
+2. Descartar lo que no corresponde.
+3. Revisar la propuesta; si hace falta, rehacerla o ajustarla por chat.
+4. **Publicar en YouTube** desde la misma tarjeta.
+5. Marcar como ejemplo las respuestas que quedaron muy bien: el sistema aprende de ellas.
 
 ## Publicación compatible con plataformas
 
@@ -99,46 +96,7 @@ Argumentos: /c cd /d D:\pcmidi-suite && npm run agents:monitor
 
 Cada corrida deja un reporte JSON en `reports/`.
 
-## Radar de tendencias 4 veces al día
-
-El radar reúne cinco lecturas separadas: tendencias (Google Trends, X/Twitter y TikTok), conversaciones detectadas en X, agenda de streaming argentino (Luzu, Olga, Carajo, Blender y Vorterix), titulares de diarios nacionales (Clarín, La Nación, Infobae, Perfil, Página/12, Ámbito, El Cronista, C5N y El Destape) y datos públicos de ArgentinaDatos (inflación, riesgo país y feriados). Deduplica por URL e importa los hallazgos a la tabla `Trend`. La coyuntura es siempre una sugerencia con revisión humana: no se publica ni se agrega sola a una respuesta.
-
-```bash
-npm run agents:trend-listen -- --dry-run  # revisar sin importar
-npm run agents:trend-listen -- --limit 10 # importa 10 de rubro + 10 virales por cliente activo
-```
-
-Para dejarlo automático en Windows, ejecutar PowerShell como Administrador:
-
-```powershell
-npm run agents:trends:install
-```
-
-Esto registra la tarea `Los5Apostoles-Tendencias` todos los días a las 00:00, 06:00, 12:00 y 18:00. Los logs quedan en `logs/trends-scheduled-*.log` y `logs/trend-listen-*.log`.
-
-Opcional: `TRENDS_RUN_LIMIT` cambia el objetivo de tendencias de rubro y virales por cliente activo; `TRENDS_TIME_BUDGET_SECONDS` cambia el tiempo máximo del radar.
-
 ## Backup de base de datos
-
-## Fotos de marca: Jurispedia y Prestige
-
-La línea base y los hitos D+30/60/90/180/365 se guardan como snapshots inmutables de datos internos, con PDF y CSV. Para crear la base inmediatamente:
-
-```bash
-npm run brand:snapshots -- --bootstrap
-```
-
-Para registrar el corte diario automático a las 12:00 de Argentina, ejecutar PowerShell como administrador:
-
-```powershell
-npm run brand:snapshots:install
-```
-
-```bash
-node scripts/backup-db.mjs
-```
-
-Genera un export en `exports/backup-<fecha>.json`. Supabase también hace backups automáticos diarios.
 
 ## Logs del sistema
 
