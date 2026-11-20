@@ -21,7 +21,7 @@ vi.mock("../observed-profiles", () => ({ loadObservedProfileContext: vi.fn(async
 vi.mock("../competitor-evidence", () => ({ loadRelevantCompetitorEvidence: vi.fn(async () => []) }));
 vi.mock("../guardrails", () => ({ validateClientScopedActors: () => ({ ok: true }), detectCrossClientTerms: vi.fn(async () => []) }));
 
-import { cmCanRetry, cmDay, cmState, loadCMCoverage, refreshCMOpportunity, runCMMaintenance } from "../cm-maintenance";
+import { cmCanRetry, cmDay, cmState, loadCMCoverage, refreshCMOpportunity, retryOnWriteConflict, runCMMaintenance } from "../cm-maintenance";
 import { cmCoverageStatus, cmStamp, cmManualInputHash } from "../cm-freshness";
 import { generateAICopilotDraft } from "../ai-draft-generator";
 import { currentManualFingerprint } from "../cm-fast-admission";
@@ -200,5 +200,30 @@ describe("actualización automática del CM", () => {
     const results = await runCMMaintenance(f.db, { limit: 10, dailyLimit: 200 });
     expect(results[0].outcomes).toHaveLength(0);
     expect(generateAICopilotDraft).not.toHaveBeenCalled();
+  });
+});
+
+describe("prioridad de los pedidos manuales", () => {
+  it("el mantenimiento cede el paso si hay un pedido manual en la cola", async () => {
+    const f = fixture();
+    f.mock.opportunity.findMany.mockResolvedValue([{ ...f.opportunity, id: "auto", responses: [] }]);
+    (f.mock.cMManualJob as Record<string, unknown>).findFirst = vi.fn(async () => ({ id: "manual" }));
+    const results = await runCMMaintenance(f.db, { limit: 10, dailyLimit: 200 });
+    expect(results[0].outcomes).toEqual([{ id: "auto", status: "deferred_for_manual" }]);
+    expect(generateAICopilotDraft).not.toHaveBeenCalled();
+  });
+
+  it("reintenta solo el guardado ante un conflicto de escritura", async () => {
+    const write = vi.fn()
+      .mockRejectedValueOnce(Object.assign(new Error("serialization"), { code: "P2034" }))
+      .mockResolvedValueOnce("generated");
+    expect(await retryOnWriteConflict(write, 4, async () => {})).toBe("generated");
+    expect(write).toHaveBeenCalledTimes(2);
+  });
+
+  it("no reintenta otros errores", async () => {
+    const write = vi.fn().mockRejectedValue(new Error("La IA no devolvió una propuesta válida."));
+    await expect(retryOnWriteConflict(write, 4, async () => {})).rejects.toThrow("La IA no devolvió");
+    expect(write).toHaveBeenCalledTimes(1);
   });
 });

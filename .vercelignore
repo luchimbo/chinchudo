@@ -8,7 +8,6 @@ public/videos/
 .agents/
 .claude/skills/
 scripts/*
-!scripts/cm-rules-version.mjs
 !scripts/blog-lease.mjs
 !scripts/blog-lease.d.mts
 !scripts/blog-preparation.mjs

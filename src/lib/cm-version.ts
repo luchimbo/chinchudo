@@ -5,7 +5,7 @@ import { cmHash } from "./cm-freshness";
 /**
  * Every host (Vercel, the CM workers on this PC) reads the same committed
  * manifest, so a proposal generated in one place is fresh in all of them.
- * `npm run build` / `npm run dev` refresh it from the generation rules.
+ * Bump it by hand (see the note in the JSON) only when generation rules change.
  */
 export function cmRulesVersion(): string {
   return manifest.version;

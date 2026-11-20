@@ -153,7 +153,10 @@ export async function refreshCMOpportunity(db: PrismaClient, clientId: string, i
     if (crossClient.length) throw new Error(`La propuesta mezcla datos de otro cliente: ${crossClient.join("; ")}`);
     // Prompt/catalog may have changed while the model was thinking.
     if (await loadCMVersion(db, clientId) !== version) return "changed";
-    const result = await timing.measure("persist", () => db.$transaction(async (tx) => {
+    // A serialization conflict only means another writer touched the same rows
+    // (usually maintenance running beside a manual request). The AI answer is
+    // still valid, so retry just this short transaction instead of the whole job.
+    const result = await timing.measure("persist", () => retryOnWriteConflict(() => db.$transaction(async (tx) => {
       const current = await tx.opportunity.findUniqueOrThrow({ where: { id }, include });
       const lease = await tx.draftJob.findUnique({ where: { opportunityId: id } });
       if (lease?.lockedBy !== owner || !lease.leaseUntil || lease.leaseUntil < new Date()
@@ -182,7 +185,7 @@ export async function refreshCMOpportunity(db: PrismaClient, clientId: string, i
       if (manual) await tx.cMManualJob.update({ where: { id: manual.jobId }, data: { status: "SUCCEEDED", leaseUntil: null, result: { responseId: created.id, review: Boolean(protectedResponse) } } });
       await tx.appSetting.upsert({ where: { key: stateKey }, create: { key: stateKey, value: "null" }, update: { value: "null" } });
       return protectedResponse ? "review" : "generated";
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 30_000 }));
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, maxWait: 10_000, timeout: 30_000 })));
     return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -201,6 +204,24 @@ export async function refreshCMOpportunity(db: PrismaClient, clientId: string, i
   }
 }
 
+const WRITE_CONFLICT_CODES = new Set(["P2034", "P2028"]);
+
+export async function retryOnWriteConflict<T>(write: () => Promise<T>, attempts = 4, wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try { return await write(); }
+    catch (error) {
+      const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+      if (!WRITE_CONFLICT_CODES.has(code) || attempt >= attempts) throw error;
+      await wait(150 * attempt + Math.floor(Math.random() * 150));
+    }
+  }
+}
+
+/** Manual requests from the operator go first: automatic refreshes wait for them. */
+async function manualWorkPending(db: PrismaClient) {
+  return Boolean(await db.cMManualJob.findFirst({ where: { status: { in: ["QUEUED", "RUNNING"] } }, select: { id: true } }));
+}
+
 export async function runCMMaintenance(db: PrismaClient, options: { limit: number; dailyLimit: number; clientSlug?: string; dryRun?: boolean }) {
   const clients = await db.client.findMany({ where: { active: true, ...(options.clientSlug ? { slug: options.clientSlug } : {}) }, orderBy: { slug: "asc" }, select: { id: true, slug: true } });
   const results = [];
@@ -214,6 +235,8 @@ export async function runCMMaintenance(db: PrismaClient, options: { limit: numbe
     const outcomes: { id: string; status: string; error?: string }[] = [];
     for (const row of batch) {
       if (options.dryRun) { outcomes.push({ id: row.id, status: row.status }); continue; }
+      // Yield to the operator: the next maintenance run picks up the rest.
+      if (await manualWorkPending(db)) { outcomes.push({ id: row.id, status: "deferred_for_manual" }); break; }
       // Count attempts, including model failures, so retries cannot bypass the cost cap.
       const value = String(spent + outcomes.length + 1);
       await db.appSetting.upsert({ where: { key: budgetKey }, create: { key: budgetKey, value }, update: { value } });
