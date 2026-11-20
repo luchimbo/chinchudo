@@ -204,6 +204,7 @@ export async function refreshCMOpportunity(db: PrismaClient, clientId: string, i
   }
 }
 
+export const CM_AUTO_REFRESH_DAYS = 14;
 const WRITE_CONFLICT_CODES = new Set(["P2034", "P2028"]);
 
 export async function retryOnWriteConflict<T>(write: () => Promise<T>, attempts = 4, wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))): Promise<T> {
@@ -231,7 +232,11 @@ export async function runCMMaintenance(db: PrismaClient, options: { limit: numbe
     const setting = await db.appSetting.findUnique({ where: { key: budgetKey } });
     const spent = Math.max(0, Number(setting?.value) || 0);
     const remaining = Math.max(0, options.dailyLimit - spent);
-    const batch = cmSelectBatch(coverage.rows.filter((row) => row.retryAllowed), Math.min(options.limit, remaining));
+    // Only recent conversations are refreshed automatically. Older ones keep
+    // their proposal (still publishable) and are redone when the operator asks,
+    // so a rules change does not trigger thousands of background regenerations.
+    const since = Date.now() - CM_AUTO_REFRESH_DAYS * 24 * 60 * 60 * 1000;
+    const batch = cmSelectBatch(coverage.rows.filter((row) => row.retryAllowed && row.createdAt.getTime() >= since), Math.min(options.limit, remaining));
     const outcomes: { id: string; status: string; error?: string }[] = [];
     for (const row of batch) {
       if (options.dryRun) { outcomes.push({ id: row.id, status: row.status }); continue; }

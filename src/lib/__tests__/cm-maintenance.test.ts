@@ -21,7 +21,7 @@ vi.mock("../observed-profiles", () => ({ loadObservedProfileContext: vi.fn(async
 vi.mock("../competitor-evidence", () => ({ loadRelevantCompetitorEvidence: vi.fn(async () => []) }));
 vi.mock("../guardrails", () => ({ validateClientScopedActors: () => ({ ok: true }), detectCrossClientTerms: vi.fn(async () => []) }));
 
-import { cmCanRetry, cmDay, cmState, loadCMCoverage, refreshCMOpportunity, retryOnWriteConflict, runCMMaintenance } from "../cm-maintenance";
+import { CM_AUTO_REFRESH_DAYS, cmCanRetry, cmDay, cmState, loadCMCoverage, refreshCMOpportunity, retryOnWriteConflict, runCMMaintenance } from "../cm-maintenance";
 import { cmCoverageStatus, cmStamp, cmManualInputHash } from "../cm-freshness";
 import { generateAICopilotDraft } from "../ai-draft-generator";
 import { currentManualFingerprint } from "../cm-fast-admission";
@@ -30,7 +30,7 @@ function fixture() {
   const response = { id: "old", personaId: "persona", brandId: "brand", draftText: "Vieja", editedText: "", approvedBy: "", acceptedAsCorrectAt: null,
     isPrimary: true, chatHistory: [] as unknown[], evidence: [] as unknown[], publishingLog: null, createdAt: new Date(0), updatedAt: new Date(0) };
   const opportunity = { id: "op", clientId: "client", sourceText: "¿Tiene garantía?", sourceTitle: "Teclado", channelId: "youtube", channel: { name: "YouTube" },
-    detectedIntent: "WARRANTY_QUESTION", detectedProductId: null, contextAssessment: {}, status: "DRAFTED", priority: "HIGH", createdAt: new Date(0), updatedAt: new Date(0), responses: [response] };
+    detectedIntent: "WARRANTY_QUESTION", detectedProductId: null, contextAssessment: {}, status: "DRAFTED", priority: "HIGH", createdAt: new Date(), updatedAt: new Date(0), responses: [response] };
   let lease = { lockedBy: "", leaseUntil: new Date(), status: "QUEUED" };
   const settings = new Map<string, string>();
   const db = {
@@ -225,5 +225,15 @@ describe("prioridad de los pedidos manuales", () => {
     const write = vi.fn().mockRejectedValue(new Error("La IA no devolvió una propuesta válida."));
     await expect(retryOnWriteConflict(write, 4, async () => {})).rejects.toThrow("La IA no devolvió");
     expect(write).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("alcance de la actualización automática", () => {
+  it("no regenera sola las oportunidades más viejas que el período automático", async () => {
+    const f = fixture();
+    const old = new Date(Date.now() - (CM_AUTO_REFRESH_DAYS + 1) * 24 * 60 * 60 * 1000);
+    f.mock.opportunity.findMany.mockResolvedValue([{ ...f.opportunity, id: "vieja", createdAt: old, responses: [] }]);
+    const results = await runCMMaintenance(f.db, { limit: 10, dailyLimit: 200, dryRun: true });
+    expect(results[0].outcomes).toEqual([]);
   });
 });

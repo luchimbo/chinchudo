@@ -250,6 +250,7 @@ Python maneja el navegador real (CDP). Node.js + Prisma persisten en Postgres. J
   - la cuota diaria de Kressmer.
 - **Prompt**: `buildCopilotPrompt` en `src/lib/ai-draft-generator.ts` (Kressmer usa `buildKressmerReplyPrompt`). Validación en `src/lib/draft-output.ts`: sin preguntas salvo Prestige y Kressmer.
 - **Frescura**: `src/lib/cm-version.ts`. Versión = `version` de `src/lib/cm-rules-version.json` (se cambia a mano solo cuando las reglas de generación deben volver viejas todas las propuestas; el mantenimiento las regenera) + contenido del cliente. Memorias y ejemplos aprendidos no invalidan propuestas existentes.
+- **Alcance**: el mantenimiento solo regenera oportunidades de los últimos 14 días (`CM_AUTO_REFRESH_DAYS`); las más viejas se rehacen a pedido.
 - **Prioridad**: el mantenimiento automático cede el paso cuando hay pedidos manuales en la cola, y un conflicto al guardar reintenta solo el guardado, sin volver a llamar a la IA.
 - **Publicación**: solo `publishCopilotYouTubeResponse` (`src/app/(app)/opportunities/actions.ts`), por la API oficial de YouTube con la conexión OAuth del cliente (`YouTubeConnection`). Reclama la publicación antes de enviar para no publicar dos veces. Después descarta solo las oportunidades del mismo hilo o de la misma persona en ese video.
 
