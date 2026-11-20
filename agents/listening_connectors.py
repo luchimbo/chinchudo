@@ -346,7 +346,7 @@ def recover_local_services() -> dict[str, Any]:
     result["attempted"] = True
     deadline = time.monotonic() + 40
     compose = [docker, "compose", "-f", str(COMPOSE_FILE), "up", "-d", *unavailable]
-    run_options = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+    run_options = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)} if os.name == "nt" else {}
     try:
         completed = subprocess.run(
             compose, cwd=ROOT, capture_output=True, text=True, timeout=10, check=False, **run_options,
