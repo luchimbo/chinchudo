@@ -38,7 +38,11 @@ npm ci --no-audit --no-fund --silent
 npx prisma generate >/dev/null
 chmod +x scripts/start-blog-runtime-ssh.sh
 # El bucle de start-blog-runtime-ssh.sh vuelve a levantarlo en 10 s con el código nuevo.
-pkill -f 'scripts/blog-runtime-service.mjs' || true
+# El patrón entre corchetes evita que pkill coincida con esta misma sesión SSH.
+pkill -f 'blog-runtime-[s]ervice.mjs' || true
+for i in \$(seq 1 30); do pgrep -f 'blog-runtime-[s]ervice.mjs' >/dev/null || break; sleep 1; done
+# Un proceso viejo puede quedar trabado al desconectarse de la base: se fuerza.
+pkill -9 -f 'blog-runtime-[s]ervice.mjs' || true
 echo 'Desplegado:' \$(git rev-parse --short HEAD)"
 
 echo "Esperá ~15 s y verificá con: npm run blog:status"

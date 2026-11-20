@@ -1,5 +1,5 @@
 session/
-# Sólo la carpeta data/ de la raíz: landing-build/data alimenta /api/leads y /api/nurture.
+# Sólo la carpeta data/ de la raíz (runtime local), no landing-build/data.
 /data/
 reports/
 exports/
@@ -9,7 +9,6 @@ public/videos/
 .claude/skills/
 scripts/*
 !scripts/cm-rules-version.mjs
-!scripts/draft-worker.mts
 !scripts/blog-lease.mjs
 !scripts/blog-lease.d.mts
 !scripts/blog-preparation.mjs
