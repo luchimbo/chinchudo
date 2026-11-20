@@ -7,7 +7,6 @@ import { prisma } from "@/lib/db";
 import { requirePageClient } from "@/lib/auth";
 import { publishAllOnlineLandings, publishLandingPreview, publishSelectedLandings, updateLandingStatus } from "../actions";
 import { DeleteLandingButton } from "../delete-landing-button";
-import { GenerationProgressCard } from "../generation-progress-card";
 import { InternalLinksEditor, type EditorialLink, type LinkCandidate } from "../internal-links-editor";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -135,8 +134,6 @@ export default async function LandingsPage({
           </Link>
         ))}
       </div>
-
-      {activeClient ? <GenerationProgressCard clientSlug={activeClient.slug} /> : null}
 
       {landings.length === 0 ? (
         status === "DRAFT" && activeClient ? (

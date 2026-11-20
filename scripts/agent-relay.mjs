@@ -1,16 +1,10 @@
-// Relay server: recibe pedidos de publicacion desde Vercel y los ejecuta localmente
+// Relay local: búsqueda de oportunidades, logins de perfiles y túnel al LLM local.
 // Exponer con: cloudflared tunnel --url http://127.0.0.1:3099
 import http from "node:http";
 import { execFile, spawn } from "node:child_process";
-import { readFileSync, existsSync, writeFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PrismaClient } from "@prisma/client";
-import { createBlogDaily } from "./blog-daily.mjs";
-import { blogCodeStatus, restartOnBlogCodeChange } from "./blog-code-version.mjs";
-import { terminateChild } from "./terminate-child.mjs";
-import { withBlogLease } from "./blog-lease.mjs";
-import { catalogSyncBlocksBlog } from "../src/lib/blog-auto-repair.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -31,118 +25,6 @@ if (existsSync(envPath)) {
 
 const PORT = parseInt(process.env.AGENT_RELAY_PORT ?? "3099", 10);
 const TOKEN = process.env.AGENT_RELAY_TOKEN;
-const blogCalendarEnabled = process.env.BLOG_CALENDAR_ENABLED !== "false";
-const landingGenerationClients = new Set();
-const landingGenerationJobs = new Map();
-const relayDatabaseUrl = new URL(process.env.DATABASE_URL);
-if (!relayDatabaseUrl.searchParams.has("connection_limit")) relayDatabaseUrl.searchParams.set("connection_limit", "3");
-const prisma = new PrismaClient({ datasources: { db: { url: relayDatabaseUrl.href } } });
-const blogDaily = createBlogDaily({ prisma, runBlogPython, generationClients: landingGenerationClients, withLease: (id, fn) => withBlogLease(prisma,id,fn), catalogPending: catalogIsDue });
-const runDailyBlogCalendar = blogDaily.runDailyBlogCalendar;
-
-async function catalogIsDue(clientId) {
-  const active = await prisma.catalogSyncRun.findFirst({ where: { clientId, status: { in: ["QUEUED","RUNNING","PENDING_DEPLOY","DEPLOYING"] }, deploymentAttempts: { lt:3 } }, orderBy: { updatedAt: "desc" }, select:{status:true,updatedAt:true} });
-  return catalogSyncBlocksBlog(active);
-}
-
-async function runBlogPython(args, clientId, timeoutMs = 300_000, progress) {
-  // Preview reads published data and needs no exclusive reservation.
-  if (args[0] === "preview") return runBlogPythonProcess(args,clientId,timeoutMs);
-  const result = await withBlogLease(prisma,clientId,async lease => {
-    const version = await prisma.appSetting.findUnique({ where: { key: `blog_catalog_version:${clientId}` } });
-    lease.assert();
-    return runBlogPythonProcess(args,clientId,timeoutMs,lease,version?.value || "",progress);
-  });
-  if (result === null) throw new Error("El blog está actualizando el catálogo. Reintentá en unos minutos.");
-  return result;
-}
-
-async function runBlogPythonProcess(args, clientId, timeoutMs = 300_000, lease, catalogVersion = "", progress) {
-  const client = await prisma.client.findUniqueOrThrow({ where: { id: clientId }, select: { slug: true } });
-  const python = getPythonCommand();
-  return new Promise((resolve, reject) => {
-    const child = spawn(python.command, [...python.argsPrefix, join(ROOT, "landing-build", "build_landings.py"), "--client-slug", client.slug, ...args], {
-      cwd: ROOT, windowsHide: true,
-      env: { ...process.env, PYTHONIOENCODING: "utf-8", LANDING_EXPECTED_CLIENT_ID: clientId, LANDING_CATALOG_VERSION: catalogVersion, BLOG_PREPARATION_ATTEMPT_ID: progress?.attemptId || "", BLOG_DAILY_SLOT: String(progress?.dailySlot || 0) },
-    });
-    let output = "";
-    let lines = "", updates = Promise.resolve(), progressError;
-    const collect = (chunk) => {
-      const text = chunk.toString(); output = (output + text).slice(-4000);
-      if (!progress) return;
-      lines += text;
-      const completed = lines.split("\n"); lines = completed.pop().slice(-8000);
-      for (const line of completed) {
-        if (!line.startsWith("BLOG_PROGRESS:")) continue;
-        try { const event = JSON.parse(line.slice(14));
-          if (event.attemptId === progress.attemptId && ["GENERATING", "REVIEWING"].includes(event.phase)) updates = updates.then(() => { lease?.assert(); return progress.onPhase(event.phase); }).catch(error => { progressError = error; terminateChild(child); });
-        } catch { /* Ordinary logs never change task state. */ }
-      }
-    };
-    child.stdout.on("data", collect);
-    child.stderr.on("data", chunk => { output = (output + chunk.toString()).slice(-4000); });
-    const timeout = setTimeout(() => terminateChild(child), timeoutMs);
-    const abort = () => terminateChild(child);
-    lease?.signal.addEventListener("abort",abort,{once:true});
-    child.on("error", (error) => { clearTimeout(timeout); reject(error); });
-    child.on("close", async (code) => {
-      clearTimeout(timeout);
-      lease?.signal.removeEventListener("abort",abort);
-      await updates;
-      if (progressError) return reject(progressError);
-      if (lease?.signal.aborted) return reject(new Error("Se perdió la reserva del blog."));
-      if (code === 0) resolve(output);
-      else reject(new Error(`Proceso editorial finalizó con código ${code}: ${output.slice(-900)}`));
-    });
-  });
-}
-
-async function runScheduledLandings() {
-  try {
-    const settings = await prisma.appSetting.findMany({ where: { key: { startsWith: "landing_generation_schedule:" } } });
-    const now = Date.now();
-    for (const setting of settings) {
-      let schedule;
-      try { schedule = JSON.parse(setting.value); } catch { continue; }
-      if (!schedule?.enabled) continue;
-      const intervalMs = Math.max(1, Math.min(168, Number(schedule.intervalHours) || 24)) * 3_600_000;
-      const lastRun = Date.parse(schedule.lastRunAt || "") || 0;
-      const windowStart = Date.parse(schedule.dailyWindowStart || "") || now;
-      const dailyAttempts = windowStart + 86_400_000 > now ? Number(schedule.dailyAttempts) || 0 : 0;
-      const weekStart = Date.parse(schedule.weeklyWindowStart || "") || now;
-      const weeklyGenerated = weekStart + 7 * 86_400_000 > now ? Number(schedule.weeklyGenerated) || 0 : 0;
-      const weeklyTarget = Math.min(10, Math.max(2, Number(schedule.weeklyTarget) || 10));
-      const requested = Math.min(5, Math.max(1, Number(schedule.limit) || 3), weeklyTarget - weeklyGenerated);
-      if (lastRun + intervalMs > now || dailyAttempts >= 12 || requested <= 0) continue;
-      const clientId = setting.key.replace("landing_generation_schedule:", "");
-      const client = await prisma.client.findUnique({ where: { id: clientId }, select: { slug: true, active: true } });
-      if (client?.slug === "pcmidi") continue;
-      if (!client?.active || landingGenerationClients.has(client.slug)) continue;
-      landingGenerationClients.add(client.slug);
-      schedule.lastRunAt = new Date(now).toISOString();
-      schedule.dailyWindowStart = dailyAttempts ? new Date(windowStart).toISOString() : new Date(now).toISOString();
-      schedule.dailyAttempts = dailyAttempts + requested;
-      schedule.weeklyWindowStart = weeklyGenerated ? new Date(weekStart).toISOString() : new Date(now).toISOString();
-      // This is a quota reservation. It deliberately caps scheduled work even
-      // if a provider returns fewer valid landings in a particular run.
-      schedule.weeklyGenerated = weeklyGenerated + requested;
-      await prisma.appSetting.update({ where: { key: setting.key }, data: { value: JSON.stringify(schedule) } });
-      const python = getPythonCommand();
-      const child = spawn(python.command, [...python.argsPrefix, join(ROOT, "landing-build", "build_landings.py"), "--client-slug", client.slug, "generate", "--limit", String(requested), "--research-first", "--max-seconds", "180"], { cwd: ROOT, env: process.env, windowsHide: true });
-      child.on("close", (code) => { landingGenerationClients.delete(client.slug); console.log(`[agent-relay] generación programada ${client.slug} finalizó (exit ${code})`); });
-      child.on("error", (error) => { landingGenerationClients.delete(client.slug); console.error("[agent-relay] generación programada falló:", error.message); });
-      console.log(`[agent-relay] generación programada iniciada para ${client.slug}`);
-    }
-  } catch (error) {
-    console.error("[agent-relay] scheduler de landings:", error instanceof Error ? error.message : error);
-  }
-}
-
-if (!TOKEN) {
-  console.error("[agent-relay] ERROR: AGENT_RELAY_TOKEN no configurado en .env");
-  process.exit(1);
-}
-
 function authOk(req) {
   return req.headers["authorization"] === `Bearer ${TOKEN}`;
 }
@@ -337,32 +219,15 @@ const server = http.createServer(async (req, res) => {
   const { method, url } = req;
 
   // GET /health — sin auth
-  if (method === "GET" && (url === "/health" || url === "/blog/health")) {
-    return json(res, 200, { ok: true, ts: Date.now(), blogAutomationVersion: 2, blogTaskVersion: 2, blogWorker: blogDaily.runtimeState(), blogCode: blogCodeStatus() });
+  // The blog runs on the SSH server (scripts/blog-runtime-service.mjs), not here.
+  if (method === "GET" && url === "/health") {
+    return json(res, 200, { ok: true, ts: Date.now() });
   }
 
   if (!authOk(req)) {
     return json(res, 401, { error: "unauthorized" });
   }
 
-  if (method === "POST" && url === "/blog/publish") {
-    let body;
-    try { body = await readBody(req); }
-    catch { return json(res, 400, { error: "No se pudo leer el pedido de publicación." }); }
-    if (![body?.id, body?.clientId, body?.expectedUpdatedAt].every(value => typeof value === "string" && value.trim())) {
-      return json(res, 400, { error: "Faltan los datos del artículo para publicar." });
-    }
-    try {
-      await blogDaily.publishBlogArticle(body, () => json(res, 202, { accepted: true }));
-    } catch (error) {
-      if (!res.writableEnded) json(res, 409, { error: error.message });
-      else console.error("[blog] Publicación manual interrumpida:", error);
-    }
-    return;
-  }
-
-  // POST /v1/chat/completions — proxy autenticado hacia la IA local.
-  // El túnel sólo expone este relay, nunca Ollama directamente.
   if (method === "POST" && url === "/v1/chat/completions") {
     return proxyLocalLlm(req, res);
   }
@@ -433,155 +298,6 @@ const server = http.createServer(async (req, res) => {
         else console.log("[agent-relay] login-status OK");
       });
     return;
-  }
-
-  // POST /landings/preview — ejecuta build_landings.py localmente y devuelve el HTML
-  if (method === "POST" && url === "/landings/preview") {
-    let body;
-    try { body = await readBody(req); }
-    catch { return json(res, 400, { error: "invalid_json" }); }
-
-    const { clientSlug, landingId, blogBaseUrl, clientConfig, content } = body;
-    console.log("[agent-relay] landings/preview", {
-      clientSlug,
-      landingId,
-      blogBaseUrl,
-      clientConfigSlug: clientConfig?.slug,
-      clientConfigId: clientConfig?.id,
-    });
-    if (!clientSlug) {
-      return json(res, 400, { error: "missing_client_slug" });
-    }
-
-    const scriptPath = join(ROOT, "landing-build", "build_landings.py");
-    const args = [
-      scriptPath,
-      "--client-slug", clientSlug,
-      "preview",
-      "--base-url", blogBaseUrl || "",
-    ];
-    if (landingId) args.push("--landing-id", landingId);
-    // Borrador sin guardar del editor de artículos: viaja por stdin.
-    const draft = content && typeof content === "object" ? JSON.stringify(content) : "";
-    if (draft) args.push("--content-stdin");
-
-    const py =
-      process.platform === "win32"
-        ? { command: "python", argsPrefix: [] }
-        : getPythonCommand();
-
-    const previewChild = execFile(py.command, [...py.argsPrefix, ...args], {
-      cwd: ROOT,
-      maxBuffer: 1024 * 1024 * 8,
-      timeout: 30000,
-      env: {
-        ...process.env,
-        LANDING_CLIENT_CONFIG_JSON: JSON.stringify(clientConfig || {}),
-      },
-    }, (err, stdout, stderr) => {
-      console.log("[agent-relay] landings/preview result", {
-        python: py.command,
-        args: [...py.argsPrefix, ...args],
-        hasKeyword: stdout.includes("medias de compresion para running"),
-        hasPreviewTitle: stdout.includes("Preview de landing"),
-        stderr: stderr.slice(0, 500),
-      });
-      if (err) {
-        console.error("[agent-relay] landings/preview fallo:", err.message);
-        res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
-        res.end(`No se pudo generar la preview localmente en el relay.\n${err.message}\n${stderr}`);
-        return;
-      }
-
-      const htmlStart = stdout.indexOf("<!DOCTYPE html>");
-      const html = htmlStart >= 0 ? stdout.slice(htmlStart) : stdout;
-
-      res.writeHead(200, {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": "no-store",
-      });
-      res.end(html);
-    });
-    previewChild.stdin?.end(draft || undefined);
-    return;
-  }
-
-  // POST /landings/generate — inicia la generación local sin bloquear la UI remota.
-  if (method === "POST" && url === "/landings/generate") {
-    let body;
-    try { body = await readBody(req); }
-    catch { return json(res, 400, { error: "invalid_json" }); }
-
-    const clientSlug = String(body.clientSlug || "").trim();
-    const limit = Math.min(5, Math.max(1, Number(body.limit) || 3));
-    if (!clientSlug) return json(res, 400, { error: "missing_client_slug" });
-    if (clientSlug === "pcmidi") return json(res, 409, { error: "Prepará los artículos desde el calendario editorial." });
-    if (landingGenerationClients.has(clientSlug)) {
-      return json(res, 409, { error: "generation_already_running" });
-    }
-
-    const client = await prisma.client.findUnique({ where: { slug: clientSlug }, select: { id: true, slug: true, name: true, storeUrl: true, blogBaseUrl: true, labName: true, logoUrl: true, landingTemplate: true, landingPrimaryColor: true, landingSecondaryColor: true } });
-    if (!client) return json(res, 404, { error: "client_not_found" });
-    const seedTopics = await prisma.seedTopic.findMany({ where: { clientId: client.id }, orderBy: { createdAt: "asc" }, select: { keyword: true, intent: true, suggestedCategories: true } });
-    const [landingCategories, landingProducts] = await Promise.all([
-      prisma.landingCategory.findMany({ where: { clientId: client.id }, select: { key: true, name: true, url: true, description: true, keywords: true } }),
-      prisma.landingProduct.findMany({ where: { clientId: client.id }, select: { externalId: true, name: true, brand: true, model: true, categoryKey: true, url: true, useText: true } }),
-    ]);
-    const catalog = {
-      categories: landingCategories.map((item) => ({ id: item.key, nombre: item.name, url: item.url, descripcion: item.description, keywords: item.keywords })),
-      products: landingProducts.map((item) => ({ id: item.externalId, nombre: item.name, marca: item.brand, modelo: item.model, categoria_id: item.categoryKey, url: item.url, uso: item.useText })),
-    };
-
-    landingGenerationClients.add(clientSlug);
-    landingGenerationJobs.set(clientSlug, { state: "running", requested: limit, completed: 0, currentTopic: "Preparando temas…", created: [], errors: [], startedAt: new Date().toISOString() });
-    const generatorPath = join(ROOT, "landing-build", "build_landings.py");
-    const python = getPythonCommand();
-    console.log(`[agent-relay] landings/generate iniciado para ${clientSlug}`);
-    json(res, 202, { accepted: true, clientSlug, limit });
-
-    const child = spawn(python.command, [...python.argsPrefix, generatorPath, "--client-slug", clientSlug, "generate", "--limit", String(limit), "--research-first", "--max-seconds", "180"], {
-      cwd: ROOT,
-      env: { ...process.env, PYTHONIOENCODING: "utf-8", LANDING_EXPECTED_CLIENT_ID: client.id, LANDING_CLIENT_CONFIG_JSON: JSON.stringify(client), LANDING_CATALOG_JSON: JSON.stringify(catalog), LANDING_SEED_TOPICS_JSON: JSON.stringify(seedTopics.map((topic) => ({ keyword: topic.keyword, intencion: topic.intent, categorias_sugeridas: topic.suggestedCategories }))) },
-      windowsHide: true,
-    });
-    const timeout = setTimeout(() => {
-      const job = landingGenerationJobs.get(clientSlug);
-      if (job?.state !== "running") return;
-      job.state = "failed";
-      job.finishedAt = new Date().toISOString();
-      job.errors.push("La generación superó 4 minutos y se detuvo para evitar que quede bloqueada.");
-      child.kill();
-    }, 240_000);
-    child.stdout.on("data", (chunk) => {
-      const text = chunk.toString();
-      for (const line of text.split(/\r?\n/)) {
-        if (!line.startsWith("@@landing-progress ")) continue;
-        try { const event = JSON.parse(line.slice(19)); const job = landingGenerationJobs.get(clientSlug); if (!job) continue; if (event.event === "processing") job.currentTopic = event.keyword; if (event.event === "created") { job.completed += 1; job.created.push({ keyword: event.keyword, title: event.title, source: event.source }); } } catch {}
-      }
-      console.log(`[agent-relay] landings/generate ${clientSlug}: ${text.trim()}`);
-    });
-    child.stderr.on("data", (chunk) => {
-      const detail = chunk.toString().trim();
-      const job = landingGenerationJobs.get(clientSlug);
-      if (detail && job) job.errors.push(detail.slice(-800));
-      console.error(`[agent-relay] landings/generate ${clientSlug}: ${detail}`);
-    });
-    child.on("close", (code) => {
-      clearTimeout(timeout);
-      landingGenerationClients.delete(clientSlug);
-      const job = landingGenerationJobs.get(clientSlug); if (job) { job.state = code === 0 ? "completed" : "failed"; job.finishedAt = new Date().toISOString(); if (code !== 0) job.errors.push(`El generador finalizó con código ${code}.`); }
-      console.log(`[agent-relay] landings/generate finalizado para ${clientSlug} (exit ${code})`);
-    });
-    child.on("error", (error) => {
-      landingGenerationClients.delete(clientSlug);
-      console.error(`[agent-relay] landings/generate no pudo iniciar para ${clientSlug}:`, error.message);
-    });
-    return;
-  }
-
-  if (method === "GET" && url.startsWith("/landings/generation-status")) {
-    const clientSlug = new URL(url, "http://localhost").searchParams.get("client") || "";
-    return json(res, 200, { job: landingGenerationJobs.get(clientSlug) || null });
   }
 
   // POST /search/run — ejecuta social-listen.py por cada canal e importa oportunidades
@@ -721,47 +437,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, "127.0.0.1", () => {
-  restartOnBlogCodeChange({ label: "agent-relay", isBusy: () => { const state = blogDaily.runtimeState(); return state.running || state.generating || state.publishing; } });
   console.log(`[agent-relay] escuchando en http://127.0.0.1:${PORT}`);
   console.log(`[agent-relay] token: ${TOKEN.slice(0, 4)}...${TOKEN.slice(-4)}`);
   console.log(`[agent-relay] para exponer: cloudflared tunnel --url http://127.0.0.1:${PORT}`);
-  // Sólo el relay que obtuvo el puerto agenda landings: uno duplicado que
-  // falla con EADDRINUSE no debe disparar generaciones antes de morir.
-  const drainPublications = () => {
-    if (!blogCodeStatus().stale) void blogDaily.runQueuedPublications().catch(error => console.error("[blog] Cola de publicación:", error));
-  };
-  setInterval(drainPublications, 15_000).unref();
-  void drainPublications();
-  setInterval(runScheduledLandings, 60_000).unref();
-  void runScheduledLandings();
-  if (blogCalendarEnabled) {
-    setInterval(runDailyBlogCalendar, 60_000).unref();
-    void runDailyBlogCalendar();
-  } else {
-    console.log("[agent-relay] calendario del blog delegado al runtime remoto.");
-  }
-  let catalogRunning = false;
-  const runCatalog = () => {
-    if (catalogRunning) return;
-    catalogRunning = true;
-    const child = spawn(process.execPath,[join(ROOT,"node_modules","tsx","dist","cli.mjs"),join(ROOT,"scripts","sync-blog-catalog.mts"),"--scheduled"], { cwd:ROOT,windowsHide:true,env:process.env });
-    child.stdout.on("data",chunk => { const line=chunk.toString().trim(); if (line && !line.includes('"skipped":true') && line!=="null") console.log(`[catalog] ${line}`); });
-    child.stderr.on("data",chunk => console.error(`[catalog] ${chunk.toString().trim()}`));
-    child.on("error",error => { catalogRunning=false; console.error("[catalog]",error.message); });
-    child.on("close",() => { catalogRunning=false; });
-  };
-  setInterval(runCatalog,60_000).unref();
-  runCatalog();
-  let analysisRunning = false;
-  const runAnalysis = () => {
-    if (analysisRunning) return;
-    analysisRunning = true;
-    const child = spawn(process.execPath, [join(ROOT, "node_modules", "tsx", "dist", "cli.mjs"), join(ROOT, "scripts", "business-analysis-worker.mts"), "--scheduled"], { cwd: ROOT, windowsHide: true, env: process.env });
-    const timeout = setTimeout(() => terminateChild(child), 45 * 60_000);
-    child.stderr.on("data", chunk => console.error(`[business-analysis] ${chunk.toString().trim()}`));
-    child.on("error", error => { clearTimeout(timeout); analysisRunning = false; console.error("[business-analysis]", error.message); });
-    child.on("close", () => { clearTimeout(timeout); analysisRunning = false; });
-  };
-  setInterval(runAnalysis, 60_000).unref();
-  runAnalysis();
 });

@@ -1,35 +1,39 @@
-// Estado del blog en esta PC: procesos locales, código cargado y copia de despliegue de la app.
+// Estado del trabajador del blog, que corre en el servidor SSH "pcmidi".
 // Uso: npm run blog:status
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { blogCodeStatus } from "./blog-code-version.mjs";
+import { PrismaClient } from "@prisma/client";
+import { loadEnv } from "./agent-utils.mjs";
 
-const root = resolve(import.meta.dirname, "..");
-const deployRoot = process.env.BLOG_DEPLOY_WORKTREE || "C:/Users/PC Midi/.codex/worktrees/kressmer-blog/pcmidi-suite";
-// Git normaliza los fines de línea: CRLF y LF del mismo archivo no cuentan como diferencia.
-const sha = (path) => createHash("sha1").update(readFileSync(path, "utf8").replaceAll("\r", "")).digest("hex");
+loadEnv();
+const host = process.env.BLOG_SERVER_HOST || "pcmidi";
+const remoteDir = process.env.BLOG_SERVER_DIR || "services/pcmidi-suite";
+const prisma = new PrismaClient();
 
-async function health(name, url) {
-  try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
-    const body = await response.json();
-    const code = body.blogCode;
-    const state = !code ? "sin control de versión (reiniciar)" : code.stale ? `DESACTUALIZADO (cargó ${code.loaded}, en disco ${code.disk})` : `al día (${code.loaded})`;
-    console.log(`${name}: activo · ${state}`);
-    return code?.loaded;
-  } catch { console.log(`${name}: sin respuesta`); return undefined; }
+try {
+  const setting = await prisma.appSetting.findUnique({ where: { key: "blog_runtime_relay_url" } });
+  const url = setting?.value?.replace(/\/$/, "");
+  if (!url) console.log("Túnel del blog: no publicado (blog_runtime_relay_url vacío).");
+  else {
+    try {
+      const response = await fetch(`${url}/blog/health`, { signal: AbortSignal.timeout(8000) });
+      const body = await response.json();
+      const code = body.blogCode;
+      const state = !code ? "sin control de versión" : code.stale ? `DESACTUALIZADO (cargó ${code.loaded}, en disco ${code.disk})` : `al día (${code.loaded})`;
+      console.log(`Trabajador del blog (${url}): activo · ${state}`);
+    } catch (error) {
+      console.log(`Trabajador del blog (${url}): sin respuesta (${error instanceof Error ? error.message : error})`);
+    }
+  }
+} finally {
+  await prisma.$disconnect();
 }
 
-const relay = await health("Relay (3099)", "http://127.0.0.1:3099/health");
-const runtime = await health("Servicio del blog (3102)", "http://127.0.0.1:3102/blog/health");
-console.log(`Código en disco: ${blogCodeStatus().disk}`);
-if (relay && runtime && relay !== runtime) console.log("ATENCIÓN: el relay y el servicio del blog corren versiones distintas.");
-
-if (!existsSync(deployRoot)) console.log(`Copia de despliegue no encontrada: ${deployRoot}`);
-else {
-  const files = execFileSync("git", ["ls-files", "src", "scripts", "prisma"], { cwd: root, encoding: "utf8" }).split("\n").filter((file) => /blog/i.test(file));
-  const different = files.filter((file) => !existsSync(resolve(deployRoot, file)) || sha(resolve(root, file)) !== sha(resolve(deployRoot, file)));
-  console.log(different.length ? `Copia de despliegue desactualizada (${different.length} archivos del blog):\n${different.map((file) => `  - ${file}`).join("\n")}` : "Copia de despliegue al día con el código del blog.");
+const local = execFileSync("git", ["rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim();
+try {
+  const remote = execFileSync("ssh", ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host,
+    `cd ~/${remoteDir} && git rev-parse --short HEAD && git status --short --untracked-files=no | wc -l`], { encoding: "utf8", timeout: 30_000 }).trim().split("\n");
+  console.log(`Servidor ${host}: commit ${remote[0]}${Number(remote[1]) ? ` con ${remote[1]} archivo(s) modificados a mano` : ""} · esta PC: ${local}`);
+  if (remote[0] !== local) console.log("Para actualizarlo: bash scripts/server/deploy-blog-runtime.sh --apply");
+} catch {
+  console.log(`Servidor ${host}: no se pudo consultar por SSH.`);
 }

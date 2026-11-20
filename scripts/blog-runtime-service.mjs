@@ -18,9 +18,25 @@ const json = (res, status, body) => { res.writeHead(status, { "Content-Type": "a
 const python = process.env.AGENTS_PYTHON_BIN || (existsSync(resolve(root, ".venv/Scripts/python.exe")) ? resolve(root, ".venv/Scripts/python.exe") : "python");
 
 async function runPython(args, clientId, timeoutMs = 300_000, progress, stdin) {
+  // Preview reads published data and needs no exclusive reservation. Everything
+  // else runs under the client's blog lease (reentrant) with the catalog version
+  // stamped on the pages, so a catalog sync and a publish never overlap.
+  if (args[0] === "preview") return runPythonProcess(args, clientId, timeoutMs, progress, stdin);
+  const result = await withBlogLease(db, clientId, async lease => {
+    const version = await db.appSetting.findUnique({ where: { key: `blog_catalog_version:${clientId}` } });
+    lease.assert();
+    return runPythonProcess(args, clientId, timeoutMs, progress, stdin, lease, version?.value || "");
+  });
+  if (result === null) throw new Error("El blog está actualizando el catálogo. Reintentá en unos minutos.");
+  return result;
+}
+
+async function runPythonProcess(args, clientId, timeoutMs, progress, stdin, lease, catalogVersion = "") {
   const client = await db.client.findUniqueOrThrow({ where: { id: clientId }, select: { slug: true } });
   return new Promise((accept, reject) => {
-    const child = spawn(python, [resolve(root, "landing-build/build_landings.py"), "--client-slug", client.slug, ...args], { cwd: root, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: "utf-8", LANDING_EXPECTED_CLIENT_ID: clientId, BLOG_PREPARATION_ATTEMPT_ID: progress?.attemptId || "", BLOG_DAILY_SLOT: String(progress?.dailySlot || 0) } });
+    const child = spawn(python, [resolve(root, "landing-build/build_landings.py"), "--client-slug", client.slug, ...args], { cwd: root, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: "utf-8", LANDING_EXPECTED_CLIENT_ID: clientId, LANDING_CATALOG_VERSION: catalogVersion, BLOG_PREPARATION_ATTEMPT_ID: progress?.attemptId || "", BLOG_DAILY_SLOT: String(progress?.dailySlot || 0) } });
+    const abort = () => terminateChild(child);
+    lease?.signal.addEventListener("abort", abort, { once: true });
     child.stdin.end(stdin);
     let output = "", lines = "", updates = Promise.resolve();
     child.stdout.on("data", chunk => {
@@ -35,7 +51,13 @@ async function runPython(args, clientId, timeoutMs = 300_000, progress, stdin) {
     child.on("error", error => { clearTimeout(timer); reject(error); });
     child.on("close", async code => {
       clearTimeout(timer);
-      try { await updates; if (code === 0) accept(output); else reject(new Error(output.slice(-1500))); } catch (error) { reject(error); }
+      lease?.signal.removeEventListener("abort", abort);
+      try {
+        await updates;
+        if (lease?.signal.aborted) reject(new Error("Se perdió la reserva del blog."));
+        else if (code === 0) accept(output);
+        else reject(new Error(output.slice(-1500)));
+      } catch (error) { reject(error); }
     });
   });
 }
@@ -143,6 +165,25 @@ const drainPublications = () => {
 const publicationTimer = setInterval(drainPublications, 15_000);
 publicationTimer.unref();
 const timer = previewOnly ? undefined : setInterval(tick, 15000);
-server.listen(port, "127.0.0.1", () => { console.log(`Shared blog runtime on ${port}.`); startTunnel(); drainPublications(); if (!previewOnly) void tick(); });
+
+// Catalog sync and business analysis feed the blog, so they run where the blog runs.
+function scheduledScript(label, script, timeoutMs) {
+  let running = false;
+  return () => {
+    if (running || stopping) return;
+    running = true;
+    const child = spawn(process.execPath, [resolve(root, "node_modules/tsx/dist/cli.mjs"), resolve(root, script), "--scheduled"], { cwd: root, windowsHide: true, env: process.env });
+    const limit = timeoutMs ? setTimeout(() => terminateChild(child), timeoutMs) : undefined;
+    child.stdout.on("data", chunk => { const line = chunk.toString().trim(); if (line && !line.includes('"skipped":true') && line !== "null") console.log(`[${label}] ${line}`); });
+    child.stderr.on("data", chunk => console.error(`[${label}] ${chunk.toString().trim()}`));
+    child.on("error", error => { clearTimeout(limit); running = false; console.error(`[${label}]`, error.message); });
+    child.on("close", () => { clearTimeout(limit); running = false; });
+  };
+}
+const runCatalog = scheduledScript("catalog", "scripts/sync-blog-catalog.mts");
+const runAnalysis = scheduledScript("business-analysis", "scripts/business-analysis-worker.mts", 45 * 60_000);
+const jobsTimer = previewOnly ? undefined : setInterval(() => { runCatalog(); runAnalysis(); }, 60_000);
+jobsTimer?.unref();
+server.listen(port, "127.0.0.1", () => { console.log(`Shared blog runtime on ${port}.`); startTunnel(); drainPublications(); if (!previewOnly) { void tick(); runCatalog(); runAnalysis(); } });
 restartOnBlogCodeChange({ label: "blog-runtime", isBusy: () => manualWorker.runtimeState().publishing || [...workers.values()].some(worker => { const state = worker.runtimeState(); return state.running || state.generating; }), restart: () => process.kill(process.pid, "SIGTERM") });
-for (const event of ["SIGINT", "SIGTERM"]) process.on(event, () => { stopping = true; clearInterval(timer); clearInterval(publicationTimer); clearInterval(watchdog); clearTimeout(restart); tunnel?.kill(); server.close(); void db.$disconnect().finally(() => process.exit(0)); });
+for (const event of ["SIGINT", "SIGTERM"]) process.on(event, () => { stopping = true; clearInterval(timer); clearInterval(jobsTimer); clearInterval(publicationTimer); clearInterval(watchdog); clearTimeout(restart); tunnel?.kill(); server.close(); void db.$disconnect().finally(() => process.exit(0)); });

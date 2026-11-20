@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LogoUpload } from "@/app/(app)/configuracion/logo-upload";
-import { GenerateLandingsButton } from "../generate-landings-button";
 import { LoadingSpinner } from "@/components/loading-ui";
 
 type Template = {
@@ -423,13 +422,6 @@ export function EditorForm({
         </div>}
       </section>
 
-      <section aria-labelledby="create-landings-heading">
-        <div className="mb-3">
-          <h2 id="create-landings-heading" className="font-display text-xl font-bold text-ink">Contenido</h2>
-          <p className="text-xs text-slate/75">Con el diseño validado, generá propuestas nuevas para este cliente.</p>
-        </div>
-        <GenerateLandingsButton clientSlug={config.clientSlug} variant="editor" />
-      </section>
     </form>
   );
 }

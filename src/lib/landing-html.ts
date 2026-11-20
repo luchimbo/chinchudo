@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
-import { getRelayUrl, getSetting } from "@/lib/settings";
+import { getSetting } from "@/lib/settings";
 
 const execFileAsync = promisify(execFile);
 
@@ -37,14 +37,11 @@ export const PREVIEW_UNAVAILABLE = "El servicio que arma la vista previa no resp
 const RELAY_TIMEOUT_MS = 25_000;
 
 async function renderOnRelay(clientSlug: string, landingId: string, client: LandingClientConfig, content?: Record<string, unknown>) {
-  // Los túneles trycloudflare cambian cada vez que se reinicia el relay. La
-  // URL vigente se persiste en AppSetting por el script de arranque; el env
-  // queda únicamente como respaldo para instalaciones sin base compartida.
-  // El runtime del blog y el relay principal saben renderizar: si uno está
-  // caído o su túnel quedó viejo, se prueba el otro.
-  const relayUrls = [...new Set([await getSetting("blog_runtime_relay_url"), await getRelayUrl()]
+  // Solo el trabajador del blog (servidor SSH) renderiza vistas previas. Su
+  // túnel trycloudflare cambia al reiniciarse y publica la URL vigente en AppSetting.
+  const relayUrls = [await getSetting("blog_runtime_relay_url")]
     .map(url => url?.trim().replace(/\/$/, ""))
-    .filter((url): url is string => !!url))];
+    .filter((url): url is string => !!url);
   const relayToken = process.env.AGENT_RELAY_TOKEN?.trim();
 
   if (!relayUrls.length || !relayToken) {

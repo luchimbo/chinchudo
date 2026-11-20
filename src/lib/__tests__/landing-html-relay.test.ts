@@ -28,26 +28,11 @@ describe("vista previa a través del relay", () => {
     expect(fetchMock.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
   });
 
-  it("cae al relay principal si el túnel del runtime no responde", async () => {
-    fetchMock
-      .mockRejectedValueOnce(new TypeError("fetch failed"))
-      .mockResolvedValueOnce(new Response("<!DOCTYPE html><html>relay</html>"));
-    expect(await renderLandingHtml(client, "a1")).toContain("relay");
-    expect(fetchMock.mock.calls[1][0]).toBe("https://relay.trycloudflare.com/landings/preview");
-  });
-
-  it("también prueba el otro relay ante un error HTTP", async () => {
-    fetchMock
-      .mockResolvedValueOnce(new Response("tunnel error", { status: 530 }))
-      .mockResolvedValueOnce(new Response("<!DOCTYPE html><html>relay</html>"));
-    expect(await renderLandingHtml(client, "a1")).toContain("relay");
-  });
-
-  it("no repite la misma URL y devuelve un mensaje claro con el detalle", async () => {
-    mocks.getRelayUrl.mockResolvedValue("https://runtime.trycloudflare.com");
+  it("no usa el relay local para la vista previa", async () => {
     fetchMock.mockRejectedValue(new TypeError("fetch failed"));
     const error = await renderLandingHtml(client, "a1").catch((reason: Error) => reason);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe("https://runtime.trycloudflare.com/landings/preview");
     expect((error as Error).message.split("\n")[0]).toBe(PREVIEW_UNAVAILABLE);
     expect((error as Error).message).toContain("fetch failed");
   });
