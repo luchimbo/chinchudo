@@ -10,7 +10,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-const CHANNELS = ["youtube", "reddit", "facebook", "instagram", "x", "tiktok", "linkedin"] as const;
+// El Asistente CM solo responde YouTube.
+const CHANNELS = ["youtube"] as const;
 const LANGUAGES = ["es", "en", "de", "pt", "any"] as const;
 const SEARCH_CHANNEL_TIMEOUT_MS = 90_000;
 

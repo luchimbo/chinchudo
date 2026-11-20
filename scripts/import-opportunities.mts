@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { rename } from "node:fs/promises";
+import { rename, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { PrismaClient } from "@prisma/client";
 // @ts-ignore
@@ -180,6 +180,9 @@ async function main() {
   // intake file so its final serial import never races another monitor.
   const activeIntakePath = args.input ? join(process.cwd(), args.input) : intakePath;
   const rows = readJsonl(activeIntakePath) as any[];
+  // Rows whose AI classification failed go back to the intake to be retried.
+  const retryRows: any[] = [];
+  const MAX_CLASSIFY_ATTEMPTS = 3;
   let created = 0;
   let duplicates = 0;
   let skipped = 0;
@@ -232,6 +235,11 @@ async function main() {
     const sourceUrl = youtubeCommentIdentity(rawSourceUrl)?.url || rawSourceUrl;
     const sourceText = String(row.sourceText || "").trim();
     if (!sourceUrl || sourceText.length < 10) {
+      skipped += 1;
+      continue;
+    }
+    // Solo YouTube llega al Asistente CM; no se clasifica (ni se paga IA) por otras redes.
+    if (String(row.channel || "").toLowerCase() !== "youtube") {
       skipped += 1;
       continue;
     }
@@ -323,6 +331,7 @@ async function main() {
     let isDiscarded = false;
     let discardNotes = "";
     let aiResult;
+    let classifierFallback = false;
 
     try {
       aiResult = await withTimeout((signal) => classifyOpportunity(prisma, {
@@ -342,7 +351,13 @@ async function main() {
       }
     } catch (err) {
       errors.push({ sourceUrl, error: `Clasificador IA falló: ${(err as Error).message}` });
-      if (resolution.client.slug === "kressmer") continue;
+      const attempts = Number(row.classifyAttempts || 0) + 1;
+      // Retry later instead of importing an unclassified comment (Kressmer never uses the fallback).
+      if (attempts < MAX_CLASSIFY_ATTEMPTS || resolution.client.slug === "kressmer") {
+        if (attempts < MAX_CLASSIFY_ATTEMPTS && !args.dryRun) retryRows.push({ ...row, classifyAttempts: attempts });
+        continue;
+      }
+      classifierFallback = true;
       // Fallback a clasificación local si falla la IA
       const intent = row.detectedIntent || detectIntent(sourceText);
       const fallbackAssessment = resolution.client.slug === "prestige-running"
@@ -392,7 +407,8 @@ async function main() {
         && ["bateria", "battery", "drum", "mps", "parche", "pad", "modulo"].some((term) => normalizedSourceText.includes(term));
       const scoredPriority = priorityFromOpportunityScore(opportunityScore, aiResult.detectedIntent);
       const finalPriority = milleniumDrum && scoredPriority !== "URGENT" ? "HIGH" : scoredPriority;
-      const finalStatus = isDiscarded ? "DISCARDED" : "NEW";
+      // A comment the AI never classified needs a human look before it is queued.
+      const finalStatus = isDiscarded ? "DISCARDED" : classifierFallback ? "NEEDS_REVIEW" : "NEW";
       const notes = isDiscarded
         ? `${buildNotes(row)} ${discardNotes} Cliente: ${resolution.client.slug}.`
         : `${buildNotes(row)} Cliente: ${resolution.client.slug} (${resolution.confidence}, ${resolution.reason}). Razón IA: ${aiResult.actionableReason}${milleniumDrum ? " Prioridad estratégica: conversación sobre batería Millenium; responder con comparación objetiva y evidencia verificable." : ""}`;
@@ -476,6 +492,9 @@ async function main() {
     } catch {
       // Non-fatal: intake may not exist or may already have been moved.
     }
+    if (retryRows.length > 0) {
+      await writeFile(activeIntakePath, retryRows.map((row) => JSON.stringify(row)).join("\n") + "\n", { encoding: "utf-8", flag: "a" });
+    }
   }
 
   const report = writeReport("import-opportunities", {
@@ -483,6 +502,7 @@ async function main() {
     dry_run: args.dryRun,
     intake_path: activeIntakePath,
     rows_read: rows.length,
+    retry_later: retryRows.length,
     created,
     duplicates,
     skipped,

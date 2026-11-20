@@ -12,7 +12,8 @@ import { runtimeDir } from "./agent-utils.mjs";
 loadEnv();
 
 const DRY_RUN = process.argv.includes("--dry-run") || process.env.npm_config_dry_run === "true";
-const REQUIRED_CHANNELS = ["facebook", "instagram", "linkedin", "reddit", "tiktok", "x", "youtube"] as const;
+// El Asistente CM solo responde YouTube: las demás redes no se escuchan.
+const REQUIRED_CHANNELS = ["youtube"] as const;
 const LISTEN_TIMEOUT_MS = Number(process.env.DAILY_QUOTA_LISTEN_TIMEOUT_MS || 60_000);
 // Kressmer must reach its target: each run keeps searching (no 3-round cap) until
 // 20 or until its time budget, so the next 30-minute trigger resumes from the cursor.
@@ -258,7 +259,7 @@ export async function runClient(client: Client, since: Date, maxRounds: number, 
   let emptyRounds = 0;
   let stopReason = "";
   const target = Math.max(1, Number(cliOption("--target")) || client.dailyOpportunityTarget || 15);
-  const sources = await withTimeout(prisma.monitoredSource.findMany({ where: { clientId: client.id, ...(client.slug === "kressmer" ? { channel: "youtube" } : {}), active: true, lifecycle: { in: ["active", "proposed"] } }, orderBy: [{ priority: "desc" }, { lastRunAt: "asc" }, { label: "asc" }] }), `Lectura de fuentes de ${client.slug}`) as Source[];
+  const sources = await withTimeout(prisma.monitoredSource.findMany({ where: { clientId: client.id, channel: "youtube", active: true, lifecycle: { in: ["active", "proposed"] } }, orderBy: [{ priority: "desc" }, { lastRunAt: "asc" }, { label: "asc" }] }), `Lectura de fuentes de ${client.slug}`) as Source[];
   const configuredChannels = [...new Set(sources.map((source) => source.channel))].sort();
   const attempts: import("@prisma/client").Prisma.InputJsonObject[] = [];
   const seenUrls = new Set<string>();
@@ -394,7 +395,7 @@ export async function runClient(client: Client, since: Date, maxRounds: number, 
   }
 
   const attemptedChannels = [...new Set(attempts.filter((attempt) => attempt.channel !== "internal").map((attempt) => String(attempt.channel)))].sort();
-  const missingConfiguredChannels = (client.slug === "kressmer" ? ["youtube"] : REQUIRED_CHANNELS).filter((channel) => !configuredChannels.includes(channel));
+  const missingConfiguredChannels = REQUIRED_CHANNELS.filter((channel) => !configuredChannels.includes(channel));
   const unattemptedConfiguredChannels = configuredChannels.filter((channel) => !attemptedChannels.includes(channel));
   const blockedChannels = [...new Set(attempts.filter((attempt) => Boolean(attempt.listenTimedOut) || Boolean(attempt.error)).map((attempt) => String(attempt.channel)).filter((channel) => channel !== "internal"))].sort();
   const exhaustedChannels = configuredChannels.filter((channel) => attempts.filter((attempt) => attempt.channel === channel).length >= maxRounds);

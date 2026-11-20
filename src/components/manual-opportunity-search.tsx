@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 
 const CHANNELS = ["youtube"] as const;
 const CHANNEL_LABELS: Record<(typeof CHANNELS)[number], string> = {
@@ -49,7 +49,6 @@ export function ManualOpportunitySearch({ clientId, initialQuery }: Props) {
   const [limit, setLimit] = useState(5);
   const [channels, setChannels] = useState<string[]>(["youtube"]);
   const [events, setEvents] = useState<SearchEvent[]>([]);
-  const [jobId, setJobId] = useState("");
   const [open, setOpen] = useState(false);
   const [running, setRunning] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -73,37 +72,6 @@ export function ManualOpportunitySearch({ clientId, initialQuery }: Props) {
     event.status === "channel_started" || event.status === "import_started"
   ));
 
-  useEffect(() => {
-    if (!jobId || !running) return;
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const response = await fetch(`/api/opportunities/search/jobs?id=${encodeURIComponent(jobId)}`, {
-          cache: "no-store",
-        });
-        if (!response.ok) throw new Error(await response.text());
-        const data = await response.json();
-        if (cancelled) return;
-        setEvents(data.job.events || []);
-        if (data.job.status === "done" || data.job.status === "error") {
-          setRunning(false);
-        }
-      } catch {
-        if (cancelled) return;
-        setEvents((current) => current.some((event) => event.status === "error" && event.message?.startsWith("No pude actualizar el progreso")) ? current : [
-          ...current,
-          { status: "error", message: "No pude actualizar el progreso, pero la búsqueda sigue en segundo plano." },
-        ]);
-      }
-    };
-    void poll();
-    const timer = setInterval(poll, 2_000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [jobId, running]);
-
   const toggleChannel = (channel: string) => {
     setChannels((current) => (
       current.includes(channel)
@@ -126,25 +94,38 @@ export function ManualOpportunitySearch({ clientId, initialQuery }: Props) {
       setRunning(true);
       setOpen(true);
       setEvents([]);
-      setJobId("");
       try {
-        const response = await fetch("/api/opportunities/search/jobs", {
+        // /search/run streams NDJSON progress; on Vercel it runs through the relay on this PC.
+        const response = await fetch("/api/opportunities/search/run", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ clientId, channels, query: finalQuery, queries: finalKeywords, language, limit }),
+          body: JSON.stringify({ clientId, channels, query: finalQuery, language, limit }),
         });
-        if (!response.ok) {
+        if (!response.ok || !response.body) {
           const text = await response.text();
           throw new Error(text || "No se pudo iniciar la busqueda.");
         }
-        const data = await response.json();
-        setJobId(data.jobId);
-        setEvents(data.job?.events || []);
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        for (;;) {
+          const { value, done } = await reader.read();
+          buffer += decoder.decode(value, { stream: !done });
+          const lines = buffer.split("\n");
+          buffer = done ? "" : lines.pop() ?? "";
+          const parsed = lines.flatMap((line) => {
+            if (!line.trim()) return [];
+            try { return [JSON.parse(line) as SearchEvent]; } catch { return []; }
+          });
+          if (parsed.length) setEvents((current) => [...current, ...parsed]);
+          if (done) break;
+        }
       } catch (error) {
         setEvents((current) => [
           ...current,
           { status: "error", message: error instanceof Error ? error.message : "Error inesperado." },
         ]);
+      } finally {
         setRunning(false);
       }
     });
@@ -282,10 +263,10 @@ export function ManualOpportunitySearch({ clientId, initialQuery }: Props) {
           Cantidad por red
           <input
             value={limit}
-            onChange={(event) => setLimit(Math.max(1, Math.min(500, Number(event.target.value) || 1)))}
+            onChange={(event) => setLimit(Math.max(1, Math.min(20, Number(event.target.value) || 1)))}
             type="number"
             min={1}
-            max={500}
+            max={20}
             className="min-w-0 w-full rounded-md border border-ink/15 bg-paper px-3 py-2 text-sm text-ink"
           />
         </label>

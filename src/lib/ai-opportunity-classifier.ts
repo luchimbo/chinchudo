@@ -285,7 +285,7 @@ Devuelve únicamente un objeto JSON con las siguientes propiedades. No agregues 
     if (client.slug === "kressmer") throw error;
     // Fallback básico ante falla del modelo
     const directFallback = hasDirectFallbackSignal(`${candidate.sourceTitle || ""} ${candidate.videoTitle || ""} ${candidate.sourceText}`);
-    const fallbackIntent = directFallback ? "GENERAL_DISCUSSION" : "GENERAL_DISCUSSION";
+    const fallbackIntent = "GENERAL_DISCUSSION";
     const assessment = normalizeAssessment({
       opportunityType: directFallback ? "direct_response" : "discard",
       confidence: "low",

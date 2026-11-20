@@ -7,7 +7,8 @@ const prisma = new PrismaClient();
 
 async function main() {
   const sources = await prisma.monitoredSource.findMany({
-    where: { active: true },
+    // El Asistente CM solo responde YouTube: las demás redes no se escuchan.
+    where: { active: true, channel: "youtube" },
     include: { client: true },
     orderBy: { label: "asc" }
   });
