@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { z } from "zod";
 import { cmManualInputHash } from "./cm-freshness";
-import { refreshCMOpportunity, CM_ACTIVE_STATUSES } from "./cm-maintenance";
+import { refreshCMOpportunity, CM_ACTIVE_STATUSES, type CMChangeReason } from "./cm-maintenance";
 import { ClientResolutionError } from "./auth";
 import { loadCMVersion } from "./cm-version";
 
@@ -70,16 +70,32 @@ export async function claimManualJob(db: PrismaClient, owner: string) {
     return tx.cMManualJob.update({ where: { id: next.id }, data: { status: "RUNNING", lockedBy: owner, attempts: { increment: 1 }, leaseUntil: new Date(Date.now() + 120_000) } });
   }, { maxWait: 10_000, timeout: 15_000 });
 }
+/** Shown to the operator in the assistant (CMJobStatus) when a request is dropped or retried. */
+const CHANGE_MESSAGES: Record<CMChangeReason, string> = {
+  input_changed: "El comentario, su producto o su estado cambiaron mientras esperaba. Revisá la tarjeta y volvé a pedir la propuesta.",
+  response_added: "Llegó otra propuesta para esta oportunidad mientras se generaba. Revisá la que está en la tarjeta.",
+  rules_changed: "Cambiaron las reglas del cliente mientras se generaba; se vuelve a intentar con las actuales.",
+  lease_lost: "El procesador perdió la reserva de esta oportunidad; se vuelve a intentar.",
+  job_cancelled: "El pedido se canceló o venció mientras se generaba. Volvé a pedir la propuesta.",
+};
+const RETRYABLE_CHANGES = new Set<CMChangeReason>(["rules_changed", "lease_lost"]);
+
 export async function runManualJob(db: PrismaClient, job: NonNullable<Awaited<ReturnType<typeof claimManualJob>>>, owner: string) {
   const heartbeat = setInterval(() => { void db.cMManualJob.updateMany({ where: { id: job.id, status: "RUNNING", lockedBy: owner }, data: { leaseUntil: new Date(Date.now() + 120_000) } }).catch(() => undefined); }, 20_000);
   console.info(JSON.stringify({ event: "performance", operation: "cm-generation", operationId: job.id, stage: "queue-wait", durationMs: Date.now() - job.createdAt.getTime(), ok: true }));
   try {
     const { contextVersion, ...parameters } = job.parameters as { contextVersion?: string; responseId?: string; productId?: string; chatHistory?: Prisma.JsonArray };
-    const result = await refreshCMOpportunity(db, job.clientId, job.opportunityId, owner, { ...parameters, inputVersion: contextVersion, expectedHash: job.inputVersion, jobId: job.id });
+    let reason: CMChangeReason | undefined;
+    const result = await refreshCMOpportunity(db, job.clientId, job.opportunityId, owner, { ...parameters, inputVersion: contextVersion, expectedHash: job.inputVersion, jobId: job.id }, (why) => { reason = why; });
     if (result === "busy") {
       await db.cMManualJob.updateMany({ where: { id: job.id, status: "RUNNING", lockedBy: owner }, data: { status: "QUEUED", attempts: { decrement: 1 }, availableAt: new Date(Date.now() + 2000), leaseUntil: null } });
+    } else if (result === "changed" && reason && RETRYABLE_CHANGES.has(reason) && job.attempts < 2) {
+      // The operator's request is still valid: the rules moved or the lease
+      // expired mid-run. Run it again once with the current rules.
+      const { contextVersion: _previous, ...rest } = job.parameters as Record<string, unknown>;
+      await db.cMManualJob.updateMany({ where: { id: job.id, status: "RUNNING", lockedBy: owner }, data: { status: "QUEUED", parameters: rest as Prisma.InputJsonObject, availableAt: new Date(Date.now() + 1000), leaseUntil: null, error: CHANGE_MESSAGES[reason] } });
     } else if (!["generated", "review"].includes(result)) {
-      await db.cMManualJob.updateMany({ where: { id: job.id, status: "RUNNING", lockedBy: owner }, data: { status: "CONFLICT", leaseUntil: null, error: "La oportunidad o su contexto cambiaron. Revisá los datos y volvé a solicitar la propuesta." } });
+      await db.cMManualJob.updateMany({ where: { id: job.id, status: "RUNNING", lockedBy: owner }, data: { status: "CONFLICT", leaseUntil: null, error: reason ? CHANGE_MESSAGES[reason] : CHANGE_MESSAGES.input_changed } });
     }
   } catch (error) {
     const retry = transientJobError(error) && job.attempts < 3;

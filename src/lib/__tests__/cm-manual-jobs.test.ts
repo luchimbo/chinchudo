@@ -73,6 +73,20 @@ describe("cola manual CM", () => {
     await runManualJob(f.db, f.job, "owner");
     expect(f.mock.cMManualJob.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "CONFLICT" }), where: expect.objectContaining({ lockedBy: "owner" }) }));
   });
+  it("el conflicto guarda el motivo concreto", async () => {
+    const f = fixture();
+    vi.mocked(refreshCMOpportunity).mockImplementation(async (...args: unknown[]) => { (args[5] as (r: string) => void)("response_added"); return "changed"; });
+    await runManualJob(f.db, f.job, "owner");
+    expect(f.mock.cMManualJob.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "CONFLICT", error: expect.stringContaining("otra propuesta") }) }));
+  });
+  it("si cambiaron las reglas, reintenta una vez en vez de terminar en conflicto", async () => {
+    const f = fixture();
+    vi.mocked(refreshCMOpportunity).mockImplementation(async (...args: unknown[]) => { (args[5] as (r: string) => void)("rules_changed"); return "changed"; });
+    await runManualJob(f.db, f.job, "owner");
+    expect(f.mock.cMManualJob.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "QUEUED" }) }));
+    await runManualJob(f.db, { ...f.job, attempts: 2 }, "owner");
+    expect(f.mock.cMManualJob.updateMany).toHaveBeenLastCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "CONFLICT" }) }));
+  });
   it("espera el bloqueo de mantenimiento sin consumir un intento", async () => {
     const f = fixture(); vi.mocked(refreshCMOpportunity).mockResolvedValue("busy");
     await runManualJob(f.db, f.job, "owner");

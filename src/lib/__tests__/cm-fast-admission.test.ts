@@ -44,13 +44,29 @@ describe("admisión atómica CM", () => {
     expect(f.query).toHaveBeenCalledTimes(2);
   });
   it("la huella del worker está acotada por oportunidad y cliente", async () => {
-    const query = vi.fn(async (..._args: unknown[]) => [{ fingerprint: "db-v1:expected" }]);
-    expect(await currentManualFingerprint({ $queryRaw: query } as unknown as PrismaClient, "op", "tenant")).toBe("db-v1:expected");
+    const query = vi.fn(async (..._args: unknown[]) => [{ fingerprint: "db-v3:expected" }]);
+    expect(await currentManualFingerprint({ $queryRaw: query } as unknown as PrismaClient, "op", "tenant")).toBe("db-v3:expected");
     const sql = query.mock.calls[0][0] as { text: string; values: unknown[] };
     expect(sql.values).toEqual(expect.arrayContaining(["op", "tenant"]));
-    expect(sql.text).toContain('FROM "Product"');
-    expect(sql.text).toContain('FROM "PromptVersion"');
     expect(sql.text).not.toContain('openrouterApiKey');
+  });
+  it("la huella nueva ignora fechas, chat y catálogo, y cuenta respuestas y publicación", async () => {
+    const query = vi.fn(async (..._args: unknown[]) => [{ fingerprint: "db-v3:x" }]);
+    await currentManualFingerprint({ $queryRaw: query } as unknown as PrismaClient, "op", "tenant");
+    const text = (query.mock.calls[0][0] as { text: string }).text;
+    expect(text).toContain("'db-v3:'");
+    expect(text).not.toContain("to_jsonb(o)");
+    expect(text).not.toContain('"updatedAt"');
+    expect(text).not.toContain('"chatHistory"');
+    expect(text).not.toContain('FROM "Product"');
+    expect(text).toContain('"detectedProductId"');
+    expect(text).toContain('FROM "Response"');
+    expect(text).toContain('FROM "PublishingLog"');
+  });
+  it("los pedidos encolados con la huella anterior se validan con la anterior", async () => {
+    const query = vi.fn(async (..._args: unknown[]) => [{ fingerprint: "db-v2:old" }]);
+    await currentManualFingerprint({ $queryRaw: query } as unknown as PrismaClient, "op", "tenant", "db-v2:old");
+    expect((query.mock.calls[0][0] as { text: string }).text).toContain("'db-v2:'");
   });
   it("web y worker comparan la misma huella aunque tengan distinta configuración local", async () => {
     const f = fixture();
@@ -60,11 +76,11 @@ describe("admisión atómica CM", () => {
     const admission = f.query.mock.calls[0][0];
     vi.stubEnv("LLM_PROVIDER", "schedule");
     vi.stubEnv("OPENROUTER_MODEL", "worker-model");
-    const query = vi.fn(async (_sql: { text: string; values: unknown[] }) => [{ fingerprint: "db-v2:shared" }]);
+    const query = vi.fn(async (_sql: { text: string; values: unknown[] }) => [{ fingerprint: "db-v3:shared" }]);
     await currentManualFingerprint({ $queryRaw: query } as unknown as PrismaClient, "op", "tenant");
     const worker = query.mock.calls[0][0];
-    expect(admission.text).toContain("'db-v2:'");
-    expect(worker.text).toContain("'db-v2:'");
+    expect(admission.text).toContain("'db-v3:'");
+    expect(worker.text).toContain("'db-v3:'");
     for (const sql of [admission, worker]) {
       expect(sql.text).not.toContain("'runtime'");
       expect(sql.values).not.toEqual(expect.arrayContaining([expect.stringMatching(/^[a-f0-9]{64}$/)]));

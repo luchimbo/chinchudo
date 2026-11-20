@@ -116,7 +116,7 @@ describe("actualización automática del CM", () => {
   it("procesa una regeneración admitida por la web con la huella compartida", async () => {
     const f = fixture();
     expect(await refreshCMOpportunity(f.db, "client", "op", "owner", { jobId: "job", responseId: "old", expectedHash: "db-v2:shared" })).toBe("generated");
-    expect(currentManualFingerprint).toHaveBeenCalledWith(f.db, "op", "client");
+    expect(currentManualFingerprint).toHaveBeenCalledWith(f.db, "op", "client", "db-v2:shared");
     expect(f.opportunity.responses[0]).toMatchObject({ id: "new", isPrimary: true, draftText: "Propuesta actualizada" });
   });
   it("sigue rechazando cambios reales después de la admisión de la web", async () => {
@@ -165,6 +165,16 @@ describe("actualización automática del CM", () => {
     expect(await refreshCMOpportunity(f.db, "client", "op")).toBe("changed");
     expect(f.mock.response.create).not.toHaveBeenCalled();
     expect(f.response.editedText).toContain("Corrección");
+  });
+  it("guardar el chat mientras genera no cancela un pedido manual", async () => {
+    const f = fixture(); model.duringGeneration = () => { f.response.chatHistory = [{ sender: "user", text: "Más corta" }]; };
+    expect(await refreshCMOpportunity(f.db, "client", "op", "owner", { jobId: "job", expectedHash: cmManualInputHash(f.opportunity) })).toBe("generated");
+  });
+  it("informa por qué descartó una generación", async () => {
+    const f = fixture(); model.duringGeneration = () => { f.response.editedText = "Corrección mientras la IA trabaja"; };
+    const reasons: string[] = [];
+    expect(await refreshCMOpportunity(f.db, "client", "op", undefined, undefined, (reason) => reasons.push(reason))).toBe("changed");
+    expect(reasons).toEqual(["response_added"]);
   });
   it("rechaza oportunidades de otro cliente y las ya publicadas", async () => {
     const f = fixture();

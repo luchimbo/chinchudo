@@ -71,16 +71,21 @@ const include = {
   responses: { orderBy: { createdAt: "desc" as const }, include: { publishingLog: true } },
 } satisfies Prisma.OpportunityInclude;
 
+/** Why a generation was dropped as "changed"; recorded on manual jobs and maintenance reports. */
+export type CMChangeReason = "input_changed" | "rules_changed" | "lease_lost" | "job_cancelled" | "response_added";
+
 /** No public publishing call is reachable from this maintenance path. */
-export async function refreshCMOpportunity(db: PrismaClient, clientId: string, id: string, owner: string = randomUUID(), manual?: { responseId?: string; productId?: string; chatHistory?: Prisma.JsonArray; expectedHash: string; inputVersion?: string; jobId: string }) {
+export async function refreshCMOpportunity(db: PrismaClient, clientId: string, id: string, owner: string = randomUUID(), manual?: { responseId?: string; productId?: string; chatHistory?: Prisma.JsonArray; expectedHash: string; inputVersion?: string; jobId: string }, onChanged?: (reason: CMChangeReason) => void) {
+  const changed = (reason: CMChangeReason) => { onChanged?.(reason); return "changed" as const; };
   const before = await db.opportunity.findUniqueOrThrow({ where: { id }, include });
   if (before.clientId !== clientId || !CM_ACTIVE_STATUSES.includes(before.status as typeof CM_ACTIVE_STATUSES[number])
     || before.responses.some((response) => response.publishingLog)) return "skipped";
   const timing = operationTiming("cm-generation", manual?.jobId);
   const version = await timing.measure("context-version", () => loadCMVersion(db, clientId));
   if (manual) {
-    const fingerprint = /^db-v[12]:/.test(manual.expectedHash) ? await currentManualFingerprint(db, id, clientId) : cmManualInputHash(before);
-    if (fingerprint !== manual.expectedHash || (manual.inputVersion && version !== manual.inputVersion)) return "changed";
+    const fingerprint = /^db-v[123]:/.test(manual.expectedHash) ? await currentManualFingerprint(db, id, clientId, manual.expectedHash) : cmManualInputHash(before);
+    if (fingerprint !== manual.expectedHash) return changed("input_changed");
+    if (manual.inputVersion && version !== manual.inputVersion) return changed("rules_changed");
   }
   if (!manual && before.responses.some((response) => cmIsFresh(response.evidence, version, before))) return "skipped";
   const input = cmInputHash(before);
@@ -152,20 +157,27 @@ export async function refreshCMOpportunity(db: PrismaClient, clientId: string, i
     const crossClient = await detectCrossClientTerms(db, clientId, text);
     if (crossClient.length) throw new Error(`La propuesta mezcla datos de otro cliente: ${crossClient.join("; ")}`);
     // Prompt/catalog may have changed while the model was thinking.
-    if (await loadCMVersion(db, clientId) !== version) return "changed";
+    if (await loadCMVersion(db, clientId) !== version) return changed("rules_changed");
     // A serialization conflict only means another writer touched the same rows
     // (usually maintenance running beside a manual request). The AI answer is
     // still valid, so retry just this short transaction instead of the whole job.
     const result = await timing.measure("persist", () => retryOnWriteConflict(() => db.$transaction(async (tx) => {
       const current = await tx.opportunity.findUniqueOrThrow({ where: { id }, include });
       const lease = await tx.draftJob.findUnique({ where: { opportunityId: id } });
-      if (lease?.lockedBy !== owner || !lease.leaseUntil || lease.leaseUntil < new Date()
-        || current.clientId !== clientId || !CM_ACTIVE_STATUSES.includes(current.status as typeof CM_ACTIVE_STATUSES[number])
-        || cmInputHash(current) !== input || current.updatedAt.getTime() !== before.updatedAt.getTime()
-        || cmHash(current.responses) !== cmHash(before.responses)) return "changed";
+      if (lease?.lockedBy !== owner || !lease.leaseUntil || lease.leaseUntil < new Date()) return changed("lease_lost");
+      // Only what the proposal depends on: timestamps, chat saves and notes do not count.
+      if (current.clientId !== clientId || !CM_ACTIVE_STATUSES.includes(current.status as typeof CM_ACTIVE_STATUSES[number])
+        || cmInputHash(current) !== input) return changed("input_changed");
+      // Automatic runs must never overwrite an operator edit made while the model was
+      // thinking. A manual request was asked for explicitly: chat saves or edits on the
+      // previous proposal do not cancel it, only a new or published response does.
+      const responsesChanged = manual
+        ? cmResponseShape(current.responses) !== cmResponseShape(before.responses)
+        : current.updatedAt.getTime() !== before.updatedAt.getTime() || cmHash(current.responses) !== cmHash(before.responses);
+      if (responsesChanged) return changed("response_added");
       if (manual) {
         const job = await tx.cMManualJob.findUnique({ where: { id: manual.jobId } });
-        if (job?.status !== "RUNNING" || job.lockedBy !== owner || !job.leaseUntil || job.leaseUntil < new Date()) return "changed";
+        if (job?.status !== "RUNNING" || job.lockedBy !== owner || !job.leaseUntil || job.leaseUntil < new Date()) return changed("job_cancelled");
       }
       // Automatic maintenance must not replace human work. A manual regeneration
       // explicitly asks to open the new proposal; the old row remains intact.
@@ -205,6 +217,11 @@ export async function refreshCMOpportunity(db: PrismaClient, clientId: string, i
 }
 
 export const CM_AUTO_REFRESH_DAYS = 14;
+
+/** Which responses exist and whether one was published; edits and chat saves are ignored. */
+function cmResponseShape(responses: { id: string; publishingLog?: { id: string } | null }[]) {
+  return cmHash(responses.map((response) => [response.id, Boolean(response.publishingLog)]).sort());
+}
 const WRITE_CONFLICT_CODES = new Set(["P2034", "P2028"]);
 
 export async function retryOnWriteConflict<T>(write: () => Promise<T>, attempts = 4, wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))): Promise<T> {
@@ -245,7 +262,11 @@ export async function runCMMaintenance(db: PrismaClient, options: { limit: numbe
       // Count attempts, including model failures, so retries cannot bypass the cost cap.
       const value = String(spent + outcomes.length + 1);
       await db.appSetting.upsert({ where: { key: budgetKey }, create: { key: budgetKey, value }, update: { value } });
-      try { outcomes.push({ id: row.id, status: await refreshCMOpportunity(db, client.id, row.id) }); }
+      try {
+        let reason = "";
+        const status = await refreshCMOpportunity(db, client.id, row.id, undefined, undefined, (why) => { reason = why; });
+        outcomes.push({ id: row.id, status: reason ? `${status}:${reason}` : status });
+      }
       catch (error) { outcomes.push({ id: row.id, status: "error", error: error instanceof Error ? error.message : String(error) }); }
     }
     results.push({ client: client.slug, before: coverage.counts, budget_remaining: remaining, outcomes });

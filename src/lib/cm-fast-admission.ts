@@ -30,7 +30,26 @@ function contextFingerprint(clientId: Prisma.Sql) {
   )::text)`;
 }
 
+/**
+ * What a queued manual request depends on: the comment, its classification,
+ * the CM's choices, which responses exist and whether one was published.
+ * Timestamps, chat history, notes and the client's catalog are left out: they
+ * change constantly (chat saves, catalog sync, maintenance) and made most
+ * manual requests end in CONFLICT. The client's rules are checked separately
+ * through the CM version.
+ */
 function inputFingerprint() {
+  return Prisma.sql`'db-v3:' || md5(jsonb_build_array(
+    o.id, o.status::text, o."sourceText", o."sourceTitle", o."channelId", o."detectedIntent"::text,
+    o."detectedProductId", o."detectedBrandId",
+    o."contextAssessment"->'copilot'->'goal', o."contextAssessment"->'copilot'->'style', o."contextAssessment"->'copilot'->'productChoice',
+    coalesce((SELECT jsonb_agg(r.id ORDER BY r.id) FROM "Response" r WHERE r."opportunityId" = o.id), '[]'::jsonb),
+    EXISTS (SELECT 1 FROM "PublishingLog" p WHERE p."opportunityId" = o.id)
+  )::text)`;
+}
+
+/** Previous fingerprint, kept only so queued jobs created before db-v3 still validate. */
+function legacyInputFingerprint() {
   return Prisma.sql`'db-v2:' || md5(to_jsonb(o)::text || coalesce((SELECT jsonb_agg(to_jsonb(r) ORDER BY r.id)::text FROM "Response" r WHERE r."opportunityId" = o.id), '[]') || ${contextFingerprint(Prisma.sql`o."clientId"`)})`;
 }
 
@@ -85,7 +104,8 @@ export async function fastManualAdmission(db: PrismaClient, claims: SignedTenant
   throw new ClientResolutionError("La oportunidad tiene otra solicitud en curso. Actualizá el estado.", 409);
 }
 
-export async function currentManualFingerprint(db: PrismaClient, opportunityId: string, clientId: string) {
-  const [row] = await db.$queryRaw<{ fingerprint: string }[]>(Prisma.sql`SELECT ${inputFingerprint()} AS fingerprint FROM "Opportunity" o WHERE o.id = ${opportunityId} AND o."clientId" = ${clientId}`);
+export async function currentManualFingerprint(db: PrismaClient, opportunityId: string, clientId: string, expected = "db-v3:") {
+  const fingerprint = expected.startsWith("db-v2:") ? legacyInputFingerprint() : inputFingerprint();
+  const [row] = await db.$queryRaw<{ fingerprint: string }[]>(Prisma.sql`SELECT ${fingerprint} AS fingerprint FROM "Opportunity" o WHERE o.id = ${opportunityId} AND o."clientId" = ${clientId}`);
   return row?.fingerprint;
 }
