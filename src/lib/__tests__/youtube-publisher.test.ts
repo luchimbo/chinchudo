@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PrismaClient } from "@prisma/client";
 vi.mock("../social-token-crypto", () => ({ decryptSocialToken: (value: string) => value }));
-import { publishYouTubeComment } from "../youtube-publisher";
+import { commentIdFromUrl, publishYouTubeComment } from "../youtube-publisher";
 const db = () => ({ youTubeConnection: { findUnique: vi.fn(async () => ({ id: "connection", accessToken: "test-token", refreshToken: "test-refresh", expiresAt: new Date(Date.now() + 3600_000) })) } });
 const input = (mock: ReturnType<typeof db>) => ({ prisma: mock as unknown as PrismaClient, clientId: "client", account: "account", sourceUrl: "https://www.youtube.com/watch?v=video&lc=parent", text: "Respuesta revisada" });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
@@ -16,6 +16,12 @@ describe("publicación YouTube verificada", () => {
     const result = await publishYouTubeComment(input(db()));
     expect(result).toMatchObject({ success: true, remoteId: "remote-comment" });
     expect(fetch).toHaveBeenCalledTimes(1); expect(fetch.mock.calls[0]).toEqual([expect.stringContaining("/comments?part=snippet"), expect.objectContaining({ method: "POST", body: JSON.stringify({ snippet: { parentId: "parent", textOriginal: "Respuesta revisada" } }) })]);
+  });
+  it("una respuesta dentro de un hilo se publica en el comentario principal", async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ id: "remote-comment" }), { status: 200 })); vi.stubGlobal("fetch", fetch);
+    await publishYouTubeComment({ ...input(db()), sourceUrl: "https://www.youtube.com/watch?v=video&lc=parent.reply" });
+    expect(fetch.mock.calls[0][1]).toEqual(expect.objectContaining({ body: JSON.stringify({ snippet: { parentId: "parent", textOriginal: "Respuesta revisada" } }) }));
+    expect(commentIdFromUrl("https://www.youtube.com/watch?v=video")).toBeNull();
   });
   it("una respuesta ambigua no se reintenta automáticamente", async () => {
     const fetch = vi.fn(async () => { throw new Error("request_timeout"); }); vi.stubGlobal("fetch", fetch);

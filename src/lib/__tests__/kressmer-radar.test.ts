@@ -140,6 +140,14 @@ describe("concurrent import dedupe", () => {
       .toEqual(expect.objectContaining({ id: "same" }));
     expect(JSON.stringify(findMany.mock.calls[0][0].where)).toContain("lc=UgxOne");
   });
+  it("treats each reply inside a thread as its own comment", async () => {
+    const reply = "https://www.youtube.com/watch?v=video&t=77s&lc=UgxOne.9aBc";
+    expect(youtubeCommentIdentity(reply)).toEqual({ url: "https://www.youtube.com/watch?v=video&lc=UgxOne.9aBc", key: "video:UgxOne.9aBc", video: "video", parent: "UgxOne" });
+    expect(normalizeSourceUrlForDedupe("youtube", reply)).not.toBe(normalizeSourceUrlForDedupe("youtube", "https://www.youtube.com/watch?v=video&lc=UgxOne.7xYz"));
+    const findMany = vi.fn().mockResolvedValue([{ id: "sibling", sourceUrl: "https://www.youtube.com/watch?v=video&lc=UgxOne.7xYz" }]);
+    expect(await findExistingOpportunity({ opportunity: { findMany } } as any, "youtube", reply)).toBeNull();
+    expect(youtubeCommentIdentity("https://www.youtube.com/watch?v=video&lc=UgxOne..bad")).toBeNull();
+  });
   it("does not treat another comment on the same video as a duplicate", async () => {
     const findMany = vi.fn().mockResolvedValue([{ id: "other", sourceUrl: "https://www.youtube.com/watch?v=video&lc=UgxTwo" }]);
     expect(await findExistingOpportunity({ opportunity: { findMany } } as any, "youtube", "https://www.youtube.com/watch?v=video&lc=UgxOne")).toBeNull();

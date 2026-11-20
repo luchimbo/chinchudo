@@ -49,9 +49,15 @@ function videoIdFromUrl(sourceUrl: string): string | null {
   }
 }
 
-function commentIdFromUrl(sourceUrl: string): string | null {
+/**
+ * YouTube only accepts top-level comment ids as `parentId`. A reply inside a
+ * thread has the id `<parent>.<reply>`, so answering it means replying to the
+ * thread's parent comment (YouTube has no nested replies).
+ */
+export function commentIdFromUrl(sourceUrl: string): string | null {
   try {
-    return new URL(sourceUrl).searchParams.get("lc");
+    const lc = new URL(sourceUrl).searchParams.get("lc");
+    return lc ? lc.split(".")[0] || null : null;
   } catch {
     return null;
   }

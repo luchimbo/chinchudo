@@ -155,14 +155,19 @@ export function kressmerDraftClaimErrors(text: string, catalogEntries: KressmerC
   return [...new Set(errors)];
 }
 
-export function youtubeCommentIdentity(raw: string): { url: string; key: string; video: string } | null {
+/**
+ * A YouTube comment URL identity. Replies inside a thread have the id
+ * `<parent>.<reply>`: each reply is its own opportunity (`key`), and a reply
+ * to it is posted on the top-level thread (`parent`).
+ */
+export function youtubeCommentIdentity(raw: string): { url: string; key: string; video: string; parent: string } | null {
   try {
     const url = new URL(raw);
     if (!/^(www\.|m\.)?(youtube\.com|youtu\.be)$/.test(url.hostname)) return null;
     const video = url.hostname === "youtu.be" ? url.pathname.slice(1) : url.searchParams.get("v") || url.pathname.match(/\/(?:shorts|live)\/([^/]+)/)?.[1];
     const comment = url.searchParams.get("lc") || url.hash.match(/^#comment-(.+)$/)?.[1];
-    if (!video || !comment || !/^[\w-]+$/.test(comment) || /^\d+$/.test(comment)) return null;
-    return { url: `https://www.youtube.com/watch?v=${encodeURIComponent(video)}&lc=${encodeURIComponent(comment)}`, key: `${video}:${comment}`, video };
+    if (!video || !comment || !/^[\w-]+(?:\.[\w-]+)?$/.test(comment) || /^\d+$/.test(comment)) return null;
+    return { url: `https://www.youtube.com/watch?v=${encodeURIComponent(video)}&lc=${encodeURIComponent(comment)}`, key: `${video}:${comment}`, video, parent: comment.split(".")[0] };
   } catch { return null; }
 }
 
