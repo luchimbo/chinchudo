@@ -12,11 +12,11 @@ export async function GET(request: NextRequest) {
   const account = request.nextUrl.searchParams.get("account");
   const origin = request.nextUrl.origin;
   if (!clientSlug || !account) {
-    return NextResponse.redirect(new URL("/oportunidades?youtubeError=missing_connection_data", origin));
+    return NextResponse.redirect(new URL("/asistente-cm?youtubeError=missing_connection_data", origin));
   }
 
   const client = await prisma.client.findUnique({ where: { slug: clientSlug }, select: { id: true } });
-  if (!client) return NextResponse.redirect(new URL("/oportunidades?youtubeError=client_not_found", origin));
+  if (!client) return NextResponse.redirect(new URL("/asistente-cm?youtubeError=client_not_found", origin));
   try {
     await assertClientAccess(prisma, client.id);
     if (!process.env.YOUTUBE_OAUTH_CLIENT_ID || !process.env.YOUTUBE_OAUTH_CLIENT_SECRET) {
@@ -47,6 +47,6 @@ export async function GET(request: NextRequest) {
     return response;
   } catch (error) {
     const reason = error instanceof Error ? error.message : "youtube_connection_failed";
-    return NextResponse.redirect(new URL(`/oportunidades?youtubeError=${encodeURIComponent(reason)}`, origin));
+    return NextResponse.redirect(new URL(`/asistente-cm?youtubeError=${encodeURIComponent(reason)}`, origin));
   }
 }
