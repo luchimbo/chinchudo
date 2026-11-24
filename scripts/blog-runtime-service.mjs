@@ -90,9 +90,35 @@ async function tick() {
   finally { ticking = false; }
 }
 
+// The web app (Vercel) reaches the local LLM through this tunnel, so it keeps working with the
+// PC MIDI PC off. Ollama runs on this server behind pcmidi-guard, which queues GPU work per project.
+const localLlmOrigin = (process.env.SERVER_LLM_BASE_URL || "http://127.0.0.1:11435/v1").replace(/\/+$/, "");
+async function proxyLocalLlm(req, res) {
+  const chunks = []; let size = 0;
+  for await (const chunk of req) { size += chunk.length; if (size > 4_000_000) return json(res, 413, { error: "request_too_large" }); chunks.push(chunk); }
+  try {
+    const upstream = await fetch(`${localLlmOrigin}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-PCMidi-Project": "pcmidi-suite-web", Authorization: "Bearer ollama" },
+      body: Buffer.concat(chunks),
+      signal: AbortSignal.timeout(180_000),
+    });
+    res.writeHead(upstream.status, {
+      "Content-Type": upstream.headers.get("content-type") || "application/json",
+      "Cache-Control": "no-store",
+      ...(upstream.headers.has("retry-after") ? { "Retry-After": upstream.headers.get("retry-after") } : {}),
+    });
+    res.end(await upstream.text());
+  } catch (error) {
+    console.error("[blog-runtime] LLM local:", error instanceof Error ? error.message : error);
+    if (!res.headersSent) json(res, 502, { error: "local_llm_unavailable" });
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   if (req.method === "GET" && (req.url === "/health" || req.url === "/blog/health")) return json(res, 200, { ok: true, blogRuntimeVersion: 1, previewOnly, secondaryCalendars, blogCode: blogCodeStatus() });
   if (req.headers.authorization !== `Bearer ${token}`) return json(res, 401, { error: "unauthorized" });
+  if (req.method === "POST" && req.url === "/v1/chat/completions") return proxyLocalLlm(req, res);
   try {
     let text = "";
     for await (const chunk of req) { text += chunk; if (text.length > 150000) throw new Error("Pedido demasiado grande."); }

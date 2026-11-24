@@ -1,15 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fetchChatCompletion, resolveLLMConfig, resolveLLMProvider } from "../llm-provider";
-import { getRelayUrl } from "../settings";
+import { getLocalLlmRelayUrl } from "../settings";
 
-vi.mock("../settings", () => ({ getRelayUrl: vi.fn() }));
+vi.mock("../settings", () => ({ getLocalLlmRelayUrl: vi.fn() }));
 
 const ORIGINAL_ENV = { ...process.env };
 
 afterEach(() => {
   process.env = { ...ORIGINAL_ENV };
   vi.unstubAllGlobals();
-  vi.mocked(getRelayUrl).mockReset();
+  vi.mocked(getLocalLlmRelayUrl).mockReset();
 });
 
 describe("resolveLLMConfig", () => {
@@ -122,7 +122,7 @@ describe("local IA through the relay", () => {
     process.env.LLM_LOCAL_BASE_URL = "relay";
     process.env.LLM_LOCAL_API_KEY = "legacy-key";
     process.env.AGENT_RELAY_TOKEN = "relay-token";
-    vi.mocked(getRelayUrl).mockResolvedValue("https://current-tunnel.trycloudflare.com/");
+    vi.mocked(getLocalLlmRelayUrl).mockResolvedValue("https://current-tunnel.trycloudflare.com/");
     const fetchMock = okFetch();
 
     const result = await fetchChatCompletion(resolveLLMConfig(), { messages: [] }, "test");
@@ -137,7 +137,7 @@ describe("local IA through the relay", () => {
     process.env.LLM_LOCAL_BASE_URL = "https://old-tunnel.trycloudflare.com/v1";
     process.env.LLM_LOCAL_API_KEY = "relay-token-from-vercel";
     delete process.env.AGENT_RELAY_TOKEN;
-    vi.mocked(getRelayUrl).mockResolvedValue("https://new-tunnel.trycloudflare.com");
+    vi.mocked(getLocalLlmRelayUrl).mockResolvedValue("https://new-tunnel.trycloudflare.com");
     const fetchMock = okFetch();
 
     await fetchChatCompletion(resolveLLMConfig(), { messages: [] }, "test");
@@ -153,7 +153,7 @@ describe("local IA through the relay", () => {
 
     await fetchChatCompletion(resolveLLMConfig(), { messages: [] }, "test");
 
-    expect(getRelayUrl).not.toHaveBeenCalled();
+    expect(getLocalLlmRelayUrl).not.toHaveBeenCalled();
     expect(fetchMock.mock.calls[0][0]).toBe("http://pcmidi.local:11434/v1/chat/completions");
   });
 
@@ -175,7 +175,7 @@ describe("local IA through the relay", () => {
     process.env.OPENROUTER_API_KEY = "remote-key";
     process.env.OPENROUTER_MODEL = "remote-model";
     delete process.env.AGENT_RELAY_URL;
-    vi.mocked(getRelayUrl).mockResolvedValue(undefined);
+    vi.mocked(getLocalLlmRelayUrl).mockResolvedValue(undefined);
     const fetchMock = okFetch();
 
     const result = await fetchChatCompletion(resolveLLMConfig(), { messages: [] }, "test");

@@ -109,8 +109,8 @@ function usesRelayForLocal(baseUrl: string): boolean {
 async function resolveLocalEndpoint(config: LLMConfig): Promise<LLMConfig> {
   if (config.provider !== "local" || !usesRelayForLocal(config.baseUrl)) return config;
   // Import diferido: sólo este modo necesita la DB, y los scripts locales no.
-  const { getRelayUrl } = await import("./settings");
-  const relayUrl = await getRelayUrl();
+  const { getLocalLlmRelayUrl } = await import("./settings");
+  const relayUrl = await getLocalLlmRelayUrl();
   if (!relayUrl) {
     if (config.baseUrl.toLowerCase() === "relay") throw new Error("La IA local usa el relay, pero AGENT_RELAY_URL no está configurado.");
     return config;
