@@ -29,7 +29,7 @@ Además se conservan el onboarding de clientes nuevos y la lógica de cada clien
 
 - **Clientes activos**: `pcmidi`, `prestige-running`, `jurispedia`, `kressmer`, `programa-vidia`.
 - **Base de datos**: Supabase Postgres (fuente de verdad). `prisma migrate deploy` funciona sobre la baseline `0_init`.
-- **IA**: OpenRouter (key/modelo por cliente con fallback global) o el LLM local (qwen) en horario. Si la IA falla, no se inventa una plantilla: se conserva la propuesta anterior y se reintenta.
+- **IA**: OpenRouter (key/modelo por cliente con fallback global) o el LLM local (qwen, en el servidor `pcmidi`) a toda hora; OpenRouter queda de respaldo si qwen falla. Si la IA falla, no se inventa una plantilla: se conserva la propuesta anterior y se reintenta.
 - **Se borró** (queda en git): Estudio de Reels, videos/avatares, tendencias, analítica, presencia en IAs (GEO), bitácora, leads/contactos y nurture por email, la vista clásica de 3 variantes, `draft-worker`, `publisher.py` y los agentes Python viejos (`agente_*`, `swarm.py`).
 
 ## Principios Del Proyecto
