@@ -248,6 +248,7 @@ Python maneja el navegador real (CDP). Node.js + Prisma persisten en Postgres. J
   - la cola manual del Asistente CM (`/api/cm/jobs` → `scripts/cm-manual-worker.mts`);
   - el mantenimiento cada 15 minutos (tarea `Los5Apostoles-AsistenteCM` → `scripts/cm-maintenance.mts`);
   - la cuota diaria de Kressmer.
+- **Dónde corre**: en el servidor SSH `pcmidi` (`scripts/start-cm-runtime-ssh.sh` vía `@reboot`: procesador siempre vivo + mantenimiento cada 15 minutos, con los ajustes de `scripts/server/cm-runtime.env` y el Ollama del mismo servidor) y también en la PC de PC MIDI (tareas de Windows). Pueden correr a la vez: la base reparte los pedidos y el mantenimiento tiene candado. Se despliega con `deploy-blog-runtime.sh`.
 - **Prompt**: `buildCopilotPrompt` en `src/lib/ai-draft-generator.ts` (Kressmer usa `buildKressmerReplyPrompt`). Validación en `src/lib/draft-output.ts`: sin preguntas salvo Prestige y Kressmer.
 - **Frescura**: `src/lib/cm-version.ts`. Versión = `version` de `src/lib/cm-rules-version.json` (se cambia a mano solo cuando las reglas de generación deben volver viejas todas las propuestas; el mantenimiento las regenera) + contenido del cliente. Memorias y ejemplos aprendidos no invalidan propuestas existentes.
 - **Alcance**: el mantenimiento solo regenera oportunidades de los últimos 14 días (`CM_AUTO_REFRESH_DAYS`); las más viejas se rehacen a pedido.

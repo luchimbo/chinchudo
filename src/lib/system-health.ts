@@ -32,7 +32,7 @@ export async function loadSystemHealth(db: PrismaClient, clientId: string, now =
   const heartbeat = Date.parse(setting("cm.manual.worker.heartbeat") ?? "");
   if (!Number.isFinite(heartbeat) || now.getTime() - heartbeat > 2 * MINUTE) {
     alerts.push({ area: "cm", level: "error", href: "/asistente-cm",
-      message: "El procesador de propuestas no está corriendo: «Generar» y «Rehacer» quedan en cola. Revisá la PC de PC MIDI." });
+      message: "El procesador de propuestas no está corriendo: «Generar» y «Rehacer» quedan en cola. Corre en el servidor pcmidi y en la PC de PC MIDI: revisá que alguno de los dos esté prendido." });
   }
 
   const maintenance = parse(setting("cm.maintenance.last-run"));
