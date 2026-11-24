@@ -116,6 +116,12 @@ describe("Kressmer replies recommend Kressmer with verified sheet data", () => {
   ])("blocks %s", (text, error) => {
     expect(kressmerDraftClaimErrors(text, CATALOG)).toContain(error);
   });
+  it("a sentence that continues the Kressmer's subject is checked against its sheet", () => {
+    expect(kressmerDraftClaimErrors("For classical repertoire, consider the Kressmer K-88. It features 88 keys with hammer action.", CATALOG)).toEqual([]);
+    expect(kressmerDraftClaimErrors("Mirá el Kressmer K-180. Tiene 88 teclas sensibles a la velocidad.", CATALOG)).toEqual([]);
+    expect(kressmerDraftClaimErrors("Consider the Kressmer K-180. It has hammer action.", CATALOG)).toContain("unverified_kressmer_spec");
+    expect(kressmerDraftClaimErrors("Mirá el Kressmer K-88. Tu teclado es muy bueno para empezar.", CATALOG)).toContain("unverified_implicit_attribute");
+  });
   it("without catalogue it still requires naming Kressmer, but no attributes", () => {
     expect(kressmerDraftClaimErrors("Una opción a considerar es Kressmer.", [])).toEqual([]);
     expect(kressmerDraftClaimErrors("Kressmer tiene teclas contrapesadas.", [])).toContain("unverified_kressmer_attribute");

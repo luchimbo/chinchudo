@@ -64,7 +64,9 @@ const IMPLICIT_ATTRIBUTION = [
   /\b(?:its|sus?|seine?n?|ihre?n?) (?:teclas|sonido|parlantes|altavoces|pedal|mecanica|polifonia|keys|sound|speakers|action|polyphony|tasten|klang|lautsprecher|tastatur)\b/,
   new RegExp(`\\b(?:este|ese|aquel|dicho|tu|su|this|that|your|dieses|dieser|das|dein|ihr) ${INSTRUMENT}\\b(?: [a-z]+)? (?:es|tiene|trae|viene|suena|ofrece|incluye|cuenta|no|anda|funciona|va|is|'s|has|comes|offers|features|includes|sounds|lacks|feels|doesn'?t|won'?t|ist|hat|bietet|klingt|kommt|verfugt|eignet)\\b`),
 ];
-const THIRD_PARTY_BRANDS = /\b(?:yamaha|casio|roland|korg|kawai|alesis|donner|kurzweil|nord|medeli|artesia|williams|thomann|startone|behringer|arturia|novation|m-audio|akai|nektar|ketron|bontempi|midiplus|kurtzman|orla|ringway)\b/;
+/** Opening words that keep the previous sentence's subject: pronouns, "this model" and pro-drop verbs. */
+const CONTINUATION = new RegExp(`^(?:(?:this|that|the|este|esta|ese|el|dieses|dieser|das) ${INSTRUMENT}\\b|(?:it|it'?s|its|er|sie)\\b|(?:no )?(?:tiene|trae|viene|cuenta con|incluye|ofrece|suena)\\b|es (?:un|una|ideal|hat|bietet|verfugt|kommt|klingt|ist)\\b)`);
+const THIRD_PARTY_BRANDS =/\b(?:yamaha|casio|roland|korg|kawai|alesis|donner|kurzweil|nord|medeli|artesia|williams|thomann|startone|behringer|arturia|novation|m-audio|akai|nektar|ketron|bontempi|midiplus|kurtzman|orla|ringway)\b/;
 
 export type KressmerCatalogEntry = { name: string; description?: string | null; technicalSpecs?: string | null };
 
@@ -138,8 +140,19 @@ export function kressmerDraftClaimErrors(text: string, catalogEntries: KressmerC
   const catalog = catalogEntries.map(entry => ({ code: kressmerModelCode(entry.name), evidence: catalogEvidence(entry) }));
   const codes = catalog.flatMap(entry => entry.code ? [entry.code] : []);
   const errors: string[] = [];
-  const sentences = normalized.split(/[.!?;:\n]+/).map(sentence => sentence.trim()).filter(Boolean);
   const aboutKressmer = (sentence: string) => /\bkressmer\b/.test(sentence) || codes.some(code => modelCodePattern(code).test(sentence));
+  // "Consider the Kressmer LM-281. It features…": a sentence that opens with a pronoun or a bare
+  // verb continues the previous sentence's subject. It is checked as a sentence about that model
+  // (so its specs still need the sheet) instead of being read as a description of the user's instrument.
+  const sentences = normalized.split(/[.!?;:\n]+/).map(sentence => sentence.trim()).filter(Boolean)
+    .reduce<string[]>((resolved, sentence) => {
+      const previous = resolved[resolved.length - 1];
+      if (previous && !aboutKressmer(sentence) && aboutKressmer(previous) && !THIRD_PARTY_BRANDS.test(sentence) && CONTINUATION.test(sentence)) {
+        const subject = codes.filter(code => modelCodePattern(code).test(previous));
+        resolved.push(`kressmer ${subject.join(" ")} ${sentence}`);
+      } else resolved.push(sentence);
+      return resolved;
+    }, []);
   if (!/\bkressmer\b/.test(normalized)) errors.push("missing_kressmer_recommendation");
   // A competitor's specs are never covered by the Kressmer catalog, so naming one always blocks.
   if (sentences.some(sentence => THIRD_PARTY_BRANDS.test(sentence))) errors.push("unverified_third_party_product");
