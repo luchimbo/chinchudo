@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { openSync } from "node:fs";
+import { hostname } from "node:os";
 import path from "node:path";
 import { PrismaClient } from "@prisma/client";
 import { runCMMaintenance } from "../src/lib/cm-maintenance";
@@ -29,7 +30,8 @@ function positive(value: string | undefined, fallback: number) {
 // The manual-queue worker only starts at logon; if anything kills it (an app update, a closed
 // terminal), queued proposals wait forever. This task runs every 15 minutes, so it revives it.
 async function reviveManualWorker() {
-  const setting = await db.appSetting.findUnique({ where: { key: "cm.manual.worker.heartbeat" }, select: { value: true } });
+  // This machine's heartbeat: another machine's live worker must not stop this one from reviving.
+  const setting = await db.appSetting.findUnique({ where: { key: `cm.manual.worker.heartbeat.${hostname()}` }, select: { value: true } });
   const last = Date.parse(setting?.value ?? "");
   if (Number.isFinite(last) && Date.now() - last < 60_000) return;
   const root = process.cwd();

@@ -1,6 +1,7 @@
 import nextEnv from "@next/env";
 nextEnv.loadEnvConfig(process.cwd());
 import { createServer } from "node:net";
+import { hostname } from "node:os";
 import { PrismaClient } from "@prisma/client";
 import { claimManualJob, runManualJob, workerOwner } from "../src/lib/cm-manual-jobs";
 import { refreshCoverageSnapshot } from "../src/lib/cm-coverage-snapshot";
@@ -39,7 +40,12 @@ try {
     lastTick = Date.now();
     try {
     if (dryRun) { console.info(JSON.stringify({ command: "cm-manual-worker", dryRun: true, queued: await db.cMManualJob.count({ where: { status: "QUEUED" } }) })); break; }
-    await db.appSetting.upsert({ where: { key: "cm.manual.worker.heartbeat" }, create: { key: "cm.manual.worker.heartbeat", value: new Date().toISOString() }, update: { value: new Date().toISOString() } });
+    // Shared key: the home health card ("is any worker alive?"). Per-machine key: lets each
+    // machine's cm-maintenance revive its own worker even while another machine's is alive.
+    const beat = new Date().toISOString();
+    for (const key of ["cm.manual.worker.heartbeat", `cm.manual.worker.heartbeat.${hostname()}`]) {
+      await db.appSetting.upsert({ where: { key }, create: { key, value: beat }, update: { value: beat } });
+    }
     while (tasks.size < 2 && !stopping) {
       const job = await claimManualJob(db, owner);
       if (!job) break;
