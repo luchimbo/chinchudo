@@ -75,6 +75,9 @@ const include = {
 export type CMChangeReason = "input_changed" | "rules_changed" | "lease_lost" | "job_cancelled" | "response_added";
 
 /** No public publishing call is reachable from this maintenance path. */
+/** The comment should not get a reply (a client's policy rejects it). Not a failure: reports count it apart. */
+export class CMPolicyRejection extends Error {}
+
 export async function refreshCMOpportunity(db: PrismaClient, clientId: string, id: string, owner: string = randomUUID(), manual?: { responseId?: string; productId?: string; chatHistory?: Prisma.JsonArray; expectedHash: string; inputVersion?: string; jobId: string }, onChanged?: (reason: CMChangeReason) => void) {
   const changed = (reason: CMChangeReason) => { onChanged?.(reason); return "changed" as const; };
   const before = await db.opportunity.findUniqueOrThrow({ where: { id }, include });
@@ -106,7 +109,7 @@ export async function refreshCMOpportunity(db: PrismaClient, clientId: string, i
   try {
     const context = await loadClientContext(db, clientId, before);
     if (["kressmer", "pcmidi"].includes(context.client.slug) && isExternalCourseInquiry(before.sourceText, before.sourceTitle)) {
-      throw new Error("Consulta sobre inscripción, cupos o condiciones de un curso ajeno. Corresponde descartarla, sin generar una respuesta de instrumentos.");
+      throw new CMPolicyRejection("Consulta sobre inscripción, cupos o condiciones de un curso ajeno. Corresponde descartarla, sin generar una respuesta de instrumentos.");
     }
     const selected = (manual?.responseId ? before.responses.find(response => response.id === manual.responseId) : undefined) ?? before.responses.find((response) => response.isPrimary) ?? before.responses[0];
     const copilot = cmObject(cmObject(before.contextAssessment).copilot);
@@ -128,7 +131,7 @@ export async function refreshCMOpportunity(db: PrismaClient, clientId: string, i
     if (!actors.ok) throw new Error(actors.riskNotes.join("; "));
     if (context.client.slug === "jurispedia") {
       const safety = classifyJurispediaSafety(before.sourceText);
-      if (!safety.allowed) throw new Error(safety.reason);
+      if (!safety.allowed) throw new CMPolicyRejection(safety.reason);
     }
     const [{ knowledge, objections }, activeSystemPrompt, memories, acceptedExamples, observedProfile, competitorEvidence] = await Promise.all([
       loadRelevantKnowledge(db, { sourceText: before.sourceText, clientId, brandId: brand.id, productId: product?.id }),
@@ -267,7 +270,9 @@ export async function runCMMaintenance(db: PrismaClient, options: { limit: numbe
         const status = await refreshCMOpportunity(db, client.id, row.id, undefined, undefined, (why) => { reason = why; });
         outcomes.push({ id: row.id, status: reason ? `${status}:${reason}` : status });
       }
-      catch (error) { outcomes.push({ id: row.id, status: "error", error: error instanceof Error ? error.message : String(error) }); }
+      catch (error) {
+        outcomes.push({ id: row.id, status: error instanceof CMPolicyRejection ? "rejected" : "error", error: error instanceof Error ? error.message : String(error) });
+      }
     }
     results.push({ client: client.slug, before: coverage.counts, budget_remaining: remaining, outcomes });
   }
