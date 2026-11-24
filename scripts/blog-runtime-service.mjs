@@ -96,6 +96,7 @@ const localLlmOrigin = (process.env.SERVER_LLM_BASE_URL || "http://127.0.0.1:114
 async function proxyLocalLlm(req, res) {
   const chunks = []; let size = 0;
   for await (const chunk of req) { size += chunk.length; if (size > 4_000_000) return json(res, 413, { error: "request_too_large" }); chunks.push(chunk); }
+  const started = Date.now();
   try {
     const upstream = await fetch(`${localLlmOrigin}/chat/completions`, {
       method: "POST",
@@ -109,6 +110,7 @@ async function proxyLocalLlm(req, res) {
       ...(upstream.headers.has("retry-after") ? { "Retry-After": upstream.headers.get("retry-after") } : {}),
     });
     res.end(await upstream.text());
+    console.log(JSON.stringify({ event: "web-local-llm", status: upstream.status, ms: Date.now() - started, at: new Date().toISOString() }));
   } catch (error) {
     console.error("[blog-runtime] LLM local:", error instanceof Error ? error.message : error);
     if (!res.headersSent) json(res, 502, { error: "local_llm_unavailable" });
