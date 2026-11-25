@@ -1,4 +1,5 @@
 "use server";
+import { detectOpportunityLanguage } from "@/lib/opportunity-language";
 import { optimizedLoading, manualCMQueue } from "@/lib/performance-flags";
 import { assertCurrentCMResponse, claimYouTubePublication, clearYouTubePublication, markYouTubePublicationAmbiguous } from "@/lib/cm-action-guard";
 
@@ -61,6 +62,7 @@ export async function createOpportunity(formData: FormData) {
       clientId: clientObj?.id || null,
       detectedBrandId: parsed.detectedBrandId || null,
       detectedProductId: parsed.detectedProductId || null,
+      language: detectOpportunityLanguage(parsed.sourceText),
       status: OpportunityStatus.NEW
     }
   }).then(async (opportunity) => {

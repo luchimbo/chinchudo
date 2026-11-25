@@ -1,4 +1,8 @@
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { openSync } from "node:fs";
+import { hostname } from "node:os";
+import path from "node:path";
 import { PrismaClient } from "@prisma/client";
 import { runCMMaintenance } from "../src/lib/cm-maintenance";
 // @ts-ignore shared ESM helper.
@@ -23,7 +27,23 @@ function positive(value: string | undefined, fallback: number) {
   return number;
 }
 
+// The manual-queue worker only starts at logon; if anything kills it (an app update, a closed
+// terminal), queued proposals wait forever. This task runs every 15 minutes, so it revives it.
+async function reviveManualWorker() {
+  // This machine's heartbeat: another machine's live worker must not stop this one from reviving.
+  const setting = await db.appSetting.findUnique({ where: { key: `cm.manual.worker.heartbeat.${hostname()}` }, select: { value: true } });
+  const last = Date.parse(setting?.value ?? "");
+  if (Number.isFinite(last) && Date.now() - last < 60_000) return;
+  const root = process.cwd();
+  const out = openSync(path.join(root, "reports", "cm-manual-worker.log"), "a");
+  const err = openSync(path.join(root, "reports", "cm-manual-worker.err.log"), "a");
+  const args = [path.join(root, "node_modules", "tsx", "dist", "cli.mjs"), path.join(root, "scripts", "cm-manual-worker.mts")];
+  spawn(process.execPath, args, { cwd: root, detached: true, stdio: ["ignore", out, err], windowsHide: true }).unref();
+  console.log("Asistente CM: el procesador de la cola estaba detenido; se volvió a iniciar.");
+}
+
 async function main() {
+  if (!process.argv.includes("--dry-run") && process.platform === "win32") await reviveManualWorker().catch(() => undefined);
   const options = {
     limit: positive(option("--limit") ?? process.env.CM_DRAFT_BATCH_LIMIT, 10),
     dailyLimit: positive(option("--daily-limit") ?? process.env.CM_DRAFT_DAILY_LIMIT, 200),

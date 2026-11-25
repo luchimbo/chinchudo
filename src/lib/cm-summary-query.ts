@@ -41,6 +41,7 @@ export async function loadCMSummaries(db: PrismaClient, input: {
   clientId: string;
   brand: string;
   channel: string;
+  language?: string;
   response: string;
   ids: string[];
   readyIds: string[];
@@ -100,6 +101,7 @@ export async function loadCMSummaries(db: PrismaClient, input: {
         AND NOT EXISTS (SELECT 1 FROM "PublishingLog" log WHERE log."opportunityId" = o.id)
         ${input.brand ? Prisma.sql`AND o."detectedBrandId" = ${input.brand}` : Prisma.empty}
         ${input.channel ? Prisma.sql`AND o."channelId" = ${input.channel}` : Prisma.empty}
+        ${input.language ? Prisma.sql`AND o.language = ${input.language}` : Prisma.empty}
         ${filtered}
     ), bounds AS (
       SELECT coalesce(((position - 1) / ${input.pageSize}::int + 1)::int, ${focusId ? 1 : page}::int) AS page,

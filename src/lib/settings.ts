@@ -27,3 +27,13 @@ export async function getRelayUrl(): Promise<string | undefined> {
   const fromDb = await getSetting("AGENT_RELAY_URL");
   return fromDb?.trim() || process.env.AGENT_RELAY_URL?.trim() || undefined;
 }
+
+/**
+ * Por dónde llega la web a la IA local. Primero el túnel del servidor pcmidi (donde
+ * corre Ollama; lo publica blog-runtime-service.mjs y no depende de la PC de PC MIDI),
+ * después el relay de la PC como respaldo.
+ */
+export async function getLocalLlmRelayUrl(): Promise<string | undefined> {
+  const server = await getSetting("blog_runtime_relay_url");
+  return server?.trim() || await getRelayUrl();
+}

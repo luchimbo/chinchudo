@@ -18,6 +18,7 @@ import { looksSpanish, pickYouTubeDisplayTitle, usableTitle } from "../src/lib/o
 import { calculateOpportunityScore, normalizeAssessment, prestigeFallbackAssessment, priorityFromOpportunityScore } from "../src/lib/contextual-opportunity";
 // @ts-ignore -- shared ESM helper used by operational scripts.
 import { isPrestigeRadarCandidate, normalizedRadarText } from "../src/lib/prestige-radar.mjs";
+import { detectOpportunityLanguage, opportunityLanguage } from "../src/lib/opportunity-language";
 
 loadEnv();
 // El worker local necesita una conexión estable durante las rondas largas;
@@ -438,6 +439,8 @@ async function main() {
           detectedIntent: aiResult.detectedIntent,
           priority: finalPriority,
           opportunityScore,
+          language: resolution.client.slug === "kressmer" ? detectKressmerLanguage(sourceText)
+            : classifierFallback ? detectOpportunityLanguage(sourceText) : opportunityLanguage(aiResult.language) || detectOpportunityLanguage(sourceText),
           contextAssessment: resolution.client.slug === "kressmer" ? { ...assessment, kressmerRadar: {
             version: 1, language: detectKressmerLanguage(sourceText),
             publishedAt: commentPublishedAt(row.publishedTime, row.captured_at_utc)?.toISOString(),

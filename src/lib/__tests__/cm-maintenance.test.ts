@@ -21,7 +21,7 @@ vi.mock("../observed-profiles", () => ({ loadObservedProfileContext: vi.fn(async
 vi.mock("../competitor-evidence", () => ({ loadRelevantCompetitorEvidence: vi.fn(async () => []) }));
 vi.mock("../guardrails", () => ({ validateClientScopedActors: () => ({ ok: true }), detectCrossClientTerms: vi.fn(async () => []) }));
 
-import { CM_AUTO_REFRESH_DAYS, cmCanRetry, cmDay, cmState, loadCMCoverage, refreshCMOpportunity, retryOnWriteConflict, runCMMaintenance } from "../cm-maintenance";
+import { CM_AUTO_REFRESH_DAYS, CMPolicyRejection, cmCanRetry, cmDay, cmState, loadCMCoverage, refreshCMOpportunity, retryOnWriteConflict, runCMMaintenance } from "../cm-maintenance";
 import { cmCoverageStatus, cmStamp, cmManualInputHash } from "../cm-freshness";
 import { generateAICopilotDraft } from "../ai-draft-generator";
 import { currentManualFingerprint } from "../cm-fast-admission";
@@ -210,6 +210,21 @@ describe("actualización automática del CM", () => {
     const results = await runCMMaintenance(f.db, { limit: 10, dailyLimit: 200 });
     expect(results[0].outcomes).toHaveLength(0);
     expect(generateAICopilotDraft).not.toHaveBeenCalled();
+  });
+  it("un comentario que la política del cliente rechaza no cuenta como error", async () => {
+    const f = fixture();
+    f.mock.opportunity.findMany.mockResolvedValue([{ ...f.opportunity, responses: [] }]);
+    (f.mock.cMManualJob as Record<string, unknown>).findFirst = vi.fn(async () => null);
+    vi.mocked(generateAICopilotDraft).mockRejectedValueOnce(new CMPolicyRejection("No es una consulta jurídica concreta."));
+    const rejected = await runCMMaintenance(f.db, { limit: 10, dailyLimit: 200 });
+    expect(rejected[0].outcomes).toEqual([{ id: "op", status: "rejected", error: "No es una consulta jurídica concreta." }]);
+    const g = fixture();
+    g.mock.opportunity.findMany.mockResolvedValue([{ ...g.opportunity, responses: [] }]);
+    (g.mock.cMManualJob as Record<string, unknown>).findFirst = vi.fn(async () => null);
+    vi.mocked(generateAICopilotDraft).mockRejectedValueOnce(new Error("Proveedor caído"));
+    const failed = await runCMMaintenance(g.db, { limit: 10, dailyLimit: 200 });
+    expect(failed[0].outcomes[0].status).toBe("error");
+    vi.mocked(generateAICopilotDraft).mockClear();
   });
 });
 
