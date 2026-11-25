@@ -31,7 +31,8 @@ function positive(value: string | undefined, fallback: number) {
 // terminal), queued proposals wait forever. This task runs every 15 minutes, so it revives it.
 async function reviveManualWorker() {
   // This machine's heartbeat: another machine's live worker must not stop this one from reviving.
-  const setting = await db.appSetting.findUnique({ where: { key: `cm.manual.worker.heartbeat.${hostname()}` }, select: { value: true } });
+  // If the database does not answer, start it anyway: the worker's port lock makes a duplicate exit at once.
+  const setting = await db.appSetting.findUnique({ where: { key: `cm.manual.worker.heartbeat.${hostname()}` }, select: { value: true } }).catch(() => null);
   const last = Date.parse(setting?.value ?? "");
   if (Number.isFinite(last) && Date.now() - last < 60_000) return;
   const root = process.cwd();

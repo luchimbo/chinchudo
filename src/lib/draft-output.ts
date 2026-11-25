@@ -25,8 +25,10 @@ export function sanitizePublicDraft(text: string): string {
     .replace(/\bantes de cerrar\b/gi, "antes de elegir")
     .replace(/\bcerrar bien\b/gi, "elegir bien")
     .replace(/\bsi ocup[aá]s (\d+) teclas\b/gi, "si necesitás $1 teclas")
-    .replace(/(?:Consultá|Preguntá) en PC MIDI Center[^.!?]*(?:[.!?]|$)/gi, " ")
-    .replace(/En PC MIDI Center[^.!?]*(?:[.!?]|$)/gi, " ")
+    // Only canned closing sentences that open with the store: a mention inside a sentence
+    // ("…y lo tenés en PC MIDI Center.") stays, or the sentence would be left cut off.
+    .replace(/(^|[.!?]\s*)(?:Consultá|Preguntá) en PC MIDI Center[^.!?]*(?:[.!?]|$)/gi, "$1 ")
+    .replace(/(^|[.!?]\s*)En PC MIDI Center[^.!?]*(?:[.!?]|$)/gi, "$1 ")
     .replace(/\b(?:cuotas? sin inter[eé]s|cuotas? suaves|cuotas? c[oó]modas|muy buen precio)\b/gi, "condiciones a confirmar")
     .replace(/\s+([,.;!?])/g, "$1")
     .replace(/\s+/g, " ")
@@ -44,6 +46,8 @@ export function sanitizeCopilotDraft(text: string, clientSlug?: string): string 
 export function validatePublicDraft(text: string): string[] {
   const errors: string[] = [];
   if (!text.trim()) errors.push("empty_draft");
+  // A reply that stops mid-sentence ("…y lo tenés") is never publishable.
+  else if (!/(?:[.!?…)"»]|\p{Extended_Pictographic}|https?:\/\/\S+)\s*$/u.test(text)) errors.push("unfinished_sentence");
   if (INTERNAL_INSTRUCTION_PATTERNS.some((pattern) => { pattern.lastIndex = 0; return pattern.test(text); })) errors.push("internal_instruction");
   if (PUBLIC_BLOCKLIST.some((pattern) => pattern.test(text))) errors.push("blocked_language");
   if (/\b(?:controlador|teclado)\s+(?:de\s+)?midiplus\b/i.test(text) && !/\b(?:akm?\d+|ak\d+|origin\s*\d+|minicontrol\s*\d+|easy\s*piano\s*e?\d+|x\d+|xmini|i\d+)\b/i.test(text)) {
