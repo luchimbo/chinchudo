@@ -86,6 +86,18 @@ describe("regresiones de reportes de julio", () => {
     expect(validatePublicDraft(clean)).toEqual([]);
   });
 
+  it("no corta una oración que nombra el local en el medio", () => {
+    const text = "Buen video para orientarse. El Arturia Keystep Mk2 tiene secuenciador y arpegiador, y lo tenés en PC MIDI Center.";
+    expect(sanitizeCopilotDraft(text, "pcmidi")).toBe(text);
+    expect(validatePublicDraft(sanitizeCopilotDraft(text, "pcmidi"))).toEqual([]);
+  });
+
+  it("rechaza una propuesta que termina a mitad de oración", () => {
+    expect(validatePublicDraft("El Arturia Keystep Mk2 tiene secuenciador y arpegiador, y lo tenés")).toContain("unfinished_sentence");
+    expect(validatePublicDraft("Para practicar de noche va muy bien 🎧")).toEqual([]);
+    expect(validatePublicDraft("Te dejo la guía: https://jurispedia.com.ar/laboral?utm_term=laboral")).toEqual([]);
+  });
+
   it("quita la apertura y el cierre enlatados del copiloto", () => {
     expect(sanitizeCopilotDraft("Mirá, el MiniLab 3 tiene faders. Consultá en PC MIDI Center por stock, precio, garantía y financiación.", "pcmidi"))
       .toBe("El MiniLab 3 tiene faders.");

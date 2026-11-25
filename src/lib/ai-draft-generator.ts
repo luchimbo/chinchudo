@@ -497,6 +497,9 @@ function buildStyleCorrection(errors: string[]): string {
   if (errors.includes("prestige_missing_brand_mention")) {
     notes.push("Falta integrar la marca Prestige Medias de forma natural dentro del flujo de la respuesta (experiencia o dato concreto en primera persona). No la agregues como oración de cierre desconectada ni como remate de venta.");
   }
+  if (errors.includes("unfinished_sentence")) {
+    notes.push("La respuesta quedó cortada a mitad de una oración. Escribila completa y terminá cada oración con punto.");
+  }
   if (errors.includes("contains_question")) {
     notes.push("La respuesta no puede tener preguntas. Reescribila solo con afirmaciones útiles para el comentario.");
   }
