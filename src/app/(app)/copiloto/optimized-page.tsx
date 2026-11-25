@@ -2,6 +2,7 @@ import { cmQueueCoverage, cmQueueResponse, cmQueueSort, loadCMSummaries } from "
 import { prisma } from "@/lib/db";
 import { requirePageClient } from "@/lib/auth";
 import { OPPORTUNITY_CHANNEL_NAMES } from "@/lib/opportunity-channels";
+import { opportunityLanguage } from "@/lib/opportunity-language";
 import { readCoverageSnapshot } from "@/lib/cm-coverage-snapshot";
 import { operationTiming } from "@/lib/performance";
 import { CopilotWorkspace } from "./workspace";
@@ -17,19 +18,20 @@ export default async function OptimizedCopilot({ searchParams }: { searchParams:
   ]));
   const selectedBrand = brands.find(b => b.id === searchParams.brand)?.id ?? "";
   const selectedChannel = channels.find(c => c.id === searchParams.channel)?.id ?? "";
+  const selectedLanguage = opportunityLanguage(searchParams.language);
   const selectedResponse = cmQueueResponse(searchParams.response);
   const selectedSort = cmQueueSort(searchParams.sort);
   const pendingFilter = !!selectedResponse && selectedResponse !== "generated" && snapshot.pending;
   const coverageById = new Map(snapshot.rows.map(row => [row.id, row]));
   const queue = await timing.measure("list-query", () => loadCMSummaries(prisma, {
-    clientId: client.id, brand: selectedBrand, channel: selectedChannel, response: selectedResponse,
+    clientId: client.id, brand: selectedBrand, channel: selectedChannel, language: selectedLanguage, response: selectedResponse,
     ...cmQueueCoverage(snapshot.rows, selectedResponse, snapshot.pending), sort: selectedSort,
     page: Number(searchParams.page), pageSize: 20, now: new Date(), focusId: searchParams.focus, compact: true,
   }));
   return <CopilotWorkspace coveragePending={snapshot.pending} coverage={snapshot.counts}
     queuePage={{ page: queue.page, nextId: queue.nextId, focusId: queue.focusId, targetMissing: queue.targetMissing, pendingFilter }}
     activeClient={{ slug: client.slug, name: client.name }} youtube={{ account: youtube?.account ?? "youtube-principal", connected: !!youtube, channelTitle: youtube?.channelTitle ?? "" }}
-    filters={{ brands, channels, selectedBrand, selectedChannel, selectedResponse, selectedSort }} products={[]}
+    filters={{ brands, channels, selectedBrand, selectedChannel, selectedLanguage, selectedResponse, selectedSort }} products={[]}
     opportunities={queue.rows.flatMap(({ item, priorityReasons }) => {
       if (!item) return [];
       const summary = coverageById.get(item.id);

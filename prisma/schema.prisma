@@ -418,6 +418,8 @@ model Opportunity {
   detectedTopics         Json                @default("[]")
   detectedTone           String              @default("")
   detectedToneConfidence String              @default("low")
+  /// Idioma del comentario: es | en | pt | de | other ("" = sin detectar). Filtro del Asistente CM.
+  language               String              @default("")
   notes                  String              @default("")
   monitoredSourceId      String?
   createdAt              DateTime            @default(now())
@@ -446,6 +448,7 @@ model Opportunity {
   @@index([detectedBrandId])
   @@index([detectedProductId])
   @@index([monitoredSourceId])
+  @@index([clientId, language])
 }
 
 model ObservedProfile {

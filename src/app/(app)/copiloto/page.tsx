@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import OptimizedCopilot from "./optimized-page";
 
 type PageProps = {
-  searchParams: { firstUse?: string; client?: string; brand?: string; channel?: string; response?: string; sort?: string; page?: string; focus?: string; youtubeConnected?: string; youtubeError?: string };
+  searchParams: { firstUse?: string; client?: string; brand?: string; channel?: string; language?: string; response?: string; sort?: string; page?: string; focus?: string; youtubeConnected?: string; youtubeError?: string };
 };
 
 const YOUTUBE_ERRORS: Record<string, string> = {

@@ -135,6 +135,7 @@ describe("local fallback drafts by client", () => {
     detectedTopics: [],
     detectedTone: "",
     detectedToneConfidence: "low",
+    language: "es",
     notes: "",
     monitoredSourceId: null,
     createdAt: new Date(),
