@@ -19,6 +19,14 @@ function Log($msg) {
 
 Log "=== scheduled-monitor inicio ==="
 
+# Desde 2026-11-26 la búsqueda corre en el servidor pcmidi (scripts/server/listening-ssh.sh).
+# Esta tarea (10Apostoles-Monitor) solo se puede deshabilitar como administrador, así que sale acá.
+# Para volver a buscar desde esta PC, crear el archivo data\listening-on-pc.flag.
+if (-not (Test-Path (Join-Path $ROOT "data\listening-on-pc.flag"))) {
+    Log "La busqueda de oportunidades corre en el servidor pcmidi; esta PC no busca."
+    exit 0
+}
+
 # Esperar hasta 90s a que NSTBrowser levante en puerto 8848
 $nstReady = $false
 $deadline = (Get-Date).AddSeconds(90)
