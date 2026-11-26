@@ -47,6 +47,8 @@ maintenance_loop() {
   done
 }
 
-worker_loop &
-maintenance_loop &
+# Only this shell holds the lock (fd 9): if the loops and their `sleep` inherited it, killing
+# this shell on a deploy would leave the lock taken and the next start would exit at once.
+worker_loop 9>&- &
+maintenance_loop 9>&- &
 wait
