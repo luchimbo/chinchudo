@@ -458,25 +458,20 @@ async function fetchRawCompletion(
   let raw = extract(firstData);
   let used = { model: first.config.model, provider: first.config.provider };
 
-  // Ollama "razonador" puede responder 200 con content vacío (se gastó los tokens
-  // pensando): en ese caso reintentamos una sola vez con OpenRouter.
+  // qwen sometimes answers 200 with empty content: retry once with qwen (no OpenRouter fallback).
   if (!raw && llm.provider === "local") {
-    const fallback = resolveOpenRouterConfig(client);
-    if (fallback.apiKey) {
-      logAIError("Proveedor local devolvió content vacío; reintentando con OpenRouter", null);
-      const second = await fetchChatCompletion(fallback, payload, title, client);
-      if (second.response.ok) {
-        const secondData = await second.response.json() as { error?: { message?: string } };
-        if (!secondData.error) {
-          raw = extract(secondData);
-          used = { model: second.config.model, provider: second.config.provider };
-        } else {
-          logAIError("OpenRouter devolvió error en body (fallback)", secondData.error.message);
-        }
+    logAIError("Proveedor local devolvió content vacío; se reintenta una vez con el mismo modelo", null);
+    const second = await fetchChatCompletion(llm, payload, title, client);
+    if (second.response.ok) {
+      const secondData = await second.response.json() as { error?: { message?: string } };
+      if (!secondData.error) {
+        raw = extract(secondData);
+        used = { model: second.config.model, provider: second.config.provider };
       } else {
-        const body = await second.response.text();
-        logAIError(`OpenRouter HTTP ${second.response.status} (fallback)`, body.slice(0, 300));
+        logAIError("LLM devolvió error en body (reintento)", secondData.error.message);
       }
+    } else {
+      logAIError(`LLM HTTP ${second.response.status} (reintento)`, (await second.response.text()).slice(0, 300));
     }
   }
   if (!raw) return null;

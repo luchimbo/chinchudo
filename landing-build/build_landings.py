@@ -1207,9 +1207,14 @@ def chat_json(system: str, user: str, model: str, temperature: float = 0.35, max
     load_env()
     editorial = "REGLAS EDITORIALES v1" in system
     local_budget = max(2000, min(16000, int(os.environ.get("BLOG_LLM_MAX_TOKENS", "8000")))) if editorial else max_tokens
-    local = _local_chat_json(system, user, temperature, local_budget)
-    if local is not None:
-        return local
+    if os.environ.get("LLM_PROVIDER", "").strip().lower() == "local":
+        # qwen only, no OpenRouter fallback: one retry (it sometimes answers empty), then the
+        # usual "provider unavailable" so the blog leaves the article for a later run.
+        for _ in range(2):
+            local = _local_chat_json(system, user, temperature, local_budget)
+            if local is not None:
+                return local
+        raise BlogProviderUnavailable(0)
     unavailable = _PROVIDER_OUTAGE.get()
     if unavailable is not None:
         raise BlogProviderUnavailable(unavailable)
