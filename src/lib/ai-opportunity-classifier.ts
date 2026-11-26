@@ -49,7 +49,9 @@ function sleep(ms: number) {
 }
 
 function logClassifierError(context: string, detail: unknown) {
-  logger.error("ai_classifier_error", context, detail ?? undefined).catch(() => {});
+  // An Error serializes to {} in the log's JSON meta; keep its message so the cause is visible.
+  const meta = detail instanceof Error ? { error: detail.name, message: detail.message.slice(0, 500) } : detail ?? undefined;
+  logger.error("ai_classifier_error", context, meta).catch(() => {});
   console.error(`[AI Classifier] ${context}`, detail);
 }
 
@@ -218,7 +220,8 @@ Devuelve únicamente un objeto JSON con las siguientes propiedades. No agregues 
         messages: [{ role: "user", content: prompt }],
         response_format: { type: "json_object" },
         temperature: 0.1, // temperatura baja para más consistencia en clasificación
-        max_tokens: 1000,
+        // The JSON alone is ~300 tokens; headroom for reasoning some providers still spend.
+        max_tokens: 2000,
       },
       "Los 5 Apostoles - Opportunity Classifier",
       client,

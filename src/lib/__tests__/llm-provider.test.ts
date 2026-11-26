@@ -107,6 +107,21 @@ describe("reasoning of local models", () => {
     expect(result.usedFallback).toBe(true);
     expect(bodyOfCall(fetchMock, 1)).not.toHaveProperty("reasoning_effort");
     expect(bodyOfCall(fetchMock, 1)).not.toHaveProperty("think");
+    // Reasoning would eat the short max_tokens budgets and return empty content.
+    expect(bodyOfCall(fetchMock, 1).reasoning).toEqual({ enabled: false });
+  });
+
+  it("turns OpenRouter reasoning off unless the caller asks for it", async () => {
+    process.env.LLM_PROVIDER = "openrouter";
+    process.env.OPENROUTER_API_KEY = "remote-key";
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{"choices":[{"message":{"content":"ok"}}]}', { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchChatCompletion(resolveLLMConfig(), { messages: [] }, "test");
+    await fetchChatCompletion(resolveLLMConfig(), { messages: [], reasoning: { effort: "low" } }, "test");
+
+    expect(bodyOfCall(fetchMock, 0).reasoning).toEqual({ enabled: false });
+    expect(bodyOfCall(fetchMock, 1).reasoning).toEqual({ effort: "low" });
   });
 });
 

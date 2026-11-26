@@ -528,7 +528,8 @@ async function requestCopilotDraft(ctx: DraftContext, condensationOf?: string): 
       response_format: { type: "json_object" },
       // Al rehacer se sube la temperatura: con el mismo contexto, 0.65 repite casi el mismo texto.
       temperature: condensationOf ? 0.2 : (ctx.avoidDrafts?.length ? 0.9 : 0.65),
-      max_tokens: llm.provider === "local" ? (condensationOf ? 1000 : 1500) : (condensationOf ? 180 : 360),
+      // OpenRouter room for occasional reasoning tokens some providers spend despite `enabled: false`.
+      max_tokens: llm.provider === "local" ? (condensationOf ? 1000 : 1500) : (condensationOf ? 400 : 600),
     }, "Los 5 Apostoles - Asistente CM", ctx.client);
     if (!completion) return null;
     const parsed = JSON.parse(completion.raw) as { text?: string; riskNotes?: string };

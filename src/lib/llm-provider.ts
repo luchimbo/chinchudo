@@ -22,6 +22,11 @@ const LOCAL_DEFAULT_MODEL = "qwen3.8:latest";
 // el razonamiento de modelos como qwen3.8, que si no gasta segundos (y a veces todo
 // max_tokens) pensando y devuelve content vacío. Los modelos sin razonamiento lo aceptan.
 const LOCAL_NO_REASONING = { reasoning_effort: "none", think: false } as const;
+// Same problem on OpenRouter: deepseek-v4-flash reasons by default and its reasoning counts
+// against max_tokens, so short budgets (360 for a proposal, 1000 for the classifier) came back
+// empty or with truncated JSON. OpenRouter's unified `reasoning` field turns it off; models
+// without reasoning ignore it. A caller that sends its own `reasoning` keeps it.
+const OPENROUTER_NO_REASONING = { reasoning: { enabled: false } } as const;
 
 type ProviderMode = LLMProvider | "schedule";
 
@@ -147,7 +152,7 @@ export async function fetchChatCompletion(
   const request = async (activeConfig: LLMConfig) => fetch(activeConfig.endpoint, {
     method: "POST",
     headers: llmHeaders(activeConfig, title),
-    body: JSON.stringify({ ...(activeConfig.provider === "local" ? LOCAL_NO_REASONING : {}), ...payload, model: activeConfig.model }),
+    body: JSON.stringify({ ...(activeConfig.provider === "local" ? LOCAL_NO_REASONING : OPENROUTER_NO_REASONING), ...payload, model: activeConfig.model }),
     ...init,
   });
 
