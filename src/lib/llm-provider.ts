@@ -134,7 +134,14 @@ async function resolveLocalEndpoint(config: LLMConfig): Promise<LLMConfig> {
 
 export function llmHeaders(config: LLMConfig, title: string): Record<string, string> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (config.provider === "local") headers["X-PCMidi-Project"] = "pcmidi-suite";
+  if (config.provider === "local") {
+    headers["X-PCMidi-Project"] = "pcmidi-suite";
+    // pcmidi-guard runs one request at a time: interactive ones wait 3 s for the GPU and then get
+    // 503 capacity_unavailable; batch ones wait in line up to 30 s and let interactive ones go
+    // first. Background processes (server runtimes, PC workers) set LLM_LOCAL_PRIORITY=batch;
+    // the web chat stays interactive.
+    if (process.env.LLM_LOCAL_PRIORITY?.trim().toLowerCase() === "batch") headers["X-PCMidi-Priority"] = "batch";
+  }
   if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
   if (config.provider === "openrouter") {
     headers["HTTP-Referer"] = "https://los5apostoles.local";
@@ -157,11 +164,17 @@ export async function fetchChatCompletion(
   _options: { allowFallback?: boolean } = {},
 ): Promise<{ response: Response; config: LLMConfig; usedFallback: boolean }> {
   const activeConfig = await resolveLocalEndpoint(config);
-  const response = await fetch(activeConfig.endpoint, {
-    method: "POST",
-    headers: llmHeaders(activeConfig, title),
-    body: JSON.stringify({ ...(activeConfig.provider === "local" ? LOCAL_NO_REASONING : OPENROUTER_NO_REASONING), ...payload, model: activeConfig.model }),
-    ...init,
-  });
-  return { response, config: activeConfig, usedFallback: false };
+  const body = JSON.stringify({ ...(activeConfig.provider === "local" ? LOCAL_NO_REASONING : OPENROUTER_NO_REASONING), ...payload, model: activeConfig.model });
+  for (let attempt = 1; ; attempt++) {
+    const response = await fetch(activeConfig.endpoint, { method: "POST", headers: llmHeaders(activeConfig, title), body, ...init });
+    // The GPU was busy (503 capacity_unavailable) or its queue full (429): wait and try again.
+    if (activeConfig.provider !== "local" || ![429, 503].includes(response.status) || attempt >= LOCAL_BUSY_ATTEMPTS || init?.signal?.aborted) {
+      return { response, config: activeConfig, usedFallback: false };
+    }
+    await response.body?.cancel().catch(() => {});
+    await new Promise((resolve) => setTimeout(resolve, LOCAL_BUSY_WAIT_MS * attempt));
+  }
 }
+
+const LOCAL_BUSY_ATTEMPTS = 3;
+const LOCAL_BUSY_WAIT_MS = Number(process.env.LLM_LOCAL_BUSY_WAIT_MS ?? 2000);
