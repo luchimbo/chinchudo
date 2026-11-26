@@ -24,7 +24,8 @@ rotate_log() {
 while true; do
   rotate_log "$ROOT/reports/blog-runtime-ssh.log"
   rotate_log "$ROOT/reports/blog-runtime-ssh-errors.log"
-  "$NODE_BIN" --env-file="$ROOT/.env" "$ROOT/scripts/blog-runtime-service.mjs" \
+  # llm.env: qwen on this server at all hours for the articles and the business analysis.
+  "$NODE_BIN" --env-file="$ROOT/.env" --env-file="$ROOT/scripts/server/llm.env" "$ROOT/scripts/blog-runtime-service.mjs" \
     >> "$ROOT/reports/blog-runtime-ssh.log" \
     2>> "$ROOT/reports/blog-runtime-ssh-errors.log"
   sleep 10

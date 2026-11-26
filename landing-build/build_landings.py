@@ -1159,7 +1159,57 @@ def extract_json_object(raw: str) -> dict:
 
 
 @timed_stage("ai")
+def _local_chat_json(system: str, user: str, temperature: float, max_tokens: int) -> dict | None:
+    """Ask the local LLM (qwen on the pcmidi server, behind pcmidi-guard) first.
+
+    Returns None on any failure so the caller falls back to OpenRouter as before.
+    """
+    if os.environ.get("LLM_PROVIDER", "").strip().lower() != "local":
+        return None
+    base = (os.environ.get("LLM_LOCAL_BASE_URL") or "http://127.0.0.1:11435/v1").rstrip("/")
+    if not base.startswith("http"):
+        return None
+    payload = {
+        "model": os.environ.get("LLM_LOCAL_MODEL") or "qwen3.8:latest",
+        "temperature": temperature,
+        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        "response_format": {"type": "json_object"},
+        # Ollama only honors reasoning_effort; thinking would eat the budget and return empty content.
+        "reasoning_effort": "none",
+        "think": False,
+    }
+    if max_tokens:
+        payload["max_tokens"] = max_tokens
+    request = urllib.request.Request(
+        f"{base}/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Authorization": "Bearer ollama", "X-PCMidi-Project": "pcmidi-suite-blog"},
+        method="POST",
+    )
+    started = time.time()
+    try:
+        # Long articles take minutes on the local GPU; the queue in pcmidi-guard may add a wait.
+        with urllib.request.urlopen(request, timeout=int(os.environ.get("BLOG_LOCAL_LLM_TIMEOUT", "600"))) as response:
+            data = json.loads(response.read().decode("utf-8"))
+        content = data["choices"][0]["message"]["content"]
+        result = extract_json_object(content) if content else None
+    except Exception as exc:  # noqa: BLE001 - any local failure means "use OpenRouter"
+        print(f"[blog-llm] local no disponible ({type(exc).__name__}); se usa OpenRouter", file=sys.stderr)
+        return None
+    if not isinstance(result, dict):
+        print("[blog-llm] local devolvió un JSON inválido; se usa OpenRouter", file=sys.stderr)
+        return None
+    print(f"[blog-llm] local OK en {time.time() - started:.1f}s", file=sys.stderr)
+    return result
+
+
 def chat_json(system: str, user: str, model: str, temperature: float = 0.35, max_tokens: int = 0, timeout: int = 90, reasoning_off: bool = False) -> dict:
+    load_env()
+    editorial = "REGLAS EDITORIALES v1" in system
+    local_budget = max(2000, min(16000, int(os.environ.get("BLOG_LLM_MAX_TOKENS", "8000")))) if editorial else max_tokens
+    local = _local_chat_json(system, user, temperature, local_budget)
+    if local is not None:
+        return local
     unavailable = _PROVIDER_OUTAGE.get()
     if unavailable is not None:
         raise BlogProviderUnavailable(unavailable)

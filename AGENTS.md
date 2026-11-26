@@ -261,6 +261,7 @@ Python maneja el navegador real (CDP). Node.js + Prisma persisten en Postgres. J
 - **Corre en el servidor SSH `pcmidi`** (`~/services/pcmidi-suite`, `scripts/start-blog-runtime-ssh.sh` vía `@reboot`): `scripts/blog-runtime-service.mjs` maneja todos los calendarios, la cola de publicación, las vistas previas, la sincronización de catálogo y el análisis de negocio, y publica su túnel en `AppSetting blog_runtime_relay_url`.
 - Desplegar el servidor: `bash scripts/server/deploy-blog-runtime.sh --apply` (desde una rama publicada; por defecto `main`). Estado: `npm run blog:status`.
 - La app (`src/lib/relay-client.ts`, `src/lib/landing-html.ts`) habla con el blog solo por ese túnel.
+- **IA del servidor**: `scripts/server/llm.env` (qwen del mismo servidor a toda hora) lo cargan el blog y el Asistente CM. Los artículos (`chat_json` en `build_landings.py`) y el análisis de negocio usan qwen primero y OpenRouter solo si falla. La investigación de rivales sigue en OpenRouter porque necesita búsqueda web.
 
 ### Salud del sistema
 

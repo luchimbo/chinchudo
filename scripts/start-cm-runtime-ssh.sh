@@ -26,7 +26,7 @@ rotate_log() {
 }
 
 run_tsx() {
-  "$NODE_BIN" --env-file="$ROOT/.env" --env-file="$ROOT/scripts/server/cm-runtime.env" \
+  "$NODE_BIN" --env-file="$ROOT/.env" --env-file="$ROOT/scripts/server/llm.env" --env-file="$ROOT/scripts/server/cm-runtime.env" \
     "$ROOT/node_modules/tsx/dist/cli.mjs" "$@"
 }
 
