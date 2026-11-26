@@ -18,6 +18,17 @@ flock -n 9 || exit 0
 export PATH="$NODE_HOME/bin:$PATH"
 mkdir -p "$ROOT/reports"
 
+# Supabase's transaction pooler (port 6543) adds ~700 ms to every query; it exists for
+# short-lived serverless connections (Vercel). These are long-running processes, so they use
+# the session pooler (5432, ~180 ms per query) with at most 2 connections each. An environment
+# variable wins over --env-file, so this replaces the .env value only for this runtime.
+SESSION_URL="$(sed -nE 's/^DATABASE_URL=//p' "$ROOT/.env" | head -1 | tr -d '"'"'" \
+  | sed -E 's#:6543/#:5432/#; s#([?&])pgbouncer=true&?#\1#; s#[?&]$##')"
+if [[ "$SESSION_URL" == *":5432/"* ]]; then
+  [[ "$SESSION_URL" == *"?"* ]] && SESSION_URL="$SESSION_URL&connection_limit=2" || SESSION_URL="$SESSION_URL?connection_limit=2"
+  export DATABASE_URL="$SESSION_URL"
+fi
+
 rotate_log() {
   local path="$1"
   if [[ -f "$path" ]] && [[ "$(stat -c %s "$path")" -gt 5242880 ]]; then

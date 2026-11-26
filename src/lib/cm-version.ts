@@ -22,7 +22,24 @@ function contentRows<T extends object>(rows: T[]) {
  * never enter the hash. Learned memories and accepted examples apply to the
  * next generation but do not turn every existing proposal stale.
  */
-export async function loadCMVersion(db: PrismaClient, clientId: string): Promise<string> {
+const recentVersions = new Map<string, { at: number; version: Promise<string> }>();
+
+/**
+ * The version loads the client's whole catalog (~2 s against Supabase). Long-running workers
+ * pass `maxAgeMs` to reuse a recent value: maintenance goes through dozens of comments of the
+ * same client in a row, and each regeneration needed it twice. A catalog edit is picked up once
+ * the cached value expires; callers that must not miss it recompute without `maxAgeMs`.
+ */
+export async function loadCMVersion(db: PrismaClient, clientId: string, options: { maxAgeMs?: number } = {}): Promise<string> {
+  const cached = recentVersions.get(clientId);
+  if (options.maxAgeMs && cached && Date.now() - cached.at < options.maxAgeMs) return cached.version;
+  const version = computeCMVersion(db, clientId);
+  recentVersions.set(clientId, { at: Date.now(), version });
+  version.catch(() => { if (recentVersions.get(clientId)?.version === version) recentVersions.delete(clientId); });
+  return version;
+}
+
+async function computeCMVersion(db: PrismaClient, clientId: string): Promise<string> {
   const [client, prompts, brands, products, services, personas, personaRules, rules, knowledge, objections, channels] = await Promise.all([
     db.client.findUniqueOrThrow({ where: { id: clientId }, select: {
       id: true, slug: true, name: true, description: true, responsePolicy: true, domainKeywords: true,
