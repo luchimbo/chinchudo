@@ -29,7 +29,7 @@ Además se conservan el onboarding de clientes nuevos y la lógica de cada clien
 
 - **Clientes activos**: `pcmidi`, `prestige-running`, `jurispedia`, `kressmer`, `programa-vidia`.
 - **Base de datos**: Supabase Postgres (fuente de verdad). `prisma migrate deploy` funciona sobre la baseline `0_init`.
-- **IA**: OpenRouter (key/modelo por cliente con fallback global) o el LLM local (qwen, en el servidor `pcmidi`) a toda hora; OpenRouter queda de respaldo si qwen falla. Si la IA falla, no se inventa una plantilla: se conserva la propuesta anterior y se reintenta.
+- **IA**: solo el LLM local (qwen, en el servidor `pcmidi`) a toda hora, sin respaldo en OpenRouter (desde 2026-11-26; `LLM_PROVIDER=openrouter` queda solo como opción explícita). Si la IA falla, no se inventa una plantilla: se conserva la propuesta anterior y se reintenta.
 - **Se borró** (queda en git): Estudio de Reels, videos/avatares, tendencias, analítica, presencia en IAs (GEO), bitácora, leads/contactos y nurture por email, la vista clásica de 3 variantes, `draft-worker`, `publisher.py` y los agentes Python viejos (`agente_*`, `swarm.py`).
 
 ## Principios Del Proyecto
@@ -223,7 +223,7 @@ Estilo:
 - Next.js 14 (App Router) + Tailwind CSS.
 - Prisma ORM 5 sobre Supabase Postgres.
 - Vitest para unit tests; pytest para la capa Python.
-- OpenRouter como proveedor LLM (key por cliente o global).
+- qwen (Ollama en el servidor `pcmidi`, detrás de `pcmidi-guard`) como único proveedor LLM.
 - NSTBrowser / Dolphin Anty + CDP para navegador real.
 
 ### Escalamiento
@@ -261,7 +261,7 @@ Python maneja el navegador real (CDP). Node.js + Prisma persisten en Postgres. J
 - **Corre en el servidor SSH `pcmidi`** (`~/services/pcmidi-suite`, `scripts/start-blog-runtime-ssh.sh` vía `@reboot`): `scripts/blog-runtime-service.mjs` maneja todos los calendarios, la cola de publicación, las vistas previas, la sincronización de catálogo y el análisis de negocio, y publica su túnel en `AppSetting blog_runtime_relay_url`.
 - Desplegar el servidor: `bash scripts/server/deploy-blog-runtime.sh --apply` (desde una rama publicada; por defecto `main`). Estado: `npm run blog:status`.
 - La app (`src/lib/relay-client.ts`, `src/lib/landing-html.ts`) habla con el blog solo por ese túnel.
-- **IA del servidor**: `scripts/server/llm.env` (qwen del mismo servidor a toda hora) lo cargan el blog y el Asistente CM. Los artículos (`chat_json` en `build_landings.py`) y el análisis de negocio usan qwen primero y OpenRouter solo si falla. La investigación de rivales sigue en OpenRouter porque necesita búsqueda web.
+- **IA del servidor**: `scripts/server/llm.env` (qwen del mismo servidor a toda hora) lo cargan el blog y el Asistente CM. Los artículos (`chat_json` en `build_landings.py`) y el análisis de negocio usan solo qwen; si falla, el artículo queda para la próxima corrida. La investigación de rivales usa OpenRouter porque necesita búsqueda web.
 
 ### Salud del sistema
 

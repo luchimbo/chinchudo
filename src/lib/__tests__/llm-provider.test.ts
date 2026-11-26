@@ -47,25 +47,28 @@ describe("resolveLLMConfig", () => {
     expect(resolveLLMProvider(new Date("2026-07-24T20:30:00Z"))).toBe("openrouter"); // 17:30 ART
   });
 
-  it("falls back to OpenRouter with its own model when the local provider is unavailable", async () => {
+  it("uses qwen when nothing is configured: there is no OpenRouter by default", () => {
+    delete process.env.LLM_PROVIDER;
+    expect(resolveLLMProvider(new Date("2026-07-24T03:00:00Z"))).toBe("local"); // 00:00 ART, outside the old window
+  });
+
+  it("never falls back to OpenRouter when qwen is unavailable", async () => {
     process.env.LLM_PROVIDER = "local";
     process.env.LLM_LOCAL_BASE_URL = "http://local-llm/v1";
-    process.env.LLM_LOCAL_MODEL = "local-model";
     process.env.OPENROUTER_API_KEY = "remote-key";
-    process.env.OPENROUTER_MODEL = "remote-model";
-    const fetchMock = vi.fn()
-      .mockRejectedValueOnce(new TypeError("network unreachable"))
-      .mockResolvedValueOnce(new Response('{"choices":[{"message":{"content":"ok"}}]}', { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
+    const unreachable = vi.fn().mockRejectedValue(new TypeError("network unreachable"));
+    vi.stubGlobal("fetch", unreachable);
+    await expect(fetchChatCompletion(resolveLLMConfig(), { messages: [] }, "test")).rejects.toThrow("network unreachable");
+    expect(unreachable).toHaveBeenCalledTimes(1);
 
+    const busy = vi.fn().mockResolvedValue(new Response("busy", { status: 503 }));
+    vi.stubGlobal("fetch", busy);
     const result = await fetchChatCompletion(resolveLLMConfig(), { messages: [] }, "test");
-
-    expect(result.usedFallback).toBe(true);
-    expect(result.config.provider).toBe("openrouter");
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body).model).toBe("remote-model");
+    expect(result.response.status).toBe(503);
+    expect(result.config.provider).toBe("local");
+    expect(busy).toHaveBeenCalledTimes(1);
   });
 });
-
 describe("reasoning of local models", () => {
   function bodyOfCall(fetchMock: ReturnType<typeof vi.fn>, index = 0) {
     return JSON.parse(fetchMock.mock.calls[index][1].body);
@@ -91,24 +94,6 @@ describe("reasoning of local models", () => {
     await fetchChatCompletion(resolveLLMConfig(), { messages: [], reasoning_effort: "high" }, "test");
 
     expect(bodyOfCall(fetchMock).reasoning_effort).toBe("high");
-  });
-
-  it("does not send Ollama-only fields to OpenRouter, including on fallback", async () => {
-    process.env.LLM_PROVIDER = "local";
-    process.env.LLM_LOCAL_BASE_URL = "http://pcmidi.local:11434/v1";
-    process.env.OPENROUTER_API_KEY = "remote-key";
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response("down", { status: 502 }))
-      .mockResolvedValueOnce(new Response('{"choices":[{"message":{"content":"ok"}}]}', { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    const result = await fetchChatCompletion(resolveLLMConfig(), { messages: [] }, "test");
-
-    expect(result.usedFallback).toBe(true);
-    expect(bodyOfCall(fetchMock, 1)).not.toHaveProperty("reasoning_effort");
-    expect(bodyOfCall(fetchMock, 1)).not.toHaveProperty("think");
-    // Reasoning would eat the short max_tokens budgets and return empty content.
-    expect(bodyOfCall(fetchMock, 1).reasoning).toEqual({ enabled: false });
   });
 
   it("turns OpenRouter reasoning off unless the caller asks for it", async () => {
@@ -184,19 +169,15 @@ describe("local IA through the relay", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("falls back to OpenRouter when relay mode has no relay URL", async () => {
+  it("fails instead of using OpenRouter when relay mode has no relay URL", async () => {
     process.env.LLM_PROVIDER = "local";
     process.env.LLM_LOCAL_BASE_URL = "relay";
     process.env.OPENROUTER_API_KEY = "remote-key";
-    process.env.OPENROUTER_MODEL = "remote-model";
     delete process.env.AGENT_RELAY_URL;
     vi.mocked(getLocalLlmRelayUrl).mockResolvedValue(undefined);
     const fetchMock = okFetch();
 
-    const result = await fetchChatCompletion(resolveLLMConfig(), { messages: [] }, "test");
-
-    expect(result.usedFallback).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][0]).toBe("https://openrouter.ai/api/v1/chat/completions");
+    await expect(fetchChatCompletion(resolveLLMConfig(), { messages: [] }, "test")).rejects.toThrow("relay");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

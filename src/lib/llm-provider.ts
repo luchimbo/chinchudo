@@ -34,10 +34,12 @@ function normalizeBaseUrl(value: string): string {
   return value.trim().replace(/\/+$/, "");
 }
 
+// Since 2026-11-26 everything runs on qwen (pcmidi server): unset means local. "openrouter" and
+// "schedule" stay only as explicit opt-ins; there is no automatic fallback to OpenRouter.
 function configuredProvider(): ProviderMode {
   const value = process.env.LLM_PROVIDER?.trim().toLowerCase();
-  if (value === "local" || value === "openrouter") return value;
-  return "schedule";
+  if (value === "openrouter" || value === "schedule") return value;
+  return "local";
 }
 
 function localScheduleActive(now: Date): boolean {
@@ -141,40 +143,25 @@ export function llmHeaders(config: LLMConfig, title: string): Record<string, str
   return headers;
 }
 
+/**
+ * One call to the configured provider. There is no fallback to OpenRouter: when qwen fails, the
+ * caller gets that failure and keeps the previous proposal / retries later. (`client` and
+ * `options` stay in the signature for existing callers.)
+ */
 export async function fetchChatCompletion(
   config: LLMConfig,
   payload: Record<string, unknown>,
   title: string,
-  client?: LegacyClientLLMConfig | null,
+  _client?: LegacyClientLLMConfig | null,
   init?: Pick<RequestInit, "signal">,
-  options: { allowFallback?: boolean } = {},
+  _options: { allowFallback?: boolean } = {},
 ): Promise<{ response: Response; config: LLMConfig; usedFallback: boolean }> {
-  const request = async (activeConfig: LLMConfig) => fetch(activeConfig.endpoint, {
+  const activeConfig = await resolveLocalEndpoint(config);
+  const response = await fetch(activeConfig.endpoint, {
     method: "POST",
     headers: llmHeaders(activeConfig, title),
     body: JSON.stringify({ ...(activeConfig.provider === "local" ? LOCAL_NO_REASONING : OPENROUTER_NO_REASONING), ...payload, model: activeConfig.model }),
     ...init,
   });
-
-  try {
-    const activeConfig = await resolveLocalEndpoint(config);
-    const response = await request(activeConfig);
-    if (response.ok || config.provider !== "local" || options.allowFallback === false) return { response, config: activeConfig, usedFallback: false };
-
-    const fallback = resolveOpenRouterConfig(client);
-    if (!fallback.apiKey) return { response, config, usedFallback: false };
-    console.warn(`[LLM] Local HTTP ${response.status}; se usa OpenRouter como respaldo para ${title}.`);
-    return { response: await request(fallback), config: fallback, usedFallback: true };
-  } catch (error) {
-    // Una cancelacion expresa del operador no es una falla del proveedor local.
-    // Reintentar contra OpenRouter ignora la intencion de cancelar y duplica la
-    // solicitud, incluso cuando el request original ya recibio la signal.
-    if (init?.signal?.aborted) throw error;
-    if (options.allowFallback === false) throw error;
-    if (config.provider !== "local") throw error;
-    const fallback = resolveOpenRouterConfig(client);
-    if (!fallback.apiKey) throw error;
-    console.warn(`[LLM] El proveedor local no respondió; se usa OpenRouter como respaldo para ${title}.`);
-    return { response: await request(fallback), config: fallback, usedFallback: true };
-  }
+  return { response, config: activeConfig, usedFallback: false };
 }
