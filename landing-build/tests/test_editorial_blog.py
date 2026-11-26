@@ -652,8 +652,33 @@ def test_pc_midi_live_generation_requires_calendar(monkeypatch):
         bl.regenerate_editorial(["publicado"], model="test")
 
 
+def test_blog_uses_local_llm_first_and_falls_back_to_openrouter(monkeypatch):
+    monkeypatch.setattr(bl, "load_env", lambda: None)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_PROVIDER", "local")
+    monkeypatch.setenv("LLM_LOCAL_BASE_URL", "http://127.0.0.1:11435/v1")
+    monkeypatch.setenv("LLM_LOCAL_MODEL", "qwen3.8:latest")
+    calls = []
+    local_answers = [{"choices": [{"message": {"content": '{"h1":"Local"}'}}]}, {"choices": [{"message": {"content": ""}}]}]
+
+    def respond(request, timeout):
+        calls.append((request.full_url, json.loads(request.data)))
+        if "11435" in request.full_url:
+            return io.BytesIO(json.dumps(local_answers.pop(0)).encode())
+        return io.BytesIO(json.dumps({"choices": [{"message": {"content": '{"h1":"OpenRouter"}'}}]}).encode())
+
+    monkeypatch.setattr(bl.urllib.request, "urlopen", respond)
+    assert bl.chat_json("REGLAS EDITORIALES v1", "brief", "deepseek/deepseek-v4-flash")["h1"] == "Local"
+    assert calls[-1][1]["model"] == "qwen3.8:latest" and calls[-1][1]["reasoning_effort"] == "none"
+    assert calls[-1][1]["max_tokens"] == 8000
+    # Empty local content: the same request goes to OpenRouter.
+    assert bl.chat_json("REGLAS EDITORIALES v1", "brief", "deepseek/deepseek-v4-flash")["h1"] == "OpenRouter"
+    assert "openrouter.ai" in calls[-1][0]
+
+
 def test_editorial_request_bounds_output_and_configured_deepseek_reasoning(monkeypatch):
     monkeypatch.setattr(bl, "load_env", lambda: None)
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.delenv("BLOG_LLM_REASONING_ENABLED", raising=False)
     monkeypatch.delenv("BLOG_LLM_MAX_TOKENS", raising=False)
