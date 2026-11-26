@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 
 export type HealthAlert = {
-  area: "cm" | "listening" | "blog";
+  area: "cm" | "listening" | "blog" | "backup";
   level: "error" | "warning";
   message: string;
   href: string;
@@ -20,7 +20,7 @@ function parse(value: string | undefined): Record<string, unknown> | null {
  */
 export async function loadSystemHealth(db: PrismaClient, clientId: string, now = new Date()): Promise<HealthAlert[]> {
   const [settings, latestOpportunity, blogPublications, failedPublications, listeningSources] = await Promise.all([
-    db.appSetting.findMany({ where: { key: { in: ["cm.manual.worker.heartbeat", "cm.maintenance.last-run", "blog_runtime_relay_url"] } }, select: { key: true, value: true } }),
+    db.appSetting.findMany({ where: { key: { in: ["cm.manual.worker.heartbeat", "cm.maintenance.last-run", "blog_runtime_relay_url", "db.backup.last-run"] } }, select: { key: true, value: true } }),
     db.opportunity.findFirst({ where: { clientId, channel: { name: "YouTube" } }, orderBy: { createdAt: "desc" }, select: { createdAt: true } }),
     db.blogPublication.count({ where: { clientId } }),
     db.blogPublication.count({ where: { clientId, status: "FAILED", updatedAt: { gte: new Date(now.getTime() - 72 * HOUR) } } }),
@@ -64,6 +64,13 @@ export async function loadSystemHealth(db: PrismaClient, clientId: string, now =
       alerts.push({ area: "blog", level: "warning", href: "/blog/calendario",
         message: `${failedPublications} ${failedPublications === 1 ? "artículo falló" : "artículos fallaron"} al publicarse en los últimos 3 días.` });
     }
+  }
+
+  // scripts/backup-db.mjs records each copy; the pcmidi server makes one a day.
+  const backup = Date.parse(String(parse(setting("db.backup.last-run"))?.at ?? ""));
+  if (!Number.isFinite(backup) || now.getTime() - backup > 36 * HOUR) {
+    alerts.push({ area: "backup", level: "warning", href: "/",
+      message: "No se hizo la copia de seguridad de la base en el último día y medio. Corre en el servidor pcmidi: revisá que esté prendido." });
   }
 
   return alerts;

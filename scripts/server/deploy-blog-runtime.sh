@@ -40,6 +40,10 @@ chmod +x scripts/start-blog-runtime-ssh.sh scripts/start-cm-runtime-ssh.sh
 BLOG_START=\$HOME/$REMOTE_DIR/scripts/start-blog-runtime-ssh.sh
 CM_START=\$HOME/$REMOTE_DIR/scripts/start-cm-runtime-ssh.sh
 crontab -l 2>/dev/null | grep -qF \"\$CM_START\" || (crontab -l 2>/dev/null; echo \"@reboot \$CM_START\") | crontab -
+# Backup de la base: cron cada hora; el script solo copia si la última tiene más de 20 h.
+chmod +x scripts/server/backup-db-ssh.sh
+BACKUP_START=\$HOME/$REMOTE_DIR/scripts/server/backup-db-ssh.sh
+crontab -l 2>/dev/null | grep -qF \"\$BACKUP_START\" || (crontab -l 2>/dev/null; echo \"17 * * * * \$BACKUP_START\") | crontab -
 # Los bucles de arranque ya están leídos en memoria: para que tomen cambios en los scripts o en
 # sus --env-file se reinician enteros. Primero los bucles (así no relanzan nada), después los procesos.
 # Los patrones empiezan con la ruta del script, así no coinciden con esta misma sesión SSH.
