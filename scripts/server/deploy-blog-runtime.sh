@@ -44,6 +44,10 @@ crontab -l 2>/dev/null | grep -qF \"\$CM_START\" || (crontab -l 2>/dev/null; ech
 chmod +x scripts/server/backup-db-ssh.sh
 BACKUP_START=\$HOME/$REMOTE_DIR/scripts/server/backup-db-ssh.sh
 crontab -l 2>/dev/null | grep -qF \"\$BACKUP_START\" || (crontab -l 2>/dev/null; echo \"17 * * * * \$BACKUP_START\") | crontab -
+# Búsqueda de oportunidades: cada 30 min de 07:00 a 22:30 de Argentina (el servidor está en UTC).
+chmod +x scripts/server/listening-ssh.sh
+LISTEN_START=\$HOME/$REMOTE_DIR/scripts/server/listening-ssh.sh
+crontab -l 2>/dev/null | grep -qF \"\$LISTEN_START\" || (crontab -l 2>/dev/null; echo \"*/30 10-23,0-1 * * * \$LISTEN_START\") | crontab -
 # Los bucles de arranque ya están leídos en memoria: para que tomen cambios en los scripts o en
 # sus --env-file se reinician enteros. Primero los bucles (así no relanzan nada), después los procesos.
 # Los patrones empiezan con la ruta del script, así no coinciden con esta misma sesión SSH.
