@@ -8,6 +8,7 @@ import { createBlogDaily } from "./blog-daily.mjs";
 import { withBlogLease } from "./blog-lease.mjs";
 import { blogCodeStatus, restartOnBlogCodeChange } from "./blog-code-version.mjs";
 import { terminateChild } from "./terminate-child.mjs";
+import { handleSearchRun } from "./search-run.mjs";
 import { catalogSyncBlocksBlog, shouldRunBlogCalendar } from "../src/lib/blog-auto-repair.mjs";
 
 const root = resolve(import.meta.dirname, ".."), port = 3102;
@@ -125,6 +126,8 @@ const server = http.createServer(async (req, res) => {
     let text = "";
     for await (const chunk of req) { text += chunk; if (text.length > 150000) throw new Error("Pedido demasiado grande."); }
     const body = JSON.parse(text || "{}");
+    // Manual opportunity search from /oportunidades (same handler as the PC relay).
+    if (req.method === "POST" && req.url === "/search/run") return handleSearchRun(body, res, json);
     if (req.method === "POST" && req.url === "/blog/publish") {
       if (![body.id, body.clientId, body.expectedUpdatedAt].every(value => typeof value === "string" && value.length > 0)) throw new Error("Faltan los datos de la publicación.");
       await manualWorker.publishBlogArticle(body, () => json(res, 202, { accepted: true }));

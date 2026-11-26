@@ -1,5 +1,6 @@
 import json
 import os
+import shlex
 import subprocess
 import time
 import urllib.request
@@ -321,8 +322,15 @@ def start_browser(account: str | None = None) -> dict:
         f"--user-data-dir={profile_dir}",
         "--no-first-run",
         "--no-default-browser-check",
+        # pcmidi server: CHROME_EXTRA_ARGS="--headless=new ..." (scripts/server/listening.env).
+        *shlex.split(os.environ.get("CHROME_EXTRA_ARGS", "")),
     ]
-    subprocess.Popen(command, cwd=ROOT)
+    # Chrome outlives this run and is reused by the next one. It must not keep this process's
+    # stdout/stderr open: callers read social-listen's output until EOF and would wait forever.
+    subprocess.Popen(
+        command, cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        **({"start_new_session": True} if os.name != "nt" else {}),
+    )
     return {
         "account": config["id"], "label": config.get("label", config["id"]),
         "command": command, "cdp_url": cdp_url(config),
