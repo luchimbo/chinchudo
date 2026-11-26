@@ -11,7 +11,7 @@ import { loadSystemHealth, type HealthAlert } from "@/lib/system-health";
 
 type PageProps = { searchParams: { client?: string } };
 
-const AREA_LABEL: Record<HealthAlert["area"], string> = { cm: "Asistente CM", listening: "Escucha", blog: "Blog" };
+const AREA_LABEL: Record<HealthAlert["area"], string> = { cm: "Asistente CM", listening: "Escucha", blog: "Blog", backup: "Copia de seguridad" };
 
 /** Only rendered when something stopped working; a healthy suite shows nothing. */
 function SystemHealth({ alerts, withClient }: { alerts: HealthAlert[]; withClient: (href: string) => string }) {

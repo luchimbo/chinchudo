@@ -7,12 +7,14 @@
 
 import { execSync } from "child_process";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, unlinkSync, writeFileSync } from "fs";
+import { hostname } from "os";
 import { join, resolve } from "path";
 import { PrismaClient } from "@prisma/client";
 
 const ROOT       = resolve(import.meta.dirname, "..");
 const LEGACY_DB  = join(ROOT, "prisma", "dev.db");
-const BACKUP_DIR = join(ROOT, "backups");
+// On the pcmidi server the copies live outside the checkout (BACKUP_DIR), so a deploy never touches them.
+const BACKUP_DIR = process.env.BACKUP_DIR ? resolve(process.env.BACKUP_DIR) : join(ROOT, "backups");
 const MAX_KEEP   = 14; // retener últimos 14 backups de cada tipo
 
 const TABLES = [
@@ -72,6 +74,10 @@ try {
   writeFileSync(dest, JSON.stringify(dump), "utf8");
   console.log(`backup: volcado guardado en ${dest} (${total} filas totales)`);
   rotate("supabase-", ".json");
+  // Read by the home health card (src/lib/system-health.ts) to warn when backups stop.
+  const value = JSON.stringify({ at: new Date().toISOString(), rows: total, host: hostname() });
+  await prisma.appSetting.upsert({ where: { key: "db.backup.last-run" }, create: { key: "db.backup.last-run", value }, update: { value } })
+    .catch(() => console.warn("backup: no se pudo registrar la fecha del backup."));
 } finally {
   await prisma.$disconnect();
 }

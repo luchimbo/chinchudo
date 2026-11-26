@@ -270,7 +270,12 @@ Python maneja el navegador real (CDP). Node.js + Prisma persisten en Postgres. J
 - latido del procesador de la cola (`cm.manual.worker.heartbeat`);
 - última corrida del mantenimiento (`cm.maintenance.last-run`);
 - última oportunidad de YouTube, en clientes con escucha activa;
-- túnel y publicaciones fallidas del blog.
+- túnel y publicaciones fallidas del blog;
+- último backup de la base (`db.backup.last-run`): avisa si tiene más de 36 horas.
+
+### Backup de la base
+
+Corre en el servidor `pcmidi`: cron cada hora → `scripts/server/backup-db-ssh.sh` → `scripts/backup-db.mjs`. Solo copia si la última tiene más de 20 horas, así un día con el servidor apagado se recupera al volver. Guarda las últimas 14 en `~/backups/pcmidi-suite` (fuera del repo). Log: `reports/backup-db.log`. La tarea de Windows `10Apostoles-Backup` quedó deshabilitada.
 
 ### Relay local
 
