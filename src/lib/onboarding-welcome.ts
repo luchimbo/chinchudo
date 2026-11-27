@@ -1,7 +1,7 @@
 import type { OnboardingDraft } from "./onboarding";
 
 export const WELCOME_CHOICES = [
-  { goal: "opportunities", title: "Encontrar oportunidades", description: "Buscá conversaciones donde tu negocio pueda ayudar.", path: "/radar" },
+  { goal: "opportunities", title: "Encontrar oportunidades", description: "Buscá conversaciones donde tu negocio pueda ayudar.", path: "/asistente-cm" },
   { goal: "content", title: "Preparar contenido", description: "Prepará artículos y borradores para tu negocio.", path: "/blog" },
   { goal: "responses", title: "Responder consultas", description: "Escribí respuestas con ayuda de Cafishia.", path: "/asistente-cm" },
 ] as const;

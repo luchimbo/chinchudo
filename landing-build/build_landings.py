@@ -387,13 +387,13 @@ def _load_landings_from_pg(include_drafts: bool = False) -> list[dict] | None:
         with psycopg.connect(url, row_factory=dict_row) as conn:
             if client_id:
                 rows = conn.execute(
-                    "SELECT l.id, l.slug, l.keyword, l.intent, l.titulo, l.status, l.\"htmlContent\", l.\"seoTitle\", l.\"seoDescription\", l.\"leadMagnetId\", l.\"createdAt\", l.\"updatedAt\", l.\"publishedAt\", l.\"contentType\", l.\"indexingState\", l.\"authorName\", l.\"sourceRefs\", cc.slug AS cluster_slug, cc.name AS cluster_name "
+                    "SELECT l.id, l.slug, l.keyword, l.intent, l.titulo, l.status, l.\"htmlContent\", l.\"seoTitle\", l.\"seoDescription\", l.\"createdAt\", l.\"updatedAt\", l.\"publishedAt\", l.\"contentType\", l.\"indexingState\", l.\"authorName\", l.\"sourceRefs\", cc.slug AS cluster_slug, cc.name AS cluster_name "
                     "FROM \"Landing\" l LEFT JOIN \"ContentCluster\" cc ON cc.id = l.\"contentClusterId\" WHERE l.status::text = ANY(%s) AND l.\"clientId\" = %s" + scheduled_filter + " ORDER BY l.\"createdAt\" DESC",
                     (list(statuses), client_id),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT l.id, l.slug, l.keyword, l.intent, l.titulo, l.status, l.\"htmlContent\", l.\"seoTitle\", l.\"seoDescription\", l.\"leadMagnetId\", l.\"createdAt\", l.\"updatedAt\", l.\"publishedAt\", l.\"contentType\", l.\"indexingState\", l.\"authorName\", l.\"sourceRefs\", cc.slug AS cluster_slug, cc.name AS cluster_name "
+                    "SELECT l.id, l.slug, l.keyword, l.intent, l.titulo, l.status, l.\"htmlContent\", l.\"seoTitle\", l.\"seoDescription\", l.\"createdAt\", l.\"updatedAt\", l.\"publishedAt\", l.\"contentType\", l.\"indexingState\", l.\"authorName\", l.\"sourceRefs\", cc.slug AS cluster_slug, cc.name AS cluster_name "
                     "FROM \"Landing\" l LEFT JOIN \"ContentCluster\" cc ON cc.id = l.\"contentClusterId\" WHERE l.status::text = ANY(%s)" + scheduled_filter + " ORDER BY l.\"createdAt\" DESC",
                     (list(statuses),),
                 ).fetchall()
@@ -452,7 +452,6 @@ def normalize_pg_landing(row: dict) -> dict:
         "seo_title": row.get("seoTitle") or parsed.get("seo_title", ""),
         "meta_description": row.get("seoDescription") or parsed.get("meta_description") or parsed.get("seo_description", ""),
         "seo_description": row.get("seoDescription") or parsed.get("seo_description", ""),
-        "lead_magnet_id": row.get("leadMagnetId") or parsed.get("lead_magnet_id"),
         "status": row.get("status") or parsed.get("status", ""),
         "content_type": row.get("contentType") or row.get("content_type") or parsed.get("content_type") or "LEGACY",
         "indexing_state": row.get("indexingState") or row.get("indexing_state") or parsed.get("indexing_state") or default_indexing_state(),

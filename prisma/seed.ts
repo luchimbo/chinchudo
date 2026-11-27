@@ -33,7 +33,6 @@ async function migratePersonaNames(clientId: string) {
 
     await prisma.response.updateMany({ where: { personaId: legacy.id }, data: { personaId: current.id } });
     await prisma.personaRule.updateMany({ where: { personaId: legacy.id }, data: { personaId: current.id } });
-    await prisma.videoScript.updateMany({ where: { personaId: legacy.id }, data: { personaId: current.id } });
     await prisma.persona.delete({ where: { id: legacy.id } });
   }
 }
@@ -217,7 +216,6 @@ async function main() {
     await prisma.opportunity.updateMany({ where: { detectedBrandId: oldPrestigeBrand.id }, data: { detectedBrandId: currentPrestigeBrand.id } });
     await prisma.knowledgeBase.updateMany({ where: { brandId: oldPrestigeBrand.id }, data: { brandId: currentPrestigeBrand.id } });
     await prisma.objection.updateMany({ where: { brandId: oldPrestigeBrand.id }, data: { brandId: currentPrestigeBrand.id } });
-    await prisma.videoScript.updateMany({ where: { brandId: oldPrestigeBrand.id }, data: { brandId: currentPrestigeBrand.id } });
     await prisma.brand.delete({ where: { id: oldPrestigeBrand.id } });
   }
 

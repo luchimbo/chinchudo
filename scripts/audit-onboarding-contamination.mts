@@ -46,10 +46,6 @@ async function main() {
       where: { detectedBrandId: contaminatedBrand.id },
     });
     const responsesOnBrand = await prisma.response.count({ where: { brandId: contaminatedBrand.id } });
-    const videosOnBrand = await prisma.videoScript.count({ where: { brandId: contaminatedBrand.id } });
-    const videosOnProducts = productIds.length
-      ? await prisma.videoScript.count({ where: { productId: { in: productIds } } })
-      : 0;
     contaminatedBrandDetail = {
       id: contaminatedBrand.id,
       name: contaminatedBrand.name,
@@ -60,14 +56,10 @@ async function main() {
       opportunitiesOnProducts,
       opportunitiesOnBrand,
       responsesOnBrand,
-      videosOnBrand,
-      videosOnProducts,
       safeToDelete:
         opportunitiesOnProducts === 0 &&
         opportunitiesOnBrand === 0 &&
         responsesOnBrand === 0 &&
-        videosOnBrand === 0 &&
-        videosOnProducts === 0 &&
         products.length === 14,
     };
   }
