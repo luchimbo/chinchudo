@@ -52,6 +52,25 @@ describe("resolveLLMConfig", () => {
     expect(resolveLLMProvider(new Date("2026-07-24T03:00:00Z"))).toBe("local"); // 00:00 ART, outside the old window
   });
 
+  it("waits and retries when the GPU is busy, and marks background calls as batch", async () => {
+    process.env.LLM_PROVIDER = "local";
+    process.env.LLM_LOCAL_BASE_URL = "http://local-llm/v1";
+    process.env.LLM_LOCAL_PRIORITY = "batch";
+    const busyThenOk = vi.fn()
+      .mockResolvedValueOnce(new Response('{"error":"capacity_unavailable"}', { status: 503 }))
+      .mockResolvedValueOnce(new Response('{"error":"queue_full"}', { status: 429 }))
+      .mockResolvedValueOnce(new Response('{"choices":[{"message":{"content":"ok"}}]}', { status: 200 }));
+    vi.stubGlobal("fetch", busyThenOk);
+    vi.useFakeTimers();
+    const pending = fetchChatCompletion(resolveLLMConfig(), { messages: [] }, "test");
+    await vi.runAllTimersAsync();
+    const result = await pending;
+    vi.useRealTimers();
+    expect(result.response.status).toBe(200);
+    expect(busyThenOk).toHaveBeenCalledTimes(3);
+    expect(busyThenOk.mock.calls[0][1].headers["X-PCMidi-Priority"]).toBe("batch");
+  });
+
   it("never falls back to OpenRouter when qwen is unavailable", async () => {
     process.env.LLM_PROVIDER = "local";
     process.env.LLM_LOCAL_BASE_URL = "http://local-llm/v1";
@@ -61,10 +80,10 @@ describe("resolveLLMConfig", () => {
     await expect(fetchChatCompletion(resolveLLMConfig(), { messages: [] }, "test")).rejects.toThrow("network unreachable");
     expect(unreachable).toHaveBeenCalledTimes(1);
 
-    const busy = vi.fn().mockResolvedValue(new Response("busy", { status: 503 }));
+    const busy = vi.fn().mockResolvedValue(new Response("upstream error", { status: 500 }));
     vi.stubGlobal("fetch", busy);
     const result = await fetchChatCompletion(resolveLLMConfig(), { messages: [] }, "test");
-    expect(result.response.status).toBe(503);
+    expect(result.response.status).toBe(500);
     expect(result.config.provider).toBe("local");
     expect(busy).toHaveBeenCalledTimes(1);
   });
@@ -161,7 +180,7 @@ describe("local IA through the relay", () => {
     process.env.LLM_PROVIDER = "local";
     process.env.LLM_LOCAL_BASE_URL = "http://pcmidi.local:11434/v1";
     process.env.OPENROUTER_API_KEY = "remote-key";
-    const fetchMock = failure === "http" ? vi.fn().mockResolvedValue(new Response("Unavailable", { status: 503 })) : vi.fn().mockRejectedValue(new Error("Unavailable"));
+    const fetchMock = failure === "http" ? vi.fn().mockResolvedValue(new Response("Unavailable", { status: 500 })) : vi.fn().mockRejectedValue(new Error("Unavailable"));
     vi.stubGlobal("fetch", fetchMock);
     const attempt = fetchChatCompletion(resolveLLMConfig(), { messages: [] }, "test", undefined, undefined, { allowFallback: false });
     if (failure === "http") expect((await attempt).usedFallback).toBe(false);

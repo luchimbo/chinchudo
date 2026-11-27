@@ -21,6 +21,7 @@ import { isExternalCourseInquiry } from "./kressmer-radar";
 
 export const CM_ACTIVE_STATUSES = ["NEW", "NEEDS_REVIEW", "DRAFTED", "APPROVED"] as const;
 const LEASE_MS = 15 * 60_000;
+const CM_VERSION_REUSE_MS = 60_000;
 const MAX_ATTEMPTS = 3;
 
 export type CMMaintenanceState = { version: string; input: string; attempts: number; error: string; retryAt: string; day: string };
@@ -84,10 +85,14 @@ export async function refreshCMOpportunity(db: PrismaClient, clientId: string, i
   if (before.clientId !== clientId || !CM_ACTIVE_STATUSES.includes(before.status as typeof CM_ACTIVE_STATUSES[number])
     || before.responses.some((response) => response.publishingLog)) return "skipped";
   const timing = operationTiming("cm-generation", manual?.jobId);
-  const version = await timing.measure("context-version", () => loadCMVersion(db, clientId));
+  // Reused for a minute across regenerations (see loadCMVersion).
+  let version = await timing.measure("context-version", () => loadCMVersion(db, clientId, { maxAgeMs: CM_VERSION_REUSE_MS }));
   if (manual) {
     const fingerprint = /^db-v[123]:/.test(manual.expectedHash) ? await currentManualFingerprint(db, id, clientId, manual.expectedHash) : cmManualInputHash(before);
     if (fingerprint !== manual.expectedHash) return changed("input_changed");
+    // The request may carry a version newer than the reused one (the catalog was just edited):
+    // recompute before calling it a rules change.
+    if (manual.inputVersion && version !== manual.inputVersion) version = await loadCMVersion(db, clientId);
     if (manual.inputVersion && version !== manual.inputVersion) return changed("rules_changed");
   }
   if (!manual && before.responses.some((response) => cmIsFresh(response.evidence, version, before))) return "skipped";
@@ -159,8 +164,9 @@ export async function refreshCMOpportunity(db: PrismaClient, clientId: string, i
     const text = ensureRequiredBrandMention(shortenCopilotText(sanitizeCopilotDraft(draft.draftText, context.client.slug)), context.client.slug);
     const crossClient = await detectCrossClientTerms(db, clientId, text);
     if (crossClient.length) throw new Error(`La propuesta mezcla datos de otro cliente: ${crossClient.join("; ")}`);
-    // Prompt/catalog may have changed while the model was thinking.
-    if (await loadCMVersion(db, clientId) !== version) return changed("rules_changed");
+    // Prompt/catalog may have changed while the model was thinking (within the reuse window this
+    // is the same value; the next maintenance run catches a later change).
+    if (await loadCMVersion(db, clientId, { maxAgeMs: CM_VERSION_REUSE_MS }) !== version) return changed("rules_changed");
     // A serialization conflict only means another writer touched the same rows
     // (usually maintenance running beside a manual request). The AI answer is
     // still valid, so retry just this short transaction instead of the whole job.

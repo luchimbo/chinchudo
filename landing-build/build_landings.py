@@ -1180,12 +1180,11 @@ def _local_chat_json(system: str, user: str, temperature: float, max_tokens: int
     }
     if max_tokens:
         payload["max_tokens"] = max_tokens
-    request = urllib.request.Request(
-        f"{base}/chat/completions",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json", "Authorization": "Bearer ollama", "X-PCMidi-Project": "pcmidi-suite-blog"},
-        method="POST",
-    )
+    headers = {"Content-Type": "application/json", "Authorization": "Bearer ollama", "X-PCMidi-Project": "pcmidi-suite-blog"}
+    # pcmidi-guard: batch requests wait in line for the GPU (up to 30 s) instead of failing at 3 s.
+    if os.environ.get("LLM_LOCAL_PRIORITY", "").strip().lower() == "batch":
+        headers["X-PCMidi-Priority"] = "batch"
+    request = urllib.request.Request(f"{base}/chat/completions", data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
     started = time.time()
     try:
         # Long articles take minutes on the local GPU; the queue in pcmidi-guard may add a wait.
