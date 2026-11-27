@@ -229,7 +229,7 @@ Estilo:
 ### Escalamiento
 
 - Supabase Auth (hoy auth propia con JWT firmado y expiracion).
-- Jobs programados (hoy: Task Scheduler de Windows).
+- Jobs programados (hoy: cron y `@reboot` en el servidor `pcmidi`; en la PC, el procesador y el mantenimiento del Asistente CM con Task Scheduler).
 - Cola de tareas con BullMQ o Supabase Queues.
 - Almacenamiento de screenshots y evidencia.
 - Reportes semanales.
@@ -243,12 +243,13 @@ Python maneja el navegador real (CDP). Node.js + Prisma persisten en Postgres. J
 - **Escucha**: `agents/social-listen.py` (YouTube) → `data/social-listen-intake.jsonl` → `scripts/import-opportunities.mts`.
   - El importador deduplica por URL/comentario y clasifica con IA (`src/lib/ai-opportunity-classifier.ts`).
   - Si la IA falla, la fila vuelve al intake y se reintenta hasta 3 veces. Recién ahí entra con el fallback local como `NEEDS_REVIEW`.
-  - Disparadores: `scripts/run-scheduled.ps1` (tarea `10Apostoles-Monitor`: `agents:daily-quota` + `agents:monitor`) y la búsqueda manual de `/oportunidades`, que va por el relay (`/api/opportunities/search/run`).
+  - Disparadores (en el servidor `pcmidi`): cron cada 30 min de 07:00 a 22:30 → `scripts/server/listening-ssh.sh` (cuota de Kressmer, `agents:daily-quota` y `agents:monitor`), con Chrome sin pantalla por cuenta (`agents/accounts.json` del servidor, `browserProvider: "chrome"`, `scripts/server/listening.env`). La búsqueda manual de `/oportunidades` va al servidor (`/search/run`, `scripts/search-run.mjs`); el relay de la PC queda de respaldo.
+  - En la PC, `scripts/run-scheduled.ps1` (tarea `10Apostoles-Monitor`, que solo se deshabilita como administrador) sale sin buscar, salvo que exista `data/listening-on-pc.flag`.
 - **Generación**: un único camino, `refreshCMOpportunity` (`src/lib/cm-maintenance.ts`). Lo usan:
   - la cola manual del Asistente CM (`/api/cm/jobs` → `scripts/cm-manual-worker.mts`);
   - el mantenimiento cada 15 minutos (tarea `Los5Apostoles-AsistenteCM` → `scripts/cm-maintenance.mts`);
   - la cuota diaria de Kressmer.
-- **Dónde corre**: en el servidor SSH `pcmidi` (`scripts/start-cm-runtime-ssh.sh` vía `@reboot`: procesador siempre vivo + mantenimiento cada 15 minutos, con los ajustes de `scripts/server/cm-runtime.env` y el Ollama del mismo servidor) y también en la PC de PC MIDI (tareas de Windows). Pueden correr a la vez: la base reparte los pedidos y el mantenimiento tiene candado. Se despliega con `deploy-blog-runtime.sh`.
+- **Dónde corre**: en el servidor SSH `pcmidi` (`scripts/start-cm-runtime-ssh.sh` vía `@reboot`: procesador siempre vivo + mantenimiento cada 15 minutos, con los ajustes de `scripts/server/cm-runtime.env` y el Ollama del mismo servidor, por el pooler de sesión de Supabase (5432) y con prioridad `batch` en `pcmidi-guard`) y también en la PC de PC MIDI (tareas de Windows). Pueden correr a la vez: la base reparte los pedidos y el mantenimiento tiene candado. Se despliega con `deploy-blog-runtime.sh`.
 - **Prompt**: `buildCopilotPrompt` en `src/lib/ai-draft-generator.ts` (Kressmer usa `buildKressmerReplyPrompt`). Validación en `src/lib/draft-output.ts`: sin preguntas salvo Prestige y Kressmer.
 - **Frescura**: `src/lib/cm-version.ts`. Versión = `version` de `src/lib/cm-rules-version.json` (se cambia a mano solo cuando las reglas de generación deben volver viejas todas las propuestas; el mantenimiento las regenera) + contenido del cliente. Memorias y ejemplos aprendidos no invalidan propuestas existentes.
 - **Alcance**: el mantenimiento solo regenera oportunidades de los últimos 14 días (`CM_AUTO_REFRESH_DAYS`); las más viejas se rehacen a pedido.
@@ -279,7 +280,7 @@ Corre en el servidor `pcmidi`: cron cada hora → `scripts/server/backup-db-ssh.
 
 ### Relay local
 
-`scripts/agent-relay.mjs` (tarea `PCMidi Relay`, puerto 3099) queda para la búsqueda de oportunidades, el estado de login de perfiles y el proxy al LLM local. No toca el blog.
+`scripts/agent-relay.mjs` (tarea `PCMidi Relay`, puerto 3099) queda para el estado de login de perfiles y como respaldo de la búsqueda manual y del proxy al LLM (ambos los sirve primero el servidor `pcmidi`). No toca el blog.
 
 ### Reglas de agentes
 
