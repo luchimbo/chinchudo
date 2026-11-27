@@ -5,13 +5,14 @@ export type SearchItem = { id: string; name: string; brand: string; category: st
 export function useCatalogSearch(kind: string, query: string, enabled: boolean, clientOverride?: string, selected: string[] = []) {
   const params = useSearchParams();
   const client = clientOverride || params.get("client") || "";
-  const [items, setItems] = useState<SearchItem[]>([]), [page, setPage] = useState(1), [more, setMore] = useState(false);
+  const [items, setItems] = useState<SearchItem[]>([]), [page, setPage] = useState(1), [more, setMore] = useState(false), [loading, setLoading] = useState(false);
   const selectedKey = selected.join(",");
   const previous = useRef("");
   useEffect(() => { setPage(1); setItems([]); }, [client, kind, query]);
   useEffect(() => {
     if (!enabled) return;
     const controller = new AbortController();
+    setLoading(true);
     const timer = setTimeout(async () => {
       const key = `${client}|${kind}|${query}`;
       try {
@@ -23,8 +24,9 @@ export function useCatalogSearch(kind: string, query: string, enabled: boolean, 
         setItems(current => page > 1 && previous.current === key ? [...new Map([...current, ...result.items].map(i => [i.id, i])).values()] : result.items);
         previous.current = key; setMore(result.hasMore);
       } catch { /* Preserve selected options on transient failure. */ }
+      finally { if (!controller.signal.aborted) setLoading(false); }
     }, 250);
-    return () => { clearTimeout(timer); controller.abort(); };
+    return () => { clearTimeout(timer); controller.abort(); setLoading(false); };
   }, [client, kind, query, enabled, page, selectedKey]);
-  return { items, hasMore: more, loadMore: () => setPage(value => value + 1) };
+  return { items, hasMore: more, loading, loadMore: () => setPage(value => value + 1) };
 }

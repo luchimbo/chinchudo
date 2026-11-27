@@ -77,7 +77,7 @@ function SuggestionCard({ suggestion, inProposal, accepted, disabled, applying, 
         <button type="button" onClick={save} disabled={draft.trim().length < 3} className="rounded-full bg-ink px-3 py-1.5 text-[11px] font-bold text-paper transition hover:bg-slate disabled:opacity-50">Guardar cambios</button>
         <button type="button" onClick={() => setEditing(false)} className="rounded-full px-2.5 py-1.5 text-[11px] font-semibold text-slate hover:text-ink">Cancelar</button>
       </> : <>
-        <button type="button" onClick={onUse} disabled={disabled || tooLong || (inProposal && accepted)} className="rounded-full bg-moss px-3 py-1.5 text-[11px] font-bold text-white transition hover:bg-moss/85 disabled:cursor-not-allowed disabled:opacity-50">{applying ? "Guardando y aprendiendo…" : inProposal && accepted ? "Respuesta usada" : "Usar esta respuesta"}</button>
+        <button type="button" onClick={onUse} disabled={disabled || tooLong || (inProposal && accepted)} className="rounded-full bg-moss px-3 py-1.5 text-[11px] font-bold text-white transition hover:bg-moss/85 disabled:cursor-not-allowed disabled:opacity-50">{applying ? <span className="inline-flex items-center gap-2"><LoadingSpinner />Guardando y aprendiendo…</span> : inProposal && accepted ? "Respuesta usada" : "Usar esta respuesta"}</button>
         <button type="button" onClick={startEditing} disabled={disabled} className="rounded-full border border-ink/15 px-3 py-1.5 text-[11px] font-bold text-ink transition hover:border-ink/40 disabled:opacity-50">✎ Editar</button>
         <button type="button" onClick={copy} className="rounded-full border border-ink/15 px-3 py-1.5 text-[11px] font-bold text-ink transition hover:border-ink/40">{copied ? "Copiado" : "Copiar"}</button>
       </>}

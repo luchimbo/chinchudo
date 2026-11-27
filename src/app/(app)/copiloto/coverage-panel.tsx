@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useVisiblePoll } from "@/lib/use-visible-poll";
 import type { CoverageRow } from "@/lib/cm-coverage-view";
+import { LoadingSpinner } from "@/components/loading-ui";
 type Counts = { total: number; missing: number; stale: number; fresh: number; review: number; error: number };
 export function CoveragePanel({ client, initial, pending, visibleIds = [] }: { client: string; initial: Counts; pending: boolean; visibleIds?: string[] }) {
   const [state, setState] = useState({ counts: initial, pending });
@@ -26,7 +27,7 @@ export function CoveragePanel({ client, initial, pending, visibleIds = [] }: { c
   const counts = state.counts;
   return <section aria-label="Cobertura de propuestas" className="mt-5 rounded-2xl border border-ink/10 bg-white/65 p-4 text-sm">
     <p>{counts.total ? Math.round((counts.fresh + counts.review) * 100 / counts.total) : 0}% con propuesta actualizada · {counts.total} oportunidades activas</p>
-    {state.pending ? <p role="status" className="mt-2 text-xs text-slate">Indicadores pendientes de actualización.</p> : null}
-    <div className="mt-3 flex flex-wrap gap-4 text-xs text-slate"><span>Sin respuesta: {counts.missing}</span><span>Por actualizar: {counts.stale}</span><span>Actualizadas: {counts.fresh}</span><span>Para revisar: {counts.review}</span><span>Con error: {counts.error}</span></div>
+    {state.pending ? <p role="status" className="mt-2 flex items-center gap-2 text-xs text-slate"><LoadingSpinner />Recalculando indicadores…</p> : null}
+    <div className={`mt-3 flex flex-wrap gap-4 text-xs text-slate transition-opacity ${state.pending ? "opacity-60" : ""}`}><span>Sin respuesta: {counts.missing}</span><span>Por actualizar: {counts.stale}</span><span>Actualizadas: {counts.fresh}</span><span>Para revisar: {counts.review}</span><span>Con error: {counts.error}</span></div>
   </section>;
 }
