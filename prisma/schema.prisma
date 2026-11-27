@@ -53,44 +53,44 @@ enum IssueReportStatus {
 // ─── Multi-Cliente ─────────────────────────────────────────────────────────────
 
 model Client {
-  manualCMJobs CMManualJob[]
-  cmCoverage CMCoverageSnapshot?
-  id                     String               @id @default(cuid())
-  name                   String               @unique
-  slug                   String               @unique
-  description            String               @default("")
-  domainKeywords         String               @default("[]")
-  domainExclusions       String               @default("[]")
-  dailyOpportunityTarget Int                  @default(50)
-  dailyDraftTarget       Int                  @default(50)
-  responsePolicy         Json                 @default("{}")
-  opportunitySearchState Json                 @default("{}")
-  autoPublish            Boolean              @default(false)
-  autoApprove            Boolean              @default(false)
-  active                 Boolean              @default(true)
-  openrouterApiKey       String               @default("")
-  openrouterModel        String               @default("")
+  manualCMJobs           CMManualJob[]
+  cmCoverage             CMCoverageSnapshot?
+  id                     String                @id @default(cuid())
+  name                   String                @unique
+  slug                   String                @unique
+  description            String                @default("")
+  domainKeywords         String                @default("[]")
+  domainExclusions       String                @default("[]")
+  dailyOpportunityTarget Int                   @default(50)
+  dailyDraftTarget       Int                   @default(50)
+  responsePolicy         Json                  @default("{}")
+  opportunitySearchState Json                  @default("{}")
+  autoPublish            Boolean               @default(false)
+  autoApprove            Boolean               @default(false)
+  active                 Boolean               @default(true)
+  openrouterApiKey       String                @default("")
+  openrouterModel        String                @default("")
   // Branding / landings
-  storeUrl               String               @default("")
-  blogBaseUrl            String               @default("")
-  labName                String               @default("")
-  logoUrl                String               @default("")
-  landingTemplate        String               @default("")
-  landingPrimaryColor    String               @default("")
-  landingSecondaryColor  String               @default("")
+  storeUrl               String                @default("")
+  blogBaseUrl            String                @default("")
+  labName                String                @default("")
+  logoUrl                String                @default("")
+  landingTemplate        String                @default("")
+  landingPrimaryColor    String                @default("")
+  landingSecondaryColor  String                @default("")
   // Email / nurturing (Fase 2)
-  fromName               String               @default("")
-  fromEmail              String               @default("")
-  smtpHost               String               @default("")
-  smtpPort               Int                  @default(465)
-  smtpUser               String               @default("")
-  smtpPass               String               @default("")
-  unsubscribeBaseUrl     String               @default("")
-  trackBaseUrl           String               @default("")
+  fromName               String                @default("")
+  fromEmail              String                @default("")
+  smtpHost               String                @default("")
+  smtpPort               Int                   @default(465)
+  smtpUser               String                @default("")
+  smtpPass               String                @default("")
+  unsubscribeBaseUrl     String                @default("")
+  trackBaseUrl           String                @default("")
   // GEO (Fase 3)
-  geoBrandPatterns       Json                 @default("[]")
-  createdAt              DateTime             @default(now())
-  updatedAt              DateTime             @updatedAt
+  geoBrandPatterns       Json                  @default("[]")
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
   brands                 Brand[]
   personas               Persona[]
   monitoredSources       MonitoredSource[]
@@ -102,25 +102,13 @@ model Client {
   landings               Landing[]
   contentClusters        ContentCluster[]
   landingInternalLinks   LandingInternalLink[]
-  leadMagnets            LeadMagnet[]
-  leads                  Lead[]
-  nurtureSteps           NurtureStep[]
-  distributionPieces     DistributionPiece[]
-  geoAudits              GeoAudit[]
-  aiPresenceResults      AIPresenceResult[]
   trackingEvents         TrackingEvent[]
   youtubeConnections     YouTubeConnection[]
   users                  User[]
   loginAuditEvents       LoginAuditEvent[]
   opportunities          Opportunity[]
   observedProfiles       ObservedProfile[]
-  trends                 Trend[]
-  videoScripts           VideoScript[]
-  contentIdeas           ContentIdea[]
-  referenceAccounts      ReferenceAccount[]
-  instagramConnection    InstagramConnection?
   blogPublications       BlogPublication[]
-  brandSnapshots         BrandSnapshot[]
   competitorEvidence     CompetitorEvidence[]
   businessProfile        BusinessProfile?
   businessCompetitors    BusinessCompetitor[]
@@ -131,25 +119,6 @@ model Client {
   memories               ClientMemory[]
   onboarding             ClientOnboarding?
   userInvitations        UserInvitation[]
-}
-
-model BrandSnapshot {
-  id           String   @id @default(cuid())
-  clientId     String
-  milestone    String
-  baselineAt   DateTime
-  scheduledFor DateTime
-  capturedAt   DateTime @default(now())
-  metrics      Json     @default("{}")
-  deltas       Json     @default("{}")
-  csvPath      String   @default("")
-  pdfPath      String   @default("")
-  createdAt    DateTime @default(now())
-  client       Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-
-  @@unique([clientId, milestone])
-  @@index([clientId, scheduledFor])
-  @@index([capturedAt])
 }
 
 model User {
@@ -215,16 +184,16 @@ model RateLimitHit {
 }
 
 model LoginAuditEvent {
-  id        String    @id @default(cuid())
+  id        String   @id @default(cuid())
   clientId  String?
   userId    String?
   email     String
   success   Boolean
   reason    String?
-  ipAddress String    @default("")
-  userAgent String    @default("")
-  createdAt DateTime  @default(now())
-  client    Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  ipAddress String   @default("")
+  userAgent String   @default("")
+  createdAt DateTime @default(now())
+  client    Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
 
   @@index([email, createdAt])
   @@index([clientId, createdAt])
@@ -269,20 +238,20 @@ model SupportSession {
 }
 
 model AdminAuditEvent {
-  id               String                @id @default(cuid())
+  id               String               @id @default(cuid())
   actorId          String
   clientId         String?
   supportSessionId String?
   action           String
   targetType       String
   targetId         String?
-  ipAddress        String                @default("")
-  userAgent        String                @default("")
-  metadata         Json                  @default("{}")
-  createdAt        DateTime              @default(now())
-  actor            PlatformAdminProfile  @relation(fields: [actorId], references: [id], onDelete: Restrict)
-  client           Client?               @relation(fields: [clientId], references: [id], onDelete: SetNull)
-  supportSession   SupportSession?       @relation(fields: [supportSessionId], references: [id], onDelete: SetNull)
+  ipAddress        String               @default("")
+  userAgent        String               @default("")
+  metadata         Json                 @default("{}")
+  createdAt        DateTime             @default(now())
+  actor            PlatformAdminProfile @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  client           Client?              @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  supportSession   SupportSession?      @relation(fields: [supportSessionId], references: [id], onDelete: SetNull)
 
   @@index([actorId, createdAt])
   @@index([clientId, createdAt])
@@ -331,32 +300,29 @@ model Brand {
   products             Product[]
   services             Service[]
   responses            Response[]
-  videoScripts         VideoScript[]
 
   @@unique([clientId, name])
 }
 
 model Product {
-  id             String        @id @default(cuid())
-  brandId        String
-  name           String
-  category       String
-  description    String
-  technicalSpecs String        @default("")
-  useCases       String        @default("")
-  warrantyNotes  String        @default("")
-  stockStatus    String        @default("Por confirmar")
-  priceRange     String        @default("Por confirmar")
-  sourceType     String        @default("manual")
+  id               String        @id @default(cuid())
+  brandId          String
+  name             String
+  category         String
+  description      String
+  technicalSpecs   String        @default("")
+  useCases         String        @default("")
+  warrantyNotes    String        @default("")
+  stockStatus      String        @default("Por confirmar")
+  priceRange       String        @default("Por confirmar")
+  sourceType       String        @default("manual")
   sourceExternalId String?
-  sourceUrl      String        @default("")
+  sourceUrl        String        @default("")
   sourceSnapshotAt DateTime?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  opportunities  Opportunity[]
-  brand          Brand         @relation(fields: [brandId], references: [id], onDelete: Cascade)
-  videoScripts   VideoScript[]
-  contentIdeas   ContentIdea[]
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  opportunities    Opportunity[]
+  brand            Brand         @relation(fields: [brandId], references: [id], onDelete: Cascade)
 
   @@unique([brandId, name])
 }
@@ -381,7 +347,6 @@ model Persona {
   client           Client?       @relation(fields: [clientId], references: [id])
   responses        Response[]
   rules            PersonaRule[]
-  videoScripts     VideoScript[]
 
   @@unique([clientId, name])
 }
@@ -396,7 +361,7 @@ model Channel {
 }
 
 model Opportunity {
-  manualCMJobs CMManualJob[]
+  manualCMJobs           CMManualJob[]
   id                     String              @id @default(cuid())
   channelId              String
   sourceUrl              String
@@ -434,7 +399,6 @@ model Opportunity {
   responses              Response[]
   draftJob               DraftJob?
   landings               Landing[]
-  distribution           DistributionPiece[]
   observedEvent          ObservedEvent?
   memories               ClientMemory[]
 
@@ -522,28 +486,28 @@ model ObservedEvent {
 }
 
 model Response {
-  id                 String              @id @default(cuid())
-  opportunityId      String
-  personaId          String
-  brandId            String
-  variantType        ResponseVariantType
-  voiceVariant       String              @default("")
-  voiceVariantReason String              @default("")
-  draftText          String
-  editedText         String              @default("")
-  riskNotes          String              @default("")
-  isPrimary          Boolean             @default(false)
-  evidence           Json                @default("[]")
-  chatHistory        Json                @default("[]")
-  approvedBy         String              @default("")
+  id                  String              @id @default(cuid())
+  opportunityId       String
+  personaId           String
+  brandId             String
+  variantType         ResponseVariantType
+  voiceVariant        String              @default("")
+  voiceVariantReason  String              @default("")
+  draftText           String
+  editedText          String              @default("")
+  riskNotes           String              @default("")
+  isPrimary           Boolean             @default(false)
+  evidence            Json                @default("[]")
+  chatHistory         Json                @default("[]")
+  approvedBy          String              @default("")
   acceptedAsCorrectAt DateTime?
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  publishingLog      PublishingLog?
-  brand              Brand               @relation(fields: [brandId], references: [id])
-  opportunity        Opportunity         @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
-  persona            Persona             @relation(fields: [personaId], references: [id])
-  memories           ClientMemory[]
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  publishingLog       PublishingLog?
+  brand               Brand               @relation(fields: [brandId], references: [id])
+  opportunity         Opportunity         @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  persona             Persona             @relation(fields: [personaId], references: [id])
+  memories            ClientMemory[]
 
   @@index([opportunityId])
   @@index([personaId])
@@ -552,18 +516,18 @@ model Response {
 }
 
 model ClientMemory {
-  id            String      @id @default(cuid())
+  id            String       @id @default(cuid())
   clientId      String
   rule          String
-  summary       String      @default("")
-  category      String      @default("general") // tone | warranty | product | store | mistake | general
-  source        String      @default("chat_refinement") // chat_refinement | manual
+  summary       String       @default("")
+  category      String       @default("general") // tone | warranty | product | store | mistake | general
+  source        String       @default("chat_refinement") // chat_refinement | manual
   opportunityId String?
   responseId    String?
-  active        Boolean     @default(true)
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  client        Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  active        Boolean      @default(true)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  client        Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
   opportunity   Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
   response      Response?    @relation(fields: [responseId], references: [id], onDelete: SetNull)
 
@@ -574,23 +538,23 @@ model ClientMemory {
 }
 
 model Service {
-  id              String   @id @default(cuid())
-  brandId         String
-  name            String
-  category        String   @default("")
-  description     String   @default("")
-  scope           String   @default("")
-  modality        String   @default("")
-  audience        String   @default("")
-  priceRange      String   @default("Por confirmar")
-  availabilityNotes String @default("Por confirmar")
-  sourceType      String   @default("manual")
-  sourceExternalId String?
-  sourceUrl       String   @default("")
-  sourceSnapshotAt DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  brand           Brand    @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  id                String    @id @default(cuid())
+  brandId           String
+  name              String
+  category          String    @default("")
+  description       String    @default("")
+  scope             String    @default("")
+  modality          String    @default("")
+  audience          String    @default("")
+  priceRange        String    @default("Por confirmar")
+  availabilityNotes String    @default("Por confirmar")
+  sourceType        String    @default("manual")
+  sourceExternalId  String?
+  sourceUrl         String    @default("")
+  sourceSnapshotAt  DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  brand             Brand     @relation(fields: [brandId], references: [id], onDelete: Cascade)
 
   @@unique([brandId, name])
   @@index([brandId])
@@ -607,18 +571,18 @@ enum OnboardingStatus {
 /// Estado durable del alta autoservicio. `draft` conserva propuestas de IA
 /// hasta que el administrador las revisa y confirma.
 model ClientOnboarding {
-  id            String           @id @default(cuid())
-  clientId      String           @unique
-  status        OnboardingStatus @default(NOT_STARTED)
-  currentStep   Int              @default(1)
-  sourceUrl     String           @default("")
-  businessType  String           @default("")
-  draft         Json             @default("{}")
-  analysisError String           @default("")
+  id            String                 @id @default(cuid())
+  clientId      String                 @unique
+  status        OnboardingStatus       @default(NOT_STARTED)
+  currentStep   Int                    @default(1)
+  sourceUrl     String                 @default("")
+  businessType  String                 @default("")
+  draft         Json                   @default("{}")
+  analysisError String                 @default("")
   completedAt   DateTime?
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
-  client        Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  client        Client                 @relation(fields: [clientId], references: [id], onDelete: Cascade)
   sourcePages   OnboardingSourcePage[]
 
   @@index([status])
@@ -627,16 +591,16 @@ model ClientOnboarding {
 /// Evidencia liviana del análisis web. Guarda sólo texto extraído y metadatos,
 /// nunca HTML completo ni datos de usuarios del sitio fuente.
 model OnboardingSourcePage {
-  id            String           @id @default(cuid())
-  onboardingId  String
-  url           String
-  title         String           @default("")
-  pageType      String           @default("other")
-  contentHash   String           @default("")
-  excerpt       String           @default("")
-  extracted     Json             @default("{}")
-  fetchedAt     DateTime         @default(now())
-  onboarding    ClientOnboarding @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
+  id           String           @id @default(cuid())
+  onboardingId String
+  url          String
+  title        String           @default("")
+  pageType     String           @default("other")
+  contentHash  String           @default("")
+  excerpt      String           @default("")
+  extracted    Json             @default("{}")
+  fetchedAt    DateTime         @default(now())
+  onboarding   ClientOnboarding @relation(fields: [onboardingId], references: [id], onDelete: Cascade)
 
   @@unique([onboardingId, url])
   @@index([onboardingId])
@@ -664,74 +628,21 @@ model PublishingLog {
 // Credencial OAuth de una cuenta YouTube autorizada por un cliente. Los tokens
 // se guardan cifrados por la aplicación y nunca se exponen al navegador.
 model YouTubeConnection {
-  id             String   @id @default(cuid())
-  clientId       String
-  account        String
-  accessToken    String
-  refreshToken   String
-  expiresAt      DateTime?
-  channelId      String   @default("")
-  channelTitle   String   @default("")
-  scopes         String   @default("")
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  client         Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-
-  @@unique([clientId, account])
-  @@index([clientId])
-}
-
-model InstagramConnection {
   id           String    @id @default(cuid())
-  clientId     String    @unique
-  igUserId     String
-  username     String    @default("")
-  accessToken  String // cifrado con el mismo esquema que YouTubeConnection
+  clientId     String
+  account      String
+  accessToken  String
+  refreshToken String
   expiresAt    DateTime?
+  channelId    String    @default("")
+  channelTitle String    @default("")
   scopes       String    @default("")
-  lastSyncAt   DateTime?
-  lastError    String    @default("")
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   client       Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
-}
 
-/// Cuentas que un cliente toma como referencia (ig-viral): competencia, afines o de formato.
-model ReferenceAccount {
-  id            String    @id @default(cuid())
-  clientId      String
-  platform      String // INSTAGRAM | TIKTOK | YOUTUBE
-  handle        String
-  url           String
-  kind          String    @default("COMPETENCIA") // COMPETENCIA | AFIN | FORMATO
-  active        Boolean   @default(true)
-  medianViews   Int?
-  lastScannedAt DateTime?
-  scanRequestedAt DateTime?
-  lastError     String    @default("")
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  client        Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
-
-  @@unique([clientId, platform, handle])
-  @@index([clientId, active])
-}
-
-/// Métricas de una pieza publicada (ig-audit), por captura.
-model PieceMetricSnapshot {
-  id            String      @id @default(cuid())
-  contentIdeaId String
-  source        String // INSTAGRAM_API | YOUTUBE_API | MANUAL
-  views         Int?
-  reach         Int?
-  likes         Int?
-  comments      Int?
-  saves         Int?
-  shares        Int?
-  capturedAt    DateTime    @default(now())
-  contentIdea   ContentIdea @relation(fields: [contentIdeaId], references: [id], onDelete: Cascade)
-
-  @@index([contentIdeaId, capturedAt])
+  @@unique([clientId, account])
+  @@index([clientId])
 }
 
 model KnowledgeBase {
@@ -914,40 +825,6 @@ model IssueReport {
   @@index([createdAt])
 }
 
-enum LeadMagnetType {
-  CHECKLIST
-  GUIA
-  COMPARATIVA
-  PLANTILLA
-  PRESET
-}
-
-enum NurtureStepStatus {
-  PENDING
-  SENT
-  FAILED
-  SKIPPED
-}
-
-enum DistributionChannel {
-  REDDIT
-  LINKEDIN
-  TWITTER
-  FACEBOOK
-  INSTAGRAM
-  YOUTUBE
-  NEWSLETTER
-  FORUM
-}
-
-enum DistributionStatus {
-  NEW
-  APPROVED
-  SCHEDULED
-  PUBLISHED
-  FAILED
-}
-
 enum DraftJobStatus {
   QUEUED
   PROCESSING
@@ -955,59 +832,39 @@ enum DraftJobStatus {
   FAILED
 }
 
-model LeadMagnet {
-  id        String         @id @default(cuid())
-  clientId  String?
-  tipo      LeadMagnetType
-  titulo    String
-  contenido String
-  slug      String         @unique
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
-  client    Client?        @relation(fields: [clientId], references: [id])
-  landings  Landing[]
-  leads     Lead[]
-
-  @@index([clientId])
-}
-
 model Landing {
-  language           String?
-  translationOfId    String?
+  language        String?
+  translationOfId String?
 
-  id                 String              @id @default(cuid())
-  clientId           String
-  slug               String
-  keyword            String
-  intent             String              @default("")
-  titulo             String              @default("")
-  htmlContent        String
-  seoTitle           String              @default("")
-  seoDescription     String              @default("")
-  status             LandingStatus       @default(DRAFT)
-  contentType        LandingContentType  @default(GUIDE)
-  indexingState      LandingIndexingState @default(INDEX)
-  contentClusterId   String?
-  authorName         String              @default("Equipo PC MIDI Center")
-  sourceRefs         Json                @default("[]")
-  publicPreviewUrl   String              @default("")
-  previewPublishedAt DateTime?
-  publishedAt        DateTime?
-  opportunityId      String?
-  leadMagnetId       String?
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  client             Client              @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  contentCluster     ContentCluster?     @relation("LandingContentCluster", fields: [contentClusterId], references: [id], onDelete: SetNull)
-  pillarFor          ContentCluster?     @relation("ContentClusterPillar")
-  opportunity        Opportunity?        @relation(fields: [opportunityId], references: [id])
-  leadMagnet         LeadMagnet?         @relation(fields: [leadMagnetId], references: [id])
-  leads              Lead[]
-  distribution       DistributionPiece[]
-  trackingEvents     TrackingEvent[]
+  id                    String                @id @default(cuid())
+  clientId              String
+  slug                  String
+  keyword               String
+  intent                String                @default("")
+  titulo                String                @default("")
+  htmlContent           String
+  seoTitle              String                @default("")
+  seoDescription        String                @default("")
+  status                LandingStatus         @default(DRAFT)
+  contentType           LandingContentType    @default(GUIDE)
+  indexingState         LandingIndexingState  @default(INDEX)
+  contentClusterId      String?
+  authorName            String                @default("Equipo PC MIDI Center")
+  sourceRefs            Json                  @default("[]")
+  publicPreviewUrl      String                @default("")
+  previewPublishedAt    DateTime?
+  publishedAt           DateTime?
+  opportunityId         String?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+  client                Client                @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  contentCluster        ContentCluster?       @relation("LandingContentCluster", fields: [contentClusterId], references: [id], onDelete: SetNull)
+  pillarFor             ContentCluster?       @relation("ContentClusterPillar")
+  opportunity           Opportunity?          @relation(fields: [opportunityId], references: [id])
+  trackingEvents        TrackingEvent[]
   outboundInternalLinks LandingInternalLink[] @relation("LandingInternalLinkSource")
   inboundInternalLinks  LandingInternalLink[] @relation("LandingInternalLinkTarget")
-  blogPublication    BlogPublication?
+  blogPublication       BlogPublication?
 
   @@unique([clientId, slug])
   @@index([clientId, language])
@@ -1020,29 +877,29 @@ model Landing {
 }
 
 model BlogPublication {
-  id            String                @id @default(cuid())
-  clientId      String
-  landingId     String?               @unique
-  analysisRunId String?
-  requiresApproval Boolean           @default(false)
-  approvedAt DateTime?
-  targetKeyword String               @default("")
-  plannedTitle String                @default("")
-  analysisRun BusinessAnalysisRun? @relation(fields: [analysisRunId], references: [id], onDelete: SetNull)
-  scheduledDate DateTime              @db.Date
-  dailySlot     Int                   @default(0)
-  status        BlogPublicationStatus @default(PLANNED)
-  attempts      Int                   @default(0)
-  needsDeploy   Boolean               @default(false)
-  revisionAttempts Int                @default(0)
-  lastError     String                @default("")
-  errorCode     String                @default("")
-  preparation   Json?
-  publishedAt   DateTime?
-  createdAt     DateTime              @default(now())
-  updatedAt     DateTime              @updatedAt
-  client        Client                @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  landing       Landing?              @relation(fields: [landingId], references: [id], onDelete: SetNull)
+  id               String                @id @default(cuid())
+  clientId         String
+  landingId        String?               @unique
+  analysisRunId    String?
+  requiresApproval Boolean               @default(false)
+  approvedAt       DateTime?
+  targetKeyword    String                @default("")
+  plannedTitle     String                @default("")
+  analysisRun      BusinessAnalysisRun?  @relation(fields: [analysisRunId], references: [id], onDelete: SetNull)
+  scheduledDate    DateTime              @db.Date
+  dailySlot        Int                   @default(0)
+  status           BlogPublicationStatus @default(PLANNED)
+  attempts         Int                   @default(0)
+  needsDeploy      Boolean               @default(false)
+  revisionAttempts Int                   @default(0)
+  lastError        String                @default("")
+  errorCode        String                @default("")
+  preparation      Json?
+  publishedAt      DateTime?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  client           Client                @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  landing          Landing?              @relation(fields: [landingId], references: [id], onDelete: SetNull)
 
   @@unique([clientId, scheduledDate, dailySlot], name: "clientId_scheduledDate")
   @@index([clientId, status, scheduledDate])
@@ -1051,65 +908,68 @@ model BlogPublication {
 
 /// Perfil aplicado automáticamente; las correcciones manuales tienen prioridad.
 model BusinessProfile {
-  id String @id @default(cuid())
-  clientId String @unique
-  sourceUrl String @default("")
-  data Json @default("{}")
-  monthlyEnabled Boolean @default(true)
-  nextAnalysisAt DateTime?
+  id               String    @id @default(cuid())
+  clientId         String    @unique
+  sourceUrl        String    @default("")
+  data             Json      @default("{}")
+  monthlyEnabled   Boolean   @default(true)
+  nextAnalysisAt   DateTime?
   lastSuccessfulAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  client           Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
   @@index([monthlyEnabled, nextAnalysisAt])
 }
 
 model BusinessCompetitor {
-  id String @id @default(cuid())
-  clientId String
-  domain String
-  reason String @default("")
-  sourceUrl String @default("")
-  excluded Boolean @default(false)
-  manual Boolean @default(false)
+  id        String   @id @default(cuid())
+  clientId  String
+  domain    String
+  reason    String   @default("")
+  sourceUrl String   @default("")
+  excluded  Boolean  @default(false)
+  manual    Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
   @@unique([clientId, domain])
 }
 
 model BusinessAnalysisRun {
-  id String @id @default(cuid())
-  clientId String
-  sourceUrl String @default("")
-  status String @default("QUEUED")
-  stage String @default("website")
-  attempts Int @default(0)
-  checkpoint Json @default("{}")
-  result Json @default("{}")
-  errors Json @default("[]")
-  leaseToken String?
+  id             String            @id @default(cuid())
+  clientId       String
+  sourceUrl      String            @default("")
+  status         String            @default("QUEUED")
+  stage          String            @default("website")
+  attempts       Int               @default(0)
+  checkpoint     Json              @default("{}")
+  result         Json              @default("{}")
+  errors         Json              @default("[]")
+  leaseToken     String?
   leaseExpiresAt DateTime?
-  startedAt DateTime @default(now())
-  finishedAt DateTime?
-  updatedAt DateTime @updatedAt
-  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  publications BlogPublication[]
+  startedAt      DateTime          @default(now())
+  finishedAt     DateTime?
+  updatedAt      DateTime          @updatedAt
+  client         Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  publications   BlogPublication[]
+
   @@index([status, leaseExpiresAt])
   @@index([clientId, startedAt])
 }
 
 model ContentCluster {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   clientId        String
   slug            String
   name            String
-  description     String   @default("")
-  pillarLandingId String?  @unique
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  pillarLanding   Landing? @relation("ContentClusterPillar", fields: [pillarLandingId], references: [id], onDelete: SetNull)
+  description     String    @default("")
+  pillarLandingId String?   @unique
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  client          Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  pillarLanding   Landing?  @relation("ContentClusterPillar", fields: [pillarLandingId], references: [id], onDelete: SetNull)
   landings        Landing[] @relation("LandingContentCluster")
 
   @@unique([clientId, slug])
@@ -1135,138 +995,6 @@ model LandingInternalLink {
   @@index([clientId, targetLandingId])
 }
 
-model Lead {
-  id           String        @id @default(cuid())
-  clientId     String?
-  email        String
-  nombre       String        @default("")
-  slug         String
-  keyword      String        @default("")
-  leadMagnetId String?
-  consent      Boolean       @default(false)
-  createdAt    DateTime      @default(now())
-  landingId    String?
-  client       Client?       @relation(fields: [clientId], references: [id])
-  landing      Landing?      @relation(fields: [landingId], references: [id])
-  leadMagnet   LeadMagnet?   @relation(fields: [leadMagnetId], references: [id])
-  nurtureSteps NurtureStep[]
-
-  @@index([clientId])
-  @@index([email])
-  @@index([slug])
-  @@index([createdAt])
-}
-
-model NurtureStep {
-  id          String            @id @default(cuid())
-  clientId    String?
-  leadId      String
-  stepDay     Int
-  subject     String            @default("")
-  bodyHtml    String            @default("")
-  status      NurtureStepStatus @default(PENDING)
-  scheduledAt DateTime
-  sentAt      DateTime?
-  openedAt    DateTime?
-  clickedAt   DateTime?
-  createdAt   DateTime          @default(now())
-  client      Client?           @relation(fields: [clientId], references: [id])
-  lead        Lead              @relation(fields: [leadId], references: [id], onDelete: Cascade)
-
-  @@index([clientId])
-  @@index([status])
-  @@index([scheduledAt])
-}
-
-model DistributionPiece {
-  id            String              @id @default(cuid())
-  clientId      String?
-  canal         DistributionChannel
-  contenido     String
-  status        DistributionStatus  @default(NEW)
-  scheduledAt   DateTime?
-  publishedAt   DateTime?
-  publishedUrl  String?
-  landingId     String?
-  opportunityId String?
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
-  client        Client?             @relation(fields: [clientId], references: [id])
-  landing       Landing?            @relation(fields: [landingId], references: [id])
-  opportunity   Opportunity?        @relation(fields: [opportunityId], references: [id])
-
-  @@index([clientId])
-  @@index([status])
-  @@index([canal])
-  @@index([scheduledAt])
-}
-
-enum AIPresenceSourceType {
-  DIRECT_AI_QUERY
-  SOCIAL_COMMENT
-  SOCIAL_VIDEO
-  SOCIAL_POST
-}
-
-enum AIPresenceIntent {
-  PURCHASE_QUESTION
-  TECHNICAL_QUESTION
-  PRICE_QUESTION
-  WARRANTY_QUESTION
-  COMPARISON
-  COMPETITOR_MENTION
-  BRAND_MENTION
-  RECOMMENDATION
-  GENERAL_DISCUSSION
-}
-
-model AIPresenceResult {
-  id             String               @id @default(cuid())
-  clientId       String?
-  sourceType     AIPresenceSourceType
-  channel        String               @default("")
-  query          String               @default("")
-  sourceUrl      String               @default("")
-  videoUrl       String               @default("")
-  videoTitle     String               @default("")
-  author         String               @default("")
-  context        String               @default("")
-  aiResponse     String               @default("")
-  relevanceScore Float                @default(0)
-  brandDetected  String               @default("")
-  intent         AIPresenceIntent     @default(GENERAL_DISCUSSION)
-  priority       String               @default("MEDIUM")
-  aiReasoning    String               @default("")
-  modelUsed      String               @default("")
-  metadata       Json                 @default("{}")
-  createdAt      DateTime             @default(now())
-  client         Client?              @relation(fields: [clientId], references: [id], onDelete: Cascade)
-
-  @@index([clientId])
-  @@index([createdAt])
-  @@index([relevanceScore])
-  @@index([sourceType])
-  @@index([channel])
-  @@index([intent])
-}
-
-model GeoAudit {
-  id                String   @id @default(cuid())
-  clientId          String?
-  prompt            String
-  modeloIA          String
-  score             Int
-  competidores      Json     @default("[]")
-  gapsSugeridos     Json     @default("[]")
-  respuestaCompleta String   @default("")
-  createdAt         DateTime @default(now())
-  client            Client?  @relation(fields: [clientId], references: [id])
-
-  @@index([clientId])
-  @@index([createdAt])
-  @@index([score])
-}
-
 model TrackingEvent {
   id        String   @id @default(cuid())
   clientId  String?
@@ -1288,22 +1016,22 @@ model TrackingEvent {
 // ─── Catálogo de Landings (Pipeline B, multi-cliente) ────────────────────────
 
 model LandingCategory {
-  id          String   @id @default(cuid())
-  clientId    String
-  key         String
-  name        String
-  url         String   @default("")
-  description String   @default("")
-  keywords    Json     @default("[]")
-  tiendanubeId String?
-  sourceSnapshot Json @default("{}")
-  lastSeenAt DateTime?
-  missingRuns Int @default(0)
-  lastMissingDate String @default("")
-  linkStatus String @default("active")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  id              String    @id @default(cuid())
+  clientId        String
+  key             String
+  name            String
+  url             String    @default("")
+  description     String    @default("")
+  keywords        Json      @default("[]")
+  tiendanubeId    String?
+  sourceSnapshot  Json      @default("{}")
+  lastSeenAt      DateTime?
+  missingRuns     Int       @default(0)
+  lastMissingDate String    @default("")
+  linkStatus      String    @default("active")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  client          Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@unique([clientId, key])
   @@unique([clientId, tiendanubeId])
@@ -1311,24 +1039,24 @@ model LandingCategory {
 }
 
 model LandingProduct {
-  id          String   @id @default(cuid())
-  clientId    String
-  externalId  String
-  name        String
-  brand       String   @default("")
-  model       String   @default("")
-  categoryKey String   @default("")
-  url         String   @default("")
-  useText     String   @default("")
-  tiendanubeId String?
-  sourceSnapshot Json @default("{}")
-  lastSeenAt DateTime?
-  missingRuns Int @default(0)
-  lastMissingDate String @default("")
-  linkStatus String @default("active")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  id              String    @id @default(cuid())
+  clientId        String
+  externalId      String
+  name            String
+  brand           String    @default("")
+  model           String    @default("")
+  categoryKey     String    @default("")
+  url             String    @default("")
+  useText         String    @default("")
+  tiendanubeId    String?
+  sourceSnapshot  Json      @default("{}")
+  lastSeenAt      DateTime?
+  missingRuns     Int       @default(0)
+  lastMissingDate String    @default("")
+  linkStatus      String    @default("active")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  client          Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@unique([clientId, externalId])
   @@unique([clientId, tiendanubeId])
@@ -1337,18 +1065,18 @@ model LandingProduct {
 }
 
 model CatalogSyncRun {
-  id String @id @default(cuid())
-  clientId String
-  status String @default("QUEUED")
-  checkpoint Json @default("{}")
-  changes Json @default("[]")
-  errors Json @default("[]")
-  deployment Json @default("{}")
-  deploymentAttempts Int @default(0)
-  startedAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  finishedAt DateTime?
-  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  id                 String    @id @default(cuid())
+  clientId           String
+  status             String    @default("QUEUED")
+  checkpoint         Json      @default("{}")
+  changes            Json      @default("[]")
+  errors             Json      @default("[]")
+  deployment         Json      @default("{}")
+  deploymentAttempts Int       @default(0)
+  startedAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  finishedAt         DateTime?
+  client             Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
   @@index([clientId, startedAt])
   @@index([clientId, status])
@@ -1368,121 +1096,9 @@ model SeedTopic {
   @@index([keyword])
 }
 
-model Trend {
-  id           String        @id @default(cuid())
-  clientId     String?
-  title        String
-  description  String
-  sourceUrl    String        @default("")
-  platform     String // "TIKTOK" | "YOUTUBE" | "GOOGLE_TRENDS" | "TWITTER" | "REDDIT"
-  queryUsed    String        @default("")
-  metadata     Json          @default("{}") // volumen de búsqueda, hashtags asociados, etc.
-  analysisStatus String      @default("PENDING")
-  viabilityScore Int         @default(0)
-  viralFormula String        @default("")
-  suggestedProductId String  @default("")
-  suggestedAngle String      @default("")
-  visualDirection String     @default("")
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  client       Client?       @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  videoScripts VideoScript[]
-  contentIdeas ContentIdea[]
-
-  @@index([clientId])
-  @@index([createdAt])
-}
-
-model VideoScript {
-  id             String   @id @default(cuid())
-  clientId       String?
-  trendId        String?
-  brandId        String?
-  productId      String?
-  personaId      String
-  contentIdeaId  String?
-  hook           String
-  bodyText       String
-  cta            String
-  visualCues     String   @default("") // Instrucciones visuales
-  audioPrompt    String   @default("") // Estilo de música o audio de fondo
-  hookFormula    String   @default("") // "#3 Nadie te dice" (reel-craft)
-  caption        String   @default("") // Caption + hashtags (máx. 5)
-  qualityReport  Json     @default("{}") // Puntaje de hook, beat sheet, humanizador
-  avatarVideoUrl String   @default("") // Video renderizado final
-  avatarJobId    String   @default("") // ID del Talk en D-ID
-  avatarStatus   String   @default("PENDING") // PENDING | PROCESSING | COMPLETED | FAILED
-  status         String   @default("NEW") // NEW | APPROVED | RENDERING | READY | DISCARDED
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  trend   Trend?   @relation(fields: [trendId], references: [id], onDelete: SetNull)
-  brand   Brand?   @relation(fields: [brandId], references: [id])
-  product Product? @relation(fields: [productId], references: [id])
-  persona Persona  @relation(fields: [personaId], references: [id])
-  client  Client?  @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  contentIdea ContentIdea? @relation(fields: [contentIdeaId], references: [id], onDelete: SetNull)
-
-  @@index([clientId])
-  @@index([status])
-  @@index([createdAt])
-  @@index([contentIdeaId])
-}
-
-enum ContentIntent {
-  SALE
-  EDUCATION
-  USE_CASE
-  ENTERTAINMENT
-}
-
-enum ContentIdeaStatus {
-  REVIEW
-  APPROVED
-  SCRIPT_READY
-  READY_TO_RECORD
-  RECORDED
-  PUBLISHED
-  DISCARDED
-}
-
-model ContentIdea {
-  id              String            @id @default(cuid())
-  clientId        String
-  productId       String
-  trendId         String?
-  intent          ContentIntent
-  format          String
-  hook            String
-  rationale       String
-  visualDirection String
-  viabilityScore  Int               @default(3)
-  status          ContentIdeaStatus @default(REVIEW)
-  pieceType       String            @default("REEL") // REEL | CAROUSEL | STORY
-  plannedFor      DateTime?         @db.Date
-  formulaId       Int?
-  publishedUrl    String            @default("")
-  publishedAt     DateTime?
-  extras          Json              @default("{}") // carrusel, historias
-  notes           String            @default("")
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  client          Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  product         Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
-  trend           Trend?            @relation(fields: [trendId], references: [id], onDelete: SetNull)
-  videoScripts    VideoScript[]
-  metrics         PieceMetricSnapshot[]
-
-  @@index([clientId, status])
-  @@index([clientId, plannedFor])
-  @@index([productId])
-  @@index([trendId])
-  @@index([createdAt])
-}
-
 // UI summaries are never used to authorize generation or publication.
 model CMCoverageSnapshot {
-  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "CMCoverageSnapshot_client_fk")
+  client        Client   @relation(fields: [clientId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "CMCoverageSnapshot_client_fk")
   clientId      String   @id
   version       String   @default("")
   rows          Json     @default("[]")
@@ -1493,9 +1109,9 @@ model CMCoverageSnapshot {
 }
 
 model CMManualJob {
-  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "CMManualJob_client_fk")
-  opportunity Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "CMManualJob_opportunity_fk")
-  id             String   @id @default(cuid())
+  client         Client      @relation(fields: [clientId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "CMManualJob_client_fk")
+  opportunity    Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "CMManualJob_opportunity_fk")
+  id             String      @id @default(cuid())
   clientId       String
   requestedBy    String
   opportunityId  String
@@ -1503,15 +1119,16 @@ model CMManualJob {
   parameters     Json
   idempotencyKey String
   inputVersion   String
-  status         String   @default("QUEUED")
-  attempts       Int      @default(0)
-  lockedBy       String   @default("")
+  status         String      @default("QUEUED")
+  attempts       Int         @default(0)
+  lockedBy       String      @default("")
   leaseUntil     DateTime?
-  availableAt    DateTime @default(now())
+  availableAt    DateTime    @default(now())
   result         Json?
-  error          String   @default("")
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  error          String      @default("")
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
   @@unique([clientId, idempotencyKey])
   @@index([status, availableAt])
   @@index([clientId, createdAt])

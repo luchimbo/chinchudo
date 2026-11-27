@@ -31,7 +31,7 @@ describe("alta mínima y bienvenida", () => {
     expect(needsWelcome("COMPLETED", reread)).toBe(true);
     expect(reread.firstUseGoal).toBe("responses");
   });
-  it.each([["opportunities", "/radar"], ["content", "/blog"], ["responses", "/asistente-cm"], ["", "/"]] as const)("conserva el cliente al elegir %s", (goal, path) => {
+  it.each([["opportunities", "/asistente-cm"], ["content", "/blog"], ["responses", "/asistente-cm"], ["", "/"]] as const)("conserva el cliente al elegir %s", (goal, path) => {
     const destination = new URL(welcomeDestination(goal, "cliente con espacios"), "https://suite.test");
     expect(destination.pathname).toBe(path);
     expect(destination.searchParams.get("client")).toBe("cliente con espacios");

@@ -64,10 +64,8 @@ function mergedFields(keeper: ProductRow, duplicates: ProductRow[]): Prisma.Prod
 }
 
 async function references(ids: string[]) {
-  const [opportunities, videoScripts, contentIdeas, knowledge, objections, productChoices] = await Promise.all([
+  const [opportunities, knowledge, objections, productChoices] = await Promise.all([
     prisma.opportunity.findMany({ where: { detectedProductId: { in: ids } }, select: { id: true, detectedProductId: true, detectedBrandId: true } }),
-    prisma.videoScript.findMany({ where: { productId: { in: ids } }, select: { id: true, productId: true, brandId: true } }),
-    prisma.contentIdea.findMany({ where: { productId: { in: ids } }, select: { id: true, productId: true } }),
     prisma.knowledgeBase.findMany({ where: { productId: { in: ids } }, select: { id: true, productId: true, brandId: true } }),
     prisma.objection.findMany({ where: { productId: { in: ids } }, select: { id: true, productId: true, brandId: true } }),
     // Elección de producto del Asistente CM guardada en el JSON de la oportunidad.
@@ -76,7 +74,7 @@ async function references(ids: string[]) {
       select: { id: true, contextAssessment: true },
     }))).then((rows) => rows.flat()),
   ]);
-  return { opportunities, videoScripts, contentIdeas, knowledge, objections, productChoices };
+  return { opportunities, knowledge, objections, productChoices };
 }
 
 async function main() {
@@ -106,7 +104,7 @@ async function main() {
     console.log(`\n[${keeper.brand.client?.slug}] Se conserva: ${keeper.name} (${keeper.brand.name}, ${keeper.id})`);
     for (const duplicate of duplicates) {
       const count = (rows: { productId?: string | null; detectedProductId?: string | null }[]) => rows.filter((row) => (row.productId ?? row.detectedProductId) === duplicate.id).length;
-      console.log(`  - Se borra: ${duplicate.name} (${duplicate.brand.name}, ${duplicate.id}) · oportunidades ${count(refs.opportunities)}, guiones ${count(refs.videoScripts)}, ideas ${count(refs.contentIdeas)}, conocimiento ${count(refs.knowledge)}, objeciones ${count(refs.objections)}`);
+      console.log(`  - Se borra: ${duplicate.name} (${duplicate.brand.name}, ${duplicate.id}) · oportunidades ${count(refs.opportunities)}, conocimiento ${count(refs.knowledge)}, objeciones ${count(refs.objections)}`);
     }
     const merged = Object.keys(merge);
     if (merged.length > 0) console.log(`  · Se completa en el conservado: ${merged.join(", ")}`);
@@ -133,8 +131,6 @@ async function main() {
           where: { detectedProductId: duplicate.id },
           data: { detectedProductId: keeper.id, ...(brandChange ? { detectedBrandId: keeper.brandId } : {}) },
         });
-        await tx.videoScript.updateMany({ where: { productId: duplicate.id }, data: { productId: keeper.id, ...(brandChange ? { brandId: keeper.brandId } : {}) } });
-        await tx.contentIdea.updateMany({ where: { productId: duplicate.id }, data: { productId: keeper.id } });
         await tx.knowledgeBase.updateMany({ where: { productId: duplicate.id }, data: { productId: keeper.id, ...(brandChange ? { brandId: keeper.brandId } : {}) } });
         await tx.objection.updateMany({ where: { productId: duplicate.id }, data: { productId: keeper.id, ...(brandChange ? { brandId: keeper.brandId } : {}) } });
         for (const opportunity of refs.productChoices) {

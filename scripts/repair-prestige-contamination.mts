@@ -117,13 +117,9 @@ async function main() {
       : 0;
     const opportunitiesOnBrand = await prisma.opportunity.count({ where: { detectedBrandId: contaminatedBrand.id } });
     const responsesOnBrand = await prisma.response.count({ where: { brandId: contaminatedBrand.id } });
-    const videosOnBrand = await prisma.videoScript.count({ where: { brandId: contaminatedBrand.id } });
-    const videosOnProducts = productIds.length
-      ? await prisma.videoScript.count({ where: { productId: { in: productIds } } })
-      : 0;
-    if (opportunitiesOnProducts || opportunitiesOnBrand || responsesOnBrand || videosOnBrand || videosOnProducts) {
+    if (opportunitiesOnProducts || opportunitiesOnBrand || responsesOnBrand) {
       errors.push(
-        `La marca contaminada tiene relaciones operativas (opportunities=${opportunitiesOnProducts + opportunitiesOnBrand}, responses=${responsesOnBrand}, videos=${videosOnBrand + videosOnProducts}). Abortando.`,
+        `La marca contaminada tiene relaciones operativas (opportunities=${opportunitiesOnProducts + opportunitiesOnBrand}, responses=${responsesOnBrand}). Abortando.`,
       );
     }
   }

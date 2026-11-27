@@ -65,14 +65,6 @@ async function main() {
             where: { detectedProductId: product.id },
             data: { detectedProductId: existing.id },
           });
-          await prisma.videoScript.updateMany({
-            where: { productId: product.id },
-            data: { productId: existing.id },
-          });
-          await prisma.contentIdea.updateMany({
-            where: { productId: product.id },
-            data: { productId: existing.id },
-          });
           await prisma.product.delete({ where: { id: product.id } });
         } else {
           await prisma.product.update({ where: { id: product.id }, data: { brandId: canonical.id } });
@@ -93,7 +85,6 @@ async function main() {
       }
 
       await prisma.response.updateMany({ where: { brandId: dup.id }, data: { brandId: canonical.id } });
-      await prisma.videoScript.updateMany({ where: { brandId: dup.id }, data: { brandId: canonical.id } });
       await prisma.opportunity.updateMany({ where: { detectedBrandId: dup.id }, data: { detectedBrandId: canonical.id } });
       await prisma.knowledgeBase.updateMany({ where: { brandId: dup.id }, data: { brandId: canonical.id } });
       await prisma.objection.updateMany({ where: { brandId: dup.id }, data: { brandId: canonical.id } });

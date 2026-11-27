@@ -72,7 +72,7 @@ describe("guardado, activación y primera elección", () => {
     expect(row.draft).toMatchObject({ knowledgeApproved: false, welcomeCompleted: false, firstUseGoal: "", __onboardingSave: { session: "tab-a", revision: 4 } });
     expect(row.status).toBe("COMPLETED");
   });
-  it.each([["opportunities", "/radar"], ["content", "/blog"], ["responses", "/asistente-cm"], ["", "/"]] as const)("guarda la elección %s antes de navegar", async (goal, destination) => {
+  it.each([["opportunities", "/asistente-cm"], ["content", "/blog"], ["responses", "/asistente-cm"], ["", "/"]] as const)("guarda la elección %s antes de navegar", async (goal, destination) => {
     row.status = "COMPLETED"; row.draft.welcomeCompleted = false;
     const response = await POST(request({ action: "welcome", goal, clientId: "another-client" }));
     expect(response.status).toBe(200);
